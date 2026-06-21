@@ -32,6 +32,17 @@ export interface AgentResult {
   toolsUsed: string[];
   /** Full per-call trace (tool, input, result). */
   trace: TraceEntry[];
+  /** The dry-run mode actually used (may be forced on by the allowlist). */
+  dryRun: boolean;
+  /** True if a live run was downgraded to dry-run because the ticket isn't allowlisted. */
+  blockedByAllowlist: boolean;
+}
+
+/** Live writes allowed only when the allowlist is empty (no restriction) or the ticket is on it. */
+function liveWritesAllowed(ticketId: string | undefined): boolean {
+  const list = config.ticketAllowlist;
+  if (list.length === 0) return true;
+  return !!ticketId && list.includes(ticketId);
 }
 
 export interface RunOptions {
@@ -47,11 +58,17 @@ export async function runAgentLoop(
 ): Promise<AgentResult> {
   const signals: AgentSignals = { resolutionSent: false };
 
+  // Allowlist guard: a requested live run is forced to dry-run unless the ticket
+  // is allowlisted. Dry-run requests pass through unchanged.
+  const allowed = liveWritesAllowed(ctx.ticket?.id);
+  const blockedByAllowlist = !opts.dryRun && !allowed;
+  const dryRun = opts.dryRun === true || !allowed;
+
   const result = await generateText({
     model: getModel(),
     system,
     messages,
-    tools: buildTools(ctx, signals, { dryRun: opts.dryRun }),
+    tools: buildTools(ctx, signals, { dryRun }),
     stopWhen: stepCountIs(config.llm.maxSteps),
   });
 
@@ -73,5 +90,7 @@ export async function runAgentLoop(
     resolutionSent: signals.resolutionSent,
     toolsUsed: trace.map((t) => t.tool),
     trace,
+    dryRun,
+    blockedByAllowlist,
   };
 }

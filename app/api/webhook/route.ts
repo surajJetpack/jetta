@@ -82,6 +82,16 @@ export async function POST(req: NextRequest) {
     const system = buildSystemPrompt(ctx);
     const result = await runAgentLoop(system, messages, ctx);
 
+    // Allowlist guard: the run was forced to dry-run (ticket not allowlisted) —
+    // nothing was written, so don't schedule follow-ups or log a real outcome.
+    if (result.blockedByAllowlist) {
+      return NextResponse.json({
+        status: "skipped — ticket not on JETTA_TICKET_ALLOWLIST (forced dry-run, no writes)",
+        ticketId,
+        toolsUsed: result.toolsUsed,
+      });
+    }
+
     // Defence in depth: only treat a turn as a resolution if a customer-visible
     // reply actually went out. Guards against the model logging "resolution_sent"
     // without calling reply_to_ticket.

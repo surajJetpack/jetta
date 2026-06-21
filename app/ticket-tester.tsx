@@ -11,6 +11,7 @@ interface RunResult {
   ticket?: { id: string; subject: string; status: string; requester: string | null; product: string };
   model?: string;
   dryRun?: boolean;
+  blockedByAllowlist?: boolean;
   durationMs?: number;
   resolutionSent?: boolean;
   reply?: string;
@@ -92,6 +93,7 @@ export default function TicketTester({ freshdeskLive, adminKey }: { freshdeskLiv
                   model <b>{res.model}</b>
                 </span>
                 <span>{res.dryRun ? "🔒 dry run" : "🟢 live"}</span>
+                {res.blockedByAllowlist ? <span style={{ color: "var(--warn)" }}>⚠ not on allowlist → forced dry-run</span> : null}
                 {res.resolutionSent ? <span><b>resolution sent</b> → follow-up scheduled</span> : null}
                 <span>{res.durationMs}ms</span>
               </div>

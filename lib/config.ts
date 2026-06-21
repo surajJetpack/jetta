@@ -108,6 +108,17 @@ export const config = {
   /** Gates the ops console UI + /api/admin/* (the webhook stays public, secret-gated). */
   adminSecret: env("ADMIN_SECRET"),
 
+  /**
+   * Controlled-rollout allowlist. When non-empty, Jetta only performs LIVE
+   * writes (reply, note, escalate, monday item, etc.) on these ticket IDs; any
+   * other ticket is automatically forced to dry-run (reasons but writes nothing).
+   * Dry-run requests are never affected. Empty = no restriction (writes on all).
+   */
+  ticketAllowlist: (env("JETTA_TICKET_ALLOWLIST") ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean),
+
   kv: {
     // Accept both the legacy Vercel KV names and the Upstash Marketplace names,
     // so whichever the integration injects works without code changes.
