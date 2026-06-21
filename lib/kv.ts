@@ -204,3 +204,62 @@ export async function listApprovedArticles(): Promise<ApprovedArticle[]> {
   }
   return [...memApproved];
 }
+
+// ── Detailed run logs (Tier 1 observability) ──────────────────────
+export interface RunLog {
+  id: string;
+  at: number;
+  source: "webhook" | "console" | "cron";
+  ticketId: string;
+  subject?: string;
+  channel: string;
+  product: string;
+  model: string;
+  dryRun: boolean;
+  blockedByAllowlist: boolean;
+  replied: boolean;
+  resolutionSent: boolean;
+  escalated: boolean;
+  durationMs: number;
+  usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number };
+  reply: string;
+  kbHits: { title: string; source: string; score?: number }[];
+  trace: { tool: string; input: unknown; result: string }[];
+  error?: string;
+}
+
+const RUNLOGS_KEY = "jetta:runlogs";
+const runLogTicketKey = (ticketId: string) => `jetta:runlog:${ticketId}`;
+const memRunLogs: RunLog[] = [];
+
+/** Persist a run log: a global capped feed + a per-ticket history. */
+export async function recordRunLog(entry: RunLog): Promise<void> {
+  const r = client();
+  if (r) {
+    await r.lpush(RUNLOGS_KEY, entry);
+    await r.ltrim(RUNLOGS_KEY, 0, 499);
+    await r.lpush(runLogTicketKey(entry.ticketId), entry);
+    await r.ltrim(runLogTicketKey(entry.ticketId), 0, 49);
+    return;
+  }
+  memRunLogs.unshift(entry);
+  if (memRunLogs.length > 500) memRunLogs.length = 500;
+}
+
+export async function getRunLogs(limit = 100): Promise<RunLog[]> {
+  const r = client();
+  if (r) {
+    const raw = await r.lrange<RunLog | string>(RUNLOGS_KEY, 0, limit - 1);
+    return raw.map((x) => (typeof x === "string" ? (JSON.parse(x) as RunLog) : x));
+  }
+  return memRunLogs.slice(0, limit);
+}
+
+export async function getRunLogsByTicket(ticketId: string, limit = 50): Promise<RunLog[]> {
+  const r = client();
+  if (r) {
+    const raw = await r.lrange<RunLog | string>(runLogTicketKey(ticketId), 0, limit - 1);
+    return raw.map((x) => (typeof x === "string" ? (JSON.parse(x) as RunLog) : x));
+  }
+  return memRunLogs.filter((l) => l.ticketId === ticketId).slice(0, limit);
+}

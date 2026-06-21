@@ -19,6 +19,7 @@ import { buildSystemPrompt } from "@/lib/system-prompt";
 import { runAgentLoop } from "@/lib/agent";
 import { markEventSeen, scheduleFollowUp, recordOutcome } from "@/lib/kv";
 import { modelLabel } from "@/lib/llm";
+import { recordRun } from "@/lib/runlog";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -80,7 +81,9 @@ export async function POST(req: NextRequest) {
 
     const messages = buildMessages(ctx.ticket);
     const system = buildSystemPrompt(ctx);
+    const started = Date.now();
     const result = await runAgentLoop(system, messages, ctx);
+    await recordRun("webhook", ctx, result, Date.now() - started);
 
     // Allowlist guard: the run was forced to dry-run (ticket not allowlisted) —
     // nothing was written, so don't schedule follow-ups or log a real outcome.

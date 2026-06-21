@@ -13,6 +13,7 @@ import { modelLabel } from "@/lib/llm";
 import { buildContext, buildMessages } from "@/lib/context";
 import { buildSystemPrompt } from "@/lib/system-prompt";
 import { runAgentLoop } from "@/lib/agent";
+import { recordRun } from "@/lib/runlog";
 import * as freshdesk from "@/lib/tools/freshdesk";
 
 export const runtime = "nodejs";
@@ -41,7 +42,9 @@ export async function GET(req: NextRequest) {
         // Customer responded — let Jetta handle it as a normal turn.
         const ctx = await buildContext(job.ticketId);
         if (ctx.ticket) {
+          const started = Date.now();
           const result = await runAgentLoop(buildSystemPrompt(ctx), buildMessages(ctx.ticket), ctx);
+          await recordRun("cron", ctx, result, Date.now() - started);
           handled.push({ ticketId: job.ticketId, action: `replied → handled (${result.toolsUsed.join(",")})` });
           await recordOutcome({
             ticketId: job.ticketId,

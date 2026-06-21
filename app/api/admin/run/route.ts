@@ -12,6 +12,7 @@ import { buildSystemPrompt } from "@/lib/system-prompt";
 import { runAgentLoop } from "@/lib/agent";
 import { modelLabel } from "@/lib/llm";
 import { adminAuthorized } from "@/lib/auth";
+import { recordRun } from "@/lib/runlog";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -46,6 +47,8 @@ export async function POST(req: NextRequest) {
       ctx,
       { dryRun },
     );
+    const durationMs = Date.now() - started;
+    await recordRun("console", ctx, result, durationMs);
 
     return NextResponse.json({
       ticket: {
@@ -59,7 +62,7 @@ export async function POST(req: NextRequest) {
       dryRun: result.dryRun,
       blockedByAllowlist: result.blockedByAllowlist,
       freshdeskLive: config.freshdesk.live,
-      durationMs: Date.now() - started,
+      durationMs,
       resolutionSent: result.resolutionSent,
       // The customer-facing reply is the reply_to_ticket body, not the model's
       // trailing wrap-up text. Surface that; fall back to the final text.

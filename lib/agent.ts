@@ -36,6 +36,8 @@ export interface AgentResult {
   dryRun: boolean;
   /** True if a live run was downgraded to dry-run because the ticket isn't allowlisted. */
   blockedByAllowlist: boolean;
+  /** Aggregate token usage across the loop. */
+  usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number };
 }
 
 /** Live writes allowed only when the allowlist is empty (no restriction) or the ticket is on it. */
@@ -85,6 +87,10 @@ export async function runAgentLoop(
     }
   }
 
+  const u = (result.totalUsage ?? result.usage) as
+    | { inputTokens?: number; outputTokens?: number; totalTokens?: number }
+    | undefined;
+
   return {
     text: result.text.trim(),
     resolutionSent: signals.resolutionSent,
@@ -92,5 +98,8 @@ export async function runAgentLoop(
     trace,
     dryRun,
     blockedByAllowlist,
+    usage: u
+      ? { inputTokens: u.inputTokens, outputTokens: u.outputTokens, totalTokens: u.totalTokens }
+      : undefined,
   };
 }

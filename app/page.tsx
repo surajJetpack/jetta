@@ -2,6 +2,7 @@ import { config } from "@/lib/config";
 import { modelLabel } from "@/lib/llm";
 import TicketTester from "./ticket-tester";
 import AnalyticsPanel from "./analytics-panel";
+import ActivityLog from "./activity-log";
 
 // Read runtime env (not build-time) so the status reflects the deployment.
 export const dynamic = "force-dynamic";
@@ -78,6 +79,8 @@ export default async function Home({
       <TicketTester freshdeskLive={config.freshdesk.live} adminKey={adminKey} />
 
       <AnalyticsPanel adminKey={adminKey} />
+
+      <ActivityLog adminKey={adminKey} />
 
       <section className="card endpoints">
         <h2>Endpoints</h2>
