@@ -3,7 +3,7 @@
  * the approved Knowledge-Loop articles. Read-only; powers the Analytics panel.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { getOutcomes, listApprovedArticles, type OutcomeEvent } from "@/lib/kv";
+import { getOutcomes, listManagedArticles, type OutcomeEvent } from "@/lib/kv";
 import { config } from "@/lib/config";
 import { adminAuthorized } from "@/lib/auth";
 
@@ -66,7 +66,7 @@ export async function GET(req: NextRequest) {
   const toolUsage: Record<string, number> = {};
   for (const o of outcomes) for (const t of o.toolsUsed) toolUsage[t] = (toolUsage[t] ?? 0) + 1;
 
-  const approved = await listApprovedArticles();
+  const approved = await listManagedArticles();
 
   return NextResponse.json({
     outcomes: {
@@ -82,9 +82,7 @@ export async function GET(req: NextRequest) {
     toolUsage: Object.entries(toolUsage)
       .map(([tool, count]) => ({ tool, count }))
       .sort((a, b) => b.count - a.count),
-    approvedArticles: approved
-      .map((a) => ({ title: a.title, approvedBy: a.approvedBy, at: a.at }))
-      .reverse(),
+    approvedArticles: approved.map((a) => ({ title: a.title, approvedBy: a.createdBy, at: a.at })),
     recent: outcomes.slice(0, 25),
   });
 }

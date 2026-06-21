@@ -19,7 +19,7 @@ import * as fastspring from "./fastspring";
 import * as monday from "./monday";
 import * as slack from "./slack";
 import { searchGetSignKb } from "../knowledge/getsign-kb";
-import { searchApprovedKb } from "../knowledge/dynamic-kb";
+import { searchManagedKb } from "../knowledge/dynamic-kb";
 import { vectorEnabled, queryVector } from "../vector";
 
 export interface AgentSignals {
@@ -76,16 +76,12 @@ export function buildTools(
           // Knowledge-Loop articles all live in the vector index.
           merged = await queryVector(keyword, 6).catch(() => []);
         } else {
-          // Keyword fallback: approved (human-verified) → GetSign KB → live Freshdesk.
-          const [approved, local, fd] = await Promise.all([
-            searchApprovedKb(keyword).catch(() => []),
+          // Keyword fallback: managed (human-curated) → curated GetSign KB.
+          const [managed, local] = await Promise.all([
+            searchManagedKb(keyword).catch(() => []),
             Promise.resolve(searchGetSignKb(keyword)),
-            freshdesk
-              .searchKnowledgeBase(keyword)
-              .then((arts) => arts.map((a) => ({ ...a, source: "freshdesk" as const })))
-              .catch(() => []),
           ]);
-          merged = [...approved, ...local, ...fd];
+          merged = [...managed, ...local];
         }
         return merged.length
           ? JSON.stringify(merged)

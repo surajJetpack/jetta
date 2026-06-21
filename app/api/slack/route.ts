@@ -16,12 +16,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "node:crypto";
 import { config } from "@/lib/config";
-import { kvSet, kvGet, kvDel, addApprovedArticle } from "@/lib/kv";
+import { kvSet, kvGet, kvDel, addDraft, getDraft, deleteDraft, upsertManagedArticle } from "@/lib/kv";
 import * as freshdesk from "@/lib/tools/freshdesk";
 import * as fastspring from "@/lib/tools/fastspring";
 import * as monday from "@/lib/tools/monday";
 import { replyInThread, readThread } from "@/lib/tools/slack";
-import { draftKbArticle, type KbDraft } from "@/lib/knowledge-loop";
+import { draftKbArticle } from "@/lib/knowledge-loop";
 import { vectorEnabled, upsertDocs } from "@/lib/vector";
 
 export const runtime = "nodejs";
@@ -179,7 +179,16 @@ async function handleCommand(
       return;
     }
     const draft = await draftKbArticle(threadText);
-    await kvSet(`jetta:kbdraft:${threadTs}`, JSON.stringify(draft), 86400);
+    await addDraft({
+      id: threadTs,
+      channel,
+      threadTs,
+      title: draft.title,
+      body: draft.body,
+      keywords: draft.keywords,
+      createdBy: userId,
+      at: Math.floor(Date.now() / 1000),
+    });
     await reply(
       [
         ":memo: *Draft KB article* — review before publishing:",
@@ -206,28 +215,29 @@ async function handleCommand(
       await reply("Run `@Jetta publish kb` in the thread that has the draft.");
       return;
     }
-    const raw = await kvGet(`jetta:kbdraft:${threadTs}`);
-    if (!raw) {
+    const draft = await getDraft(threadTs);
+    if (!draft) {
       await reply("No draft found in this thread (it may have expired). Run `@Jetta draft kb` first.");
       return;
     }
-    const draft = JSON.parse(raw) as KbDraft;
-    const at = Math.floor(Date.now() / 1000);
-    await addApprovedArticle({
+    const id = `loop-${crypto.randomUUID()}`;
+    await upsertManagedArticle({
+      id,
       title: draft.title,
       url: "", // internal knowledge-loop article — no customer-facing URL to cite
       body: draft.body,
       keywords: draft.keywords,
-      approvedBy: userId,
-      at,
+      origin: "knowledge-loop",
+      createdBy: userId,
+      at: Math.floor(Date.now() / 1000),
     });
     // Also embed into the vector index so it's semantically searchable now.
     if (vectorEnabled()) {
       await upsertDocs([
-        { id: `loop-${at}`, title: draft.title, url: "", body: draft.body, source: "knowledge-loop" },
+        { id, title: draft.title, url: "", body: draft.body, source: "managed" },
       ]).catch((e) => console.warn("vector upsert failed:", e));
     }
-    await kvDel(`jetta:kbdraft:${threadTs}`);
+    await deleteDraft(threadTs);
     await reply(`:white_check_mark: Added to Jetta's knowledge base: *${draft.title}*. She'll use it on matching tickets from now on.`);
     return;
   }

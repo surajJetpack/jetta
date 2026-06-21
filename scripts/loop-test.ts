@@ -2,9 +2,9 @@
  * Phase 0 + Phase 1 end-to-end test (in-memory store, real Gemini for drafting).
  *   GOOGLE_GENERATIVE_AI_API_KEY=... LLM_PROVIDER=google npx tsx scripts/loop-test.ts
  */
-import { recordOutcome, getOutcomes, addApprovedArticle, listApprovedArticles } from "../lib/kv";
+import { recordOutcome, getOutcomes, upsertManagedArticle, listManagedArticles } from "../lib/kv";
 import { draftKbArticle } from "../lib/knowledge-loop";
-import { searchApprovedKb } from "../lib/knowledge/dynamic-kb";
+import { searchManagedKb } from "../lib/knowledge/dynamic-kb";
 
 const THREAD = `Jetta/bot: :rotating_light: Escalation — Ticket #13598. Issue: GetSign signed document completes but the monday item status stays "Pending Signature" instead of updating. Question: why isn't the signed-status callback firing?
 team: Looked into it. The board was missing the Status column mapping in GetSign's Sign settings — the "signed" status update has nowhere to write. Fix: in the GetSign item view → Sign section, set the Status Column and pick the value to set on completion (e.g. "Signed"), then Save. After mapping, the status updates automatically when signing completes.`;
@@ -31,10 +31,10 @@ async function main() {
   console.log("Keywords:", draft.keywords.join(", "));
 
   console.log("\n=== publish (approve) + verify search finds it ===");
-  await addApprovedArticle({ title: draft.title, url: "", body: draft.body, keywords: draft.keywords, approvedBy: "U_TEST_ADMIN", at: 3 });
-  console.log("approved articles:", (await listApprovedArticles()).length);
-  const hits = await searchApprovedKb("signed document status not updating monday");
-  console.log("search hits:", hits.map((h) => `${h.title} [${h.source}]`));
+  await upsertManagedArticle({ id: "test-1", title: draft.title, url: "", body: draft.body, keywords: draft.keywords, origin: "manual", createdBy: "U_TEST_ADMIN", at: 3 });
+  console.log("managed articles:", (await listManagedArticles()).length);
+  const hits = await searchManagedKb("signed document status not updating monday");
+  console.log("search hits:", hits.map((h: { title: string; source: string }) => `${h.title} [${h.source}]`));
 }
 
 main().catch((e) => {

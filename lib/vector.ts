@@ -65,6 +65,20 @@ export async function upsertDocs(docs: VectorDoc[]): Promise<number> {
   return docs.length;
 }
 
+/** Delete documents by id. */
+export async function deleteDocs(ids: string[]): Promise<void> {
+  const i = index();
+  if (!i || !ids.length) return;
+  await i.delete(ids);
+}
+
+/** Wipe the entire index (used when rebuilding from sources). */
+export async function resetIndex(): Promise<void> {
+  const i = index();
+  if (!i) return;
+  await i.reset();
+}
+
 /** Semantic search. Returns [] if the vector store isn't configured. */
 export async function queryVector(query: string, topK = 5): Promise<VectorHit[]> {
   const i = index();

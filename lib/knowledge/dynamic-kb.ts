@@ -1,29 +1,25 @@
 /**
- * Dynamic knowledge base: human-approved articles produced by the Knowledge
- * Loop (a dev resolves an escalation → Jetta drafts an article → a human
- * approves it → it lands here). Stored in Redis and merged into
- * search_knowledge_base ahead of the static corpus, since these are
- * human-verified and specific to real resolved issues.
+ * Keyword fallback search over the managed KB (human-curated + Knowledge-Loop
+ * articles). Used only when the vector store is unavailable — when vectors are
+ * enabled, managed articles are searched via the index instead.
  */
-import { listApprovedArticles } from "../kv";
+import { listManagedArticles } from "../kv";
 
 export interface DynamicKbHit {
   title: string;
   url: string;
   body: string;
-  source: "knowledge-loop";
-  approvedBy: string;
+  source: "managed";
 }
 
-/** Token-overlap search over approved articles (same scoring as the static KB). */
-export async function searchApprovedKb(query: string, limit = 3): Promise<DynamicKbHit[]> {
+export async function searchManagedKb(query: string, limit = 3): Promise<DynamicKbHit[]> {
   const terms = query
     .toLowerCase()
     .split(/[^a-z0-9]+/)
     .filter((t) => t.length > 2);
   if (!terms.length) return [];
 
-  const articles = await listApprovedArticles().catch(() => []);
+  const articles = await listManagedArticles().catch(() => []);
   if (!articles.length) return [];
 
   return articles
@@ -42,11 +38,5 @@ export async function searchApprovedKb(query: string, limit = 3): Promise<Dynami
     .filter((s) => s.score > 0)
     .sort((x, y) => y.score - x.score)
     .slice(0, limit)
-    .map(({ a }) => ({
-      title: a.title,
-      url: a.url,
-      body: a.body,
-      source: "knowledge-loop" as const,
-      approvedBy: a.approvedBy,
-    }));
+    .map(({ a }) => ({ title: a.title, url: a.url, body: a.body, source: "managed" as const }));
 }

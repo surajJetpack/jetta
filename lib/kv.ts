@@ -174,35 +174,119 @@ export async function getOutcomes(limit = 200): Promise<OutcomeEvent[]> {
   return memOutcomes.slice(0, limit);
 }
 
-// ── Phase 1: dynamic KB — human-approved Knowledge-Loop articles ───
-export interface ApprovedArticle {
+// ── Managed KB — human-curated articles (UI CRUD + Knowledge-Loop) ──
+// Id-keyed so individual articles can be edited/deleted. Each article is a
+// Redis key; an index set tracks all ids. The caller syncs the vector index.
+export interface ManagedArticle {
+  id: string;
   title: string;
   url: string;
   body: string;
   keywords: string[];
-  approvedBy: string;
+  /** "knowledge-loop" (approved draft) or "manual" (added in the UI). */
+  origin: "knowledge-loop" | "manual";
+  createdBy: string;
   at: number;
 }
 
-const KB_KEY = "jetta:kb:approved";
-const memApproved: ApprovedArticle[] = [];
+const MANAGED_IDS = "jetta:kb:managed:ids";
+const managedKey = (id: string) => `jetta:kb:managed:${id}`;
+const memManaged = new Map<string, ManagedArticle>();
 
-export async function addApprovedArticle(a: ApprovedArticle): Promise<void> {
+export async function upsertManagedArticle(a: ManagedArticle): Promise<void> {
   const r = client();
   if (r) {
-    await r.rpush(KB_KEY, a);
+    await r.set(managedKey(a.id), a);
+    await r.sadd(MANAGED_IDS, a.id);
     return;
   }
-  memApproved.push(a);
+  memManaged.set(a.id, a);
 }
 
-export async function listApprovedArticles(): Promise<ApprovedArticle[]> {
+export async function deleteManagedArticle(id: string): Promise<void> {
   const r = client();
   if (r) {
-    const raw = await r.lrange<ApprovedArticle | string>(KB_KEY, 0, -1);
-    return raw.map((x) => (typeof x === "string" ? (JSON.parse(x) as ApprovedArticle) : x));
+    await r.del(managedKey(id));
+    await r.srem(MANAGED_IDS, id);
+    return;
   }
-  return [...memApproved];
+  memManaged.delete(id);
+}
+
+export async function getManagedArticle(id: string): Promise<ManagedArticle | null> {
+  const r = client();
+  if (r) return await r.get<ManagedArticle>(managedKey(id));
+  return memManaged.get(id) ?? null;
+}
+
+export async function listManagedArticles(): Promise<ManagedArticle[]> {
+  const r = client();
+  if (r) {
+    const ids = await r.smembers(MANAGED_IDS);
+    if (!ids.length) return [];
+    const raw = await Promise.all(ids.map((id) => r.get<ManagedArticle>(managedKey(id))));
+    return raw.filter((a): a is ManagedArticle => !!a).sort((x, y) => y.at - x.at);
+  }
+  return [...memManaged.values()].sort((x, y) => y.at - x.at);
+}
+
+// ── Pending Knowledge-Loop drafts (await approval, UI or Slack) ────
+export interface PendingDraft {
+  id: string;
+  channel: string;
+  threadTs: string;
+  title: string;
+  body: string;
+  keywords: string[];
+  createdBy: string;
+  at: number;
+}
+
+const DRAFT_IDS = "jetta:kbdrafts:ids";
+const draftKey = (id: string) => `jetta:kbdraft:${id}`;
+const memDrafts = new Map<string, PendingDraft>();
+
+export async function addDraft(d: PendingDraft): Promise<void> {
+  const r = client();
+  if (r) {
+    await r.set(draftKey(d.id), d, { ex: 7 * 86400 });
+    await r.sadd(DRAFT_IDS, d.id);
+    return;
+  }
+  memDrafts.set(d.id, d);
+}
+
+export async function getDraft(id: string): Promise<PendingDraft | null> {
+  const r = client();
+  if (r) return await r.get<PendingDraft>(draftKey(id));
+  return memDrafts.get(id) ?? null;
+}
+
+export async function listDrafts(): Promise<PendingDraft[]> {
+  const r = client();
+  if (r) {
+    const ids = await r.smembers(DRAFT_IDS);
+    if (!ids.length) return [];
+    const raw = await Promise.all(ids.map((id) => r.get<PendingDraft>(draftKey(id))));
+    // Drop expired (null) ids from the index opportunistically.
+    const live: PendingDraft[] = [];
+    for (let i = 0; i < ids.length; i++) {
+      if (raw[i]) live.push(raw[i]!);
+      else await r.srem(DRAFT_IDS, ids[i]);
+    }
+    return live.sort((a, b) => b.at - a.at);
+  }
+  return [...memDrafts.values()].sort((a, b) => b.at - a.at);
+}
+
+export async function deleteDraft(id: string): Promise<void> {
+  const r = client();
+  if (r) {
+    await r.del(draftKey(id));
+    await r.srem(DRAFT_IDS, id);
+    return;
+  }
+  memDrafts.delete(id);
 }
 
 // ── Detailed run logs (Tier 1 observability) ──────────────────────
