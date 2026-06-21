@@ -22,6 +22,7 @@ import * as fastspring from "@/lib/tools/fastspring";
 import * as monday from "@/lib/tools/monday";
 import { replyInThread, readThread } from "@/lib/tools/slack";
 import { draftKbArticle, type KbDraft } from "@/lib/knowledge-loop";
+import { vectorEnabled, upsertDocs } from "@/lib/vector";
 
 export const runtime = "nodejs";
 
@@ -211,14 +212,21 @@ async function handleCommand(
       return;
     }
     const draft = JSON.parse(raw) as KbDraft;
+    const at = Math.floor(Date.now() / 1000);
     await addApprovedArticle({
       title: draft.title,
       url: "", // internal knowledge-loop article — no customer-facing URL to cite
       body: draft.body,
       keywords: draft.keywords,
       approvedBy: userId,
-      at: Math.floor(Date.now() / 1000),
+      at,
     });
+    // Also embed into the vector index so it's semantically searchable now.
+    if (vectorEnabled()) {
+      await upsertDocs([
+        { id: `loop-${at}`, title: draft.title, url: "", body: draft.body, source: "knowledge-loop" },
+      ]).catch((e) => console.warn("vector upsert failed:", e));
+    }
     await kvDel(`jetta:kbdraft:${threadTs}`);
     await reply(`:white_check_mark: Added to Jetta's knowledge base: *${draft.title}*. She'll use it on matching tickets from now on.`);
     return;

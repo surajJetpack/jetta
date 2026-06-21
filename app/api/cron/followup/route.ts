@@ -45,6 +45,7 @@ export async function GET(req: NextRequest) {
           handled.push({ ticketId: job.ticketId, action: `replied → handled (${result.toolsUsed.join(",")})` });
           await recordOutcome({
             ticketId: job.ticketId,
+            subject: ctx.ticket.subject,
             at: Math.floor(Date.now() / 1000),
             channel: ctx.channel,
             product: ctx.product,

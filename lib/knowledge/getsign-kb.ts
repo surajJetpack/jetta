@@ -157,6 +157,33 @@ const CURATED: KbArticle[] = [
     source: "getsign.io",
     body: `'Sign Anywhere' sends existing documents (from File columns, not templates) to multiple signers. (1) In GetSign settings, toggle on "Use Stored Documents" and select the File column holding the unsigned documents; (2) Enable Signature Collection, pick a board + Status column and a status value (e.g. "Sent for Signatures"), choose a destination File column for signed docs, toggle on "Sign Anywhere", select an Email column for each signer, and enter sender name/reply-to; Save; (3) Send via the item's Shared section > Send, or by changing the Status column to your configured value. Notes: works only with documents in File columns (not templates); use separate Email columns when signer addresses differ per item; upload the correct unsigned document to the source File column before sending.`,
   },
+  {
+    title: "GetSign supported workflows & document use cases (690+ templates)",
+    url: "https://getsign.io/workflow/",
+    keywords: [
+      "workflow", "use case", "template", "automate", "can getsign", "does getsign support",
+      "agreement", "contract", "nda", "purchase agreement", "rental agreement", "lease", "sow", "statement of work",
+      "approval", "acknowledgement", "policy", "authorization", "consent", "checklist", "letter", "offer letter",
+      "certificate", "report", "request", "payment", "invoice", "quote", "notice", "termination",
+      "hr", "onboarding", "vendor", "supplier", "contractor", "compliance", "legal", "finance", "procurement",
+      "background check", "certificate of insurance", "change order", "renewal", "application",
+    ],
+    source: "getsign.io",
+    body: `GetSign offers 690+ pre-built, ready-to-use workflow templates on monday.com — so it can automate essentially any document-driven process. If a customer asks "can GetSign automate <some document/process>?", the answer is almost always yes when it involves generating, sending, signing, or tracking a document from monday.com board data.
+
+Major workflow categories (with example use cases):
+- Agreements & contracts (190+): NDAs, asset/stock purchase agreements, rental/lease, retainer, advisory board, construction, listing, SOWs.
+- Approvals (60+): approval memos, board resolutions, ad/creative approval, drawing approval, billable-hours approval.
+- Acknowledgements & policies (80+): acceptable-use, AI-usage, anti-harassment, BYOD, brand-standards, privacy-notice acknowledgements.
+- Authorizations & consents: background check, bank statement, payment, travel, document-send authorizations.
+- Requests & change orders: advance-payment, billing-change, scope-change, change-order, inspection requests.
+- Certificates & reports: certificate of insurance/analysis/conformity/origin, closing certificates, incident/audit/deviation reports.
+- Letters & notices: offer/rejection/transfer letters, letters of intent, termination/privacy notices, collections.
+- Checklists: onboarding, access, contractor-compliance, inspection, competency checklists.
+- Payments, quotes & invoices: payment plans, deposits, quotes, invoices (with Stripe collection).
+
+Every workflow follows the same pattern: (1) upload a DOCX/PDF template; (2) map monday.com board columns to the document once (reused forever); (3) trigger via a status change, button click, or form submission; (4) collect signatures (single, multi-signer, or signing order); (5) track status in real time on the board; (6) store the signed file with an audit trail. Browse the full gallery at https://getsign.io/workflow/. These templates are compliant with ESIGN, eIDAS, UETA, GDPR, and HIPAA.`,
+  },
 ];
 
 /** Full corpus: curated feature/capability summaries + generated how-to guides. */

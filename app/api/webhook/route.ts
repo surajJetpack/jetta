@@ -96,6 +96,7 @@ export async function POST(req: NextRequest) {
     // Phase 0: capture the outcome for the learning/gap analytics loop.
     await recordOutcome({
       ticketId,
+      subject: ctx.ticket.subject,
       at: Math.floor(Date.now() / 1000),
       channel,
       product: ctx.product,

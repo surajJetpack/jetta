@@ -1,11 +1,40 @@
 import { config } from "@/lib/config";
 import { modelLabel } from "@/lib/llm";
 import TicketTester from "./ticket-tester";
+import AnalyticsPanel from "./analytics-panel";
 
 // Read runtime env (not build-time) so the status reflects the deployment.
 export const dynamic = "force-dynamic";
 
-export default function Home() {
+export default async function Home({
+  searchParams,
+}: {
+  searchParams: Promise<{ key?: string }>;
+}) {
+  const { key } = await searchParams;
+  const locked = !!config.adminSecret && key !== config.adminSecret;
+
+  if (locked) {
+    return (
+      <div className="wrap">
+        <header className="hdr">
+          <div className="logo">J</div>
+          <div>
+            <h1>Jetta — Ops Console</h1>
+            <p>Internal · access restricted</p>
+          </div>
+        </header>
+        <section className="card">
+          <h2>🔒 Admin key required</h2>
+          <p className="muted">
+            Append <code>?key=YOUR_ADMIN_SECRET</code> to the URL to access the console.
+          </p>
+        </section>
+      </div>
+    );
+  }
+
+  const adminKey = key ?? "";
   const integrations: { name: string; live: boolean; note?: string }[] = [
     { name: "Freshdesk", live: config.freshdesk.live, note: config.freshdesk.domain },
     { name: "FastSpring", live: config.fastspring.live },
@@ -46,7 +75,9 @@ export default function Home() {
         </div>
       </section>
 
-      <TicketTester freshdeskLive={config.freshdesk.live} />
+      <TicketTester freshdeskLive={config.freshdesk.live} adminKey={adminKey} />
+
+      <AnalyticsPanel adminKey={adminKey} />
 
       <section className="card endpoints">
         <h2>Endpoints</h2>
@@ -58,10 +89,10 @@ export default function Home() {
             <code>POST /api/slack</code> — Slack admin commands (@Jetta …)
           </li>
           <li>
-            <code>GET /api/cron/followup</code> — hourly 24h follow-up checker
+            <code>GET /api/cron/followup</code> — daily 24h follow-up checker
           </li>
           <li>
-            <code>POST /api/admin/run</code> — this console&apos;s ticket runner
+            <code>POST /api/admin/run</code> — this console&apos;s ticket runner (admin-gated)
           </li>
         </ul>
       </section>

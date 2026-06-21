@@ -11,11 +11,15 @@ import { buildContext, buildMessages } from "@/lib/context";
 import { buildSystemPrompt } from "@/lib/system-prompt";
 import { runAgentLoop } from "@/lib/agent";
 import { modelLabel } from "@/lib/llm";
+import { adminAuthorized } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
 export async function POST(req: NextRequest) {
+  if (!adminAuthorized(req)) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
   let body: { ticketId?: string; dryRun?: boolean };
   try {
     body = (await req.json()) as typeof body;

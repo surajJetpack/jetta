@@ -105,11 +105,22 @@ export const config = {
     secret: env("WEBHOOK_SECRET"),
   },
 
+  /** Gates the ops console UI + /api/admin/* (the webhook stays public, secret-gated). */
+  adminSecret: env("ADMIN_SECRET"),
+
   kv: {
     // Accept both the legacy Vercel KV names and the Upstash Marketplace names,
     // so whichever the integration injects works without code changes.
     url: env("KV_REST_API_URL") ?? env("UPSTASH_REDIS_REST_URL"),
     token: env("KV_REST_API_TOKEN") ?? env("UPSTASH_REDIS_REST_TOKEN"),
+  },
+
+  vector: {
+    url: env("UPSTASH_VECTOR_REST_URL"),
+    token: env("UPSTASH_VECTOR_REST_TOKEN"),
+    /** Gemini embedding model + output dimension (index must match). */
+    embedModel: "gemini-embedding-001",
+    dimension: 768,
   },
 
   liveSessionBookingUrl:

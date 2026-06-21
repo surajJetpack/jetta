@@ -20,6 +20,7 @@ import * as monday from "./monday";
 import * as slack from "./slack";
 import { searchGetSignKb } from "../knowledge/getsign-kb";
 import { searchApprovedKb } from "../knowledge/dynamic-kb";
+import { vectorEnabled, queryVector } from "../vector";
 
 export interface AgentSignals {
   resolutionSent: boolean;
@@ -68,19 +69,28 @@ export function buildTools(
         keyword: z.string().describe("Search terms drawn from the user's issue."),
       }),
       execute: async ({ keyword }) => {
-        // Merge three sources, best-trust first:
-        //   1. approved Knowledge-Loop articles (human-verified, from real fixes)
-        //   2. the official GetSign KB (product docs)
-        //   3. live Freshdesk Solutions
-        const [approved, local, fd] = await Promise.all([
-          searchApprovedKb(keyword).catch(() => []),
-          Promise.resolve(searchGetSignKb(keyword)),
-          freshdesk
-            .searchKnowledgeBase(keyword)
-            .then((arts) => arts.map((a) => ({ ...a, source: "freshdesk" as const })))
-            .catch(() => []),
-        ]);
-        const merged = [...approved, ...local, ...fd];
+        // Live Freshdesk Solutions is always merged in (their system, changes
+        // independently of our ingested corpus).
+        const fdP = freshdesk
+          .searchKnowledgeBase(keyword)
+          .then((arts) => arts.map((a) => ({ ...a, source: "freshdesk" as const })))
+          .catch(() => []);
+
+        let merged: { title: string; url: string; body?: string; summary?: string; source?: string }[];
+        if (vectorEnabled()) {
+          // RAG path: semantic search over the ingested KB (GetSign articles +
+          // approved Knowledge-Loop articles all live in the vector index).
+          const [hits, fd] = await Promise.all([queryVector(keyword, 6).catch(() => []), fdP]);
+          merged = [...hits, ...fd];
+        } else {
+          // Keyword fallback: approved (human-verified) → GetSign KB → Freshdesk.
+          const [approved, local, fd] = await Promise.all([
+            searchApprovedKb(keyword).catch(() => []),
+            Promise.resolve(searchGetSignKb(keyword)),
+            fdP,
+          ]);
+          merged = [...approved, ...local, ...fd];
+        }
         return merged.length
           ? JSON.stringify(merged)
           : "No knowledge base articles matched. Do not invent product steps — ask the user for specifics or escalate.";

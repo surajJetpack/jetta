@@ -19,7 +19,7 @@ interface RunResult {
   message?: string;
 }
 
-export default function TicketTester({ freshdeskLive }: { freshdeskLive: boolean }) {
+export default function TicketTester({ freshdeskLive, adminKey }: { freshdeskLive: boolean; adminKey: string }) {
   const [ticketId, setTicketId] = useState("");
   const [dryRun, setDryRun] = useState(true);
   const [loading, setLoading] = useState(false);
@@ -32,7 +32,7 @@ export default function TicketTester({ freshdeskLive }: { freshdeskLive: boolean
     try {
       const r = await fetch("/api/admin/run", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "x-admin-secret": adminKey },
         body: JSON.stringify({ ticketId: ticketId.trim(), dryRun }),
       });
       setRes((await r.json()) as RunResult);

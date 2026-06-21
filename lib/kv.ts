@@ -137,6 +137,7 @@ export async function kvDel(key: string): Promise<void> {
 // ── Phase 0: outcome feedback log ──────────────────────────────────
 export interface OutcomeEvent {
   ticketId: string;
+  subject?: string;
   at: number; // unix seconds
   channel: string;
   product: string;
