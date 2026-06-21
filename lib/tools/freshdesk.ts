@@ -145,6 +145,57 @@ export async function searchKnowledgeBase(keyword: string): Promise<KbArticle[]>
   }));
 }
 
+export interface SolutionArticle {
+  id: string;
+  title: string;
+  url: string;
+  body: string;
+  category: string;
+}
+
+/**
+ * List every published Solutions article across all categories (General,
+ * GetSign, Vlookup Auto-Link, …). Used to ingest the real, multi-product
+ * Freshdesk KB into the vector index. Stub returns a small sample.
+ */
+export async function listAllSolutionArticles(): Promise<SolutionArticle[]> {
+  if (!config.freshdesk.live) {
+    return [
+      {
+        id: "stub-1",
+        title: "GetSign: Saving column mappings",
+        url: "https://support.jetpackapps.io/solution/articles/getsign-saving-mappings",
+        body: "Mappings must be saved with the Save button before closing the editor.",
+        category: "GetSign",
+      },
+    ];
+  }
+
+  type FDCat = { id: number; name: string };
+  type FDFolder = { id: number };
+  type FDArticle = { id: number; title: string; status: number; description_text?: string; description?: string };
+
+  const out: SolutionArticle[] = [];
+  const cats = await fd<FDCat[]>(`/solutions/categories`);
+  for (const cat of cats) {
+    const folders = await fd<FDFolder[]>(`/solutions/categories/${cat.id}/folders`).catch(() => []);
+    for (const folder of folders) {
+      const articles = await fd<FDArticle[]>(`/solutions/folders/${folder.id}/articles`).catch(() => []);
+      for (const a of articles) {
+        if (a.status !== 2) continue; // published only
+        out.push({
+          id: String(a.id),
+          title: a.title,
+          url: `https://${config.freshdesk.domain}/support/solutions/articles/${a.id}`,
+          body: (a.description_text ?? stripHtml(a.description ?? "")).slice(0, 4000),
+          category: cat.name,
+        });
+      }
+    }
+  }
+  return out;
+}
+
 export async function replyToTicket(ticketId: string, body: string): Promise<void> {
   if (!config.freshdesk.live) {
     console.log(`[stub] reply_to_ticket #${ticketId}:\n${body}`);

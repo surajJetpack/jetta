@@ -8,6 +8,7 @@
  */
 import { GETSIGN_KB } from "../lib/knowledge/getsign-kb";
 import { listApprovedArticles } from "../lib/kv";
+import { listAllSolutionArticles } from "../lib/tools/freshdesk";
 import { upsertDocs, vectorEnabled, type VectorDoc } from "../lib/vector";
 
 const slug = (s: string) =>
@@ -27,12 +28,21 @@ async function main() {
     source: a.source,
   }));
 
+  // Full Freshdesk Solutions KB (all products: General, GetSign, Vlookup, …).
+  const fd = await listAllSolutionArticles().catch((e) => {
+    console.warn("Freshdesk article fetch failed:", e instanceof Error ? e.message : e);
+    return [];
+  });
+  for (const a of fd) {
+    docs.push({ id: `fd-${a.id}`, title: a.title, url: a.url, body: a.body, source: `freshdesk:${a.category}` });
+  }
+
   const approved = await listApprovedArticles();
   for (const a of approved) {
     docs.push({ id: `loop-${a.at}`, title: a.title, url: a.url, body: a.body, source: "knowledge-loop" });
   }
 
-  console.log(`Ingesting ${docs.length} docs (${GETSIGN_KB.length} static + ${approved.length} approved)…`);
+  console.log(`Ingesting ${docs.length} docs (${GETSIGN_KB.length} static + ${fd.length} freshdesk + ${approved.length} approved)…`);
   // Embed/upsert in batches to stay within request limits.
   const BATCH = 25;
   let done = 0;

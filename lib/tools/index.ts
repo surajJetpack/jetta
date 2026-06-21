@@ -69,25 +69,21 @@ export function buildTools(
         keyword: z.string().describe("Search terms drawn from the user's issue."),
       }),
       execute: async ({ keyword }) => {
-        // Live Freshdesk Solutions is always merged in (their system, changes
-        // independently of our ingested corpus).
-        const fdP = freshdesk
-          .searchKnowledgeBase(keyword)
-          .then((arts) => arts.map((a) => ({ ...a, source: "freshdesk" as const })))
-          .catch(() => []);
-
         let merged: { title: string; url: string; body?: string; summary?: string; source?: string }[];
         if (vectorEnabled()) {
-          // RAG path: semantic search over the ingested KB (GetSign articles +
-          // approved Knowledge-Loop articles all live in the vector index).
-          const [hits, fd] = await Promise.all([queryVector(keyword, 6).catch(() => []), fdP]);
-          merged = [...hits, ...fd];
+          // RAG path: semantic search over the ingested KB — GetSign articles,
+          // the full Freshdesk Solutions KB (all products), and approved
+          // Knowledge-Loop articles all live in the vector index.
+          merged = await queryVector(keyword, 6).catch(() => []);
         } else {
-          // Keyword fallback: approved (human-verified) → GetSign KB → Freshdesk.
+          // Keyword fallback: approved (human-verified) → GetSign KB → live Freshdesk.
           const [approved, local, fd] = await Promise.all([
             searchApprovedKb(keyword).catch(() => []),
             Promise.resolve(searchGetSignKb(keyword)),
-            fdP,
+            freshdesk
+              .searchKnowledgeBase(keyword)
+              .then((arts) => arts.map((a) => ({ ...a, source: "freshdesk" as const })))
+              .catch(() => []),
           ]);
           merged = [...approved, ...local, ...fd];
         }
@@ -225,9 +221,10 @@ export function buildTools(
         "Add a +1 note to an existing Dev board item when another user is affected by the same issue.",
       inputSchema: z.object({ item_id: z.string() }),
       execute: async ({ item_id }) => {
-        if (dry) return `[dry-run] would add +1 to Dev board item ${item_id}.`;
-        await monday.addPlusOne(item_id, ticketId ? ticketUrl(ticketId) : "(no ticket)");
-        return "Added +1 to the Dev board item.";
+        const url = `${config.monday.accountUrl}/boards/${config.monday.devBoardId}/pulses/${item_id}`;
+        if (dry) return `[dry-run] would add +1 to Dev board item ${item_id}. Item URL: ${url}`;
+        const r = await monday.addPlusOne(item_id, ticketId ? ticketUrl(ticketId) : "(no ticket)");
+        return `Added +1 to the Dev board item. Include this URL in your reply: ${r.url}`;
       },
     }),
 

@@ -148,16 +148,17 @@ export async function createDevItem(input: CreateDevItemInput): Promise<DevBoard
   return { id, title: input.title, status: "New", url: itemUrl(id) };
 }
 
-/** Add a "+1 / me too" note to an existing dev item. */
-export async function addPlusOne(itemId: string, ticketUrl: string): Promise<void> {
+/** Add a "+1 / me too" note to an existing dev item. Returns the item URL. */
+export async function addPlusOne(itemId: string, ticketUrl: string): Promise<{ url: string }> {
   if (!config.monday.live) {
     console.log(`[stub] +1 on item ${itemId} from ${ticketUrl}`);
-    return;
+    return { url: itemUrl(itemId) };
   }
   await gql(
     `mutation ($item: ID!, $body: String!) { create_update(item_id: $item, body: $body) { id } }`,
     { item: itemId, body: `+1 — another user affected. Freshdesk ticket: ${ticketUrl}` },
   );
+  return { url: itemUrl(itemId) };
 }
 
 export async function extendTrial(
