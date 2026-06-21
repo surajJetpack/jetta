@@ -133,3 +133,73 @@ export async function kvDel(key: string): Promise<void> {
   }
   memKv.delete(key);
 }
+
+// ── Phase 0: outcome feedback log ──────────────────────────────────
+export interface OutcomeEvent {
+  ticketId: string;
+  at: number; // unix seconds
+  channel: string;
+  product: string;
+  model: string;
+  toolsUsed: string[];
+  replied: boolean;
+  resolutionSent: boolean;
+  escalated: boolean;
+  /** handled = normal turn; reopened = customer replied after resolution; closed = auto-closed on silence. */
+  kind: "handled" | "reopened" | "closed";
+}
+
+const OUTCOMES_KEY = "jetta:outcomes";
+const memOutcomes: OutcomeEvent[] = [];
+
+/** Append a run outcome (newest first), capped at 1000. */
+export async function recordOutcome(e: OutcomeEvent): Promise<void> {
+  const r = client();
+  if (r) {
+    await r.lpush(OUTCOMES_KEY, e);
+    await r.ltrim(OUTCOMES_KEY, 0, 999);
+    return;
+  }
+  memOutcomes.unshift(e);
+  if (memOutcomes.length > 1000) memOutcomes.length = 1000;
+}
+
+export async function getOutcomes(limit = 200): Promise<OutcomeEvent[]> {
+  const r = client();
+  if (r) {
+    const raw = await r.lrange<OutcomeEvent | string>(OUTCOMES_KEY, 0, limit - 1);
+    return raw.map((x) => (typeof x === "string" ? (JSON.parse(x) as OutcomeEvent) : x));
+  }
+  return memOutcomes.slice(0, limit);
+}
+
+// ── Phase 1: dynamic KB — human-approved Knowledge-Loop articles ───
+export interface ApprovedArticle {
+  title: string;
+  url: string;
+  body: string;
+  keywords: string[];
+  approvedBy: string;
+  at: number;
+}
+
+const KB_KEY = "jetta:kb:approved";
+const memApproved: ApprovedArticle[] = [];
+
+export async function addApprovedArticle(a: ApprovedArticle): Promise<void> {
+  const r = client();
+  if (r) {
+    await r.rpush(KB_KEY, a);
+    return;
+  }
+  memApproved.push(a);
+}
+
+export async function listApprovedArticles(): Promise<ApprovedArticle[]> {
+  const r = client();
+  if (r) {
+    const raw = await r.lrange<ApprovedArticle | string>(KB_KEY, 0, -1);
+    return raw.map((x) => (typeof x === "string" ? (JSON.parse(x) as ApprovedArticle) : x));
+  }
+  return [...memApproved];
+}

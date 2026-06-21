@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Jetta — Knowledge & Learning Architecture</title>
+<style>
+  :root{
+    --bg:#0e1116; --panel:#161b22; --panel2:#1c2430; --border:#2a3441;
+    --text:#e6edf3; --muted:#8b98a9; --accent:#3fb9a3; --accent2:#6ea8fe;
+    --good:#3fb950; --warn:#d29922; --bad:#f85149;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:radial-gradient(1200px 600px at 80% -10%,#18222e,var(--bg) 60%);color:var(--text);font-family:var(--sans);line-height:1.6;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:880px;margin:0 auto;padding:40px 22px 90px}
+  h1{font-size:26px;letter-spacing:-.02em;margin-bottom:6px}
+  .sub{color:var(--muted);font-size:15px;margin-bottom:28px}
+  h2{font-size:13px;text-transform:uppercase;letter-spacing:.09em;color:var(--accent);margin:34px 0 14px;font-weight:700}
+  h3{font-size:17px;margin:20px 0 8px}
+  p{margin:0 0 12px;color:#d6dee8}
+  ul{margin:0 0 14px 20px}li{margin:5px 0;color:#d6dee8}
+  code{font-family:var(--mono);font-size:.88em;background:var(--panel2);border:1px solid var(--border);border-radius:5px;padding:1px 6px;color:#cfe7e1}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:22px;margin:16px 0}
+  .tldr{border-left:4px solid var(--accent)}
+  .lanes{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:620px){.lanes{grid-template-columns:1fr}}
+  .lane{background:var(--panel2);border:1px solid var(--border);border-radius:11px;padding:16px}
+  .lane h3{margin-top:0;color:var(--accent2);font-size:15px}
+  .pill{display:inline-block;font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;margin-bottom:8px}
+  .pill.ret{color:var(--accent2);background:color-mix(in srgb,var(--accent2) 15%,transparent)}
+  .pill.grow{color:var(--good);background:color-mix(in srgb,var(--good) 15%,transparent)}
+  table{width:100%;border-collapse:collapse;font-size:13.5px;margin:6px 0 8px}
+  th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--border);vertical-align:top}
+  th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.04em}
+  .rec{color:var(--good);font-weight:700}
+  .phase{display:flex;gap:14px;align-items:flex-start;margin:14px 0}
+  .pn{flex:none;width:30px;height:30px;border-radius:8px;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#07120f;font-weight:800;display:grid;place-items:center;font-size:14px}
+  .phase .body{flex:1}
+  .phase h3{margin:2px 0 4px}
+  .tag{font-size:11px;font-weight:700;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:1px 7px;margin-left:8px}
+  .callout{border-left:4px solid var(--warn);background:color-mix(in srgb,var(--warn) 7%,transparent)}
+  .flow{font-family:var(--mono);font-size:12.5px;color:#cfe7e1;background:var(--panel2);border:1px solid var(--border);border-radius:10px;padding:14px;overflow-x:auto;white-space:pre;line-height:1.5}
+  .src a{color:var(--accent2);text-decoration:none}.src a:hover{text-decoration:underline}
+  .src li{font-size:12.5px;color:var(--muted)}
+  .key{color:var(--accent);font-weight:600}
+  .x{color:var(--bad);font-weight:700}.c{color:var(--good);font-weight:700}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Jetta — Knowledge &amp; Learning Architecture</h1>
+  <div class="sub">Recommendation for a dynamic-learning knowledge system &middot; researched June 2026</div>
+
+  <div class="card tldr">
+    <h2 style="margin-top:0">The recommendation in one paragraph</h2>
+    <p>Treat these as <strong>two separate layers</strong>. <span class="key">Dynamic learning</span> (how the KB grows from resolved tickets) is the higher-value piece and you can ship it now <em>without</em> vectors — it's a human-gated <strong>Knowledge Loop</strong>, not model retraining. <span class="key">RAG</span> (vector + hybrid + reranking) is a clean <em>retrieval</em> upgrade you adopt once the KB is actually growing or to fix semantic search. <strong>Do dynamic learning first; add RAG when the KB earns it.</strong> Never fine-tune the model, and never auto-publish to the KB.</p>
+  </div>
+
+  <h2>The two layers (don't conflate them)</h2>
+  <div class="lanes">
+    <div class="lane">
+      <span class="pill ret">RETRIEVAL</span>
+      <h3>RAG</h3>
+      <p>How Jetta <em>finds</em> the right knowledge for a query. Vectors + hybrid search + reranking.</p>
+      <p style="color:var(--muted);font-size:13px">Solves: search quality at scale, semantic matching ("my mappings disappear" → the Save-before-close article).</p>
+    </div>
+    <div class="lane">
+      <span class="pill grow">GROWTH</span>
+      <h3>Dynamic learning</h3>
+      <p>How the knowledge <em>improves over time</em> from resolved tickets and dev fixes.</p>
+      <p style="color:var(--muted);font-size:13px">Solves: Jetta getting smarter; closing the gaps that caused yesterday's escalations.</p>
+    </div>
+  </div>
+  <p style="margin-top:14px">You need both eventually. But they solve different problems and have very different effort/risk profiles. The growth layer is what makes Jetta feel like it's "learning" — and it's mostly plumbing you partly have, not ML.</p>
+
+  <h2>Dynamic learning — what it actually is (and isn't)</h2>
+  <p><span class="x">Not</span> fine-tuning / RLHF / weight updates. That's expensive, slow, hard to control, governance-heavy, and risks regressions. For a support agent in 2026 the industry consensus is clear: <strong>"learning" = a continuously curated knowledge base + a feedback loop</strong>, not retraining the model.</p>
+  <p><span class="c">The closed loop</span> (this is exactly the spec's §5 Knowledge Loop, generalized):</p>
+  <div class="flow">┌─ gap detected ──────────────────────────────────────────────┐
+│  Jetta can't resolve → escalates to a human (dev/agent)      │
+│                          │                                   │
+│  human resolves it  ◄────┘   ← the gold signal               │
+│        │                                                     │
+│  Jetta DRAFTS a KB article from the thread                   │
+│        │                                                     │
+│  ★ HUMAN APPROVAL GATE ★  (Content Mgr edits/approves)       │
+│        │                  ← never auto-publish               │
+│  approved → chunk → embed → upsert to KB (searchable now)    │
+│        │                                                     │
+│  next similar ticket → Jetta resolves it herself ───────────┘
+└──────────────────────────────────────────────────────────────┘</div>
+  <p>Plus three supporting mechanisms:</p>
+  <ul>
+    <li><strong>Feedback signals → gap report.</strong> Log every Jetta run's outcome (resolved-no-escalation = good; reopened = wrong/gap; escalated = gap). Aggregate the escalation/reopen themes → that's your prioritized "what to document next" list.</li>
+    <li><strong>Confidence-gated escalation.</strong> Low retrieval confidence/grounding → escalate instead of guessing (Jetta already does "don't invent → escalate"). Tune the threshold from live data.</li>
+    <li><strong>Decay &amp; conflict management.</strong> Re-ingest on product changes (changelog-driven), flag duplicates/conflicts, expire stale articles.</li>
+  </ul>
+  <div class="card callout">
+    <strong>The one non-negotiable guardrail:</strong> a <strong>human approval gate</strong> before anything enters the KB. Auto-publishing agent-written articles is how a "learning" system silently learns wrong answers and amplifies them. The spec already mandates draft-only in v1 — keep it.
+  </div>
+
+  <h2>RAG — the retrieval upgrade (when the KB earns it)</h2>
+  <p>Today Jetta does keyword/token-overlap search over 65 short articles. <strong>For 65 articles that's genuinely fine.</strong> RAG pays off when (a) the KB grows to hundreds+ of chunks via the loop above, or (b) you want semantic matching that keyword search misses. Adopt it as a clean swap of the <code>search_knowledge_base</code> implementation — the tool interface stays identical, so nothing else changes.</p>
+  <p><strong>Recommended stack (Vercel-native, matches your deployment):</strong></p>
+  <table>
+    <tr><th>Layer</th><th>Pick</th><th>Why</th></tr>
+    <tr><td>Vector store</td><td><span class="rec">Upstash Vector</span> (or Neon&nbsp;pgvector)</td><td>One-click Vercel Marketplace, serverless, billed through Vercel, native AI-SDK + hybrid (dense+sparse) support. Use Neon&nbsp;pgvector instead if you'd rather keep one Postgres for everything.</td></tr>
+    <tr><td>Embeddings</td><td>via AI SDK <code>embedMany</code></td><td>Model choice is a <em>governance</em> decision (see below) — not a default.</td></tr>
+    <tr><td>Retrieval</td><td><span class="rec">Hybrid + rerank</span></td><td>Dense + keyword (BM25) is the 2026 production standard — it catches exact terms, error codes, field names dense vectors miss. A cross-encoder <strong>reranker</strong> (Cohere/Voyage) then picks the best few for the context window. This directly fixes the noisy keyword matching we hit on Freshdesk search.</td></tr>
+    <tr><td>Eval</td><td>RAGAS-style</td><td>Measure faithfulness, context precision/recall before vs after — so the upgrade is provable, not vibes.</td></tr>
+  </table>
+
+  <h3>Embedding model = a governance choice, not a default</h3>
+  <table>
+    <tr><th>If you…</th><th>Use</th><th>Note</th></tr>
+    <tr><td>Stay on Gemini</td><td>Gemini Embedding</td><td>Leads MTEB API options; everything stays in Google.</td></tr>
+    <tr><td>Move to Claude (spec's prod model)</td><td>Voyage 3 Large</td><td>Anthropic has no first-party embeddings; Voyage is the recommended pairing and tops retrieval quality.</td></tr>
+    <tr><td>Need full data sovereignty</td><td>BGE-M3 (self-host)</td><td>MIT-licensed, multilingual, dense+sparse in one model — embeddings never leave your infra. The right pick if proprietary GetSign internals enter the KB.</td></tr>
+  </table>
+  <p style="color:var(--muted);font-size:13.5px">Ties directly to last session's governance flag: RAG sends KB content to the embedding provider, and retrieved chunks to the LLM. If internal/proprietary content goes into the KB, choose providers consciously (Claude+Voyage with enterprise terms, or fully self-hosted) — and keep the rule that internal content informs <em>escalations</em>, never customer replies.</p>
+
+  <h2>Recommended rollout for Jetta</h2>
+  <div class="phase"><div class="pn">0</div><div class="body">
+    <h3>Feedback capture <span class="tag">now · ~free</span></h3>
+    <p>Log every Jetta run's outcome (tools used, resolved vs escalated, did the customer reply/reopen) to the store. Costs nothing, and it's the data foundation every "learning" feature needs. Start collecting immediately.</p>
+  </div></div>
+  <div class="phase"><div class="pn">1</div><div class="body">
+    <h3>The Knowledge Loop <span class="tag">highest ROI</span></h3>
+    <p>Build spec §5: dev resolves an escalation in Slack → Jetta drafts a KB article → posted for human approval → on approval it's appended to the KB. <strong>This is the dynamic learning you asked for.</strong> Human-gated, and it needs no vector infra to start.</p>
+  </div></div>
+  <div class="phase"><div class="pn">2</div><div class="body">
+    <h3>RAG upgrade <span class="tag">when KB grows / to fix semantic search</span></h3>
+    <p>Swap <code>search_knowledge_base</code> to Upstash Vector + AI-SDK embeddings + hybrid + rerank. Ingest the 65 articles + Freshdesk Solutions + approved loop articles. Interface unchanged, so it's an isolated change.</p>
+  </div></div>
+  <div class="phase"><div class="pn">3</div><div class="body">
+    <h3>Gap analytics <span class="tag">ongoing</span></h3>
+    <p>Add to the Ops Console: deflection rate, escalation themes, reopened tickets, KB-gap report. This is the dial that tells you what to document next — the loop's steering wheel.</p>
+  </div></div>
+
+  <div class="card" style="border-left:4px solid var(--good)">
+    <strong>My honest take:</strong> start with <span class="key">Phase 0 + Phase 1</span>. That delivers the "dynamic learning" you're after, is the spec's intent, is low-risk, and reuses the Slack/escalation plumbing already built. Add RAG (Phase 2) as a clean retrieval swap once the KB is genuinely growing — don't stand up vector infrastructure before there's enough knowledge to justify it.
+  </div>
+
+  <h2>Sources</h2>
+  <ul class="src">
+    <li><a href="https://vercel.com/marketplace/upstash/upstash-vector">Upstash Vector on the Vercel Marketplace</a> &amp; <a href="https://upstash.com/docs/vector/integrations/ai-sdk">Upstash Vector + AI SDK</a></li>
+    <li><a href="https://vercel.com/kb/guide/vector-databases">Vercel — Vector Databases guide</a>; <a href="https://neon.com/blog/ragrabbit-neon">Neon pgvector RAG</a></li>
+    <li><a href="https://milvus.io/blog/choose-embedding-model-rag-2026.md">Milvus — Best Embedding Model for RAG 2026</a>; <a href="https://www.stackai.com/insights/best-embedding-models-for-rag-in-2026-a-comparison-guide">StackAI — Embedding models 2026</a></li>
+    <li><a href="https://www.stackai.com/insights/retrieval-augmented-generation-(rag)-best-practices-for-enterprise-ai-chunking-embeddings-reranking-and-hybrid-search-optimization">StackAI — RAG best practices (chunking, hybrid, reranking)</a>; <a href="https://www.buildmvpfast.com/blog/hybrid-search-rag-vector-keyword-reranking-2026">Hybrid Search + Reranking 2026</a></li>
+    <li><a href="https://www.sprinklr.com/blog/building-self-learning-loop-in-agentic-ai/">Sprinklr — Building a self-learning loop</a>; <a href="https://www.glean.com/perspectives/how-to-incorporate-ai-feedback-loops-for-continuous-learning">Glean — AI feedback loops</a>; <a href="https://www.plivo.com/blog/human-in-the-loop-patterns-for-ai-customer-service-in-production/">Plivo — Human-in-the-loop patterns</a></li>
+  </ul>
+</div>
+</body>
+</html>

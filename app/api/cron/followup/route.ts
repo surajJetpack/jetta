@@ -8,7 +8,8 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { config } from "@/lib/config";
-import { getDueFollowUps, clearFollowUp } from "@/lib/kv";
+import { getDueFollowUps, clearFollowUp, recordOutcome } from "@/lib/kv";
+import { modelLabel } from "@/lib/llm";
 import { buildContext, buildMessages } from "@/lib/context";
 import { buildSystemPrompt } from "@/lib/system-prompt";
 import { runAgentLoop } from "@/lib/agent";
@@ -42,6 +43,18 @@ export async function GET(req: NextRequest) {
         if (ctx.ticket) {
           const result = await runAgentLoop(buildSystemPrompt(ctx), buildMessages(ctx.ticket), ctx);
           handled.push({ ticketId: job.ticketId, action: `replied → handled (${result.toolsUsed.join(",")})` });
+          await recordOutcome({
+            ticketId: job.ticketId,
+            at: Math.floor(Date.now() / 1000),
+            channel: ctx.channel,
+            product: ctx.product,
+            model: modelLabel(),
+            toolsUsed: result.toolsUsed,
+            replied: result.toolsUsed.includes("reply_to_ticket"),
+            resolutionSent: result.resolutionSent,
+            escalated: result.toolsUsed.includes("send_escalation"),
+            kind: "reopened",
+          }).catch(() => {});
         }
       } else {
         // No response — send a closing follow-up, then resolve the ticket.
@@ -52,6 +65,18 @@ export async function GET(req: NextRequest) {
         );
         await freshdesk.closeTicket(job.ticketId, true);
         handled.push({ ticketId: job.ticketId, action: "no reply → closed" });
+        await recordOutcome({
+          ticketId: job.ticketId,
+          at: Math.floor(Date.now() / 1000),
+          channel: "freshdesk",
+          product: "unknown",
+          model: modelLabel(),
+          toolsUsed: ["reply_to_ticket", "close_ticket"],
+          replied: false,
+          resolutionSent: false,
+          escalated: false,
+          kind: "closed",
+        }).catch(() => {});
       }
     } catch (err) {
       handled.push({

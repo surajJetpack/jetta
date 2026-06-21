@@ -106,8 +106,10 @@ export const config = {
   },
 
   kv: {
-    url: env("KV_REST_API_URL"),
-    token: env("KV_REST_API_TOKEN"),
+    // Accept both the legacy Vercel KV names and the Upstash Marketplace names,
+    // so whichever the integration injects works without code changes.
+    url: env("KV_REST_API_URL") ?? env("UPSTASH_REDIS_REST_URL"),
+    token: env("KV_REST_API_TOKEN") ?? env("UPSTASH_REDIS_REST_TOKEN"),
   },
 
   liveSessionBookingUrl:

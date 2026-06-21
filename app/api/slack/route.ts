@@ -16,11 +16,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "node:crypto";
 import { config } from "@/lib/config";
-import { kvSet, kvGet, kvDel } from "@/lib/kv";
+import { kvSet, kvGet, kvDel, addApprovedArticle } from "@/lib/kv";
 import * as freshdesk from "@/lib/tools/freshdesk";
 import * as fastspring from "@/lib/tools/fastspring";
 import * as monday from "@/lib/tools/monday";
-import { replyInThread } from "@/lib/tools/slack";
+import { replyInThread, readThread } from "@/lib/tools/slack";
+import { draftKbArticle, type KbDraft } from "@/lib/knowledge-loop";
 
 export const runtime = "nodejs";
 
@@ -160,10 +161,73 @@ async function handleCommand(
     return;
   }
 
+  // ── Knowledge Loop ──
+  // draft kb — read the escalation thread and draft an article for review
+  if (/^draft kb/i.test(cmd)) {
+    if (!threadTs) {
+      await reply("Run `@Jetta draft kb` inside an escalation thread that has the dev's resolution.");
+      return;
+    }
+    const msgs = await readThread(channel, threadTs);
+    const threadText = msgs
+      .map((m) => `${m.isBot ? "Jetta/bot" : "team"}: ${m.text}`)
+      .join("\n\n")
+      .trim();
+    if (!threadText) {
+      await reply("I couldn't read this thread — the bot may be missing the `channels:history` scope, or the thread is empty.");
+      return;
+    }
+    const draft = await draftKbArticle(threadText);
+    await kvSet(`jetta:kbdraft:${threadTs}`, JSON.stringify(draft), 86400);
+    await reply(
+      [
+        ":memo: *Draft KB article* — review before publishing:",
+        `*Title:* ${draft.title}`,
+        "",
+        draft.body,
+        "",
+        `_Keywords:_ ${draft.keywords.join(", ")}`,
+        "",
+        "An admin can add it to Jetta's knowledge base with `@Jetta publish kb` (in this thread).",
+      ].join("\n"),
+    );
+    return;
+  }
+
+  // publish kb — admin approves the drafted article into the live KB
+  if (/^publish kb/i.test(cmd)) {
+    if (!isAdmin(userId)) {
+      console.warn(`Rejected publish kb from non-admin Slack user ${userId}`);
+      await reply(":no_entry: Only an admin can publish to the knowledge base.");
+      return;
+    }
+    if (!threadTs) {
+      await reply("Run `@Jetta publish kb` in the thread that has the draft.");
+      return;
+    }
+    const raw = await kvGet(`jetta:kbdraft:${threadTs}`);
+    if (!raw) {
+      await reply("No draft found in this thread (it may have expired). Run `@Jetta draft kb` first.");
+      return;
+    }
+    const draft = JSON.parse(raw) as KbDraft;
+    await addApprovedArticle({
+      title: draft.title,
+      url: "", // internal knowledge-loop article — no customer-facing URL to cite
+      body: draft.body,
+      keywords: draft.keywords,
+      approvedBy: userId,
+      at: Math.floor(Date.now() / 1000),
+    });
+    await kvDel(`jetta:kbdraft:${threadTs}`);
+    await reply(`:white_check_mark: Added to Jetta's knowledge base: *${draft.title}*. She'll use it on matching tickets from now on.`);
+    return;
+  }
+
   await reply(
     "I didn't recognise that command. Try: `status ticket #123`, `open tickets`, " +
       "`extend trial for user@example.com 7 days`, `apply discount CODE to user@example.com`, " +
-      "or `cancel account user@example.com`.",
+      "`cancel account user@example.com`, or in an escalation thread `draft kb` / `publish kb`.",
   );
 }
 

@@ -19,6 +19,7 @@ import * as fastspring from "./fastspring";
 import * as monday from "./monday";
 import * as slack from "./slack";
 import { searchGetSignKb } from "../knowledge/getsign-kb";
+import { searchApprovedKb } from "../knowledge/dynamic-kb";
 
 export interface AgentSignals {
   resolutionSent: boolean;
@@ -67,14 +68,19 @@ export function buildTools(
         keyword: z.string().describe("Search terms drawn from the user's issue."),
       }),
       execute: async ({ keyword }) => {
-        // Search the official GetSign KB (authoritative) and live Freshdesk
-        // Solutions, then merge — GetSign first so Jetta grounds in product docs.
-        const local = searchGetSignKb(keyword);
-        const fd = await freshdesk
-          .searchKnowledgeBase(keyword)
-          .then((arts) => arts.map((a) => ({ ...a, source: "freshdesk" as const })))
-          .catch(() => []);
-        const merged = [...local, ...fd];
+        // Merge three sources, best-trust first:
+        //   1. approved Knowledge-Loop articles (human-verified, from real fixes)
+        //   2. the official GetSign KB (product docs)
+        //   3. live Freshdesk Solutions
+        const [approved, local, fd] = await Promise.all([
+          searchApprovedKb(keyword).catch(() => []),
+          Promise.resolve(searchGetSignKb(keyword)),
+          freshdesk
+            .searchKnowledgeBase(keyword)
+            .then((arts) => arts.map((a) => ({ ...a, source: "freshdesk" as const })))
+            .catch(() => []),
+        ]);
+        const merged = [...approved, ...local, ...fd];
         return merged.length
           ? JSON.stringify(merged)
           : "No knowledge base articles matched. Do not invent product steps — ask the user for specifics or escalate.";

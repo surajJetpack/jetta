@@ -74,3 +74,36 @@ export async function replyInThread(
 ): Promise<void> {
   await postMessage(channel, text, threadTs);
 }
+
+export interface ThreadMessage {
+  user: string;
+  text: string;
+  isBot: boolean;
+}
+
+/**
+ * Read all messages in a thread (for the Knowledge Loop). Requires the
+ * `channels:history` (and/or `groups:history`) bot scope.
+ */
+export async function readThread(channel: string, threadTs: string): Promise<ThreadMessage[]> {
+  if (config.stubMode && !config.slack.live) {
+    return [];
+  }
+  const url = `https://slack.com/api/conversations.replies?channel=${encodeURIComponent(
+    channel,
+  )}&ts=${encodeURIComponent(threadTs)}&limit=100`;
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${config.slack.botToken}` },
+  });
+  const json = (await res.json()) as {
+    ok: boolean;
+    error?: string;
+    messages?: { user?: string; bot_id?: string; text?: string }[];
+  };
+  if (!json.ok) throw new Error(`Slack conversations.replies failed: ${json.error}`);
+  return (json.messages ?? []).map((m) => ({
+    user: m.user ?? m.bot_id ?? "unknown",
+    text: m.text ?? "",
+    isBot: !!m.bot_id,
+  }));
+}

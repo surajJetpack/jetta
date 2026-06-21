@@ -17,7 +17,8 @@ import { config } from "@/lib/config";
 import { buildContext, buildMessages } from "@/lib/context";
 import { buildSystemPrompt } from "@/lib/system-prompt";
 import { runAgentLoop } from "@/lib/agent";
-import { markEventSeen, scheduleFollowUp } from "@/lib/kv";
+import { markEventSeen, scheduleFollowUp, recordOutcome } from "@/lib/kv";
+import { modelLabel } from "@/lib/llm";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -91,6 +92,20 @@ export async function POST(req: NextRequest) {
     if (result.resolutionSent && replied) {
       await scheduleFollowUp(ticketId, new Date().toISOString());
     }
+
+    // Phase 0: capture the outcome for the learning/gap analytics loop.
+    await recordOutcome({
+      ticketId,
+      at: Math.floor(Date.now() / 1000),
+      channel,
+      product: ctx.product,
+      model: modelLabel(),
+      toolsUsed: result.toolsUsed,
+      replied,
+      resolutionSent: result.resolutionSent,
+      escalated: result.toolsUsed.includes("send_escalation"),
+      kind: "handled",
+    }).catch((e) => console.warn("recordOutcome failed:", e));
 
     return NextResponse.json({
       status: "handled",
