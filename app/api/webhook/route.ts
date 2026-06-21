@@ -1,0 +1,114 @@
+/**
+ * Main event handler. Freshdesk / Freshchat fire a webhook here on a new
+ * ticket or reply.
+ *
+ * Lifecycle:
+ *   1. Verify the shared-secret header.
+ *   2. Parse the ticket id + a dedupe key from the payload.
+ *   3. Skip duplicate deliveries (idempotency via KV).
+ *   4. Assemble context, run the Claude tool loop.
+ *   5. If a resolution was sent, schedule the 24h follow-up.
+ *
+ * Note: Freshdesk's native webhooks do not HMAC-sign payloads — verification is
+ * a shared-secret header you configure on the automation rule, checked here.
+ */
+import { NextRequest, NextResponse } from "next/server";
+import { config } from "@/lib/config";
+import { buildContext, buildMessages } from "@/lib/context";
+import { buildSystemPrompt } from "@/lib/system-prompt";
+import { runAgentLoop } from "@/lib/agent";
+import { markEventSeen, scheduleFollowUp } from "@/lib/kv";
+
+export const runtime = "nodejs";
+export const maxDuration = 300;
+
+/** Pull a ticket id out of the various shapes Freshdesk automations can send. */
+function extractTicketId(payload: Record<string, unknown>): string | null {
+  const candidates = [
+    payload.ticket_id,
+    payload.id,
+    (payload.ticket as Record<string, unknown> | undefined)?.id,
+    (payload.freshdesk_webhook as Record<string, unknown> | undefined)?.ticket_id,
+  ];
+  for (const c of candidates) {
+    if (c != null) return String(c);
+  }
+  return null;
+}
+
+function verifySecret(req: NextRequest): boolean {
+  // If no secret is configured, allow (useful for local stub testing).
+  if (!config.webhook.secret) return true;
+  const provided = req.headers.get("x-jetta-secret");
+  return provided === config.webhook.secret;
+}
+
+export async function POST(req: NextRequest) {
+  if (!verifySecret(req)) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+
+  let payload: Record<string, unknown>;
+  try {
+    payload = (await req.json()) as Record<string, unknown>;
+  } catch {
+    return NextResponse.json({ error: "invalid JSON" }, { status: 400 });
+  }
+
+  const ticketId = extractTicketId(payload);
+  if (!ticketId) {
+    return NextResponse.json({ error: "no ticket id in payload" }, { status: 400 });
+  }
+
+  // Idempotency: dedupe by event id when present, else by a ticket+timestamp key.
+  const eventId =
+    (payload.event_id as string | undefined) ??
+    `${ticketId}:${(payload.updated_at as string | undefined) ?? ""}`;
+  const fresh = await markEventSeen(eventId);
+  if (!fresh) {
+    return NextResponse.json({ status: "duplicate, ignored", ticketId });
+  }
+
+  const channel = (payload.channel as "freshdesk" | "freshchat" | undefined) ?? "freshdesk";
+
+  try {
+    const ctx = await buildContext(ticketId, channel);
+    if (!ctx.ticket) {
+      return NextResponse.json({ error: "ticket not found", ticketId }, { status: 404 });
+    }
+
+    const messages = buildMessages(ctx.ticket);
+    const system = buildSystemPrompt(ctx);
+    const result = await runAgentLoop(system, messages, ctx);
+
+    // Defence in depth: only treat a turn as a resolution if a customer-visible
+    // reply actually went out. Guards against the model logging "resolution_sent"
+    // without calling reply_to_ticket.
+    const replied = result.toolsUsed.includes("reply_to_ticket");
+    if (result.resolutionSent && !replied) {
+      console.warn(`Ticket ${ticketId}: resolution_sent logged but no reply was posted — not scheduling follow-up.`);
+    }
+    if (result.resolutionSent && replied) {
+      await scheduleFollowUp(ticketId, new Date().toISOString());
+    }
+
+    return NextResponse.json({
+      status: "handled",
+      ticketId,
+      toolsUsed: result.toolsUsed,
+      resolutionSent: result.resolutionSent,
+      reply: result.text,
+    });
+  } catch (err) {
+    console.error(`Webhook handling failed for ticket ${ticketId}:`, err);
+    return NextResponse.json(
+      { error: "handler failed", message: err instanceof Error ? err.message : String(err) },
+      { status: 500 },
+    );
+  }
+}
+
+// Lightweight health check for the webhook endpoint.
+export async function GET() {
+  return NextResponse.json({ ok: true, stubMode: config.stubMode });
+}
