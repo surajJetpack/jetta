@@ -208,7 +208,7 @@ export function buildTools(
           reproSteps: repro_steps,
           freshdeskTicketUrl: ticketId ? ticketUrl(ticketId) : "(no ticket)",
         });
-        return JSON.stringify(item);
+        return `Created Dev board item "${item.title}". INTERNAL URL — put in the private note ONLY, never the customer reply: ${item.url}`;
       },
     }),
 
@@ -218,9 +218,9 @@ export function buildTools(
       inputSchema: z.object({ item_id: z.string() }),
       execute: async ({ item_id }) => {
         const url = `${config.monday.accountUrl}/boards/${config.monday.devBoardId}/pulses/${item_id}`;
-        if (dry) return `[dry-run] would add +1 to Dev board item ${item_id}. Item URL: ${url}`;
+        if (dry) return `[dry-run] would add +1 to Dev board item ${item_id}. INTERNAL item URL (private note only): ${url}`;
         const r = await monday.addPlusOne(item_id, ticketId ? ticketUrl(ticketId) : "(no ticket)");
-        return `Added +1 to the Dev board item. Include this URL in your reply: ${r.url}`;
+        return `Added +1 to the Dev board item. INTERNAL item URL — put in the private note ONLY, never the customer reply: ${r.url}`;
       },
     }),
 
