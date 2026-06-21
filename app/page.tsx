@@ -1,42 +1,15 @@
 import { config } from "@/lib/config";
 import { modelLabel } from "@/lib/llm";
+import { gate } from "@/lib/console-auth";
+import { Nav, Locked } from "./nav";
 import TicketTester from "./ticket-tester";
-import AnalyticsPanel from "./analytics-panel";
-import ActivityLog from "./activity-log";
-import KbManager from "./kb-manager";
 
-// Read runtime env (not build-time) so the status reflects the deployment.
 export const dynamic = "force-dynamic";
 
-export default async function Home({
-  searchParams,
-}: {
-  searchParams: Promise<{ key?: string }>;
-}) {
-  const { key } = await searchParams;
-  const locked = !!config.adminSecret && key !== config.adminSecret;
+export default async function Home({ searchParams }: { searchParams: Promise<{ key?: string }> }) {
+  const { locked, adminKey } = await gate(searchParams);
+  if (locked) return <Locked />;
 
-  if (locked) {
-    return (
-      <div className="wrap">
-        <header className="hdr">
-          <div className="logo">J</div>
-          <div>
-            <h1>Jetta — Ops Console</h1>
-            <p>Internal · access restricted</p>
-          </div>
-        </header>
-        <section className="card">
-          <h2>🔒 Admin key required</h2>
-          <p className="muted">
-            Append <code>?key=YOUR_ADMIN_SECRET</code> to the URL to access the console.
-          </p>
-        </section>
-      </div>
-    );
-  }
-
-  const adminKey = key ?? "";
   const integrations: { name: string; live: boolean; note?: string }[] = [
     { name: "Freshdesk", live: config.freshdesk.live, note: config.freshdesk.domain },
     { name: "FastSpring", live: config.fastspring.live },
@@ -46,13 +19,7 @@ export default async function Home({
 
   return (
     <div className="wrap">
-      <header className="hdr">
-        <div className="logo">J</div>
-        <div>
-          <h1>Jetta — Ops Console</h1>
-          <p>Autonomous support agent for Jetpack Apps &amp; GetSign · internal</p>
-        </div>
-      </header>
+      <Nav current="console" adminKey={adminKey} />
 
       <section className="card">
         <h2>System status</h2>
@@ -79,27 +46,13 @@ export default async function Home({
 
       <TicketTester freshdeskLive={config.freshdesk.live} adminKey={adminKey} />
 
-      <KbManager adminKey={adminKey} />
-
-      <AnalyticsPanel adminKey={adminKey} />
-
-      <ActivityLog adminKey={adminKey} />
-
       <section className="card endpoints">
         <h2>Endpoints</h2>
         <ul>
-          <li>
-            <code>POST /api/webhook</code> — Freshdesk / Freshchat events (production entrypoint)
-          </li>
-          <li>
-            <code>POST /api/slack</code> — Slack admin commands (@Jetta …)
-          </li>
-          <li>
-            <code>GET /api/cron/followup</code> — daily 24h follow-up checker
-          </li>
-          <li>
-            <code>POST /api/admin/run</code> — this console&apos;s ticket runner (admin-gated)
-          </li>
+          <li><code>POST /api/webhook</code> — Freshdesk / Freshchat events (production entrypoint)</li>
+          <li><code>POST /api/slack</code> — Slack admin commands (@Jetta …)</li>
+          <li><code>GET /api/cron/followup</code> — daily 24h follow-up checker</li>
+          <li><code>POST /api/admin/run</code> — this console&apos;s ticket runner (admin-gated)</li>
         </ul>
       </section>
     </div>
