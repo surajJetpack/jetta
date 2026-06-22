@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Jetta — How It Works & How To Use It</title>
+<style>
+  :root{
+    --bg:#0e1116;--panel:#161b22;--panel2:#1c2430;--border:#2a3441;
+    --text:#e6edf3;--muted:#8b98a9;--accent:#3fb9a3;--accent2:#6ea8fe;
+    --good:#3fb950;--warn:#d29922;--bad:#f85149;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:radial-gradient(1100px 560px at 82% -8%,#18222e,var(--bg) 58%);color:var(--text);font-family:var(--sans);line-height:1.62;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:920px;margin:0 auto;padding:40px 22px 100px}
+  h1{font-size:30px;letter-spacing:-.02em}
+  .sub{color:var(--muted);font-size:15px;margin:6px 0 26px}
+  h2{font-size:21px;margin:38px 0 12px;padding-top:14px;border-top:1px solid var(--border);letter-spacing:-.01em}
+  h2 .n{color:var(--accent);font-variant-numeric:tabular-nums;margin-right:10px}
+  h3{font-size:16px;margin:18px 0 6px;color:var(--accent2)}
+  p{margin:0 0 12px;color:#d6dee8}
+  ul,ol{margin:0 0 14px 22px}li{margin:5px 0;color:#d6dee8}
+  code{font-family:var(--mono);font-size:.86em;background:var(--panel2);border:1px solid var(--border);border-radius:5px;padding:1px 6px;color:#cfe7e1}
+  a{color:var(--accent2);text-decoration:none}a:hover{text-decoration:underline}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:18px 20px;margin:14px 0}
+  .lead{border-left:4px solid var(--accent)}
+  table{width:100%;border-collapse:collapse;font-size:13.5px;margin:8px 0 12px;display:block;overflow-x:auto}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--border);vertical-align:top;white-space:nowrap}
+  td.wrap2,th.wrap2{white-space:normal}
+  th{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.04em}
+  .flow{font-family:var(--mono);font-size:12px;color:#cfe7e1;background:var(--panel2);border:1px solid var(--border);border-radius:10px;padding:14px;overflow-x:auto;white-space:pre;line-height:1.5}
+  .pill{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px}
+  .live{color:var(--good);background:color-mix(in srgb,var(--good) 15%,transparent)}
+  .stub{color:var(--warn);background:color-mix(in srgb,var(--warn) 15%,transparent)}
+  .gap{border-left:4px solid var(--warn);background:color-mix(in srgb,var(--warn) 7%,transparent)}
+  .toc{columns:2;gap:18px;font-size:14px}
+  .toc a{display:block;padding:3px 0}
+  @media(max-width:600px){.toc{columns:1}}
+  .k{color:var(--accent);font-weight:600}
+  .tag{font-family:var(--mono);font-size:12px;color:var(--accent)}
+  .note{font-size:13px;color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🤖 Jetta</h1>
+  <div class="sub">Autonomous AI support agent for Jetpack Apps &amp; GetSign — how it works, how it's built, and how to use it. <br/>Last updated June 2026.</div>
+
+  <div class="card lead">
+    <p style="margin:0"><strong>In one line:</strong> Jetta reads a support ticket, decides what to do using a set of tools (search the knowledge base, look up the dev board, reply, escalate to Slack, file a bug on monday.com), and acts — autonomously, with humans in the loop for anything risky. She runs on Google Gemini 2.5 Pro, deployed on Vercel, and you drive/observe her through the <strong>Ops Console</strong>.</p>
+  </div>
+
+  <div class="card">
+    <div class="toc">
+      <a href="#what">1 · What Jetta is</a>
+      <a href="#lifecycle">2 · How she works (lifecycle)</a>
+      <a href="#stack">3 · The brain &amp; stack</a>
+      <a href="#tools">4 · Tools &amp; integrations</a>
+      <a href="#workflows">5 · Support workflows</a>
+      <a href="#kb">6 · Knowledge base &amp; RAG</a>
+      <a href="#console">7 · Using the Ops Console</a>
+      <a href="#safety">8 · Safety &amp; rollout</a>
+      <a href="#ops">9 · Operating it</a>
+      <a href="#code">10 · Codebase map</a>
+      <a href="#status">11 · Status &amp; known gaps</a>
+      <a href="#glossary">12 · Glossary / FAQ</a>
+    </div>
+  </div>
+
+  <h2 id="what"><span class="n">1</span>What Jetta is</h2>
+  <p>Jetta is an autonomous support agent for two products — <strong>Jetpack Apps</strong> (monday.com marketplace apps) and <strong>GetSign</strong> (e-signature for monday.com). She handles the support lifecycle: understands the ticket, answers from the knowledge base, asks for missing details, files bugs, escalates to the dev team, and follows up — escalating to humans when judgment is needed.</p>
+  <h3>What she does</h3>
+  <ul>
+    <li>Answers technical &amp; how-to questions, grounded in real product docs</li>
+    <li>Files bugs to the monday.com Dev board and escalates to Slack with full context</li>
+    <li>Posts replies &amp; internal notes on Freshdesk tickets</li>
+    <li>Follows up after 24h and closes resolved tickets</li>
+    <li>Learns: dev resolutions become new KB articles (human-approved)</li>
+  </ul>
+  <h3>What she doesn't do (by design)</h3>
+  <ul>
+    <li>No proactive outreach / sales / upsell</li>
+    <li>No customer-facing claims about internal tooling (the monday Dev board is internal — never shared with customers)</li>
+    <li>No irreversible action without a human gate (cancellations, going live on a ticket)</li>
+    <li>English only at launch</li>
+  </ul>
+
+  <h2 id="lifecycle"><span class="n">2</span>How she works — the request lifecycle</h2>
+  <p>Jetta is a <strong>stateless webhook handler</strong>. Every interaction is one pass through this loop:</p>
+  <div class="flow">  ticket event ──▶ POST /api/webhook ──▶ [verify secret] ──▶ [dedupe] (Redis)
+                                                              │
+                          ┌───────────────────────────────────┘
+                          ▼
+              build context: fetch the ticket + conversation,
+              the customer's account, related monday Dev items
+                          │
+                          ▼
+       ┌──── agent loop (Gemini + tools, up to 10 steps) ───────────┐
+       │  model picks a tool → handler runs it → result back to model │
+       │  search_knowledge_base · search_dev_board · reply_to_ticket  │
+       │  create_dev_item · send_escalation · add_private_note · …     │
+       └──────────────────────────────────────────────────────────────┘
+                          │
+                          ▼
+        actions executed (or simulated, in dry-run) → reply posted
+                          │
+                          ▼
+        log the run + outcome (Redis) ; if resolved → schedule 24h follow-up</div>
+  <p class="note">The model isn't told "do step 1, 2, 3." The <span class="k">behaviour emerges from the system prompt's rules</span> plus which tools it chooses. Workflows aren't hard-coded branches.</p>
+
+  <h2 id="stack"><span class="n">3</span>The brain &amp; the stack</h2>
+  <table>
+    <tr><th>Layer</th><th class="wrap2">What / why</th></tr>
+    <tr><td>Reasoning model</td><td class="wrap2"><strong>Google Gemini 2.5 Pro</strong> via the Vercel AI SDK. Provider is swappable in one env var (<code>LLM_PROVIDER</code>) — the spec's production target is Claude <code>claude-sonnet-4-6</code>.</td></tr>
+    <tr><td>Agent loop</td><td class="wrap2">A manual tool loop (<code>generateText</code> + <code>stopWhen: stepCountIs(10)</code>). The handler executes each tool call and feeds results back until the model produces its reply.</td></tr>
+    <tr><td>Runtime</td><td class="wrap2">Next.js (App Router) on <strong>Vercel</strong> — serverless functions, no server to manage.</td></tr>
+    <tr><td>State</td><td class="wrap2"><strong>Upstash Redis</strong> — webhook dedupe, follow-up jobs, outcome logs, run logs, managed KB.</td></tr>
+    <tr><td>Retrieval</td><td class="wrap2"><strong>Upstash Vector</strong> (768-dim, cosine) with Gemini embeddings — semantic KB search.</td></tr>
+  </table>
+
+  <h2 id="tools"><span class="n">4</span>Tools &amp; integrations</h2>
+  <p>Tools are the only way Jetta affects the world. Each is a typed function; the model returns tool calls, the handler runs them.</p>
+  <table>
+    <tr><th>System</th><th class="wrap2">Tools</th><th>Status</th></tr>
+    <tr><td>Freshdesk</td><td class="wrap2">get_ticket_details, search_knowledge_base, reply_to_ticket, add_private_note, close_ticket</td><td><span class="pill live">live</span></td></tr>
+    <tr><td>monday.com</td><td class="wrap2">search_dev_board, create_dev_item, add_plus_one</td><td><span class="pill live">live</span></td></tr>
+    <tr><td>monday.com</td><td class="wrap2">extend_trial, apply_platform_discount</td><td><span class="pill stub">needs Marketplace app creds</span></td></tr>
+    <tr><td>Slack</td><td class="wrap2">send_escalation, notify_partner_manager</td><td><span class="pill live">live (outbound)</span></td></tr>
+    <tr><td>FastSpring</td><td class="wrap2">get_fastspring_account, get_invoice_url, apply_discount, cancel_subscription</td><td><span class="pill stub">stubbed</span></td></tr>
+  </table>
+  <p>Each integration has its own <strong>live flag</strong> (e.g. <code>FRESHDESK_LIVE</code>), so they can be brought online one at a time. When an integration is stubbed, its tools return safe canned data instead of calling the real API.</p>
+
+  <h2 id="workflows"><span class="n">5</span>Support workflows</h2>
+  <h3>Technical issue</h3>
+  <p>Search the KB first → if an article resolves it, answer with the steps + link and ask the user to confirm → if not, ask targeted diagnostics → on a confirmed bug, check the Dev board: <strong>existing item</strong> → +1 and tell the user it's tracked; <strong>no item</strong> → create one + escalate to Slack. The internal monday link goes in the <em>private note</em>, never to the customer.</p>
+  <h3>Escalation</h3>
+  <p>Escalates to <code>#jetta-escalations</code> when: no KB answer after two turns, the user asks for a human, or it needs account-level debugging she can't do. The Slack message always carries the ticket URL, account URL, a summary, and what she already tried.</p>
+  <h3>Knowledge Loop (how she learns)</h3>
+  <div class="flow">escalation → dev resolves it in the Slack thread
+   → @Jetta draft kb     (Jetta drafts a KB article from the thread)
+   → human reviews        (Slack, or the /kb Approval queue)
+   → @Jetta publish kb    (approved → managed KB + vector index)
+   → next similar ticket resolves itself</div>
+  <p class="note">Human approval is mandatory — Jetta never auto-publishes to the KB.</p>
+  <h3>24-hour follow-up</h3>
+  <p>After sending a fix, Jetta logs a "resolution_sent" note → a job is stored in Redis. A daily cron checks it: customer replied → Jetta handles the reply; no reply → she sends a follow-up and closes the ticket.</p>
+  <h3>Billing <span class="pill stub">under rework</span></h3>
+  <p>The spec assumed FastSpring billing, but GetSign actually bills through the <strong>monday.com Marketplace</strong>. The billing/churn flow is being reworked to reflect that; for now FastSpring tools are stubbed and a managed KB article tells Jetta to direct billing/refund questions to monday.com.</p>
+
+  <h2 id="kb"><span class="n">6</span>Knowledge base &amp; RAG</h2>
+  <p>Jetta's answers are <strong>grounded</strong> in a knowledge base, not invented. Two sources:</p>
+  <table>
+    <tr><th>Source</th><th class="wrap2">What</th><th>Editable</th></tr>
+    <tr><td>Curated GetSign KB</td><td class="wrap2">~66 articles distilled from getsign.io (features, how-tos, FAQ, a consolidated "supported workflows" reference)</td><td>in git</td></tr>
+    <tr><td>Managed KB</td><td class="wrap2">Human-curated articles + approved Knowledge-Loop articles</td><td>in the <code>/kb</code> UI</td></tr>
+  </table>
+  <p><strong>Retrieval:</strong> the query is embedded (Gemini) and matched against the Upstash Vector index; the top articles are handed to the model. Managed + curated articles all live in the index. <span class="note">(Freshdesk Solutions articles were intentionally removed — quality wasn't trusted.)</span></p>
+  <h3>Grounding rules (why she doesn't make things up)</h3>
+  <ul>
+    <li>Product-specific steps must come from a retrieved article — not from the model's general knowledge.</li>
+    <li>An article merely <em>mentioning</em> a feature isn't enough; it must actually contain the procedure.</li>
+    <li>If nothing covers it, she says she's confirming the steps / asks / escalates — she does not guess or cite a loosely-related article.</li>
+  </ul>
+
+  <h2 id="console"><span class="n">7</span>Using the Ops Console</h2>
+  <p>The console is an internal, admin-gated web app with three tabs. Access it with the admin key in the URL: <code>https://&lt;app&gt;.vercel.app/?key=YOUR_ADMIN_SECRET</code> (the key lives in Vercel env / with the team lead — treat it like a password).</p>
+  <h3>Console tab — run &amp; test tickets</h3>
+  <ul>
+    <li><strong>System status</strong> — model + which integrations are live/stubbed.</li>
+    <li><strong>Ticket runner</strong> — type a Freshdesk ticket ID and Run.
+      <ul>
+        <li><span class="k">Dry-run ON</span> (default): runs the full pipeline and shows the trace + the reply she <em>would</em> send — but posts nothing. Safe on any ticket.</li>
+        <li><span class="k">Dry-run OFF</span>: she acts for real — but only on <strong>allowlisted</strong> tickets (others are auto-forced to dry-run).</li>
+      </ul>
+    </li>
+  </ul>
+  <h3>Knowledge Base tab (/kb)</h3>
+  <ul>
+    <li><strong>Test retrieval</strong> — type a query, see exactly which articles + scores Jetta would retrieve.</li>
+    <li><strong>Approval queue</strong> — review &amp; Approve/Reject Knowledge-Loop drafts.</li>
+    <li><strong>Managed articles</strong> — add / edit / delete; every change auto-syncs to the vector index.</li>
+    <li><strong>Curated articles</strong> — browse-only (edited in git).</li>
+  </ul>
+  <h3>Insights tab (/analytics)</h3>
+  <ul>
+    <li><strong>Gap analytics</strong> — runs logged, deflection rate, escalated/reopened counts, "document these next" gaps, recurring themes.</li>
+    <li><strong>Activity log</strong> — every run with its full tool trace, KB hits + scores, the reply, token usage, timing, and errors.</li>
+  </ul>
+  <h3>Slack admin commands</h3>
+  <p class="note">In the designated channel (admin users only): <code>@Jetta status ticket #123</code>, <code>@Jetta open tickets</code>, <code>@Jetta extend trial for x@y.com 7 days</code>, <code>@Jetta apply discount CODE to x@y.com</code>, <code>@Jetta cancel account x@y.com</code> (needs a 2nd admin to confirm), and in an escalation thread <code>@Jetta draft kb</code> / <code>publish kb</code>. <em>(Requires Slack Event Subscriptions wired — see gaps.)</em></p>
+
+  <h2 id="safety"><span class="n">8</span>Safety &amp; controlled rollout</h2>
+  <table>
+    <tr><th>Control</th><th class="wrap2">What it protects</th></tr>
+    <tr><td>Dry-run</td><td class="wrap2">Test the full pipeline with zero writes. Default in the console.</td></tr>
+    <tr><td>Ticket allowlist</td><td class="wrap2"><code>JETTA_TICKET_ALLOWLIST</code> — live writes only happen on listed ticket IDs; everything else is forced to dry-run. The controlled-rollout dial.</td></tr>
+    <tr><td>Admin key</td><td class="wrap2">Gates the console + all <code>/api/admin/*</code> endpoints.</td></tr>
+    <tr><td>Webhook secret</td><td class="wrap2"><code>X-Jetta-Secret</code> header required on <code>/api/webhook</code>; the endpoint is public but rejects unsigned calls.</td></tr>
+    <tr><td>Human gates</td><td class="wrap2">KB publishing requires approval; account cancellation requires a second admin.</td></tr>
+    <tr><td>Idempotency</td><td class="wrap2">Duplicate webhook deliveries are de-duplicated so Jetta never double-replies.</td></tr>
+  </table>
+
+  <h2 id="ops"><span class="n">9</span>Operating it</h2>
+  <h3>Deploy</h3>
+  <p><code>vercel --prod</code> (or push to the connected GitHub repo). Env vars live in Vercel project settings. The daily follow-up cron is configured in <code>vercel.json</code>.</p>
+  <h3>Key environment variables</h3>
+  <table>
+    <tr><th>Var</th><th class="wrap2">Purpose</th></tr>
+    <tr><td>LLM_PROVIDER, GOOGLE_GENERATIVE_AI_API_KEY</td><td class="wrap2">Model provider + key (set <code>anthropic</code> + key to switch to Claude)</td></tr>
+    <tr><td>FRESHDESK_API_KEY / _DOMAIN / _LIVE</td><td class="wrap2">Freshdesk access + go-live flag</td></tr>
+    <tr><td>MONDAY_API_TOKEN / _DEV_BOARD_ID / _ACCOUNT_URL / _LIVE</td><td class="wrap2">monday access + Dev board + go-live</td></tr>
+    <tr><td>SLACK_BOT_TOKEN / _ESCALATION_CHANNEL / _LIVE</td><td class="wrap2">Slack posting + go-live</td></tr>
+    <tr><td>KV_REST_API_* / UPSTASH_VECTOR_REST_*</td><td class="wrap2">Redis + Vector (auto-injected by the Upstash integrations)</td></tr>
+    <tr><td>WEBHOOK_SECRET / ADMIN_SECRET / CRON_SECRET</td><td class="wrap2">Endpoint protection</td></tr>
+    <tr><td>JETTA_TICKET_ALLOWLIST</td><td class="wrap2">Comma-separated ticket IDs allowed to receive live writes</td></tr>
+  </table>
+  <h3>Re-syncing the KB</h3>
+  <p>Run <code>scripts/kb-ingest.ts</code> to rebuild the vector index from the curated + managed sources (it resets the index, then re-embeds everything). Run it after editing the curated articles in git.</p>
+
+  <h2 id="code"><span class="n">10</span>Codebase map</h2>
+  <div class="flow">app/
+  api/
+    webhook/route.ts        main entrypoint (Freshdesk/Freshchat events)
+    slack/route.ts          @Jetta admin commands + Knowledge-Loop
+    cron/followup/route.ts  daily 24h follow-up checker
+    admin/run|stats|logs    console APIs (admin-gated)
+    admin/kb[/search|drafts] KB management APIs
+  page.tsx · kb/ · analytics/   the three console tabs
+  *-panel.tsx / *.tsx           console UI components
+lib/
+  agent.ts          the tool loop (Gemini + tools)
+  system-prompt.ts  Jetta's persona + all the rules
+  tools/            freshdesk · fastspring · monday · slack · index (registry)
+  vector.ts         Upstash Vector + Gemini embeddings (RAG)
+  kv.ts             Redis: dedupe, follow-ups, outcomes, run logs, managed KB
+  knowledge/        curated GetSign KB + managed-KB search
+  runlog.ts · logger.ts · context.ts · config.ts · auth.ts
+scripts/            kb-ingest + manual integration test scripts</div>
+
+  <h2 id="status"><span class="n">11</span>Current status &amp; known gaps</h2>
+  <p><strong>Live &amp; working:</strong> Freshdesk + monday + Slack(outbound) integrations · Gemini reasoning · RAG vector KB you manage from <code>/kb</code> · feedback analytics + detailed run logs · Knowledge Loop · ticket allowlist · admin security · deployed on Vercel.</p>
+  <div class="card gap">
+    <strong>Known gaps / open items</strong>
+    <ul style="margin-bottom:0">
+      <li><strong>Billing flow</strong> — FastSpring is stubbed; the churn/cancel tools don't reflect monday.com Marketplace billing yet.</li>
+      <li><strong>Freshdesk auto-trigger</strong> — not wired; tickets are run manually via the console until a Freshdesk automation POSTs to the webhook.</li>
+      <li><strong>Slack <code>@Jetta</code> commands</strong> — handler is built but needs Slack Event Subscriptions + <code>channels:history</code> scope to fire.</li>
+      <li><strong>monday trial extension / platform discount</strong> — need the GetSign Marketplace app's developer credentials.</li>
+      <li><strong>Non-GetSign product KB</strong> (e.g. Vlookup Auto-Link) — coverage was removed with Freshdesk; restore by crawling those product sites.</li>
+      <li><strong>Escalation wording</strong> — occasionally over-promises ("a fix will be deployed"); minor prompt tuning.</li>
+      <li><strong>Reranker / grounding-verify</strong> — deferred until logs show it's needed.</li>
+    </ul>
+  </div>
+
+  <h2 id="glossary"><span class="n">12</span>Glossary / FAQ</h2>
+  <p><strong>Dry-run</strong> — run the full pipeline but simulate (don't execute) any write. <br/>
+  <strong>Allowlist</strong> — the set of ticket IDs Jetta may act on for real. <br/>
+  <strong>Managed article</strong> — a KB article curated at runtime (UI or Knowledge Loop), stored in Redis + the vector index. <br/>
+  <strong>Knowledge Loop</strong> — turning a dev's resolution into a human-approved KB article. <br/>
+  <strong>Grounding</strong> — basing answers on retrieved KB content rather than the model's own guesses. <br/>
+  <strong>RAG</strong> — Retrieval-Augmented Generation: search the KB, feed the hits to the model.</p>
+  <p class="note"><strong>Q: Will Jetta touch a real customer ticket I didn't intend?</strong> No — there's no auto-trigger yet, and live writes are gated by the allowlist. She only acts on tickets you run (and only writes on allowlisted ones).</p>
+  <p class="note"><strong>Q: How do I see what she did?</strong> Insights → Activity Log: every run with its trace, the KB it used, and the reply.</p>
+  <p class="note"><strong>Q: How do I fix a wrong answer?</strong> Add/edit a managed article in <code>/kb</code> — it's embedded immediately and Jetta will use it on the next matching ticket.</p>
+</div>
+</body>
+</html>
