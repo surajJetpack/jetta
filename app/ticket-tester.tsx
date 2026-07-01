@@ -21,24 +21,58 @@ interface RunResult {
 }
 
 /**
- * Module-scoped cache of the last run. The tabs are separate routes, so
- * navigating away unmounts this component and drops its React state. This
- * variable lives in the JS module (which persists across client-side tab
- * navigation), so the execution data is restored when the user returns to the
- * Console tab. It is only ever written from a client effect — never on the
- * server — so it cannot leak between SSR requests.
+ * The tabs are separate routes, so navigating away unmounts this component and
+ * drops its React state. We persist the last run so it is restored on return:
+ *   - a module-scoped `cache` covers client-side tab navigation, and
+ *   - `sessionStorage` additionally covers a full page reload / cold module.
+ * Both are client-only, so nothing leaks between SSR requests.
  */
-let cache: { ticketId: string; dryRun: boolean; res: RunResult | null } | null = null;
+type RunState = { ticketId: string; dryRun: boolean; res: RunResult | null };
+const STORAGE_KEY = "jetta:lastRun";
+let cache: RunState | null = null;
+
+function readStorage(): RunState | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.sessionStorage.getItem(STORAGE_KEY);
+    return raw ? (JSON.parse(raw) as RunState) : null;
+  } catch {
+    return null;
+  }
+}
 
 export default function TicketTester({ freshdeskLive, adminKey }: { freshdeskLive: boolean; adminKey: string }) {
+  // Initialise from defaults so the first client render matches the server (no
+  // hydration mismatch); persisted state is loaded in the mount effect below.
   const [ticketId, setTicketId] = useState(() => cache?.ticketId ?? "");
   const [dryRun, setDryRun] = useState(() => cache?.dryRun ?? true);
   const [loading, setLoading] = useState(false);
   const [res, setRes] = useState<RunResult | null>(() => cache?.res ?? null);
 
-  // Persist the current run to the module cache so it survives tab navigation.
+  // On mount, if the in-memory cache was empty (e.g. after a full page reload
+  // that re-evaluated this module), rehydrate from sessionStorage.
+  useEffect(() => {
+    if (cache) return;
+    const saved = readStorage();
+    if (!saved) return;
+    cache = saved;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time rehydration from storage on mount
+    setTicketId(saved.ticketId ?? "");
+    setDryRun(saved.dryRun ?? true);
+    setRes(saved.res ?? null);
+  }, []);
+
+  // Persist the current run to both the module cache (survives tab navigation)
+  // and sessionStorage (survives a reload).
   useEffect(() => {
     cache = { ticketId, dryRun, res };
+    if (typeof window !== "undefined") {
+      try {
+        window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(cache));
+      } catch {
+        /* storage full or unavailable — module cache still covers tab nav */
+      }
+    }
   }, [ticketId, dryRun, res]);
 
   async function run() {
