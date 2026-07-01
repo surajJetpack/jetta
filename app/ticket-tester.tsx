@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 interface TraceEntry {
   tool: string;
@@ -20,11 +20,26 @@ interface RunResult {
   message?: string;
 }
 
+/**
+ * Module-scoped cache of the last run. The tabs are separate routes, so
+ * navigating away unmounts this component and drops its React state. This
+ * variable lives in the JS module (which persists across client-side tab
+ * navigation), so the execution data is restored when the user returns to the
+ * Console tab. It is only ever written from a client effect — never on the
+ * server — so it cannot leak between SSR requests.
+ */
+let cache: { ticketId: string; dryRun: boolean; res: RunResult | null } | null = null;
+
 export default function TicketTester({ freshdeskLive, adminKey }: { freshdeskLive: boolean; adminKey: string }) {
-  const [ticketId, setTicketId] = useState("");
-  const [dryRun, setDryRun] = useState(true);
+  const [ticketId, setTicketId] = useState(() => cache?.ticketId ?? "");
+  const [dryRun, setDryRun] = useState(() => cache?.dryRun ?? true);
   const [loading, setLoading] = useState(false);
-  const [res, setRes] = useState<RunResult | null>(null);
+  const [res, setRes] = useState<RunResult | null>(() => cache?.res ?? null);
+
+  // Persist the current run to the module cache so it survives tab navigation.
+  useEffect(() => {
+    cache = { ticketId, dryRun, res };
+  }, [ticketId, dryRun, res]);
 
   async function run() {
     if (!ticketId.trim()) return;
