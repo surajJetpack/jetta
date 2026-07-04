@@ -49,6 +49,9 @@ export function buildTools(
   const ticketId = ctx.ticket?.id;
   const requesterEmail = ctx.ticket?.requesterEmail ?? undefined;
   const dry = opts.dryRun === true;
+  // Set by create_dev_item/add_plus_one so send_escalation can attach the Dev
+  // board item link automatically, the same way ticket/account URLs are.
+  let mondayItemUrl: string | undefined;
 
   return {
     // ── Freshdesk ──
@@ -208,6 +211,7 @@ export function buildTools(
           reproSteps: repro_steps,
           freshdeskTicketUrl: ticketId ? ticketUrl(ticketId) : "(no ticket)",
         });
+        mondayItemUrl = item.url;
         return `Created Dev board item "${item.title}". INTERNAL URL — put in the private note ONLY, never the customer reply: ${item.url}`;
       },
     }),
@@ -218,6 +222,7 @@ export function buildTools(
       inputSchema: z.object({ item_id: z.string() }),
       execute: async ({ item_id }) => {
         const url = `${config.monday.accountUrl}/boards/${config.monday.devBoardId}/pulses/${item_id}`;
+        mondayItemUrl = url;
         if (dry) return `[dry-run] would add +1 to Dev board item ${item_id}. INTERNAL item URL (private note only): ${url}`;
         const r = await monday.addPlusOne(item_id, ticketId ? ticketUrl(ticketId) : "(no ticket)");
         return `Added +1 to the Dev board item. INTERNAL item URL — put in the private note ONLY, never the customer reply: ${r.url}`;
@@ -247,17 +252,20 @@ export function buildTools(
     // ── Slack ──
     send_escalation: tool({
       description:
-        "Post an escalation to the dev team's Slack channel. Provide a one-paragraph summary, what you already tried, and a specific question (the ticket and account URLs are attached automatically).",
+        "Post an escalation to the dev team's Slack channel. Provide a one-paragraph summary, what you already tried, and a specific question (the ticket and account URLs, plus the Dev board item link if one was created/linked this turn, are attached automatically).",
       inputSchema: z.object({
         summary: z.string(),
         already_tried: z.string(),
         question: z.string(),
       }),
       execute: async ({ summary, already_tried, question }) => {
-        if (dry) return `[dry-run] would escalate to Slack:\nSummary: ${summary}\nTried: ${already_tried}\nQuestion: ${question}`;
+        if (dry) {
+          return `[dry-run] would escalate to Slack:\nSummary: ${summary}\nTried: ${already_tried}\nQuestion: ${question}${mondayItemUrl ? `\nDev board item: ${mondayItemUrl}` : ""}`;
+        }
         const r = await slack.sendEscalation({
           freshdeskTicketUrl: ticketId ? ticketUrl(ticketId) : "(no ticket)",
           userAccountUrl: accountUrl(ctx),
+          mondayItemUrl,
           summary,
           alreadyTried: already_tried,
           question,

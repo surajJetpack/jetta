@@ -25,6 +25,8 @@ async function postMessage(channel: string, text: string, threadTs?: string): Pr
 export interface EscalationInput {
   freshdeskTicketUrl: string;
   userAccountUrl: string;
+  /** Dev board item URL, when create_dev_item/add_plus_one ran earlier this turn. Internal channel only. */
+  mondayItemUrl?: string;
   /** One-paragraph summary of the issue. */
   summary: string;
   /** What Jetta already tried. */
@@ -40,6 +42,7 @@ export async function sendEscalation(input: EscalationInput): Promise<{ ts: stri
     `:rotating_light: *Escalation from Jetta*`,
     `*Ticket:* ${input.freshdeskTicketUrl}`,
     `*Account:* ${input.userAccountUrl}`,
+    ...(input.mondayItemUrl ? [`*Dev board item:* ${input.mondayItemUrl}`] : []),
     "",
     `*Issue:* ${input.summary}`,
     `*Already tried:* ${input.alreadyTried}`,
