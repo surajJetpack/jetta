@@ -16,13 +16,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "node:crypto";
 import { config } from "@/lib/config";
-import { kvSet, kvGet, kvDel, addDraft, getDraft, deleteDraft, upsertManagedArticle } from "@/lib/kv";
+import { kvSet, kvGet, kvDel } from "@/lib/kv";
+import { getArticle, createArticle, updateArticle, transitionState } from "@/lib/kb-store";
 import * as freshdesk from "@/lib/tools/freshdesk";
 import * as fastspring from "@/lib/tools/fastspring";
 import * as monday from "@/lib/tools/monday";
 import { replyInThread, readThread } from "@/lib/tools/slack";
 import { draftKbArticle } from "@/lib/knowledge-loop";
-import { vectorEnabled, upsertDocs } from "@/lib/vector";
 
 export const runtime = "nodejs";
 
@@ -179,16 +179,30 @@ async function handleCommand(
       return;
     }
     const draft = await draftKbArticle(threadText);
-    await addDraft({
-      id: threadTs,
-      channel,
-      threadTs,
-      title: draft.title,
-      body: draft.body,
-      keywords: draft.keywords,
-      createdBy: userId,
-      at: Math.floor(Date.now() / 1000),
-    });
+    // Draft article id = thread ts, so `publish kb` in the same thread finds it.
+    const existing = await getArticle(threadTs);
+    if (existing && existing.state === "draft") {
+      await updateArticle(
+        threadTs,
+        { title: draft.title, body: draft.body, keywords: draft.keywords },
+        `slack:${userId}`,
+      );
+    } else if (!existing) {
+      await createArticle({
+        id: threadTs,
+        title: draft.title,
+        body: draft.body,
+        keywords: draft.keywords,
+        category: "support-learned",
+        state: "draft",
+        origin: "knowledge-loop",
+        createdBy: `slack:${userId}`,
+        meta: { channel, threadTs },
+      });
+    } else {
+      await reply(`This thread's draft was already published as *${existing.title}* — edit it in the console KB tab instead.`);
+      return;
+    }
     await reply(
       [
         ":memo: *Draft KB article* — review before publishing:",
@@ -215,29 +229,23 @@ async function handleCommand(
       await reply("Run `@Jetta publish kb` in the thread that has the draft.");
       return;
     }
-    const draft = await getDraft(threadTs);
+    const draft = await getArticle(threadTs);
     if (!draft) {
-      await reply("No draft found in this thread (it may have expired). Run `@Jetta draft kb` first.");
+      await reply("No draft found in this thread. Run `@Jetta draft kb` first.");
       return;
     }
-    const id = `loop-${crypto.randomUUID()}`;
-    await upsertManagedArticle({
-      id,
-      title: draft.title,
-      url: "", // internal knowledge-loop article — no customer-facing URL to cite
-      body: draft.body,
-      keywords: draft.keywords,
-      origin: "knowledge-loop",
-      createdBy: userId,
-      at: Math.floor(Date.now() / 1000),
-    });
-    // Also embed into the vector index so it's semantically searchable now.
-    if (vectorEnabled()) {
-      await upsertDocs([
-        { id, title: draft.title, url: "", body: draft.body, source: "managed" },
-      ]).catch((e) => console.warn("vector upsert failed:", e));
+    if (draft.state === "published") {
+      await reply(`Already published: *${draft.title}*.`);
+      return;
     }
-    await deleteDraft(threadTs);
+    // Publish = lifecycle transition on the same article; the store embeds it
+    // into the vector index and records the audit event.
+    try {
+      await transitionState(threadTs, "published", `slack:${userId}`);
+    } catch (e) {
+      await reply(`:warning: Couldn't publish: ${e instanceof Error ? e.message : "unknown error"}`);
+      return;
+    }
     await reply(`:white_check_mark: Added to Jetta's knowledge base: *${draft.title}*. She'll use it on matching tickets from now on.`);
     return;
   }

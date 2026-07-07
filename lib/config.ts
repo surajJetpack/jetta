@@ -129,9 +129,28 @@ export const config = {
   vector: {
     url: env("UPSTASH_VECTOR_REST_URL"),
     token: env("UPSTASH_VECTOR_REST_TOKEN"),
-    /** Gemini embedding model + output dimension (index must match). */
+    /**
+     * Hybrid mode: point at an Upstash HYBRID index (hosted dense embedding
+     * model + BM25 sparse, created that way in the console) and set
+     * UPSTASH_VECTOR_HYBRID=true. Upserts/queries then send raw text and
+     * Upstash embeds server-side — no client-side Gemini embedding call.
+     * Leave unset for the legacy client-embedded dense index (rollback path).
+     */
+    hybrid: env("UPSTASH_VECTOR_HYBRID") === "true",
+    /** Legacy dense mode: Gemini embedding model + dimension (index must match). */
     embedModel: "gemini-embedding-001",
     dimension: 768,
+  },
+
+  /** LLM-as-reranker for KB retrieval (RERANK_ENABLED=false to kill-switch). */
+  rerank: {
+    enabled: env("RERANK_ENABLED") !== "false",
+    /** Cheap + fast; quality is judged by scripts/kb-eval.ts, not vibes. */
+    models: {
+      google: "gemini-2.5-flash-lite",
+      anthropic: "claude-haiku-4-5",
+    } as Record<LlmProvider, string>,
+    timeoutMs: 3500,
   },
 
   liveSessionBookingUrl:

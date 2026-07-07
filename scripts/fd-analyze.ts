@@ -11,8 +11,7 @@ import fs from "node:fs";
 import { generateObject } from "ai";
 import { z } from "zod";
 import { getModel } from "../lib/llm";
-import { GETSIGN_KB } from "../lib/knowledge/getsign-kb";
-import { addDraft } from "../lib/kv";
+import { listArticles, createArticle } from "../lib/kb-store";
 
 const Schema = z.object({
   summary: z.string().describe("2-3 sentence overview of what customers contact support about."),
@@ -55,7 +54,8 @@ async function main() {
   const corpus = tickets
     .map((t) => `#${t.id} [${(t.tags || []).join(",")}] ${t.subject}\nPROBLEM: ${t.problem}\nRESOLUTION: ${t.resolution}`)
     .join("\n\n----\n\n");
-  const kbTitles = GETSIGN_KB.map((a) => a.title).join("; ");
+  const published = await listArticles({ state: "published", limit: 2000 });
+  const kbTitles = published.map((a) => a.title).join("; ");
 
   const { object } = await generateObject({
     model: getModel(),
@@ -84,15 +84,18 @@ async function main() {
   for (const [i, c] of gaps.entries()) {
     console.log(`  • ${c.draft.title}`);
     if (process.env.PUSH) {
-      await addDraft({
+      // Lands in the /kb review queue as a draft-state article; duplicate
+      // detection runs at save time and flags near-matches for the reviewer.
+      await createArticle({
         id: `mined-${Date.now()}-${i}`,
-        channel: "freshdesk-analysis",
-        threadTs: `analysis-${i}`,
         title: c.draft.title,
         body: c.draft.body,
         keywords: c.draft.keywords,
+        category: "support-learned",
+        state: "draft",
+        origin: "fd-mined",
         createdBy: "freshdesk-analysis",
-        at: Math.floor(Date.now() / 1000),
+        meta: { channel: "freshdesk-analysis" },
       });
     }
   }

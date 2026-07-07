@@ -18,9 +18,10 @@ import * as freshdesk from "./freshdesk";
 import * as fastspring from "./fastspring";
 import * as monday from "./monday";
 import * as slack from "./slack";
-import { searchGetSignKb } from "../knowledge/getsign-kb";
-import { searchManagedKb } from "../knowledge/dynamic-kb";
-import { vectorEnabled, queryVector } from "../vector";
+import { searchPublishedKb } from "../knowledge/dynamic-kb";
+import { vectorEnabled, queryVector, type VectorHit } from "../vector";
+import { rerankHits } from "../rerank";
+import { recordKbHits } from "../kv";
 
 export interface AgentSignals {
   resolutionSent: boolean;
@@ -72,22 +73,21 @@ export function buildTools(
         keyword: z.string().describe("Search terms drawn from the user's issue."),
       }),
       execute: async ({ keyword }) => {
-        let merged: { title: string; url: string; body?: string; summary?: string; source?: string }[];
+        let merged: { id: string; title: string; url: string; body?: string; source?: string }[];
         if (vectorEnabled()) {
-          // RAG path: semantic search over the ingested KB — GetSign articles,
-          // the full Freshdesk Solutions KB (all products), and approved
-          // Knowledge-Loop articles all live in the vector index.
-          merged = await queryVector(keyword, 6).catch(() => []);
+          // RAG path: over-fetch from the index (only PUBLISHED articles live
+          // there), then let the reranker pick the best 5. Rerank failure
+          // falls back to fusion order — retrieval never fails on it.
+          const candidates = await queryVector(keyword, 12).catch(() => [] as VectorHit[]);
+          merged = await rerankHits(keyword, candidates, 5);
         } else {
-          // Keyword fallback: managed (human-curated) → curated GetSign KB.
-          const [managed, local] = await Promise.all([
-            searchManagedKb(keyword).catch(() => []),
-            Promise.resolve(searchGetSignKb(keyword)),
-          ]);
-          merged = [...managed, ...local];
+          // Keyword fallback over published articles in the unified store.
+          merged = await searchPublishedKb(keyword, 5).catch(() => []);
         }
+        // Usage counters — a metric write must never break the agent loop.
+        recordKbHits(merged.map((h) => h.id)).catch(() => {});
         return merged.length
-          ? JSON.stringify(merged)
+          ? JSON.stringify(merged.map((h) => ({ title: h.title, url: h.url, body: h.body, source: h.source })))
           : "No knowledge base articles matched. Do not invent product steps — ask the user for specifics or escalate.";
       },
     }),

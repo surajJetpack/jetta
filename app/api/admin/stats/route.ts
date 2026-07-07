@@ -3,7 +3,8 @@
  * the approved Knowledge-Loop articles. Read-only; powers the Analytics panel.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { getOutcomes, listManagedArticles, type OutcomeEvent } from "@/lib/kv";
+import { getOutcomes, type OutcomeEvent } from "@/lib/kv";
+import { listArticles } from "@/lib/kb-store";
 import { config } from "@/lib/config";
 import { adminAuthorized } from "@/lib/auth";
 
@@ -66,7 +67,10 @@ export async function GET(req: NextRequest) {
   const toolUsage: Record<string, number> = {};
   for (const o of outcomes) for (const t of o.toolsUsed) toolUsage[t] = (toolUsage[t] ?? 0) + 1;
 
-  const approved = await listManagedArticles();
+  // "Approved" = published articles the team added (not the seeded corpus).
+  const approved = (await listArticles({ state: "published", limit: 500 })).filter(
+    (a) => a.origin !== "seed-getsign",
+  );
 
   return NextResponse.json({
     outcomes: {
@@ -82,7 +86,7 @@ export async function GET(req: NextRequest) {
     toolUsage: Object.entries(toolUsage)
       .map(([tool, count]) => ({ tool, count }))
       .sort((a, b) => b.count - a.count),
-    approvedArticles: approved.map((a) => ({ title: a.title, approvedBy: a.createdBy, at: a.at })),
+    approvedArticles: approved.map((a) => ({ title: a.title, approvedBy: a.createdBy, at: a.updatedAt })),
     recent: outcomes.slice(0, 25),
   });
 }

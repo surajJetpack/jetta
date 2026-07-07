@@ -1,13 +1,21 @@
 /**
- * RAG retrieval layer — Upstash Vector + Gemini embeddings (AI SDK).
+ * RAG retrieval layer — Upstash Vector, in one of two modes:
  *
- * Behind a config flag: if UPSTASH_VECTOR_REST_* are set, semantic search is
- * used; otherwise callers fall back to keyword search. Embeddings use
- * gemini-embedding-001 at a fixed 768 dims (the index must be created with the
- * same dimension + cosine metric). Documents are embedded with the
- * RETRIEVAL_DOCUMENT task type and queries with RETRIEVAL_QUERY for best recall.
+ * HYBRID (config.vector.hybrid, the target setup): the index is created in
+ * Upstash as a hybrid index (hosted dense embedding model + BM25 sparse).
+ * We send raw text on upsert/query and Upstash embeds server-side; results
+ * are fused with Reciprocal Rank Fusion. BM25 covers exact-term queries
+ * (error strings, "OTP", "docx") where pure dense retrieval is weak.
+ *
+ * LEGACY DENSE (default): client-side Gemini embeddings (gemini-embedding-001,
+ * 768 dims, cosine — the index must be created to match). Kept as the
+ * rollback path: flipping UPSTASH_VECTOR_HYBRID + the index URL env vars
+ * switches modes with no code change.
+ *
+ * Behind a config flag: if UPSTASH_VECTOR_REST_* are unset, callers fall back
+ * to keyword search over the KB store.
  */
-import { Index } from "@upstash/vector";
+import { FusionAlgorithm, Index } from "@upstash/vector";
 import { embed, embedMany } from "ai";
 import { google } from "@ai-sdk/google";
 import { config } from "./config";
@@ -39,6 +47,7 @@ export interface VectorDoc {
 }
 
 export interface VectorHit {
+  id: string;
   title: string;
   url: string;
   body: string;
@@ -46,22 +55,31 @@ export interface VectorHit {
   score: number;
 }
 
+type HitMetadata = { title: string; url: string; body: string; source: string };
+
 /** Embed + upsert documents (chunk = title + body; articles are short). */
 export async function upsertDocs(docs: VectorDoc[]): Promise<number> {
   const i = index();
   if (!i || !docs.length) return 0;
+  const metadata = (d: VectorDoc): HitMetadata => ({
+    title: d.title,
+    url: d.url,
+    body: d.body,
+    source: d.source,
+  });
+  if (config.vector.hybrid) {
+    // Hybrid index: raw text; Upstash embeds dense + BM25 server-side.
+    await i.upsert(
+      docs.map((d) => ({ id: d.id, data: `${d.title}\n\n${d.body}`, metadata: metadata(d) })),
+    );
+    return docs.length;
+  }
   const { embeddings } = await embedMany({
     model: embedModel(),
     values: docs.map((d) => `${d.title}\n\n${d.body}`),
     providerOptions: providerOptions("RETRIEVAL_DOCUMENT"),
   });
-  await i.upsert(
-    docs.map((d, n) => ({
-      id: d.id,
-      vector: embeddings[n],
-      metadata: { title: d.title, url: d.url, body: d.body, source: d.source },
-    })),
-  );
+  await i.upsert(docs.map((d, n) => ({ id: d.id, vector: embeddings[n], metadata: metadata(d) })));
   return docs.length;
 }
 
@@ -83,16 +101,26 @@ export async function resetIndex(): Promise<void> {
 export async function queryVector(query: string, topK = 5): Promise<VectorHit[]> {
   const i = index();
   if (!i) return [];
-  const { embedding } = await embed({
-    model: embedModel(),
-    value: query,
-    providerOptions: providerOptions("RETRIEVAL_QUERY"),
-  });
-  const res = await i.query({ vector: embedding, topK, includeMetadata: true });
+  let res;
+  if (config.vector.hybrid) {
+    res = await i.query({
+      data: query,
+      topK,
+      includeMetadata: true,
+      fusionAlgorithm: FusionAlgorithm.RRF,
+    });
+  } else {
+    const { embedding } = await embed({
+      model: embedModel(),
+      value: query,
+      providerOptions: providerOptions("RETRIEVAL_QUERY"),
+    });
+    res = await i.query({ vector: embedding, topK, includeMetadata: true });
+  }
   return res
     .filter((r) => r.metadata)
     .map((r) => {
-      const m = r.metadata as { title: string; url: string; body: string; source: string };
-      return { title: m.title, url: m.url, body: m.body, source: m.source, score: r.score };
+      const m = r.metadata as HitMetadata;
+      return { id: String(r.id), title: m.title, url: m.url, body: m.body, source: m.source, score: r.score };
     });
 }

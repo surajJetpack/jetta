@@ -196,6 +196,93 @@ export async function listAllSolutionArticles(): Promise<SolutionArticle[]> {
   return out;
 }
 
+// ── Solutions write API — publish KB articles to the customer help center ──
+
+export interface SolutionFolder {
+  id: string;
+  name: string;
+  categoryName: string;
+}
+
+/** List Solutions folders (targets for the category → folder mapping). */
+export async function listSolutionFolders(): Promise<SolutionFolder[]> {
+  if (!config.freshdesk.live) {
+    return [
+      { id: "stub-folder-1", name: "GetSign — How-tos", categoryName: "GetSign" },
+      { id: "stub-folder-2", name: "General", categoryName: "General" },
+    ];
+  }
+  type FDCat = { id: number; name: string };
+  type FDFolder = { id: number; name: string };
+  const out: SolutionFolder[] = [];
+  const cats = await fd<FDCat[]>(`/solutions/categories`);
+  for (const cat of cats) {
+    const folders = await fd<FDFolder[]>(`/solutions/categories/${cat.id}/folders`).catch(() => []);
+    for (const f of folders) out.push({ id: String(f.id), name: f.name, categoryName: cat.name });
+  }
+  return out;
+}
+
+/** Plain text / light markdown → simple HTML for the Freshdesk description field. */
+export function textToFdHtml(text: string): string {
+  const esc = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return esc
+    .split(/\n{2,}/)
+    .map((para) => `<p>${para.replace(/\n/g, "<br>")}</p>`)
+    .join("");
+}
+
+export interface FdArticleRef {
+  id: string;
+  url: string;
+}
+
+/** Create a Solutions article in a folder. status: 1 = FD draft, 2 = published. */
+export async function createSolutionArticle(
+  folderId: string,
+  a: { title: string; html: string; status?: 1 | 2 },
+): Promise<FdArticleRef> {
+  if (!config.freshdesk.live) {
+    const id = `stub-fd-${Date.now()}`;
+    console.log(`[stub] create Solutions article in folder ${folderId}: "${a.title}" (${id})`);
+    return { id, url: `https://stub.freshdesk.local/solutions/articles/${id}` };
+  }
+  type FDArticle = { id: number };
+  const created = await fd<FDArticle>(`/solutions/folders/${folderId}/articles`, {
+    method: "POST",
+    body: JSON.stringify({ title: a.title, description: a.html, status: a.status ?? 2 }),
+  });
+  return {
+    id: String(created.id),
+    url: `https://${config.freshdesk.domain}/support/solutions/articles/${created.id}`,
+  };
+}
+
+/** Update an existing Solutions article. Throws "fd-article-gone" on 404. */
+export async function updateSolutionArticle(
+  articleId: string,
+  a: { title: string; html: string; status?: 1 | 2 },
+): Promise<FdArticleRef> {
+  if (!config.freshdesk.live) {
+    console.log(`[stub] update Solutions article ${articleId}: "${a.title}"`);
+    return { id: articleId, url: `https://stub.freshdesk.local/solutions/articles/${articleId}` };
+  }
+  try {
+    await fd(`/solutions/articles/${articleId}`, {
+      method: "PUT",
+      body: JSON.stringify({ title: a.title, description: a.html, status: a.status ?? 2 }),
+    });
+  } catch (e) {
+    // Deleted on the Freshdesk side — signal the caller to re-create.
+    if (e instanceof Error && / 404 /.test(e.message)) throw new Error("fd-article-gone");
+    throw e;
+  }
+  return {
+    id: articleId,
+    url: `https://${config.freshdesk.domain}/support/solutions/articles/${articleId}`,
+  };
+}
+
 export async function replyToTicket(ticketId: string, body: string): Promise<void> {
   if (!config.freshdesk.live) {
     console.log(`[stub] reply_to_ticket #${ticketId}:\n${body}`);

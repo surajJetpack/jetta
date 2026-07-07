@@ -174,9 +174,65 @@ export async function getOutcomes(limit = 200): Promise<OutcomeEvent[]> {
   return memOutcomes.slice(0, limit);
 }
 
-// ── Managed KB — human-curated articles (UI CRUD + Knowledge-Loop) ──
-// Id-keyed so individual articles can be edited/deleted. Each article is a
-// Redis key; an index set tracks all ids. The caller syncs the vector index.
+// ── KB usage counters ──────────────────────────────────────────────
+// Incremented (fire-and-forget) each time search_knowledge_base returns an
+// article to the agent — the cheap signal for "which articles earn their keep".
+const KB_HITS = "jetta:kb:hits";
+const KB_LASTHIT = "jetta:kb:lasthit";
+const kbHitsMonthKey = (d = new Date()) =>
+  `jetta:kb:hits:m:${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+
+const memKbHits = new Map<string, { total: number; month: number; lastHit: number }>();
+
+/** Record that these article ids were returned to the agent. Never throws. */
+export async function recordKbHits(ids: string[]): Promise<void> {
+  if (!ids.length) return;
+  const r = client();
+  const t = Math.floor(Date.now() / 1000);
+  if (r) {
+    const monthKey = kbHitsMonthKey();
+    const p = r.pipeline();
+    for (const id of ids) {
+      p.hincrby(KB_HITS, id, 1);
+      p.hincrby(monthKey, id, 1);
+      p.hset(KB_LASTHIT, { [id]: t });
+    }
+    p.expire(monthKey, 90 * 86400); // monthly counters age out on their own
+    await p.exec();
+    return;
+  }
+  for (const id of ids) {
+    const e = memKbHits.get(id) ?? { total: 0, month: 0, lastHit: 0 };
+    memKbHits.set(id, { total: e.total + 1, month: e.month + 1, lastHit: t });
+  }
+}
+
+export interface KbUsage {
+  total: number;
+  month: number;
+  lastHit: number;
+}
+
+/** All-time + current-month hit counts and last-hit time, keyed by article id. */
+export async function getKbUsage(): Promise<Record<string, KbUsage>> {
+  const r = client();
+  if (!r) return Object.fromEntries(memKbHits);
+  const [totals, months, lastHits] = await Promise.all([
+    r.hgetall<Record<string, number>>(KB_HITS),
+    r.hgetall<Record<string, number>>(kbHitsMonthKey()),
+    r.hgetall<Record<string, number>>(KB_LASTHIT),
+  ]);
+  const out: Record<string, KbUsage> = {};
+  for (const [id, total] of Object.entries(totals ?? {})) {
+    out[id] = { total: Number(total), month: Number(months?.[id] ?? 0), lastHit: Number(lastHits?.[id] ?? 0) };
+  }
+  return out;
+}
+
+// ── Managed KB — DEPRECATED, superseded by lib/kb-store.ts ─────────
+// Kept only so scripts/kb-migrate.ts can read the old keys during the
+// migration soak period. No runtime code writes here anymore. Delete this
+// section (and the old jetta:kb:managed:* / jetta:kbdraft:* keys) after soak.
 export interface ManagedArticle {
   id: string;
   title: string;
@@ -230,7 +286,8 @@ export async function listManagedArticles(): Promise<ManagedArticle[]> {
   return [...memManaged.values()].sort((x, y) => y.at - x.at);
 }
 
-// ── Pending Knowledge-Loop drafts (await approval, UI or Slack) ────
+// ── Pending drafts — DEPRECATED, superseded by lib/kb-store.ts ─────
+// (drafts are now articles in "draft" state; read-only for migration)
 export interface PendingDraft {
   id: string;
   channel: string;

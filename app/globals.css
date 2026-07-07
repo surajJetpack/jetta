@@ -328,3 +328,185 @@ button:disabled {
 .endpoints li:last-child {
   border-bottom: 0;
 }
+
+/* ── KB manager ───────────────────────────────────────────────────── */
+.pills {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 16px;
+  flex-wrap: wrap;
+}
+.pill {
+  font-size: 13px;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 6px 14px;
+  background: var(--panel);
+}
+.pill:hover {
+  color: var(--text);
+}
+.pill.active {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.kb-toolbar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+  align-items: center;
+}
+.kb-toolbar select,
+.kb-toolbar input[type="text"] {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 9px;
+  padding: 8px 11px;
+  font-size: 13px;
+  font-family: var(--sans);
+}
+.kb-toolbar input[type="text"] {
+  flex: 1;
+  min-width: 140px;
+  font-family: var(--mono);
+}
+.kb-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13.5px;
+}
+.kb-row:hover {
+  background: var(--panel-2);
+}
+.kb-row .t {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.kb-row .n {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+  min-width: 52px;
+  text-align: right;
+}
+.state {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-radius: 6px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+.state.draft { color: var(--stub); background: color-mix(in srgb, var(--stub) 15%, transparent); }
+.state.in_review { color: var(--accent-2); background: color-mix(in srgb, var(--accent-2) 15%, transparent); }
+.state.published { color: var(--live); background: color-mix(in srgb, var(--live) 15%, transparent); }
+.state.archived { color: var(--muted); background: color-mix(in srgb, var(--muted) 15%, transparent); }
+.state.stale { color: var(--danger); background: color-mix(in srgb, var(--danger) 14%, transparent); }
+.kb-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+@media (max-width: 900px) {
+  .kb-split { grid-template-columns: 1fr; }
+}
+.kb-split textarea {
+  width: 100%;
+  min-height: 380px;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 12px;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.55;
+  resize: vertical;
+}
+.kb-split textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.kb-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 13px;
+}
+.kb-meta .k {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 3px;
+}
+
+/* Rendered markdown */
+.md {
+  font-size: 14px;
+  line-height: 1.6;
+  overflow-wrap: break-word;
+}
+.md h1, .md h2, .md h3, .md h4 {
+  color: var(--text);
+  margin: 14px 0 6px;
+  line-height: 1.3;
+}
+.md h1 { font-size: 18px; }
+.md h2 { font-size: 16px; }
+.md h3, .md h4 { font-size: 14px; }
+.md p { margin: 8px 0; }
+.md ul, .md ol { margin: 8px 0; padding-left: 22px; }
+.md li { margin: 3px 0; }
+.md code {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 1px 5px;
+}
+.md pre {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  overflow-x: auto;
+  margin: 8px 0;
+}
+.md pre code { border: 0; padding: 0; background: transparent; }
+.md blockquote {
+  border-left: 3px solid var(--border);
+  margin: 8px 0;
+  padding: 2px 12px;
+  color: var(--muted);
+}
+.md table { border-collapse: collapse; margin: 8px 0; }
+.md th, .md td { border: 1px solid var(--border); padding: 5px 10px; font-size: 13px; }
+
+/* Review-queue diff */
+.diff {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.diff .add { color: var(--live); background: color-mix(in srgb, var(--live) 10%, transparent); }
+.diff .del { color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, transparent); text-decoration: line-through; }
