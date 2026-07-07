@@ -103,11 +103,13 @@ export async function queryVector(query: string, topK = 5): Promise<VectorHit[]>
   if (!i) return [];
   let res;
   if (config.vector.hybrid) {
+    // DBSF beat RRF on the golden set (MRR 0.956 vs 0.932, recall@5 1.0 vs
+    // 0.974 — scripts/kb-eval.ts, 2026-07-07); re-eval before changing.
     res = await i.query({
       data: query,
       topK,
       includeMetadata: true,
-      fusionAlgorithm: FusionAlgorithm.RRF,
+      fusionAlgorithm: FusionAlgorithm.DBSF,
     });
   } else {
     const { embedding } = await embed({
