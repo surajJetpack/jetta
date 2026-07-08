@@ -12,6 +12,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ k
 
   const integrations: { name: string; live: boolean; note?: string }[] = [
     { name: "Freshdesk", live: config.freshdesk.live, note: config.freshdesk.domain },
+    { name: "Freshchat", live: config.freshchat.live },
     { name: "FastSpring", live: config.fastspring.live },
     { name: "monday.com", live: config.monday.live },
     { name: "Slack", live: config.slack.live },
@@ -44,12 +45,13 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ k
         </div>
       </section>
 
-      <TicketTester freshdeskLive={config.freshdesk.live} adminKey={adminKey} />
+      <TicketTester freshdeskLive={config.freshdesk.live} freshchatLive={config.freshchat.live} adminKey={adminKey} />
 
       <section className="card endpoints">
         <h2>Endpoints</h2>
         <ul>
-          <li><code>POST /api/webhook</code> — Freshdesk / Freshchat events (production entrypoint)</li>
+          <li><code>POST /api/webhook</code> — Freshdesk events (production entrypoint)</li>
+          <li><code>POST /api/webhook/freshchat</code> — Freshchat conversation events (Freddy hand-off)</li>
           <li><code>POST /api/slack</code> — Slack admin commands (@Jetta …)</li>
           <li><code>GET /api/cron/followup</code> — daily 24h follow-up checker</li>
           <li><code>POST /api/admin/run</code> — this console&apos;s ticket runner (admin-gated)</li>

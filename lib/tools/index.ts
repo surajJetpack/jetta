@@ -15,6 +15,7 @@ import { z } from "zod";
 import type { ConversationContext } from "../types";
 import { config } from "../config";
 import * as freshdesk from "./freshdesk";
+import * as freshchat from "./freshchat";
 import * as fastspring from "./fastspring";
 import * as monday from "./monday";
 import * as slack from "./slack";
@@ -50,6 +51,11 @@ export function buildTools(
   const ticketId = ctx.ticket?.id;
   const requesterEmail = ctx.ticket?.requesterEmail ?? undefined;
   const dry = opts.dryRun === true;
+  const isChat = ctx.channel === "freshchat";
+  // Escalations/dev items should deep-link to the actual interaction — the
+  // Freshchat console for chats, the Freshdesk ticket otherwise.
+  const interactionUrl = (id: string) =>
+    isChat ? freshchat.conversationUrl(id) : ticketUrl(id);
   // Set by create_dev_item/add_plus_one so send_escalation can attach the Dev
   // board item link automatically, the same way ticket/account URLs are.
   let mondayItemUrl: string | undefined;
@@ -62,7 +68,11 @@ export function buildTools(
       inputSchema: z.object({}),
       execute: async () => {
         if (!ticketId) return "No active ticket in this context.";
-        return JSON.stringify(await freshdesk.getTicketDetails(ticketId));
+        return JSON.stringify(
+          isChat
+            ? await freshchat.getConversationAsTicket(ticketId)
+            : await freshdesk.getTicketDetails(ticketId),
+        );
       },
     }),
 
@@ -93,20 +103,26 @@ export function buildTools(
     }),
 
     reply_to_ticket: tool({
-      description:
-        "Post a reply to the current ticket as the Jetta agent. Accepts markdown. This is the customer-visible response.",
+      description: isChat
+        ? "Send a chat message to the customer. Keep it short and conversational; plain text (no headings), links as bare URLs. This is the customer-visible response."
+        : "Post a reply to the current ticket as the Jetta agent. Accepts markdown. This is the customer-visible response.",
       inputSchema: z.object({ body: z.string().describe("The reply, in markdown.") }),
       execute: async ({ body }) => {
         if (!ticketId) return "No active ticket to reply to.";
         if (dry) return `[dry-run] would post reply:\n${body}`;
+        if (isChat) {
+          await freshchat.replyToConversation(ticketId, body);
+          return "Chat message sent to the customer.";
+        }
         await freshdesk.replyToTicket(ticketId, body);
         return "Reply posted to the ticket.";
       },
     }),
 
     add_private_note: tool({
-      description:
-        "Add an internal agent-only note to the current ticket. Use 'resolution_sent' as the status immediately after you send a fix, so the 24h follow-up is scheduled.",
+      description: isChat
+        ? "Log an internal agent-only note about this conversation (stored in Jetta's run log — the customer never sees it). Use 'resolution_sent' as the status immediately after you send a fix."
+        : "Add an internal agent-only note to the current ticket. Use 'resolution_sent' as the status immediately after you send a fix, so the 24h follow-up is scheduled.",
       inputSchema: z.object({
         body: z.string().describe("The internal note."),
         status: z
@@ -120,6 +136,11 @@ export function buildTools(
         if (dry) {
           return `[dry-run] would add private note${status === "resolution_sent" ? " (resolution_sent → schedules follow-up)" : ""}:\n${body}`;
         }
+        if (isChat) {
+          // Freshchat conversations have no private notes; the note text is
+          // preserved verbatim in the run trace, so nothing is lost.
+          return "Internal note logged (chat channel — recorded in Jetta's run log only).";
+        }
         await freshdesk.addPrivateNote(ticketId, body);
         return status === "resolution_sent"
           ? "Private note added. Follow-up scheduled."
@@ -128,12 +149,17 @@ export function buildTools(
     }),
 
     close_ticket: tool({
-      description:
-        "Mark the current ticket resolved. Only call after the user has explicitly confirmed the issue is fixed.",
+      description: isChat
+        ? "Resolve the chat conversation. Only call after the customer confirms the issue is fixed or clearly ends the chat."
+        : "Mark the current ticket resolved. Only call after the user has explicitly confirmed the issue is fixed.",
       inputSchema: z.object({}),
       execute: async () => {
         if (!ticketId) return "No active ticket to close.";
-        if (dry) return "[dry-run] would mark the ticket resolved.";
+        if (dry) return `[dry-run] would mark the ${isChat ? "conversation" : "ticket"} resolved.`;
+        if (isChat) {
+          await freshchat.resolveConversation(ticketId);
+          return "Conversation marked resolved.";
+        }
         await freshdesk.closeTicket(ticketId);
         return "Ticket marked resolved.";
       },
@@ -209,7 +235,7 @@ export function buildTools(
           accountUrl: accountUrl(ctx),
           errorDescription: error_description,
           reproSteps: repro_steps,
-          freshdeskTicketUrl: ticketId ? ticketUrl(ticketId) : "(no ticket)",
+          freshdeskTicketUrl: ticketId ? interactionUrl(ticketId) : "(no ticket)",
         });
         mondayItemUrl = item.url;
         return `Created Dev board item "${item.title}". INTERNAL URL — put in the private note ONLY, never the customer reply: ${item.url}`;
@@ -224,7 +250,7 @@ export function buildTools(
         const url = `${config.monday.accountUrl}/boards/${config.monday.devBoardId}/pulses/${item_id}`;
         mondayItemUrl = url;
         if (dry) return `[dry-run] would add +1 to Dev board item ${item_id}. INTERNAL item URL (private note only): ${url}`;
-        const r = await monday.addPlusOne(item_id, ticketId ? ticketUrl(ticketId) : "(no ticket)");
+        const r = await monday.addPlusOne(item_id, ticketId ? interactionUrl(ticketId) : "(no ticket)");
         return `Added +1 to the Dev board item. INTERNAL item URL — put in the private note ONLY, never the customer reply: ${r.url}`;
       },
     }),
@@ -263,7 +289,7 @@ export function buildTools(
           return `[dry-run] would escalate to Slack:\nSummary: ${summary}\nTried: ${already_tried}\nQuestion: ${question}${mondayItemUrl ? `\nDev board item: ${mondayItemUrl}` : ""}`;
         }
         const r = await slack.sendEscalation({
-          freshdeskTicketUrl: ticketId ? ticketUrl(ticketId) : "(no ticket)",
+          freshdeskTicketUrl: ticketId ? interactionUrl(ticketId) : "(no ticket)",
           userAccountUrl: accountUrl(ctx),
           mondayItemUrl,
           summary,
@@ -281,7 +307,7 @@ export function buildTools(
       execute: async ({ partner_mention }) => {
         if (dry) return `[dry-run] would notify partnerships about: ${partner_mention}`;
         await slack.notifyPartnerManager(
-          ticketId ? ticketUrl(ticketId) : "(no ticket)",
+          ticketId ? interactionUrl(ticketId) : "(no ticket)",
           partner_mention,
         );
         return "Partnerships team notified.";

@@ -27,7 +27,8 @@ interface RunResult {
  *   - `sessionStorage` additionally covers a full page reload / cold module.
  * Both are client-only, so nothing leaks between SSR requests.
  */
-type RunState = { ticketId: string; dryRun: boolean; res: RunResult | null };
+type Channel = "freshdesk" | "freshchat";
+type RunState = { ticketId: string; dryRun: boolean; channel?: Channel; res: RunResult | null };
 const STORAGE_KEY = "jetta:lastRun";
 let cache: RunState | null = null;
 
@@ -41,11 +42,20 @@ function readStorage(): RunState | null {
   }
 }
 
-export default function TicketTester({ freshdeskLive, adminKey }: { freshdeskLive: boolean; adminKey: string }) {
+export default function TicketTester({
+  freshdeskLive,
+  freshchatLive,
+  adminKey,
+}: {
+  freshdeskLive: boolean;
+  freshchatLive: boolean;
+  adminKey: string;
+}) {
   // Initialise from defaults so the first client render matches the server (no
   // hydration mismatch); persisted state is loaded in the mount effect below.
   const [ticketId, setTicketId] = useState(() => cache?.ticketId ?? "");
   const [dryRun, setDryRun] = useState(() => cache?.dryRun ?? true);
+  const [channel, setChannel] = useState<Channel>(() => cache?.channel ?? "freshdesk");
   const [loading, setLoading] = useState(false);
   const [res, setRes] = useState<RunResult | null>(() => cache?.res ?? null);
 
@@ -59,13 +69,14 @@ export default function TicketTester({ freshdeskLive, adminKey }: { freshdeskLiv
     // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time rehydration from storage on mount
     setTicketId(saved.ticketId ?? "");
     setDryRun(saved.dryRun ?? true);
+    setChannel(saved.channel ?? "freshdesk");
     setRes(saved.res ?? null);
   }, []);
 
   // Persist the current run to both the module cache (survives tab navigation)
   // and sessionStorage (survives a reload).
   useEffect(() => {
-    cache = { ticketId, dryRun, res };
+    cache = { ticketId, dryRun, channel, res };
     if (typeof window !== "undefined") {
       try {
         window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(cache));
@@ -73,7 +84,7 @@ export default function TicketTester({ freshdeskLive, adminKey }: { freshdeskLiv
         /* storage full or unavailable — module cache still covers tab nav */
       }
     }
-  }, [ticketId, dryRun, res]);
+  }, [ticketId, dryRun, channel, res]);
 
   async function run() {
     if (!ticketId.trim()) return;
@@ -83,7 +94,7 @@ export default function TicketTester({ freshdeskLive, adminKey }: { freshdeskLiv
       const r = await fetch("/api/admin/run", {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-admin-secret": adminKey },
-        body: JSON.stringify({ ticketId: ticketId.trim(), dryRun }),
+        body: JSON.stringify({ ticketId: ticketId.trim(), dryRun, channel }),
       });
       setRes((await r.json()) as RunResult);
     } catch (e) {
@@ -93,15 +104,19 @@ export default function TicketTester({ freshdeskLive, adminKey }: { freshdeskLiv
     }
   }
 
-  const willPost = !dryRun && freshdeskLive;
+  const willPost = !dryRun && (channel === "freshchat" ? freshchatLive : freshdeskLive);
 
   return (
     <div className="card">
       <h2>Run a ticket through Jetta</h2>
       <div className="row">
+        <select value={channel} onChange={(e) => setChannel(e.target.value as Channel)}>
+          <option value="freshdesk">Freshdesk</option>
+          <option value="freshchat">Freshchat</option>
+        </select>
         <input
           type="text"
-          placeholder="Freshdesk ticket ID (e.g. 13599)"
+          placeholder={channel === "freshchat" ? "Freshchat conversation ID" : "Freshdesk ticket ID (e.g. 13599)"}
           value={ticketId}
           onChange={(e) => setTicketId(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && run()}
@@ -118,7 +133,8 @@ export default function TicketTester({ freshdeskLive, adminKey }: { freshdeskLiv
 
       {willPost && (
         <div className="warn">
-          ⚠ Dry run is OFF and Freshdesk is live — running will post a real reply to the ticket.
+          ⚠ Dry run is OFF and {channel === "freshchat" ? "Freshchat" : "Freshdesk"} is live — running will post a real
+          reply to the {channel === "freshchat" ? "conversation" : "ticket"}.
         </div>
       )}
 

@@ -79,7 +79,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "ticket not found", ticketId }, { status: 404 });
     }
 
-    const messages = buildMessages(ctx.ticket);
+    const messages = buildMessages(ctx.ticket, channel);
     const system = buildSystemPrompt(ctx);
     const started = Date.now();
     const result = await runAgentLoop(system, messages, ctx);

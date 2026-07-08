@@ -74,6 +74,27 @@ export const config = {
     live: liveFor("FRESHDESK_LIVE"),
   },
 
+  freshchat: {
+    live: liveFor("FRESHCHAT_LIVE"),
+    apiToken: env("FRESHCHAT_API_TOKEN"),
+    /**
+     * Full API base including the version segment, e.g.
+     * https://jetpackapps.freshchat.com/v2 — regional domains vary, so we take
+     * the whole base rather than deriving it from an account name.
+     */
+    apiUrl: (env("FRESHCHAT_API_URL") ?? "").replace(/\/$/, ""),
+    /** Jetta's Freshchat agent id — actor_id for outbound messages and the loop-prevention self-id. */
+    agentId: env("FRESHCHAT_AGENT_ID"),
+    /** Group Freddy hands off to; conversations assigned here (or to agentId) are Jetta's. */
+    handoffGroupId: env("FRESHCHAT_HANDOFF_GROUP_ID"),
+    /** PEM public key from Freshchat admin → webhooks, verifies X-Freshchat-Signature. */
+    webhookPublicKey: env("FRESHCHAT_WEBHOOK_PUBLIC_KEY"),
+    /** Agent-console base for deep links in escalations, e.g. https://jetpackapps.myfreshworks.com/crm/messaging */
+    webUrl: (env("FRESHCHAT_WEB_URL") ?? "").replace(/\/$/, ""),
+    /** Multi-message debounce window before the agent runs (seconds). */
+    debounceSeconds: Number(env("FRESHCHAT_DEBOUNCE_SECONDS") ?? "8"),
+  },
+
   fastspring: {
     live: liveFor("FASTSPRING_LIVE"),
     username: env("FASTSPRING_API_USERNAME"),

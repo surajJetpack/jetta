@@ -6,6 +6,7 @@
 import type { ModelMessage } from "ai";
 import type { ConversationContext, Product, Ticket } from "./types";
 import * as freshdesk from "./tools/freshdesk";
+import * as freshchat from "./tools/freshchat";
 import * as fastspring from "./tools/fastspring";
 import * as monday from "./tools/monday";
 
@@ -26,7 +27,10 @@ export async function buildContext(
   ticketId: string,
   channel: "freshdesk" | "freshchat" = "freshdesk",
 ): Promise<ConversationContext> {
-  const ticket = await freshdesk.getTicketDetails(ticketId);
+  const ticket =
+    channel === "freshchat"
+      ? await freshchat.getConversationAsTicket(ticketId)
+      : await freshdesk.getTicketDetails(ticketId);
   const product = inferProduct(`${ticket.subject}\n${ticket.description}`);
 
   const account = ticket.requesterEmail
@@ -47,11 +51,17 @@ export async function buildContext(
  * first turn. Subsequent public replies are mapped to user/assistant turns;
  * private notes are dropped (they are internal and would confuse the model).
  */
-export function buildMessages(ticket: Ticket): ModelMessage[] {
+export function buildMessages(
+  ticket: Ticket,
+  channel: "freshdesk" | "freshchat" = "freshdesk",
+): ModelMessage[] {
   const messages: ModelMessage[] = [
     {
       role: "user",
-      content: `[New ticket]\nSubject: ${ticket.subject}\n\n${ticket.description}`,
+      content:
+        channel === "freshchat"
+          ? `[Live chat — handed off to you by the front-line bot]\n\n${ticket.description}`
+          : `[New ticket]\nSubject: ${ticket.subject}\n\n${ticket.description}`,
     },
   ];
 

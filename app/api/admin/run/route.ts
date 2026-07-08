@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
   if (!adminAuthorized(req)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
-  let body: { ticketId?: string; dryRun?: boolean };
+  let body: { ticketId?: string; dryRun?: boolean; channel?: "freshdesk" | "freshchat" };
   try {
     body = (await req.json()) as typeof body;
   } catch {
@@ -33,9 +33,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "ticketId is required" }, { status: 400 });
   }
   const dryRun = body.dryRun !== false; // default to safe preview
+  const channel = body.channel === "freshchat" ? "freshchat" : "freshdesk";
 
   try {
-    const ctx = await buildContext(ticketId);
+    const ctx = await buildContext(ticketId, channel);
     if (!ctx.ticket) {
       return NextResponse.json({ error: "ticket not found", ticketId }, { status: 404 });
     }
@@ -43,7 +44,7 @@ export async function POST(req: NextRequest) {
     const started = Date.now();
     const result = await runAgentLoop(
       buildSystemPrompt(ctx),
-      buildMessages(ctx.ticket),
+      buildMessages(ctx.ticket, channel),
       ctx,
       { dryRun },
     );
@@ -59,9 +60,11 @@ export async function POST(req: NextRequest) {
         product: ctx.product,
       },
       model: modelLabel(),
+      channel,
       dryRun: result.dryRun,
       blockedByAllowlist: result.blockedByAllowlist,
       freshdeskLive: config.freshdesk.live,
+      freshchatLive: config.freshchat.live,
       durationMs,
       resolutionSent: result.resolutionSent,
       // The customer-facing reply is the reply_to_ticket body, not the model's

@@ -12,6 +12,8 @@
 import { Redis } from "@upstash/redis";
 import { config } from "./config";
 
+// TODO: add a `channel` field before scheduling any freshchat follow-ups — the
+// cron's reply/close path is Freshdesk-only, so chat runs skip scheduling today.
 export interface FollowUpJob {
   ticketId: string;
   /** Unix seconds when the job becomes due. */
