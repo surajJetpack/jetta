@@ -31,7 +31,7 @@ function ago(at: number) {
   return `${Math.floor(s / 86400)}d ago`;
 }
 
-export default function ActivityLog({ adminKey }: { adminKey: string }) {
+export default function ActivityLog() {
   const [logs, setLogs] = useState<RunLog[] | null>(null);
   const [open, setOpen] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -41,7 +41,7 @@ export default function ActivityLog({ adminKey }: { adminKey: string }) {
     setLoading(true);
     setErr(null);
     try {
-      const r = await fetch("/api/admin/logs", { cache: "no-store", headers: { "x-admin-secret": adminKey } });
+      const r = await fetch("/api/admin/logs", { cache: "no-store" });
       const d = await r.json();
       setLogs(d.logs ?? []);
     } catch (e) {
@@ -49,7 +49,7 @@ export default function ActivityLog({ adminKey }: { adminKey: string }) {
     } finally {
       setLoading(false);
     }
-  }, [adminKey]);
+  }, []);
 
   useEffect(() => { load(); }, [load]);
 

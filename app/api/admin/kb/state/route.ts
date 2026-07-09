@@ -5,7 +5,7 @@
  * (published ⇔ searchable by the agent).
  */
 import { NextRequest, NextResponse } from "next/server";
-import { adminAuthorized } from "@/lib/auth";
+import { adminAuthorized, adminActor } from "@/lib/auth";
 import { transitionState, ARTICLE_STATES, type ArticleState } from "@/lib/kb-store";
 
 export const runtime = "nodejs";
@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
     );
   }
   try {
-    const article = await transitionState(id, to, "console");
+    const article = await transitionState(id, to, adminActor(req) ?? "console");
     return NextResponse.json({ ok: true, article });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "transition failed";

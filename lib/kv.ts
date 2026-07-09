@@ -103,6 +103,39 @@ export async function clearFollowUp(ticketId: string): Promise<void> {
   memJobs.delete(ticketId);
 }
 
+// ── Fixed-window rate counter (login attempt limiting) ─────────────
+const memRates = new Map<string, { count: number; expiry: number }>();
+
+/**
+ * Increment and return the count for `key` in the current fixed window.
+ * The key expires `windowSeconds` after its first increment.
+ */
+export async function rateCount(key: string, windowSeconds: number): Promise<number> {
+  const r = client();
+  if (r) {
+    const count = await r.incr(key);
+    if (count === 1) await r.expire(key, windowSeconds);
+    return count;
+  }
+  const now = Math.floor(Date.now() / 1000);
+  const cur = memRates.get(key);
+  if (!cur || cur.expiry <= now) {
+    memRates.set(key, { count: 1, expiry: now + windowSeconds });
+    return 1;
+  }
+  cur.count += 1;
+  return cur.count;
+}
+
+/** Read the current count without incrementing (0 when absent/expired). */
+export async function rateCountPeek(key: string): Promise<number> {
+  const r = client();
+  if (r) return Number((await r.get<number | string>(key)) ?? 0);
+  const now = Math.floor(Date.now() / 1000);
+  const cur = memRates.get(key);
+  return cur && cur.expiry > now ? cur.count : 0;
+}
+
 // ── Generic short-lived key/value (used for the two-person cancel confirm) ──
 const memKv = new Map<string, { value: string; expiry: number }>();
 
@@ -148,6 +181,8 @@ export interface OutcomeEvent {
   replied: boolean;
   resolutionSent: boolean;
   escalated: boolean;
+  /** True when the turn produced a ReplyDraft awaiting human approval (draft mode). */
+  drafted?: boolean;
   /** handled = normal turn; reopened = customer replied after resolution; closed = auto-closed on silence. */
   kind: "handled" | "reopened" | "closed";
 }
@@ -360,6 +395,8 @@ export interface RunLog {
   model: string;
   dryRun: boolean;
   blockedByAllowlist: boolean;
+  /** True when customer-visible writes were held for human approval (draft mode). */
+  heldCustomerWrites?: boolean;
   replied: boolean;
   resolutionSent: boolean;
   escalated: boolean;
@@ -405,4 +442,117 @@ export async function getRunLogsByTicket(ticketId: string, limit = 50): Promise<
     return raw.map((x) => (typeof x === "string" ? (JSON.parse(x) as RunLog) : x));
   }
   return memRunLogs.filter((l) => l.ticketId === ticketId).slice(0, limit);
+}
+
+// ── Reply drafts (draft mode: Jetta proposes, a human approves) ────
+export interface ReplyDraft {
+  id: string;
+  ticketId: string;
+  subject?: string;
+  channel: "freshdesk" | "freshchat";
+  product: string;
+  /** The reply body the agent would have sent (last reply_to_ticket call). */
+  suggestedReply: string;
+  /** The agent also called close_ticket — approving resolves the ticket too. */
+  wantsClose: boolean;
+  /** The agent logged resolution_sent — approving schedules the 24h follow-up. */
+  resolutionSent: boolean;
+  escalated: boolean;
+  createdAt: number; // unix seconds
+  state: "pending" | "approved" | "discarded" | "superseded";
+  decidedAt?: number;
+  /** Console username (or "api"/"dev") that approved or discarded the draft. */
+  decidedBy?: string;
+  /** Set when the reviewer edited the reply before sending (audit trail). */
+  editedBody?: string;
+  /** Last send failure — the draft stays pending so approval can be retried. */
+  error?: string;
+}
+
+const REPLY_DRAFT_IDS = "jetta:replydrafts:ids";
+const replyDraftKey = (id: string) => `jetta:replydraft:${id}`;
+/** Points at the CURRENT pending draft for a ticket, for supersede handling. */
+const replyDraftTicketKey = (ticketId: string) => `jetta:replydraft:ticket:${ticketId}`;
+const REPLY_DRAFT_TTL = 30 * 86400;
+const memReplyDrafts = new Map<string, ReplyDraft>();
+const memReplyDraftByTicket = new Map<string, string>();
+
+/**
+ * Store a new pending draft. Any existing pending draft for the same ticket is
+ * marked superseded first — the customer replied again, so the old suggestion
+ * is stale and must not be approvable.
+ */
+export async function addReplyDraft(d: ReplyDraft): Promise<void> {
+  const r = client();
+  if (r) {
+    const prevId = await r.get<string>(replyDraftTicketKey(d.ticketId));
+    if (prevId && prevId !== d.id) {
+      const prev = await r.get<ReplyDraft>(replyDraftKey(prevId));
+      if (prev && prev.state === "pending") {
+        await r.set(
+          replyDraftKey(prevId),
+          { ...prev, state: "superseded", decidedAt: Math.floor(Date.now() / 1000) },
+          { ex: REPLY_DRAFT_TTL },
+        );
+      }
+    }
+    await r.set(replyDraftKey(d.id), d, { ex: REPLY_DRAFT_TTL });
+    await r.sadd(REPLY_DRAFT_IDS, d.id);
+    await r.set(replyDraftTicketKey(d.ticketId), d.id, { ex: REPLY_DRAFT_TTL });
+    return;
+  }
+  const prevId = memReplyDraftByTicket.get(d.ticketId);
+  const prev = prevId ? memReplyDrafts.get(prevId) : undefined;
+  if (prev && prev.state === "pending") {
+    memReplyDrafts.set(prev.id, { ...prev, state: "superseded", decidedAt: Math.floor(Date.now() / 1000) });
+  }
+  memReplyDrafts.set(d.id, d);
+  memReplyDraftByTicket.set(d.ticketId, d.id);
+}
+
+export async function getReplyDraft(id: string): Promise<ReplyDraft | null> {
+  const r = client();
+  if (r) return await r.get<ReplyDraft>(replyDraftKey(id));
+  return memReplyDrafts.get(id) ?? null;
+}
+
+/** Patch a draft; clears the ticket pointer when the draft leaves "pending". */
+export async function updateReplyDraft(
+  id: string,
+  patch: Partial<ReplyDraft>,
+): Promise<ReplyDraft | null> {
+  const existing = await getReplyDraft(id);
+  if (!existing) return null;
+  const next = { ...existing, ...patch };
+  const r = client();
+  if (r) {
+    await r.set(replyDraftKey(id), next, { ex: REPLY_DRAFT_TTL });
+    if (existing.state === "pending" && next.state !== "pending") {
+      const ptr = await r.get<string>(replyDraftTicketKey(next.ticketId));
+      if (ptr === id) await r.del(replyDraftTicketKey(next.ticketId));
+    }
+    return next;
+  }
+  memReplyDrafts.set(id, next);
+  if (existing.state === "pending" && next.state !== "pending") {
+    if (memReplyDraftByTicket.get(next.ticketId) === id) memReplyDraftByTicket.delete(next.ticketId);
+  }
+  return next;
+}
+
+export async function listReplyDrafts(): Promise<ReplyDraft[]> {
+  const r = client();
+  if (r) {
+    const ids = await r.smembers(REPLY_DRAFT_IDS);
+    if (!ids.length) return [];
+    const raw = await Promise.all(ids.map((id) => r.get<ReplyDraft>(replyDraftKey(id))));
+    // Drop expired (null) ids from the index opportunistically.
+    const live: ReplyDraft[] = [];
+    for (let i = 0; i < ids.length; i++) {
+      if (raw[i]) live.push(raw[i]!);
+      else await r.srem(REPLY_DRAFT_IDS, ids[i]);
+    }
+    return live.sort((a, b) => b.createdAt - a.createdAt);
+  }
+  return [...memReplyDrafts.values()].sort((a, b) => b.createdAt - a.createdAt);
 }

@@ -5,7 +5,7 @@
  * "reingest" re-upserts published articles into the vector index.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { adminAuthorized } from "@/lib/auth";
+import { adminAuthorized, adminActor } from "@/lib/auth";
 import { getArticle, transitionState, deleteArticle } from "@/lib/kb-store";
 import { vectorEnabled, upsertDocs } from "@/lib/vector";
 
@@ -29,13 +29,13 @@ export async function POST(req: NextRequest) {
     try {
       switch (action) {
         case "publish":
-          await transitionState(id, "published", "console");
+          await transitionState(id, "published", adminActor(req) ?? "console");
           break;
         case "archive":
-          await transitionState(id, "archived", "console");
+          await transitionState(id, "archived", adminActor(req) ?? "console");
           break;
         case "delete":
-          if (!(await deleteArticle(id, "console"))) throw new Error("not found");
+          if (!(await deleteArticle(id, adminActor(req) ?? "console"))) throw new Error("not found");
           break;
         case "reingest": {
           const a = await getArticle(id);

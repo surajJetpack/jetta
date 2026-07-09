@@ -1,14 +1,15 @@
+import { redirect } from "next/navigation";
 import { config } from "@/lib/config";
 import { modelLabel } from "@/lib/llm";
 import { gate } from "@/lib/console-auth";
-import { Nav, Locked } from "./nav";
+import { Nav } from "./nav";
 import TicketTester from "./ticket-tester";
 
 export const dynamic = "force-dynamic";
 
-export default async function Home({ searchParams }: { searchParams: Promise<{ key?: string }> }) {
-  const { locked, adminKey } = await gate(searchParams);
-  if (locked) return <Locked />;
+export default async function Home() {
+  const { locked, user } = await gate();
+  if (locked) redirect("/login?next=%2F");
 
   const integrations: { name: string; live: boolean; note?: string }[] = [
     { name: "Freshdesk", live: config.freshdesk.live, note: config.freshdesk.domain },
@@ -20,7 +21,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ k
 
   return (
     <div className="wrap">
-      <Nav current="console" adminKey={adminKey} />
+      <Nav current="console" user={user} />
 
       <section className="card">
         <h2>System status</h2>
@@ -32,6 +33,10 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ k
           <div className="stat">
             <div className="k">Global mode</div>
             <div className="v">{config.stubMode ? "STUB" : "LIVE"}</div>
+          </div>
+          <div className="stat">
+            <div className="k">Reply mode</div>
+            <div className="v">{config.replyMode === "draft" ? "DRAFT (human approves)" : "AUTO"}</div>
           </div>
           {integrations.map((i) => (
             <div className="stat" key={i.name}>
@@ -45,7 +50,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ k
         </div>
       </section>
 
-      <TicketTester freshdeskLive={config.freshdesk.live} freshchatLive={config.freshchat.live} adminKey={adminKey} />
+      <TicketTester freshdeskLive={config.freshdesk.live} freshchatLive={config.freshchat.live} />
 
       <section className="card endpoints">
         <h2>Endpoints</h2>

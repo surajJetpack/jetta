@@ -49,6 +49,24 @@ export const LLM_PROVIDER: LlmProvider =
 export const config = {
   stubMode: STUB_MODE,
 
+  /**
+   * How webhook runs deliver customer-facing replies:
+   *  - "draft" (default): Jetta proposes; the reply is held as a ReplyDraft for
+   *    human approval in the console. Internal actions (Slack, monday, private
+   *    notes) still run live. The ticket allowlist does not gate held runs.
+   *  - "auto": today's autonomous behavior — replies go straight to the customer
+   *    (allowlist-gated).
+   */
+  replyMode: (env("JETTA_REPLY_MODE") === "auto" ? "auto" : "draft") as "auto" | "draft",
+
+  /** Console base URL for deep links in Slack pings / FD notes. Never embeds the admin key. */
+  consoleUrl: (
+    env("JETTA_CONSOLE_URL") ??
+    (env("VERCEL_PROJECT_PRODUCTION_URL")
+      ? `https://${env("VERCEL_PROJECT_PRODUCTION_URL")}`
+      : "http://localhost:3000")
+  ).replace(/\/$/, ""),
+
   llm: {
     provider: LLM_PROVIDER,
     /** Per-provider model ids. Swap the production model here, not in code. */
@@ -114,6 +132,8 @@ export const config = {
     live: liveFor("SLACK_LIVE"),
     botToken: env("SLACK_BOT_TOKEN"),
     escalationChannel: env("SLACK_ESCALATION_CHANNEL"),
+    /** Where "draft pending review" pings land; falls back to escalationChannel. */
+    draftsChannel: env("JETTA_DRAFTS_SLACK_CHANNEL"),
     partnershipsChannel: env("SLACK_PARTNERSHIPS_CHANNEL"),
     signingSecret: env("SLACK_SIGNING_SECRET"),
     adminUserIds: (env("ADMIN_SLACK_USER_IDS") ?? "")
@@ -126,8 +146,17 @@ export const config = {
     secret: env("WEBHOOK_SECRET"),
   },
 
-  /** Gates the ops console UI + /api/admin/* (the webhook stays public, secret-gated). */
+  /** API-header secret for /api/admin/* programmatic callers (x-admin-secret). */
   adminSecret: env("ADMIN_SECRET"),
+
+  /**
+   * Console logins: "user:pass,user:pass" (first colon splits, so passwords may
+   * contain colons). Unset = dev-open console, matching the old unset-secret rule.
+   */
+  consoleUsers: env("CONSOLE_USERS"),
+
+  /** HMAC key for session cookies; falls back to ADMIN_SECRET. */
+  sessionSecret: env("SESSION_SECRET") ?? env("ADMIN_SECRET"),
 
   /**
    * Controlled-rollout allowlist. When non-empty, Jetta only performs LIVE

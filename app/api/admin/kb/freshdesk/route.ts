@@ -12,7 +12,7 @@
  * without credentials.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { adminAuthorized } from "@/lib/auth";
+import { adminAuthorized, adminActor } from "@/lib/auth";
 import {
   getArticle,
   listCategories,
@@ -86,14 +86,14 @@ export async function POST(req: NextRequest) {
     const updated = await setFreshdeskSync(
       id,
       { articleId: ref.id, folderId: cat.fdFolderId, syncedAt: Math.floor(Date.now() / 1000), syncedVersion: article.version },
-      "console",
+      adminActor(req) ?? "console",
     );
     return NextResponse.json({ ok: true, freshdesk: updated?.freshdesk, url: ref.url });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "push failed";
     await recordAudit({
       at: Math.floor(Date.now() / 1000),
-      actor: "console",
+      actor: adminActor(req) ?? "console",
       articleId: id,
       title: article.title,
       action: "fd_push_error",

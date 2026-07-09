@@ -11,7 +11,7 @@ interface Stats {
   approvedArticles: { title: string; approvedBy: string; at: number }[];
 }
 
-export default function AnalyticsPanel({ adminKey }: { adminKey: string }) {
+export default function AnalyticsPanel() {
   const [s, setS] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -20,14 +20,14 @@ export default function AnalyticsPanel({ adminKey }: { adminKey: string }) {
     setLoading(true);
     setErr(null);
     try {
-      const r = await fetch("/api/admin/stats", { cache: "no-store", headers: { "x-admin-secret": adminKey } });
+      const r = await fetch("/api/admin/stats", { cache: "no-store" });
       setS((await r.json()) as Stats);
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
-  }, [adminKey]);
+  }, []);
 
   useEffect(() => { load(); }, [load]);
 

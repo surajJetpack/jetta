@@ -31,6 +31,12 @@ export interface AgentSignals {
 export interface ToolOptions {
   /** When true, mutating tools record what they WOULD do but make no external call. */
   dryRun?: boolean;
+  /**
+   * Draft mode: reply_to_ticket and close_ticket return their normal success
+   * strings without sending, so the model behaves exactly as in autonomous mode
+   * and the trace records what it would have done. All other tools run live.
+   */
+  holdCustomerWrites?: boolean;
 }
 
 function ticketUrl(ticketId: string): string {
@@ -51,6 +57,7 @@ export function buildTools(
   const ticketId = ctx.ticket?.id;
   const requesterEmail = ctx.ticket?.requesterEmail ?? undefined;
   const dry = opts.dryRun === true;
+  const held = opts.holdCustomerWrites === true;
   const isChat = ctx.channel === "freshchat";
   // Escalations/dev items should deep-link to the actual interaction — the
   // Freshchat console for chats, the Freshdesk ticket otherwise.
@@ -110,6 +117,10 @@ export function buildTools(
       execute: async ({ body }) => {
         if (!ticketId) return "No active ticket to reply to.";
         if (dry) return `[dry-run] would post reply:\n${body}`;
+        // Draft mode: report success so downstream behavior (private note,
+        // resolution logging) matches autonomous mode; the webhook turns the
+        // trace into a ReplyDraft for human approval.
+        if (held) return isChat ? "Chat message sent to the customer." : "Reply posted to the ticket.";
         if (isChat) {
           await freshchat.replyToConversation(ticketId, body);
           return "Chat message sent to the customer.";
@@ -156,6 +167,7 @@ export function buildTools(
       execute: async () => {
         if (!ticketId) return "No active ticket to close.";
         if (dry) return `[dry-run] would mark the ${isChat ? "conversation" : "ticket"} resolved.`;
+        if (held) return isChat ? "Conversation marked resolved." : "Ticket marked resolved.";
         if (isChat) {
           await freshchat.resolveConversation(ticketId);
           return "Conversation marked resolved.";

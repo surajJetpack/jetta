@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Md } from "./markdown";
@@ -39,8 +39,7 @@ const NEXT_STATES: Record<string, string[]> = {
 const fmt = (unix?: number) => (unix ? new Date(unix * 1000).toISOString().slice(0, 16).replace("T", " ") : "—");
 const fmtDay = (unix?: number) => (unix ? new Date(unix * 1000).toISOString().slice(0, 10) : "");
 
-export default function KbArticle({ adminKey, id }: { adminKey: string; id?: string }) {
-  const hdr = useMemo(() => ({ "x-admin-secret": adminKey }), [adminKey]);
+export default function KbArticle({ id }: { id?: string }) {
   const router = useRouter();
   const isNew = !id;
 
@@ -79,11 +78,11 @@ export default function KbArticle({ adminKey, id }: { adminKey: string; id?: str
 
   const load = useCallback(async () => {
     if (!id) {
-      const r = await fetch("/api/admin/kb", { cache: "no-store", headers: hdr }).then((x) => x.json());
+      const r = await fetch("/api/admin/kb", { cache: "no-store" }).then((x) => x.json());
       setCategories(r.categories ?? []);
       return;
     }
-    const r = await fetch(`/api/admin/kb?id=${encodeURIComponent(id)}`, { cache: "no-store", headers: hdr });
+    const r = await fetch(`/api/admin/kb?id=${encodeURIComponent(id)}`, { cache: "no-store" });
     if (r.status === 404) {
       setMissing(true);
       return;
@@ -93,19 +92,17 @@ export default function KbArticle({ adminKey, id }: { adminKey: string; id?: str
     setCategories(j.categories ?? []);
     setUsage(j.usage ?? null);
     const [v, a] = await Promise.all([
-      fetch(`/api/admin/kb/versions?id=${encodeURIComponent(id)}`, { cache: "no-store", headers: hdr }).then((x) => x.json()),
-      fetch(`/api/admin/kb/audit?id=${encodeURIComponent(id)}`, { cache: "no-store", headers: hdr }).then((x) => x.json()),
+      fetch(`/api/admin/kb/versions?id=${encodeURIComponent(id)}`, { cache: "no-store" }).then((x) => x.json()),
+      fetch(`/api/admin/kb/audit?id=${encodeURIComponent(id)}`, { cache: "no-store" }).then((x) => x.json()),
     ]);
     setVersions(v.versions ?? []);
     setAudit(a.events ?? []);
-  }, [id, hdr, applyArticle]);
+  }, [id, applyArticle]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- async fetch; state set after await, not synchronously
     load();
   }, [load]);
-
-  const aq = adminKey ? `key=${encodeURIComponent(adminKey)}` : "";
 
   async function save() {
     setBusy(true);
@@ -123,7 +120,7 @@ export default function KbArticle({ adminKey, id }: { adminKey: string; id?: str
     };
     const r = await fetch("/api/admin/kb", {
       method: article ? "PUT" : "POST",
-      headers: { ...hdr, "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     }).then((x) => x.json());
     setBusy(false);
@@ -132,7 +129,7 @@ export default function KbArticle({ adminKey, id }: { adminKey: string; id?: str
       return;
     }
     if (isNew && r.article?.id) {
-      router.replace(`/kb/article?${aq}&id=${encodeURIComponent(r.article.id)}`);
+      router.replace(`/kb/article?id=${encodeURIComponent(r.article.id)}`);
       return;
     }
     setNotice(
@@ -147,7 +144,7 @@ export default function KbArticle({ adminKey, id }: { adminKey: string; id?: str
     setBusy(true);
     const r = await fetch("/api/admin/kb/state", {
       method: "POST",
-      headers: { ...hdr, "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id: article!.id, to }),
     }).then((x) => x.json());
     setBusy(false);
@@ -160,7 +157,7 @@ export default function KbArticle({ adminKey, id }: { adminKey: string; id?: str
     setBusy(true);
     const r = await fetch("/api/admin/kb/versions", {
       method: "POST",
-      headers: { ...hdr, "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id: article!.id, version }),
     }).then((x) => x.json());
     setBusy(false);
@@ -169,7 +166,7 @@ export default function KbArticle({ adminKey, id }: { adminKey: string; id?: str
   }
 
   async function loadFdFolders() {
-    const r = await fetch("/api/admin/kb/freshdesk", { cache: "no-store", headers: hdr }).then((x) => x.json());
+    const r = await fetch("/api/admin/kb/freshdesk", { cache: "no-store" }).then((x) => x.json());
     setFdFolders(r.folders ?? []);
     const mapped = (r.categories ?? []).find((c: Category) => c.slug === article?.category)?.fdFolderId;
     if (mapped) setFdFolderPick(mapped);
@@ -182,13 +179,13 @@ export default function KbArticle({ adminKey, id }: { adminKey: string; id?: str
     if (fdFolderPick && article?.category) {
       await fetch("/api/admin/kb/freshdesk", {
         method: "PUT",
-        headers: { ...hdr, "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ slug: article.category, fdFolderId: fdFolderPick }),
       });
     }
     const r = await fetch("/api/admin/kb/freshdesk", {
       method: "POST",
-      headers: { ...hdr, "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id: article!.id }),
     }).then((x) => x.json());
     setBusy(false);
@@ -198,8 +195,8 @@ export default function KbArticle({ adminKey, id }: { adminKey: string; id?: str
 
   async function remove() {
     if (!confirm("Delete this article? This also removes it from the vector index.")) return;
-    await fetch(`/api/admin/kb?id=${encodeURIComponent(article!.id)}`, { method: "DELETE", headers: hdr });
-    router.push(`/kb?${aq}`);
+    await fetch(`/api/admin/kb?id=${encodeURIComponent(article!.id)}`, { method: "DELETE" });
+    router.push("/kb");
   }
 
   if (missing) {
@@ -207,7 +204,7 @@ export default function KbArticle({ adminKey, id }: { adminKey: string; id?: str
       <section className="card">
         <h2>Article not found</h2>
         <p className="muted">
-          It may have been deleted. <Link href={`/kb?${aq}`}>Back to the list</Link>.
+          It may have been deleted. <Link href={"/kb"}>Back to the list</Link>.
         </p>
       </section>
     );
@@ -230,7 +227,7 @@ export default function KbArticle({ adminKey, id }: { adminKey: string; id?: str
           {isNew ? "New article" : article ? article.title : "Loading…"}{" "}
           {article && <span className={`state ${article.state}`}>{article.state.replace("_", " ")}</span>}
         </span>
-        <Link href={`/kb?${aq}`} className="muted" style={{ fontSize: 13 }}>← all articles</Link>
+        <Link href={"/kb"} className="muted" style={{ fontSize: 13 }}>← all articles</Link>
       </h2>
 
       <div className="kb-toolbar">
@@ -326,7 +323,7 @@ export default function KbArticle({ adminKey, id }: { adminKey: string; id?: str
                   <span className="k">possible duplicates</span>
                   {article.duplicates!.map((d) => (
                     <div key={d.id}>
-                      <Link href={`/kb/article?${aq}&id=${encodeURIComponent(d.id)}`}>{d.title}</Link>{" "}
+                      <Link href={`/kb/article?id=${encodeURIComponent(d.id)}`}>{d.title}</Link>{" "}
                       <span className="muted">({d.score})</span>
                     </div>
                   ))}

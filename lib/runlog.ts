@@ -53,6 +53,7 @@ export async function recordRun(
     model: modelLabel(),
     dryRun: result.dryRun,
     blockedByAllowlist: result.blockedByAllowlist,
+    heldCustomerWrites: result.heldCustomerWrites || undefined,
     replied: result.toolsUsed.includes("reply_to_ticket"),
     resolutionSent: result.resolutionSent,
     escalated: result.toolsUsed.includes("send_escalation"),

@@ -1,18 +1,19 @@
+import { redirect } from "next/navigation";
 import { gate } from "@/lib/console-auth";
-import { Nav, Locked } from "../nav";
+import { Nav } from "../nav";
 import AnalyticsPanel from "../analytics-panel";
 import ActivityLog from "../activity-log";
 
 export const dynamic = "force-dynamic";
 
-export default async function AnalyticsPage({ searchParams }: { searchParams: Promise<{ key?: string }> }) {
-  const { locked, adminKey } = await gate(searchParams);
-  if (locked) return <Locked />;
+export default async function AnalyticsPage() {
+  const { locked, user } = await gate();
+  if (locked) redirect("/login?next=%2Fanalytics");
   return (
     <div className="wrap">
-      <Nav current="insights" adminKey={adminKey} />
-      <AnalyticsPanel adminKey={adminKey} />
-      <ActivityLog adminKey={adminKey} />
+      <Nav current="insights" user={user} />
+      <AnalyticsPanel />
+      <ActivityLog />
     </div>
   );
 }

@@ -20,6 +20,7 @@ import { runAgentLoop } from "@/lib/agent";
 import { markEventSeen, scheduleFollowUp, recordOutcome } from "@/lib/kv";
 import { modelLabel } from "@/lib/llm";
 import { recordRun } from "@/lib/runlog";
+import { createDraftFromRun } from "@/lib/drafts";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -81,9 +82,42 @@ export async function POST(req: NextRequest) {
 
     const messages = buildMessages(ctx.ticket, channel);
     const system = buildSystemPrompt(ctx);
+    const draftMode = config.replyMode === "draft";
     const started = Date.now();
-    const result = await runAgentLoop(system, messages, ctx);
+    const result = await runAgentLoop(
+      system,
+      messages,
+      ctx,
+      draftMode ? { holdCustomerWrites: true } : {},
+    );
     await recordRun("webhook", ctx, result, Date.now() - started);
+
+    // Draft mode: the customer-visible reply was held — materialize it as a
+    // ReplyDraft for human approval. Follow-up scheduling moves to approve time
+    // (the reply hasn't actually gone out yet).
+    if (draftMode) {
+      const draft = await createDraftFromRun(ctx, result);
+      await recordOutcome({
+        ticketId,
+        subject: ctx.ticket.subject,
+        at: Math.floor(Date.now() / 1000),
+        channel,
+        product: ctx.product,
+        model: modelLabel(),
+        toolsUsed: result.toolsUsed,
+        replied: false,
+        resolutionSent: false,
+        escalated: result.toolsUsed.includes("send_escalation"),
+        drafted: !!draft,
+        kind: "handled",
+      }).catch((e) => console.warn("recordOutcome failed:", e));
+      return NextResponse.json({
+        status: draft ? "drafted" : "handled (no reply proposed)",
+        ticketId,
+        draftId: draft?.id,
+        toolsUsed: result.toolsUsed,
+      });
+    }
 
     // Allowlist guard: the run was forced to dry-run (ticket not allowlisted) —
     // nothing was written, so don't schedule follow-ups or log a real outcome.

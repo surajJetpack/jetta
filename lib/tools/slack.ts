@@ -52,6 +52,25 @@ export async function sendEscalation(input: EscalationInput): Promise<{ ts: stri
   return { ts };
 }
 
+/** Ping the team that a Jetta draft reply is waiting for review (draft mode). */
+export async function notifyDraftPending(input: {
+  subject: string;
+  ticketUrl: string;
+  consoleUrl: string;
+}): Promise<void> {
+  const channel =
+    config.slack.draftsChannel ?? config.slack.escalationChannel ?? "#jetta-escalations";
+  await postMessage(
+    channel,
+    [
+      `:memo: *Draft reply pending review*`,
+      `*Ticket:* ${input.subject}`,
+      `${input.ticketUrl}`,
+      `Review: ${input.consoleUrl}/drafts`,
+    ].join("\n"),
+  );
+}
+
 /** Notify #partnerships when a user mentions an external implementation partner. */
 export async function notifyPartnerManager(
   freshdeskTicketUrl: string,

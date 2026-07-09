@@ -22,32 +22,30 @@ function DiffView({ oldText, newText }: { oldText: string; newText: string }) {
   );
 }
 
-function DraftCard({ draft, adminKey, onDecide }: { draft: Article; adminKey: string; onDecide: () => void }) {
-  const hdr = useMemo(() => ({ "x-admin-secret": adminKey }), [adminKey]);
+function DraftCard({ draft, onDecide }: { draft: Article; onDecide: () => void }) {
   const [open, setOpen] = useState(false);
   const [similar, setSimilar] = useState<Hit | null>(null);
   const [showDiff, setShowDiff] = useState(false);
   const [busy, setBusy] = useState(false);
-  const aq = adminKey ? `key=${encodeURIComponent(adminKey)}` : "";
 
   // On expand, find the nearest existing article so the reviewer sees overlap.
   useEffect(() => {
     if (!open || similar) return;
     (async () => {
-      const r = await fetch(`/api/admin/kb/search?q=${encodeURIComponent(draft.title)}&rerank=0`, { cache: "no-store", headers: hdr })
+      const r = await fetch(`/api/admin/kb/search?q=${encodeURIComponent(draft.title)}&rerank=0`, { cache: "no-store" })
         .then((x) => x.json())
         .catch(() => null);
       const hit = (r?.hits ?? []).find((h: Hit) => h.id !== draft.id);
       setSimilar(hit ?? null);
     })();
-  }, [open, similar, draft.id, draft.title, hdr]);
+  }, [open, similar, draft.id, draft.title]);
 
   async function decide(action: "approve" | "reject") {
     if (action === "reject" && !confirm("Reject and delete this draft?")) return;
     setBusy(true);
     await fetch("/api/admin/kb/drafts", {
       method: "POST",
-      headers: { ...hdr, "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id: draft.id, action }),
     });
     setBusy(false);
@@ -78,7 +76,7 @@ function DraftCard({ draft, adminKey, onDecide }: { draft: Article; adminKey: st
             <div style={{ marginTop: 10 }}>
               <div className="muted" style={{ marginBottom: 6 }}>
                 Closest existing article:{" "}
-                <Link href={`/kb/article?${aq}&id=${encodeURIComponent(similar.id)}`}>{similar.title}</Link>
+                <Link href={`/kb/article?id=${encodeURIComponent(similar.id)}`}>{similar.title}</Link>
                 {similar.score !== undefined && ` (${similar.score.toFixed(3)})`} ·{" "}
                 <a onClick={(e) => { e.preventDefault(); setShowDiff(!showDiff); }} href="#" style={{ cursor: "pointer" }}>
                   {showDiff ? "hide diff" : "show diff"}
@@ -90,7 +88,7 @@ function DraftCard({ draft, adminKey, onDecide }: { draft: Article; adminKey: st
 
           <div className="row" style={{ marginTop: 10 }}>
             <button disabled={busy} onClick={() => decide("approve")}>Approve → publish</button>
-            <Link href={`/kb/article?${aq}&id=${encodeURIComponent(draft.id)}`}>
+            <Link href={`/kb/article?id=${encodeURIComponent(draft.id)}`}>
               <button style={{ background: "var(--panel-2)", color: "var(--accent)" }}>Edit first</button>
             </Link>
             <button disabled={busy} onClick={() => decide("reject")} style={{ background: "var(--panel-2)", color: "var(--danger)" }}>
@@ -103,14 +101,13 @@ function DraftCard({ draft, adminKey, onDecide }: { draft: Article; adminKey: st
   );
 }
 
-export default function KbReview({ adminKey }: { adminKey: string }) {
-  const hdr = useMemo(() => ({ "x-admin-secret": adminKey }), [adminKey]);
+export default function KbReview() {
   const [drafts, setDrafts] = useState<Article[] | null>(null);
 
   const load = useCallback(async () => {
-    const r = await fetch("/api/admin/kb/drafts", { cache: "no-store", headers: hdr }).then((x) => x.json());
+    const r = await fetch("/api/admin/kb/drafts", { cache: "no-store" }).then((x) => x.json());
     setDrafts(r.drafts ?? []);
-  }, [hdr]);
+  }, []);
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- async fetch; state set after await, not synchronously
     load();
@@ -123,7 +120,7 @@ export default function KbReview({ adminKey }: { adminKey: string }) {
         Drafts from the Knowledge Loop (Slack escalations) and Freshdesk mining. Nothing reaches the
         agent until a human approves it — approving publishes the article and embeds it for retrieval.
       </p>
-      {drafts?.map((d) => <DraftCard key={d.id} draft={d} adminKey={adminKey} onDecide={load} />)}
+      {drafts?.map((d) => <DraftCard key={d.id} draft={d} onDecide={load} />)}
       {drafts?.length === 0 && <p className="muted">Queue is empty. 🎉</p>}
     </section>
   );

@@ -9,7 +9,7 @@
  * the store handles the vector upsert). Reject = delete + audit.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { adminAuthorized } from "@/lib/auth";
+import { adminAuthorized, adminActor } from "@/lib/auth";
 import { listArticles, transitionState, deleteArticle } from "@/lib/kb-store";
 
 export const runtime = "nodejs";
@@ -28,13 +28,13 @@ export async function POST(req: NextRequest) {
   }
 
   if (action === "reject") {
-    const ok = await deleteArticle(id, "console");
+    const ok = await deleteArticle(id, adminActor(req) ?? "console");
     if (!ok) return NextResponse.json({ error: "draft not found" }, { status: 404 });
     return NextResponse.json({ ok: true, action: "rejected" });
   }
 
   try {
-    const article = await transitionState(id, "published", "console");
+    const article = await transitionState(id, "published", adminActor(req) ?? "console");
     return NextResponse.json({ ok: true, action: "approved", articleId: article.id });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "approve failed";

@@ -11,7 +11,7 @@
  * handled inside the store (published ⇔ searchable).
  */
 import { NextRequest, NextResponse } from "next/server";
-import { adminAuthorized } from "@/lib/auth";
+import { adminAuthorized, adminActor } from "@/lib/auth";
 import {
   getArticle,
   listArticles,
@@ -103,7 +103,7 @@ export async function POST(req: NextRequest) {
     // matches the old managed-article behavior.
     state: b.state ?? "published",
     origin: "manual",
-    createdBy: "console",
+    createdBy: adminActor(req) ?? "console",
     reviewBy: b.reviewBy,
   });
   return NextResponse.json({ ok: true, article, duplicates: article.duplicates ?? [] });
@@ -121,7 +121,7 @@ export async function PUT(req: NextRequest) {
   if (b.category !== undefined) patch.category = b.category;
   if (b.tags !== undefined) patch.tags = b.tags;
   if ("reviewBy" in b) patch.reviewBy = b.reviewBy;
-  const article = await updateArticle(b.id, patch, "console");
+  const article = await updateArticle(b.id, patch, adminActor(req) ?? "console");
   if (!article) return NextResponse.json({ error: "not found" }, { status: 404 });
   return NextResponse.json({ ok: true, article, duplicates: article.duplicates ?? [] });
 }
@@ -130,7 +130,7 @@ export async function DELETE(req: NextRequest) {
   if (!adminAuthorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const id = req.nextUrl.searchParams.get("id");
   if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
-  const ok = await deleteArticle(id, "console");
+  const ok = await deleteArticle(id, adminActor(req) ?? "console");
   if (!ok) return NextResponse.json({ error: "not found" }, { status: 404 });
   return NextResponse.json({ ok: true });
 }

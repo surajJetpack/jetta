@@ -46,8 +46,7 @@ function readStorage(): ListState | null {
 
 const fmtDate = (unix?: number) => (unix ? new Date(unix * 1000).toISOString().slice(0, 10) : "—");
 
-export default function KbList({ adminKey }: { adminKey: string }) {
-  const hdr = useMemo(() => ({ "x-admin-secret": adminKey }), [adminKey]);
+export default function KbList() {
   const [articles, setArticles] = useState<Article[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [usage, setUsage] = useState<Record<string, Usage>>({});
@@ -81,13 +80,13 @@ export default function KbList({ adminKey }: { adminKey: string }) {
   }, [f]);
 
   const load = useCallback(async () => {
-    const r = await fetch("/api/admin/kb", { cache: "no-store", headers: hdr }).then((x) => x.json());
+    const r = await fetch("/api/admin/kb", { cache: "no-store" }).then((x) => x.json());
     setArticles(r.articles ?? []);
     setCategories(r.categories ?? []);
     setUsage(r.usage ?? {});
     setStaleIds(new Set(r.stale ?? []));
     setByState(r.byState ?? {});
-  }, [hdr]);
+  }, []);
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- async fetch; state set after await, not synchronously
     load();
@@ -136,7 +135,7 @@ export default function KbList({ adminKey }: { adminKey: string }) {
     setBusy(true);
     const r = await fetch("/api/admin/kb/bulk", {
       method: "POST",
-      headers: { ...hdr, "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ids: [...selected], action }),
     }).then((x) => x.json());
     setBusy(false);
@@ -147,7 +146,7 @@ export default function KbList({ adminKey }: { adminKey: string }) {
 
   async function testSearch() {
     if (!q.trim()) return;
-    const r = await fetch(`/api/admin/kb/search?q=${encodeURIComponent(q.trim())}`, { cache: "no-store", headers: hdr }).then((x) => x.json());
+    const r = await fetch(`/api/admin/kb/search?q=${encodeURIComponent(q.trim())}`, { cache: "no-store" }).then((x) => x.json());
     setHits(r.hits ?? []);
     setSearchMeta(
       r.vectorEnabled
@@ -155,8 +154,6 @@ export default function KbList({ adminKey }: { adminKey: string }) {
         : "keyword fallback (vector store not configured)",
     );
   }
-
-  const aq = adminKey ? `key=${encodeURIComponent(adminKey)}` : "";
 
   return (
     <section className="card">
@@ -168,7 +165,7 @@ export default function KbList({ adminKey }: { adminKey: string }) {
           </span>
         </span>
         <span className="row">
-          <Link href={`/kb/article?${aq}`}>
+          <Link href="/kb/article">
             <button style={{ padding: "5px 12px", fontSize: 12 }}>+ New article</button>
           </Link>
           <button onClick={load} style={{ padding: "5px 12px", fontSize: 12 }}>↻</button>
@@ -188,7 +185,7 @@ export default function KbList({ adminKey }: { adminKey: string }) {
           hits.map((h, i) => (
             <div className="io" key={i}>
               {h.score !== undefined ? h.score.toFixed(3) : "kw"}{" "}
-              <Link href={`/kb/article?${aq}&id=${encodeURIComponent(h.id)}`}>{h.title}</Link>{" "}
+              <Link href={`/kb/article?id=${encodeURIComponent(h.id)}`}>{h.title}</Link>{" "}
               <span className="muted">[{h.source}]</span>
             </div>
           ))
@@ -249,7 +246,7 @@ export default function KbList({ adminKey }: { adminKey: string }) {
           <input type="checkbox" checked={selected.has(a.id)} onChange={() => toggle(a.id)} />
           <span className={`state ${a.state}`}>{a.state.replace("_", " ")}</span>
           <span className="t">
-            <Link href={`/kb/article?${aq}&id=${encodeURIComponent(a.id)}`}>{a.title}</Link>
+            <Link href={`/kb/article?id=${encodeURIComponent(a.id)}`}>{a.title}</Link>
             {staleIds.has(a.id) && <span className="state stale" style={{ marginLeft: 8 }}>stale</span>}
             {(a.duplicates?.length ?? 0) > 0 && <span className="state stale" style={{ marginLeft: 8 }} title={a.duplicates!.map((d) => d.title).join("\n")}>dup?</span>}
           </span>

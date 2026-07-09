@@ -45,11 +45,9 @@ function readStorage(): RunState | null {
 export default function TicketTester({
   freshdeskLive,
   freshchatLive,
-  adminKey,
 }: {
   freshdeskLive: boolean;
   freshchatLive: boolean;
-  adminKey: string;
 }) {
   // Initialise from defaults so the first client render matches the server (no
   // hydration mismatch); persisted state is loaded in the mount effect below.
@@ -93,7 +91,7 @@ export default function TicketTester({
     try {
       const r = await fetch("/api/admin/run", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-admin-secret": adminKey },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ticketId: ticketId.trim(), dryRun, channel }),
       });
       setRes((await r.json()) as RunResult);

@@ -14,6 +14,7 @@ import { buildContext, buildMessages } from "@/lib/context";
 import { buildSystemPrompt } from "@/lib/system-prompt";
 import { runAgentLoop } from "@/lib/agent";
 import { recordRun } from "@/lib/runlog";
+import { createDraftFromRun } from "@/lib/drafts";
 import * as freshdesk from "@/lib/tools/freshdesk";
 
 export const runtime = "nodejs";
@@ -39,13 +40,25 @@ export async function GET(req: NextRequest) {
       const replied = await freshdesk.hasCustomerReplySince(job.ticketId, job.resolutionSentAt);
 
       if (replied) {
-        // Customer responded — let Jetta handle it as a normal turn.
+        // Customer responded — let Jetta handle it as a normal turn. In draft
+        // mode the new reply is held and lands in the review queue like any
+        // webhook turn (superseding an older pending draft for this ticket).
+        const draftMode = config.replyMode === "draft";
         const ctx = await buildContext(job.ticketId);
         if (ctx.ticket) {
           const started = Date.now();
-          const result = await runAgentLoop(buildSystemPrompt(ctx), buildMessages(ctx.ticket), ctx);
+          const result = await runAgentLoop(
+            buildSystemPrompt(ctx),
+            buildMessages(ctx.ticket),
+            ctx,
+            draftMode ? { holdCustomerWrites: true } : {},
+          );
           await recordRun("cron", ctx, result, Date.now() - started);
-          handled.push({ ticketId: job.ticketId, action: `replied → handled (${result.toolsUsed.join(",")})` });
+          const draft = draftMode ? await createDraftFromRun(ctx, result) : null;
+          handled.push({
+            ticketId: job.ticketId,
+            action: `replied → ${draft ? "drafted" : "handled"} (${result.toolsUsed.join(",")})`,
+          });
           await recordOutcome({
             ticketId: job.ticketId,
             subject: ctx.ticket.subject,
@@ -54,14 +67,19 @@ export async function GET(req: NextRequest) {
             product: ctx.product,
             model: modelLabel(),
             toolsUsed: result.toolsUsed,
-            replied: result.toolsUsed.includes("reply_to_ticket"),
-            resolutionSent: result.resolutionSent,
+            replied: !draftMode && result.toolsUsed.includes("reply_to_ticket"),
+            resolutionSent: !draftMode && result.resolutionSent,
             escalated: result.toolsUsed.includes("send_escalation"),
+            drafted: !!draft,
             kind: "reopened",
           }).catch(() => {});
         }
       } else {
         // No response — send a closing follow-up, then resolve the ticket.
+        // Deliberately automatic even in draft mode: the message is a fixed
+        // template (not model-generated), and follow-ups are only scheduled
+        // when a human approved the resolution, so this path only fires for
+        // tickets a reviewer already signed off on.
         await freshdesk.replyToTicket(
           job.ticketId,
           "Following up — I haven't heard back, so I'll assume this is resolved and close the ticket. " +

@@ -4,7 +4,7 @@
  *   POST { id, version }      → restore that version's content as a NEW version
  */
 import { NextRequest, NextResponse } from "next/server";
-import { adminAuthorized } from "@/lib/auth";
+import { adminAuthorized, adminActor } from "@/lib/auth";
 import { listVersions, restoreVersion } from "@/lib/kb-store";
 
 export const runtime = "nodejs";
@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
   if (!id || typeof version !== "number") {
     return NextResponse.json({ error: "id and version required" }, { status: 400 });
   }
-  const article = await restoreVersion(id, version, "console");
+  const article = await restoreVersion(id, version, adminActor(req) ?? "console");
   if (!article) return NextResponse.json({ error: "article or version not found" }, { status: 404 });
   return NextResponse.json({ ok: true, article });
 }

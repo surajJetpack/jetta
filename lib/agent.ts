@@ -36,6 +36,8 @@ export interface AgentResult {
   dryRun: boolean;
   /** True if a live run was downgraded to dry-run because the ticket isn't allowlisted. */
   blockedByAllowlist: boolean;
+  /** True if customer-visible writes (reply/close) were held for human approval. */
+  heldCustomerWrites: boolean;
   /** Aggregate token usage across the loop. */
   usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number };
 }
@@ -50,6 +52,13 @@ function liveWritesAllowed(ticketId: string | undefined): boolean {
 export interface RunOptions {
   /** Preview mode: read tools run, but mutating tools make no external call. */
   dryRun?: boolean;
+  /**
+   * Draft mode: internal tools run live, but customer-visible writes
+   * (reply_to_ticket, close_ticket) are recorded in the trace without sending —
+   * a human approves them later. Held runs bypass the ticket allowlist (nothing
+   * customer-visible can go out autonomously).
+   */
+  holdCustomerWrites?: boolean;
 }
 
 export async function runAgentLoop(
@@ -61,16 +70,19 @@ export async function runAgentLoop(
   const signals: AgentSignals = { resolutionSent: false };
 
   // Allowlist guard: a requested live run is forced to dry-run unless the ticket
-  // is allowlisted. Dry-run requests pass through unchanged.
+  // is allowlisted. Dry-run requests pass through unchanged. Held runs (draft
+  // mode) are never forced dry — customer writes are already held, and internal
+  // actions are meant to run live for every ticket.
   const allowed = liveWritesAllowed(ctx.ticket?.id);
-  const blockedByAllowlist = !opts.dryRun && !allowed;
-  const dryRun = opts.dryRun === true || !allowed;
+  const hold = opts.holdCustomerWrites === true;
+  const blockedByAllowlist = !opts.dryRun && !hold && !allowed;
+  const dryRun = opts.dryRun === true || (!allowed && !hold);
 
   const result = await generateText({
     model: getModel(),
     system,
     messages,
-    tools: buildTools(ctx, signals, { dryRun }),
+    tools: buildTools(ctx, signals, { dryRun, holdCustomerWrites: hold }),
     stopWhen: stepCountIs(config.llm.maxSteps),
   });
 
@@ -98,6 +110,7 @@ export async function runAgentLoop(
     trace,
     dryRun,
     blockedByAllowlist,
+    heldCustomerWrites: hold,
     usage: u
       ? { inputTokens: u.inputTokens, outputTokens: u.outputTokens, totalTokens: u.totalTokens }
       : undefined,

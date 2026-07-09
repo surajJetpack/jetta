@@ -50,9 +50,9 @@ resolution sent? → scheduleFollowUp() (24h)
 | Route | Purpose | Auth |
 |---|---|---|
 | `POST /api/webhook` | Main entry — Freshdesk/Freshchat events | `x-jetta-secret` |
-| `POST /api/admin/run` | Run/replay a ticket (dry-run default) | admin secret |
-| `GET /api/admin/stats` | Outcome metrics + gaps + approved articles | admin secret |
-| `GET /api/admin/logs` | Run log | admin secret |
+| `POST /api/admin/run` | Run/replay a ticket (dry-run default) | console login / x-admin-secret |
+| `GET /api/admin/stats` | Outcome metrics + gaps + approved articles | console login / x-admin-secret |
+| `GET /api/admin/logs` | Run log | console login / x-admin-secret |
 | `GET /api/cron/followup` | 24h follow-up sweep | `CRON_SECRET` bearer |
 | `/api/admin/kb`, `/api/slack` | KB management · Slack interactions | admin / signing |
 

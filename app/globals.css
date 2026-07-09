@@ -175,7 +175,8 @@ a:hover {
   flex-wrap: wrap;
   align-items: center;
 }
-input[type="text"] {
+input[type="text"],
+input[type="password"] {
   flex: 1;
   min-width: 160px;
   background: var(--panel-2);
@@ -186,7 +187,8 @@ input[type="text"] {
   font-size: 14px;
   font-family: var(--mono);
 }
-input[type="text"]:focus {
+input[type="text"]:focus,
+input[type="password"]:focus {
   outline: none;
   border-color: var(--accent);
 }
