@@ -64,8 +64,8 @@ a:hover {
   margin-bottom: 28px;
 }
 .logo {
-  width: 48px;
-  height: 48px;
+  width: 52px;
+  height: 52px;
   border-radius: 50%;
   object-fit: cover;
   /* white inner ring + hairline border, sits cleanly on any surface */
@@ -73,8 +73,8 @@ a:hover {
   flex: none;
 }
 .logo.lg {
-  width: 76px;
-  height: 76px;
+  width: 96px;
+  height: 96px;
   box-shadow: 0 0 0 3px var(--panel), 0 0 0 4px #c7d2fe, var(--shadow); /* indigo-200 ring */
 }
 .hdr h1 {
