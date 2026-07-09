@@ -37,32 +37,38 @@ export default function ActivityLog() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setErr(null);
-    try {
-      const r = await fetch("/api/admin/logs", { cache: "no-store" });
-      const d = await r.json();
-      setLogs(d.logs ?? []);
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
-    } finally {
-      setLoading(false);
-    }
+  // State updates live in promise callbacks (not the function body) so the
+  // mount effect satisfies react-hooks/set-state-in-effect; initial
+  // loading=true covers the first fetch.
+  const load = useCallback(() => {
+    fetch("/api/admin/logs", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => {
+        setLogs(d.logs ?? []);
+        setErr(null);
+      })
+      .catch((e) => setErr(e instanceof Error ? e.message : String(e)))
+      .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  const refresh = () => {
+    setLoading(true);
+    setErr(null);
+    void load();
+  };
 
   return (
     <section className="card">
       <h2 style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <span>Activity log (detailed runs)</span>
-        <button onClick={load} disabled={loading} style={{ padding: "5px 12px", fontSize: 12 }}>
+        <button onClick={refresh} disabled={loading} style={{ padding: "5px 12px", fontSize: 12 }}>
           {loading ? <span className="spin" /> : "↻"} Refresh
         </button>
       </h2>
       {err && <p className="err">{err}</p>}
-      {logs && logs.length === 0 && <p className="muted">No runs logged yet. Run a ticket above and it'll appear here.</p>}
+      {logs && logs.length === 0 && <p className="muted">No runs logged yet. Run a ticket above and it&apos;ll appear here.</p>}
 
       {logs?.map((l) => (
         <div className="step" key={l.id}>

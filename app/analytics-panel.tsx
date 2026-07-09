@@ -16,20 +16,27 @@ export default function AnalyticsPanel() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setErr(null);
-    try {
-      const r = await fetch("/api/admin/stats", { cache: "no-store" });
-      setS((await r.json()) as Stats);
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
-    } finally {
-      setLoading(false);
-    }
+  // State updates live in promise callbacks (not the function body) so the
+  // mount effect satisfies react-hooks/set-state-in-effect; initial
+  // loading=true covers the first fetch.
+  const load = useCallback(() => {
+    fetch("/api/admin/stats", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => {
+        setS(d as Stats);
+        setErr(null);
+      })
+      .catch((e) => setErr(e instanceof Error ? e.message : String(e)))
+      .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  const refresh = () => {
+    setLoading(true);
+    setErr(null);
+    void load();
+  };
 
   const o = s?.outcomes;
   const pct = o?.deflectionRate != null ? `${Math.round(o.deflectionRate * 100)}%` : "—";
@@ -38,7 +45,7 @@ export default function AnalyticsPanel() {
     <section className="card">
       <h2 style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <span>Learning &amp; gap analytics</span>
-        <button onClick={load} disabled={loading} style={{ padding: "5px 12px", fontSize: 12 }}>
+        <button onClick={refresh} disabled={loading} style={{ padding: "5px 12px", fontSize: 12 }}>
           {loading ? <span className="spin" /> : "↻"} Refresh
         </button>
       </h2>
@@ -68,7 +75,7 @@ export default function AnalyticsPanel() {
               </div>
             ))
           ) : (
-            <p className="muted">No escalations or reopens logged yet — Jetta is closing everything herself, or there's no traffic.</p>
+            <p className="muted">No escalations or reopens logged yet — Jetta is closing everything herself, or there&apos;s no traffic.</p>
           )}
 
           {s.gapKeywords.length > 0 && (
