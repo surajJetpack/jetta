@@ -14,7 +14,8 @@ export function Nav({ current, user }: { current: string; user: string }) {
     <>
       <header className="hdr" style={{ justifyContent: "space-between" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-          <div className="logo">J</div>
+          {/* eslint-disable-next-line @next/next/no-img-element -- 44px static asset, no optimization needed */}
+          <img src="/jetta.png" alt="Jetta" className="logo" />
           <div>
             <h1>Jetta — Ops Console</h1>
             <p>Autonomous support agent for Jetpack Apps &amp; GetSign · internal</p>

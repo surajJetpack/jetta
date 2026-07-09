@@ -22,7 +22,8 @@ export default async function LoginPage({
   return (
     <div className="wrap">
       <header className="hdr">
-        <div className="logo">J</div>
+        {/* eslint-disable-next-line @next/next/no-img-element -- 44px static asset, no optimization needed */}
+        <img src="/jetta.png" alt="Jetta" className="logo" />
         <div>
           <h1>Jetta — Ops Console</h1>
           <p>Internal · sign in to continue</p>
