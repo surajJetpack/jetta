@@ -1,15 +1,17 @@
 :root {
-  --bg: #0e1116;
-  --panel: #161b22;
-  --panel-2: #1c2430;
-  --border: #2a3441;
-  --text: #e6edf3;
-  --muted: #8b98a9;
-  --accent: #3fb9a3;
-  --accent-2: #6ea8fe;
-  --live: #3fb950;
-  --stub: #d29922;
-  --danger: #f85149;
+  --bg: #f4f6f8;
+  --panel: #ffffff;
+  --panel-2: #f0f3f6;
+  --border: #d9e0e7;
+  --text: #1a232e;
+  --muted: #5d6b7a;
+  --accent: #0e8577;
+  --accent-2: #2b6fd4;
+  --live: #1a7f37;
+  --stub: #9a6700;
+  --warn: #9a6700;
+  --danger: #cf222e;
+  --on-accent: #ffffff;
   --radius: 12px;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -29,7 +31,7 @@ body {
 body {
   min-height: 100vh;
   color: var(--text);
-  background: radial-gradient(1200px 600px at 80% -10%, #18222e 0%, var(--bg) 60%);
+  background: radial-gradient(1200px 600px at 80% -10%, #e6eef2 0%, var(--bg) 60%);
   font-family: var(--sans);
   -webkit-font-smoothing: antialiased;
   line-height: 1.5;
@@ -65,7 +67,7 @@ a:hover {
   place-items: center;
   font-weight: 800;
   font-size: 22px;
-  color: #07120f;
+  color: var(--on-accent);
   flex: none;
 }
 .hdr h1 {
@@ -194,7 +196,7 @@ input[type="password"]:focus {
 }
 button {
   background: var(--accent);
-  color: #07120f;
+  color: var(--on-accent);
   border: 0;
   border-radius: 9px;
   padding: 11px 20px;
