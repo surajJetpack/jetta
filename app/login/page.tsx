@@ -20,17 +20,14 @@ export default async function LoginPage({
   if (!locked) redirect(target); // already signed in (or dev-open)
 
   return (
-    <div className="wrap">
-      <header className="hdr">
-        {/* eslint-disable-next-line @next/next/no-img-element -- 44px static asset, no optimization needed */}
-        <img src="/jetta.png" alt="Jetta" className="logo" />
-        <div>
-          <h1>Jetta — Ops Console</h1>
-          <p>Internal · sign in to continue</p>
-        </div>
-      </header>
-      <section className="card" style={{ maxWidth: 420 }}>
-        <h2>Sign in</h2>
+    <div className="wrap" style={{ display: "flex", minHeight: "80vh", alignItems: "center", justifyContent: "center" }}>
+      <section className="card" style={{ width: "100%", maxWidth: 400, textAlign: "center", padding: "32px 28px" }}>
+        {/* eslint-disable-next-line @next/next/no-img-element -- static asset, no optimization needed */}
+        <img src="/jetta.png" alt="Jetta" className="logo lg" style={{ margin: "0 auto 14px" }} />
+        <h1 style={{ fontSize: 20, fontWeight: 700, letterSpacing: "-0.01em", color: "var(--heading)" }}>
+          Jetta — Ops Console
+        </h1>
+        <p className="muted" style={{ margin: "4px 0 22px" }}>Internal · sign in to continue</p>
         <LoginForm next={target} />
       </section>
     </div>
