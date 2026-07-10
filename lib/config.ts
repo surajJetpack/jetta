@@ -169,6 +169,18 @@ export const config = {
     .map((s) => s.trim())
     .filter(Boolean),
 
+  /**
+   * Controlled-rollout product filter: "getsign,jetpackapps". When non-empty,
+   * webhook-triggered runs skip tickets whose inferred product is not listed —
+   * the agent never runs, nothing is written or drafted. Tickets the heuristic
+   * can't classify infer as "unknown" and are also skipped unless "unknown" is
+   * listed. Manual console runs are not gated. Empty = all products.
+   */
+  productFilter: (env("JETTA_PRODUCTS") ?? "")
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean),
+
   kv: {
     // Accept both the legacy Vercel KV names and the Upstash Marketplace names,
     // so whichever the integration injects works without code changes.

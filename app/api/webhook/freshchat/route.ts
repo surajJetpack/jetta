@@ -172,6 +172,16 @@ async function runPipeline(convId: string) {
       return NextResponse.json({ error: "conversation not found", convId }, { status: 404 });
     }
 
+    // Product filter (controlled rollout): skip before the agent ever runs.
+    // The conversation stays with Freddy / the human queue.
+    if (config.productFilter.length && !config.productFilter.includes(ctx.product)) {
+      return NextResponse.json({
+        status: `skipped — product "${ctx.product}" not in JETTA_PRODUCTS`,
+        convId,
+        product: ctx.product,
+      });
+    }
+
     const messages = buildMessages(ctx.ticket, "freshchat");
     const system = buildSystemPrompt(ctx);
     const started = Date.now();

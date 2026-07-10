@@ -80,6 +80,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "ticket not found", ticketId }, { status: 404 });
     }
 
+    // Product filter (controlled rollout): skip before the agent ever runs.
+    if (config.productFilter.length && !config.productFilter.includes(ctx.product)) {
+      return NextResponse.json({
+        status: `skipped — product "${ctx.product}" not in JETTA_PRODUCTS`,
+        ticketId,
+        product: ctx.product,
+      });
+    }
+
     const messages = buildMessages(ctx.ticket, channel);
     const system = buildSystemPrompt(ctx);
     const draftMode = config.replyMode === "draft";
