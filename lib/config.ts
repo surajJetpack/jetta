@@ -181,6 +181,13 @@ export const config = {
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean),
 
+  /**
+   * Also post a "[draft pending review]" private note on the Freshdesk ticket
+   * when a draft is created. Off by default — the console (/drafts) is the
+   * review surface. Set JETTA_DRAFT_FD_NOTE=true to re-enable.
+   */
+  draftNoteToFreshdesk: env("JETTA_DRAFT_FD_NOTE") === "true",
+
   kv: {
     // Accept both the legacy Vercel KV names and the Upstash Marketplace names,
     // so whichever the integration injects works without code changes.

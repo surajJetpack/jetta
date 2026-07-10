@@ -46,7 +46,9 @@ export async function createDraftFromRun(
   const ticketUrl = `https://${config.freshdesk.domain ?? "jetpackapps.freshdesk.com"}/a/tickets/${draft.ticketId}`;
 
   // Best-effort notifications — a failure here never loses the draft.
-  if (draft.channel === "freshdesk") {
+  // The Freshdesk note is opt-in (JETTA_DRAFT_FD_NOTE): the console is the
+  // review surface, so by default nothing draft-related touches the ticket.
+  if (draft.channel === "freshdesk" && config.draftNoteToFreshdesk) {
     await freshdesk
       .addPrivateNote(
         draft.ticketId,
