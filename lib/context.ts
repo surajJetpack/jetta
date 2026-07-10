@@ -65,8 +65,12 @@ export async function buildContext(
     channel === "freshchat"
       ? await freshchat.getConversationAsTicket(ticketId)
       : await freshdesk.getTicketDetails(ticketId);
+  // LLM fallback only when the ticket content is real — keyed to the channel's
+  // live flag, not global STUB_MODE, so it works in staged rollouts where
+  // Freshdesk is live while other integrations stay stubbed.
+  const contentIsLive = channel === "freshchat" ? config.freshchat.live : config.freshdesk.live;
   let product = inferProduct(`${ticket.subject}\n${ticket.description}`);
-  if (product === "unknown" && !config.stubMode) {
+  if (product === "unknown" && contentIsLive) {
     product = await classifyProduct(ticket.subject, ticket.description);
   }
 
