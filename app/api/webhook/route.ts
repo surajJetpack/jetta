@@ -63,11 +63,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "no ticket id in payload" }, { status: 400 });
   }
 
-  // Idempotency: dedupe by event id when present, else by a ticket+timestamp key.
+  // Idempotency: dedupe by event id when present, else ticket + rule marker +
+  // timestamp. Freshdesk automations can't always send a timestamp — without
+  // one, use a short TTL so a genuine follow-up event (customer reply an hour
+  // later) isn't swallowed, while immediate redeliveries still dedupe.
+  const updatedAt = payload.updated_at as string | undefined;
   const eventId =
     (payload.event_id as string | undefined) ??
-    `${ticketId}:${(payload.updated_at as string | undefined) ?? ""}`;
-  const fresh = await markEventSeen(eventId);
+    `${ticketId}:${(payload.event as string | undefined) ?? ""}:${updatedAt ?? ""}`;
+  const fresh = await markEventSeen(eventId, updatedAt ? 3600 : 300);
   if (!fresh) {
     return NextResponse.json({ status: "duplicate, ignored", ticketId });
   }
