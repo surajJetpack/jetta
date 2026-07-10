@@ -3,8 +3,11 @@
  * and any existing monday.com Dev items, then shape the conversation history
  * into the message array handed to the Claude loop.
  */
-import type { ModelMessage } from "ai";
+import { generateObject, type ModelMessage } from "ai";
+import { z } from "zod";
 import type { ConversationContext, Product, Ticket } from "./types";
+import { config } from "./config";
+import { getModel } from "./llm";
 import * as freshdesk from "./tools/freshdesk";
 import * as freshchat from "./tools/freshchat";
 import * as fastspring from "./tools/fastspring";
@@ -16,6 +19,37 @@ export function inferProduct(text: string): Product {
   if (/getsign|e-?sign|signature|mapping/.test(t)) return "getsign";
   if (/jetpack|monday\.com|marketplace|widget|board/.test(t)) return "jetpackapps";
   return "unknown";
+}
+
+const CLASSIFY_SYSTEM = `You attribute customer support tickets to a product.
+
+Products:
+- "getsign" — GetSign (getsign.io), the e-signature app for monday.com: signing documents, signature requests, templates, field mapping, signed-document sync.
+- "jetpackapps" — Jetpack Apps (jetpackapps.io), the monday.com marketplace app portfolio: widgets, dashboards, integrations and other marketplace apps.
+- "unknown" — genuinely impossible to tell from the text (pure billing/account questions with no product hints, empty tickets).
+
+Pick the single most likely product from the ticket's content and phrasing. Prefer a product over "unknown" when the text leans one way, even without an explicit product name.`;
+
+/**
+ * LLM fallback when the keyword heuristic can't attribute the ticket — many
+ * tickets never name the product ("can't log in", "refund please"), so the
+ * model decides from the request context instead. Fails soft to "unknown".
+ */
+export async function classifyProduct(subject: string, description: string): Promise<Product> {
+  try {
+    const { object } = await generateObject({
+      model: getModel(),
+      schema: z.object({
+        product: z.enum(["getsign", "jetpackapps", "unknown"]),
+      }),
+      system: CLASSIFY_SYSTEM,
+      prompt: `Subject: ${subject}\n\n${description.slice(0, 2000)}`,
+    });
+    return object.product;
+  } catch (e) {
+    console.warn("Product classification failed, keeping 'unknown':", e);
+    return "unknown";
+  }
 }
 
 /**
@@ -31,7 +65,10 @@ export async function buildContext(
     channel === "freshchat"
       ? await freshchat.getConversationAsTicket(ticketId)
       : await freshdesk.getTicketDetails(ticketId);
-  const product = inferProduct(`${ticket.subject}\n${ticket.description}`);
+  let product = inferProduct(`${ticket.subject}\n${ticket.description}`);
+  if (product === "unknown" && !config.stubMode) {
+    product = await classifyProduct(ticket.subject, ticket.description);
+  }
 
   const account = ticket.requesterEmail
     ? await fastspring.getFastSpringAccount(ticket.requesterEmail).catch(() => null)
