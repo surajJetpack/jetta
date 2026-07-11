@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { fmtDuration } from "@/lib/format";
 import Link from "next/link";
 
 export interface Article {
@@ -150,7 +151,7 @@ export default function KbList() {
     setHits(r.hits ?? []);
     setSearchMeta(
       r.vectorEnabled
-        ? `vector ${r.timings?.retrievalMs}ms${r.reranked ? ` + rerank ${r.timings?.rerankMs}ms` : " (rerank off)"}`
+        ? `vector ${fmtDuration(r.timings?.retrievalMs)}${r.reranked ? ` + rerank ${fmtDuration(r.timings?.rerankMs)}` : " (rerank off)"}`
         : "keyword fallback (vector store not configured)",
     );
   }

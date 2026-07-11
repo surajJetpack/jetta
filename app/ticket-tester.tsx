@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { fmtDuration } from "@/lib/format";
 
 interface TraceEntry {
   tool: string;
@@ -158,7 +159,7 @@ export default function TicketTester({
                 <span>{res.dryRun ? "🔒 dry run" : "🟢 live"}</span>
                 {res.blockedByAllowlist ? <span style={{ color: "var(--warn)" }}>⚠ not on allowlist → forced dry-run</span> : null}
                 {res.resolutionSent ? <span><b>resolution sent</b> → follow-up scheduled</span> : null}
-                <span>{res.durationMs}ms</span>
+                <span>{fmtDuration(res.durationMs)}</span>
               </div>
 
               {res.reply ? (

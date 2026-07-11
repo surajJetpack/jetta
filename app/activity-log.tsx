@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { fmtDuration } from "@/lib/format";
 
 interface RunLog {
   id: string;
@@ -85,7 +86,7 @@ export default function ActivityLog() {
             {l.resolutionSent ? <span className="badge live">resolved</span> : null}
             {l.error ? <span className="badge stub" style={{ color: "var(--bad)" }}>error</span> : null}
             <span className="muted" style={{ marginLeft: "auto", fontSize: 12 }}>
-              {l.durationMs}ms · {ago(l.at)}
+              {fmtDuration(l.durationMs)} · {ago(l.at)}
             </span>
           </div>
           <div className="io" style={{ marginTop: 4 }}>{l.subject ?? "(no subject)"}</div>
