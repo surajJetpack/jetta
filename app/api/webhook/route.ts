@@ -96,11 +96,14 @@ export async function POST(req: NextRequest) {
     const system = buildSystemPrompt(ctx);
     const draftMode = config.replyMode === "draft";
     const started = Date.now();
+    // autoTier: complexity-based routing, only active when JETTA_TIERED_AGENT
+    // is on. Safe surface: draft mode means humans review every reply anyway.
+    // (Freshchat and the follow-up cron intentionally stay on standard.)
     const result = await runAgentLoop(
       system,
       messages,
       ctx,
-      draftMode ? { holdCustomerWrites: true } : {},
+      draftMode ? { holdCustomerWrites: true, autoTier: true } : { autoTier: true },
     );
     await recordRun("webhook", ctx, result, Date.now() - started);
 

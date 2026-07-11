@@ -3,7 +3,7 @@
  * the approved Knowledge-Loop articles. Read-only; powers the Analytics panel.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { getOutcomes, type OutcomeEvent } from "@/lib/kv";
+import { getOutcomes, listReplyDrafts, type OutcomeEvent, type ReplyDraft } from "@/lib/kv";
 import { listArticles } from "@/lib/kb-store";
 import { config } from "@/lib/config";
 import { adminAuthorized } from "@/lib/auth";
@@ -30,6 +30,55 @@ function topKeywords(subjects: string[], n = 8): { term: string; count: number }
     .slice(0, n);
 }
 
+/**
+ * Per-model quality: how humans treated each model's drafts (approve/edit/
+ * discard) plus run-level outcome rates. This is the evidence base for
+ * enabling tiered agent routing (JETTA_TIERED_AGENT).
+ */
+function modelStats(drafts: ReplyDraft[], outcomes: OutcomeEvent[]) {
+  const by = new Map<
+    string,
+    { drafts: number; approved: number; edited: number; discarded: number; runs: number; escalated: number; reopened: number }
+  >();
+  const bucket = (model: string | undefined) => {
+    const key = model ?? "unknown";
+    let b = by.get(key);
+    if (!b) {
+      b = { drafts: 0, approved: 0, edited: 0, discarded: 0, runs: 0, escalated: 0, reopened: 0 };
+      by.set(key, b);
+    }
+    return b;
+  };
+  for (const d of drafts) {
+    if (d.state === "superseded") continue; // never reviewed — no quality signal
+    const b = bucket(d.model);
+    b.drafts++;
+    if (d.state === "approved") {
+      b.approved++;
+      if (d.editedBody) b.edited++;
+    } else if (d.state === "discarded") {
+      b.discarded++;
+    }
+  }
+  for (const o of outcomes) {
+    const b = bucket(o.model);
+    b.runs++;
+    if (o.escalated) b.escalated++;
+    if (o.kind === "reopened") b.reopened++;
+  }
+  return [...by.entries()]
+    .map(([model, b]) => {
+      const decided = b.approved + b.discarded;
+      return {
+        model,
+        ...b,
+        approvalRate: decided ? Number((b.approved / decided).toFixed(2)) : null,
+        editRate: b.approved ? Number((b.edited / b.approved).toFixed(2)) : null,
+      };
+    })
+    .sort((a, b) => b.runs - a.runs);
+}
+
 function gapList(outcomes: OutcomeEvent[]) {
   // De-dupe by ticket; keep most recent. These are the tickets Jetta couldn't
   // close herself — the prioritised "document these next" list.
@@ -54,7 +103,7 @@ export async function GET(req: NextRequest) {
   if (!adminAuthorized(req)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
-  const outcomes = await getOutcomes(500);
+  const [outcomes, replyDrafts] = await Promise.all([getOutcomes(500), listReplyDrafts()]);
   const total = outcomes.length;
   const escalated = outcomes.filter((o) => o.escalated).length;
   const resolved = outcomes.filter((o) => o.resolutionSent).length;
@@ -87,6 +136,7 @@ export async function GET(req: NextRequest) {
       .map(([tool, count]) => ({ tool, count }))
       .sort((a, b) => b.count - a.count),
     approvedArticles: approved.map((a) => ({ title: a.title, approvedBy: a.createdBy, at: a.updatedAt })),
+    models: modelStats(replyDrafts, outcomes),
     recent: outcomes.slice(0, 25),
   });
 }

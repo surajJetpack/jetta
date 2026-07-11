@@ -3,12 +3,25 @@
 import { useEffect, useState, useCallback } from "react";
 
 interface Gap { ticketId: string; subject: string; reason: string; at: number; url: string }
+interface ModelStat {
+  model: string;
+  drafts: number;
+  approved: number;
+  edited: number;
+  discarded: number;
+  runs: number;
+  escalated: number;
+  reopened: number;
+  approvalRate: number | null;
+  editRate: number | null;
+}
 interface Stats {
   outcomes: { total: number; resolved: number; escalated: number; reopened: number; closed: number; deflectionRate: number | null };
   gaps: Gap[];
   gapKeywords: { term: string; count: number }[];
   toolUsage: { tool: string; count: number }[];
   approvedArticles: { title: string; approvedBy: string; at: number }[];
+  models?: ModelStat[];
 }
 
 export default function AnalyticsPanel() {
@@ -99,6 +112,31 @@ export default function AnalyticsPanel() {
             ))
           ) : (
             <p className="muted">No articles approved yet. When a dev resolves an escalation in Slack, run <code>@Jetta draft kb</code> → <code>@Jetta publish kb</code>.</p>
+          )}
+
+          {(s.models?.length ?? 0) > 0 && (
+            <>
+              <div className="steplabel" style={{ marginTop: 18 }}>
+                Model quality — evidence for tiered routing
+              </div>
+              {s.models!.map((m) => (
+                <div className="step" key={m.model}>
+                  <div className="tool" style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                    <span>{m.model}</span>
+                    <span className="badge live">{m.runs} runs</span>
+                    {m.drafts > 0 && (
+                      <span className={`badge ${m.approvalRate != null && m.approvalRate < 0.8 ? "stub" : "live"}`}>
+                        {m.approvalRate != null ? `${Math.round(m.approvalRate * 100)}% approved` : "no decisions yet"}
+                      </span>
+                    )}
+                  </div>
+                  <div className="io out">
+                    drafts {m.drafts} · approved {m.approved}
+                    {m.edited > 0 ? ` (${m.edited} edited)` : ""} · discarded {m.discarded} · escalated {m.escalated} · reopened {m.reopened}
+                  </div>
+                </div>
+              ))}
+            </>
           )}
 
           {s.toolUsage.length > 0 && (
