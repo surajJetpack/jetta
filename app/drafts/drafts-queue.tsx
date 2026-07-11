@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { fmtAgo, fmtExact, useNow } from "@/lib/format";
 
 interface ReplyDraft {
   id: string;
@@ -20,13 +21,6 @@ interface ReplyDraft {
   error?: string;
 }
 
-function age(unixSeconds: number): string {
-  const s = Math.max(0, Math.floor(Date.now() / 1000) - unixSeconds);
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
-  return `${Math.floor(s / 86400)}d ago`;
-}
-
 function PendingCard({
   draft,
   freshdeskDomain,
@@ -36,6 +30,7 @@ function PendingCard({
   freshdeskDomain: string;
   onDecide: () => void;
 }) {
+  const now = useNow();
   const [open, setOpen] = useState(false);
   const [body, setBody] = useState(draft.suggestedReply);
   const [busy, setBusy] = useState(false);
@@ -74,7 +69,8 @@ function PendingCard({
           ✉️ {draft.subject ?? `Ticket #${draft.ticketId}`}
         </span>
         <span className="muted" style={{ fontWeight: 400, fontSize: 12 }}>
-          {draft.product} · {draft.channel} · {age(draft.createdAt)} {open ? "▾" : "▸"}
+          {draft.product} · {draft.channel} ·{" "}
+          <span title={fmtExact(draft.createdAt)}>{fmtAgo(draft.createdAt, now)}</span> {open ? "▾" : "▸"}
         </span>
       </div>
 
@@ -128,6 +124,7 @@ export default function DraftsQueue({
   replyMode: "auto" | "draft";
   freshdeskDomain: string;
 }) {
+  const now = useNow();
   const [drafts, setDrafts] = useState<ReplyDraft[] | null>(null);
   const [showDecided, setShowDecided] = useState(false);
 
@@ -177,7 +174,8 @@ export default function DraftsQueue({
                   <span className="muted" style={{ fontWeight: 400, fontSize: 12 }}>
                     {d.state}
                     {d.decidedBy ? ` by ${d.decidedBy}` : ""}
-                    {d.editedBody ? " · edited" : ""} · {d.decidedAt ? age(d.decidedAt) : age(d.createdAt)}
+                    {d.editedBody ? " · edited" : ""} ·{" "}
+                    <span title={fmtExact(d.decidedAt ?? d.createdAt)}>{fmtAgo(d.decidedAt ?? d.createdAt, now)}</span>
                   </span>
                 </div>
                 <div className="io out">{(d.editedBody ?? d.suggestedReply).slice(0, 160)}…</div>

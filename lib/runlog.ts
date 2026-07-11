@@ -43,7 +43,9 @@ export async function recordRun(
 ): Promise<void> {
   const entry: RunLog = {
     id: crypto.randomUUID(),
-    at: Math.floor(Date.now() / 1000),
+    // Stamp the run's START (recordRun is called at completion) so the age
+    // shown in the console lines up with when the ticket event arrived.
+    at: Math.floor((Date.now() - durationMs) / 1000),
     source,
     ticketId: ctx.ticket?.id ?? "unknown",
     subject: ctx.ticket?.subject,

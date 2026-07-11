@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { fmtDuration } from "@/lib/format";
+import { fmtAgo, fmtDuration, fmtExact, useNow } from "@/lib/format";
 
 interface RunLog {
   id: string;
@@ -25,15 +25,8 @@ interface RunLog {
   error?: string;
 }
 
-function ago(at: number) {
-  const s = Math.floor(Date.now() / 1000) - at;
-  if (s < 60) return `${s}s ago`;
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
-  return `${Math.floor(s / 86400)}d ago`;
-}
-
 export default function ActivityLog() {
+  const now = useNow();
   const [logs, setLogs] = useState<RunLog[] | null>(null);
   const [open, setOpen] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -86,7 +79,7 @@ export default function ActivityLog() {
             {l.resolutionSent ? <span className="badge live">resolved</span> : null}
             {l.error ? <span className="badge stub" style={{ color: "var(--bad)" }}>error</span> : null}
             <span className="muted" style={{ marginLeft: "auto", fontSize: 12 }}>
-              {fmtDuration(l.durationMs)} · {ago(l.at)}
+              {fmtDuration(l.durationMs)} · <span title={fmtExact(l.at)}>{fmtAgo(l.at, now)}</span>
             </span>
           </div>
           <div className="io" style={{ marginTop: 4 }}>{l.subject ?? "(no subject)"}</div>
