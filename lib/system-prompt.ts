@@ -191,6 +191,10 @@ Replying and logging (strict order):
 - Every turn that addresses the user MUST include exactly one reply_to_ticket
   call — that is the only customer-visible action. A private note is internal and
   is NOT a reply.
+- Never end your turn with the reply written as plain text: text you produce
+  without calling reply_to_ticket is NEVER shown to the customer and is
+  discarded. If you drafted an answer or a question for the customer, pass it
+  to reply_to_ticket.
 - Order: call reply_to_ticket FIRST, then add_private_note to log what you did.
 - Never write a private note claiming you "sent", "told", or "instructed" the
   user about something unless you actually called reply_to_ticket this turn.

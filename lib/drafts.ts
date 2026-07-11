@@ -25,7 +25,14 @@ export async function createDraftFromRun(
   result: AgentResult,
 ): Promise<ReplyDraft | null> {
   const lastReply = [...result.trace].reverse().find((t) => t.tool === "reply_to_ticket");
-  const body = (lastReply?.input as { body?: string } | undefined)?.body;
+  let body = (lastReply?.input as { body?: string } | undefined)?.body;
+  // Safety net: models occasionally emit the reply as final text instead of
+  // calling reply_to_ticket (seen live on ticket 13756). A human reviews every
+  // draft anyway, so a text-only reply becomes a draft rather than vanishing.
+  if (!body && result.text.trim().length >= 40) {
+    body = result.text.trim();
+    log.warn("draft_from_final_text", { ticketId: ctx.ticket?.id });
+  }
   if (!body || !ctx.ticket) return null;
 
   const draft: ReplyDraft = {
