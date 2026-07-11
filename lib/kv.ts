@@ -393,6 +393,8 @@ export interface RunLog {
   channel: string;
   product: string;
   model: string;
+  /** Triage complexity rating for the ticket, when triage ran. */
+  complexity?: string;
   dryRun: boolean;
   blockedByAllowlist: boolean;
   /** True when customer-visible writes were held for human approval (draft mode). */
@@ -459,6 +461,8 @@ export interface ReplyDraft {
   resolutionSent: boolean;
   escalated: boolean;
   createdAt: number; // unix seconds
+  /** Label of the model that generated this draft (provider/model-id). */
+  model?: string;
   state: "pending" | "approved" | "discarded" | "superseded";
   decidedAt?: number;
   /** Console username (or "api"/"dev") that approved or discarded the draft. */

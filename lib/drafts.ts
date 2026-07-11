@@ -46,6 +46,7 @@ export async function createDraftFromRun(
     resolutionSent: result.resolutionSent,
     escalated: result.toolsUsed.includes("send_escalation"),
     createdAt: Math.floor(Date.now() / 1000),
+    model: result.model,
     state: "pending",
   };
   await addReplyDraft(draft);

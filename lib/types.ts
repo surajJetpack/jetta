@@ -60,4 +60,6 @@ export interface ConversationContext {
   account: FastSpringAccount | null;
   relatedDevItems: DevBoardItem[];
   product: Product;
+  /** Light-model triage rating; drives tiered model routing. Absent in stub mode. */
+  complexity?: "simple" | "standard";
 }

@@ -6,7 +6,6 @@
 import crypto from "node:crypto";
 import type { ConversationContext } from "./types";
 import type { AgentResult } from "./agent";
-import { modelLabel } from "./llm";
 import { recordRunLog, type RunLog } from "./kv";
 import { log } from "./logger";
 
@@ -50,7 +49,8 @@ export async function recordRun(
     subject: ctx.ticket?.subject,
     channel: ctx.channel,
     product: ctx.product,
-    model: modelLabel(),
+    model: result.model,
+    complexity: ctx.complexity,
     dryRun: result.dryRun,
     blockedByAllowlist: result.blockedByAllowlist,
     heldCustomerWrites: result.heldCustomerWrites || undefined,

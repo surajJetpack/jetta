@@ -98,6 +98,12 @@ export const config = {
     /** Max tool-loop steps per turn — bounds runaway loops. */
     maxSteps: 10,
     maxTokens: 4096,
+    /**
+     * Complexity-based agent routing: when true, webhook runs that opted in
+     * (autoTier) use the light tier for tickets triaged "simple". Keep off
+     * until the console's per-model quality stats show parity.
+     */
+    tieredAgent: env("JETTA_TIERED_AGENT") === "true",
   },
 
   google: {

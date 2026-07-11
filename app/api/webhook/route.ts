@@ -18,7 +18,6 @@ import { buildContext, buildMessages } from "@/lib/context";
 import { buildSystemPrompt } from "@/lib/system-prompt";
 import { runAgentLoop } from "@/lib/agent";
 import { markEventSeen, scheduleFollowUp, recordOutcome } from "@/lib/kv";
-import { modelLabel } from "@/lib/llm";
 import { recordRun } from "@/lib/runlog";
 import { createDraftFromRun } from "@/lib/drafts";
 
@@ -116,7 +115,7 @@ export async function POST(req: NextRequest) {
         at: Math.floor(Date.now() / 1000),
         channel,
         product: ctx.product,
-        model: modelLabel(),
+        model: result.model,
         toolsUsed: result.toolsUsed,
         replied: false,
         resolutionSent: false,
@@ -160,7 +159,7 @@ export async function POST(req: NextRequest) {
       at: Math.floor(Date.now() / 1000),
       channel,
       product: ctx.product,
-      model: modelLabel(),
+      model: result.model,
       toolsUsed: result.toolsUsed,
       replied,
       resolutionSent: result.resolutionSent,

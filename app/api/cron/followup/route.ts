@@ -65,7 +65,7 @@ export async function GET(req: NextRequest) {
             at: Math.floor(Date.now() / 1000),
             channel: ctx.channel,
             product: ctx.product,
-            model: modelLabel(),
+            model: result.model,
             toolsUsed: result.toolsUsed,
             replied: !draftMode && result.toolsUsed.includes("reply_to_ticket"),
             resolutionSent: !draftMode && result.resolutionSent,

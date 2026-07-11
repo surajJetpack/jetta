@@ -21,7 +21,6 @@ import { buildContext, buildMessages } from "@/lib/context";
 import { buildSystemPrompt } from "@/lib/system-prompt";
 import { runAgentLoop } from "@/lib/agent";
 import { markEventSeen, recordOutcome } from "@/lib/kv";
-import { modelLabel } from "@/lib/llm";
 import { recordRun } from "@/lib/runlog";
 import { isAssignedToJetta, getLatestUserMessageId } from "@/lib/tools/freshchat";
 
@@ -207,7 +206,7 @@ async function runPipeline(convId: string) {
       at: Math.floor(Date.now() / 1000),
       channel: "freshchat",
       product: ctx.product,
-      model: modelLabel(),
+      model: result.model,
       toolsUsed: result.toolsUsed,
       replied,
       resolutionSent: result.resolutionSent,

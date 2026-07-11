@@ -11,8 +11,8 @@
  * logged (→ schedule the 24h follow-up).
  */
 import { generateText, stepCountIs, type ModelMessage } from "ai";
-import { config } from "./config";
-import { getModel } from "./llm";
+import { config, type ModelTier } from "./config";
+import { getModel, modelLabel } from "./llm";
 import type { ConversationContext } from "./types";
 import { buildTools, type AgentSignals } from "./tools";
 
@@ -40,6 +40,8 @@ export interface AgentResult {
   heldCustomerWrites: boolean;
   /** Aggregate token usage across the loop. */
   usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number };
+  /** Label of the model that actually ran this loop (provider/model-id). */
+  model: string;
 }
 
 /** Live writes allowed only when the allowlist is empty (no restriction) or the ticket is on it. */
@@ -59,6 +61,20 @@ export interface RunOptions {
    * customer-visible can go out autonomously).
    */
   holdCustomerWrites?: boolean;
+  /** Explicit model tier for this run (console A/B override). Wins over autoTier. */
+  tier?: ModelTier;
+  /**
+   * Opt in to complexity-based routing: when JETTA_TIERED_AGENT=true and the
+   * ticket triaged "simple", the run uses the light tier. Off by default.
+   */
+  autoTier?: boolean;
+}
+
+/** Resolve which tier a run should use. Fails toward "standard". */
+function resolveTier(ctx: ConversationContext, opts: RunOptions): ModelTier {
+  if (opts.tier) return opts.tier;
+  if (opts.autoTier && config.llm.tieredAgent && ctx.complexity === "simple") return "light";
+  return "standard";
 }
 
 export async function runAgentLoop(
@@ -78,8 +94,9 @@ export async function runAgentLoop(
   const blockedByAllowlist = !opts.dryRun && !hold && !allowed;
   const dryRun = opts.dryRun === true || (!allowed && !hold);
 
+  const tier = resolveTier(ctx, opts);
   const result = await generateText({
-    model: getModel(),
+    model: getModel(tier),
     system,
     messages,
     tools: buildTools(ctx, signals, { dryRun, holdCustomerWrites: hold }),
@@ -114,5 +131,6 @@ export async function runAgentLoop(
     usage: u
       ? { inputTokens: u.inputTokens, outputTokens: u.outputTokens, totalTokens: u.totalTokens }
       : undefined,
+    model: modelLabel(tier),
   };
 }

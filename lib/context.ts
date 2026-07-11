@@ -21,35 +21,51 @@ export function inferProduct(text: string): Product {
   return "unknown";
 }
 
-const CLASSIFY_SYSTEM = `You attribute customer support tickets to a product.
+const TRIAGE_SYSTEM = `You triage customer support tickets: attribute them to a product and rate their complexity.
 
 Products:
 - "getsign" — GetSign (getsign.io), the e-signature app for monday.com: signing documents, signature requests, templates, field mapping, signed-document sync.
 - "jetpackapps" — Jetpack Apps (jetpackapps.io), the monday.com marketplace app portfolio: widgets, dashboards, integrations and other marketplace apps.
 - "unknown" — genuinely impossible to tell from the text (pure billing/account questions with no product hints, empty tickets).
 
-Pick the single most likely product from the ticket's content and phrasing. Prefer a product over "unknown" when the text leans one way, even without an explicit product name.`;
+Pick the single most likely product from the ticket's content and phrasing. Prefer a product over "unknown" when the text leans one way, even without an explicit product name.
+
+Complexity:
+- "simple" — a single, clearly-stated question likely answerable from documentation: a how-to, a pricing/plan question, a plain factual billing lookup.
+- "standard" — anything else: multiple issues, technical debugging, error reports, angry or escalation-prone tone, refunds needing judgment, or unclear requests. When in doubt, "standard".`;
+
+export interface TicketTriage {
+  product: Product;
+  complexity: "simple" | "standard";
+}
 
 /**
- * LLM fallback when the keyword heuristic can't attribute the ticket — many
- * tickets never name the product ("can't log in", "refund please"), so the
- * model decides from the request context instead. Fails soft to "unknown".
+ * One light-model call per ticket: product attribution (fallback when the
+ * keyword heuristic can't decide) + a complexity rating used for model
+ * routing and analytics. Fails soft to {unknown, standard} — failures must
+ * never block a run, and unknown complexity routes to the strong model.
  */
-export async function classifyProduct(subject: string, description: string): Promise<Product> {
+export async function triageTicket(subject: string, description: string): Promise<TicketTriage> {
   try {
     const { object } = await generateObject({
       model: getModel("light"),
       schema: z.object({
         product: z.enum(["getsign", "jetpackapps", "unknown"]),
+        complexity: z.enum(["simple", "standard"]),
       }),
-      system: CLASSIFY_SYSTEM,
+      system: TRIAGE_SYSTEM,
       prompt: `Subject: ${subject}\n\n${description.slice(0, 2000)}`,
     });
-    return object.product;
+    return object;
   } catch (e) {
-    console.warn("Product classification failed, keeping 'unknown':", e);
-    return "unknown";
+    console.warn("Ticket triage failed, using {unknown, standard}:", e);
+    return { product: "unknown", complexity: "standard" };
   }
+}
+
+/** Back-compat wrapper: product-only triage (used by tests/scripts). */
+export async function classifyProduct(subject: string, description: string): Promise<Product> {
+  return (await triageTicket(subject, description)).product;
 }
 
 /**
@@ -65,24 +81,27 @@ export async function buildContext(
     channel === "freshchat"
       ? await freshchat.getConversationAsTicket(ticketId)
       : await freshdesk.getTicketDetails(ticketId);
-  // LLM fallback only when the ticket content is real — keyed to the channel's
-  // live flag, not global STUB_MODE, so it works in staged rollouts where
-  // Freshdesk is live while other integrations stay stubbed.
+  // Triage runs for every live ticket (keyed to the channel's live flag, not
+  // global STUB_MODE, so staged rollouts work) — in parallel with the account
+  // and dev-item lookups so its latency hides behind them.
   const contentIsLive = channel === "freshchat" ? config.freshchat.live : config.freshdesk.live;
-  let product = inferProduct(`${ticket.subject}\n${ticket.description}`);
-  if (product === "unknown" && contentIsLive) {
-    product = await classifyProduct(ticket.subject, ticket.description);
-  }
 
-  const account = ticket.requesterEmail
-    ? await fastspring.getFastSpringAccount(ticket.requesterEmail).catch(() => null)
-    : null;
+  const [triage, account, relatedDevItems] = await Promise.all([
+    contentIsLive
+      ? triageTicket(ticket.subject, ticket.description)
+      : Promise.resolve<TicketTriage>({ product: "unknown", complexity: "standard" }),
+    ticket.requesterEmail
+      ? fastspring.getFastSpringAccount(ticket.requesterEmail).catch(() => null)
+      : Promise.resolve(null),
+    monday.searchDevBoard(ticket.subject).catch(() => []),
+  ]);
 
-  const relatedDevItems = await monday
-    .searchDevBoard(ticket.subject)
-    .catch(() => []);
+  // The keyword heuristic wins when it recognizes the product; the LLM triage
+  // fills in only when it can't (exactly the old fallback behavior).
+  const keywordProduct = inferProduct(`${ticket.subject}\n${ticket.description}`);
+  const product = keywordProduct !== "unknown" ? keywordProduct : triage.product;
 
-  return { channel, ticket, account, relatedDevItems, product };
+  return { channel, ticket, account, relatedDevItems, product, complexity: triage.complexity };
 }
 
 /**

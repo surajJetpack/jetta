@@ -10,7 +10,6 @@ import { config } from "@/lib/config";
 import { buildContext, buildMessages } from "@/lib/context";
 import { buildSystemPrompt } from "@/lib/system-prompt";
 import { runAgentLoop } from "@/lib/agent";
-import { modelLabel } from "@/lib/llm";
 import { adminAuthorized } from "@/lib/auth";
 import { recordRun } from "@/lib/runlog";
 
@@ -21,7 +20,13 @@ export async function POST(req: NextRequest) {
   if (!adminAuthorized(req)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
-  let body: { ticketId?: string; dryRun?: boolean; channel?: "freshdesk" | "freshchat" };
+  let body: {
+    ticketId?: string;
+    dryRun?: boolean;
+    channel?: "freshdesk" | "freshchat";
+    /** Explicit model tier for A/B comparison (light vs standard). */
+    tier?: "light" | "standard";
+  };
   try {
     body = (await req.json()) as typeof body;
   } catch {
@@ -46,7 +51,7 @@ export async function POST(req: NextRequest) {
       buildSystemPrompt(ctx),
       buildMessages(ctx.ticket, channel),
       ctx,
-      { dryRun },
+      { dryRun, tier: body.tier === "light" || body.tier === "standard" ? body.tier : undefined },
     );
     const durationMs = Date.now() - started;
     await recordRun("console", ctx, result, durationMs);
@@ -59,7 +64,7 @@ export async function POST(req: NextRequest) {
         requester: ctx.ticket.requesterName,
         product: ctx.product,
       },
-      model: modelLabel(),
+      model: result.model,
       channel,
       dryRun: result.dryRun,
       blockedByAllowlist: result.blockedByAllowlist,
