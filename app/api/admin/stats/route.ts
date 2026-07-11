@@ -40,6 +40,26 @@ const PRICES: Record<string, { in: number; out: number }> = {
   "openrouter/anthropic/claude-haiku-4.5": { in: 1, out: 5 },
 };
 
+/** Aggregate token usage per task (triage/rerank/agent) across run logs. */
+function taskTokenStats(runs: RunLog[]) {
+  const by = new Map<string, { calls: number; inputTokens: number; outputTokens: number }>();
+  for (const r of runs) {
+    for (const t of r.tasks ?? []) {
+      let b = by.get(t.task);
+      if (!b) {
+        b = { calls: 0, inputTokens: 0, outputTokens: 0 };
+        by.set(t.task, b);
+      }
+      b.calls++;
+      b.inputTokens += t.inputTokens;
+      b.outputTokens += t.outputTokens;
+    }
+  }
+  return [...by.entries()]
+    .map(([task, b]) => ({ task, ...b }))
+    .sort((a, b) => b.inputTokens + b.outputTokens - (a.inputTokens + a.outputTokens));
+}
+
 /** Aggregate token usage per model from run logs. */
 function tokenStats(runs: RunLog[]) {
   const by = new Map<string, { runs: number; inputTokens: number; outputTokens: number }>();
@@ -186,6 +206,7 @@ export async function GET(req: NextRequest) {
         tokens: tokens.get(m.model) ?? null,
       }));
     })(),
+    taskTokens: taskTokenStats(runLogs),
     recent: outcomes.slice(0, 25),
   });
 }

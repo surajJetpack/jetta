@@ -5,9 +5,9 @@
  */
 import { generateObject, type ModelMessage } from "ai";
 import { z } from "zod";
-import type { ConversationContext, Product, Ticket } from "./types";
+import type { ConversationContext, Product, TaskUsage, Ticket } from "./types";
 import { config } from "./config";
-import { getModel } from "./llm";
+import { getModel, modelLabel } from "./llm";
 import * as freshdesk from "./tools/freshdesk";
 import * as freshchat from "./tools/freshchat";
 import * as fastspring from "./tools/fastspring";
@@ -45,9 +45,13 @@ export interface TicketTriage {
  * routing and analytics. Fails soft to {unknown, standard} — failures must
  * never block a run, and unknown complexity routes to the strong model.
  */
-export async function triageTicket(subject: string, description: string): Promise<TicketTriage> {
+export async function triageTicket(
+  subject: string,
+  description: string,
+  usageSink?: TaskUsage[],
+): Promise<TicketTriage> {
   try {
-    const { object } = await generateObject({
+    const { object, usage } = await generateObject({
       model: getModel("light"),
       schema: z.object({
         product: z.enum(["getsign", "jetpackapps", "unknown"]),
@@ -55,6 +59,12 @@ export async function triageTicket(subject: string, description: string): Promis
       }),
       system: TRIAGE_SYSTEM,
       prompt: `Subject: ${subject}\n\n${description.slice(0, 2000)}`,
+    });
+    usageSink?.push({
+      task: "triage",
+      model: modelLabel("light"),
+      inputTokens: usage?.inputTokens ?? 0,
+      outputTokens: usage?.outputTokens ?? 0,
     });
     return object;
   } catch (e) {
@@ -85,10 +95,11 @@ export async function buildContext(
   // global STUB_MODE, so staged rollouts work) — in parallel with the account
   // and dev-item lookups so its latency hides behind them.
   const contentIsLive = channel === "freshchat" ? config.freshchat.live : config.freshdesk.live;
+  const taskUsage: TaskUsage[] = [];
 
   const [triage, account, relatedDevItems] = await Promise.all([
     contentIsLive
-      ? triageTicket(ticket.subject, ticket.description)
+      ? triageTicket(ticket.subject, ticket.description, taskUsage)
       : Promise.resolve<TicketTriage>({ product: "unknown", complexity: "standard" }),
     ticket.requesterEmail
       ? fastspring.getFastSpringAccount(ticket.requesterEmail).catch(() => null)
@@ -101,7 +112,7 @@ export async function buildContext(
   const keywordProduct = inferProduct(`${ticket.subject}\n${ticket.description}`);
   const product = keywordProduct !== "unknown" ? keywordProduct : triage.product;
 
-  return { channel, ticket, account, relatedDevItems, product, complexity: triage.complexity };
+  return { channel, ticket, account, relatedDevItems, product, complexity: triage.complexity, taskUsage };
 }
 
 /**

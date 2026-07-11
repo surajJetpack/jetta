@@ -96,7 +96,7 @@ export function buildTools(
           // there), then let the reranker pick the best 5. Rerank failure
           // falls back to fusion order — retrieval never fails on it.
           const candidates = await queryVector(keyword, 12).catch(() => [] as VectorHit[]);
-          merged = await rerankHits(keyword, candidates, 5);
+          merged = await rerankHits(keyword, candidates, 5, ctx.taskUsage);
         } else {
           // Keyword fallback over published articles in the unified store.
           merged = await searchPublishedKb(keyword, 5).catch(() => []);

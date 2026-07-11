@@ -12,8 +12,9 @@
 import { generateObject } from "ai";
 import { z } from "zod";
 import { config } from "./config";
-import { getModel, llmKeyPresent } from "./llm";
+import { getModel, llmKeyPresent, modelLabel } from "./llm";
 import type { VectorHit } from "./vector";
+import type { TaskUsage } from "./types";
 
 const RankSchema = z.object({
   ranking: z
@@ -33,6 +34,8 @@ export async function rerankHits(
   query: string,
   hits: VectorHit[],
   topN: number,
+  /** When provided, the call's token usage is appended (per-ticket cost breakdown). */
+  usageSink?: TaskUsage[],
 ): Promise<VectorHit[]> {
   if (!rerankEnabled() || hits.length <= topN) return hits.slice(0, topN);
 
@@ -41,7 +44,7 @@ export async function rerankHits(
     .join("\n\n");
 
   try {
-    const { object } = await generateObject({
+    const { object, usage } = await generateObject({
       model: getModel("light"),
       schema: RankSchema,
       abortSignal: AbortSignal.timeout(config.rerank.timeoutMs),
@@ -49,6 +52,12 @@ export async function rerankHits(
         "You rank knowledge-base articles by relevance to a customer-support query. " +
         "Return candidate numbers, most relevant first. Omit candidates that do not help answer the query.",
       prompt: `Query: ${query}\n\nCandidates:\n\n${candidates}`,
+    });
+    usageSink?.push({
+      task: "rerank",
+      model: modelLabel("light"),
+      inputTokens: usage?.inputTokens ?? 0,
+      outputTokens: usage?.outputTokens ?? 0,
     });
 
     // Map indices back, drop invalid/duplicate entries, pad with fusion order.

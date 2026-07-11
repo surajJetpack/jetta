@@ -62,4 +62,14 @@ export interface ConversationContext {
   product: Product;
   /** Light-model triage rating; drives tiered model routing. Absent in stub mode. */
   complexity?: "simple" | "standard";
+  /** Token usage of auxiliary LLM calls made for this ticket (triage, rerank). */
+  taskUsage?: TaskUsage[];
+}
+
+/** Token usage of one LLM task, for the per-ticket cost breakdown. */
+export interface TaskUsage {
+  task: "triage" | "rerank" | "agent";
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
 }

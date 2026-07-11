@@ -31,6 +31,7 @@ interface Stats {
   toolUsage: { tool: string; count: number }[];
   approvedArticles: { title: string; approvedBy: string; at: number }[];
   models?: ModelStat[];
+  taskTokens?: { task: string; calls: number; inputTokens: number; outputTokens: number }[];
 }
 
 export default function AnalyticsPanel() {
@@ -152,6 +153,19 @@ export default function AnalyticsPanel() {
                   )}
                 </div>
               ))}
+            </>
+          )}
+
+          {(s.taskTokens?.length ?? 0) > 0 && (
+            <>
+              <div className="steplabel" style={{ marginTop: 18 }}>Token consumption by task</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                {s.taskTokens!.map((t) => (
+                  <span key={t.task} className="badge live" style={{ fontFamily: "var(--mono)" }}>
+                    {t.task} · {fmtTokens(t.inputTokens + t.outputTokens)} ({fmtTokens(t.inputTokens)} in / {fmtTokens(t.outputTokens)} out) · {t.calls} calls
+                  </span>
+                ))}
+              </div>
             </>
           )}
 

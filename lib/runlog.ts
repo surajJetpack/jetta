@@ -59,6 +59,15 @@ export async function recordRun(
     escalated: result.toolsUsed.includes("send_escalation"),
     durationMs,
     usage: result.usage,
+    tasks: [
+      ...(ctx.taskUsage ?? []),
+      {
+        task: "agent",
+        model: result.model,
+        inputTokens: result.usage?.inputTokens ?? 0,
+        outputTokens: result.usage?.outputTokens ?? 0,
+      },
+    ],
     reply: extractReply(result),
     kbHits: extractKbHits(result.trace),
     trace: result.trace,

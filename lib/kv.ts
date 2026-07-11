@@ -404,6 +404,8 @@ export interface RunLog {
   escalated: boolean;
   durationMs: number;
   usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number };
+  /** Per-task token breakdown for this run (triage, rerank calls, the agent loop). */
+  tasks?: { task: string; model: string; inputTokens: number; outputTokens: number }[];
   reply: string;
   kbHits: { title: string; source: string; score?: number }[];
   trace: { tool: string; input: unknown; result: string }[];

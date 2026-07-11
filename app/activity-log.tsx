@@ -17,6 +17,7 @@ interface RunLog {
   escalated: boolean;
   durationMs: number;
   usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number };
+  tasks?: { task: string; model: string; inputTokens: number; outputTokens: number }[];
   reply: string;
   kbHits: { title: string; source: string; score?: number }[];
   trace: { tool: string; input: unknown; result: string }[];
@@ -97,6 +98,25 @@ export default function ActivityLog() {
                   ? ` · ${l.usage.totalTokens} tokens (${l.usage.inputTokens ?? "?"} in / ${l.usage.outputTokens ?? "?"} out)`
                   : ""}
               </div>
+              {l.tasks && l.tasks.length > 0 && (
+                <div className="io">
+                  {"tokens by task: "}
+                  {Object.entries(
+                    l.tasks.reduce<Record<string, { calls: number; in_: number; out: number }>>((acc, t) => {
+                      const a = (acc[t.task] ??= { calls: 0, in_: 0, out: 0 });
+                      a.calls++;
+                      a.in_ += t.inputTokens;
+                      a.out += t.outputTokens;
+                      return acc;
+                    }, {}),
+                  )
+                    .map(
+                      ([task, a]) =>
+                        `${task}${a.calls > 1 ? ` ×${a.calls}` : ""} ${a.in_ + a.out} (${a.in_} in / ${a.out} out)`,
+                    )
+                    .join(" · ")}
+                </div>
+              )}
               {l.error && <div className="err" style={{ marginTop: 6 }}>error: {l.error}</div>}
 
               <div className="steplabel" style={{ marginTop: 10 }}>KB hits ({l.kbHits.length})</div>
