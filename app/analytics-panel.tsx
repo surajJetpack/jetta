@@ -14,7 +14,16 @@ interface ModelStat {
   reopened: number;
   approvalRate: number | null;
   editRate: number | null;
+  tokens: {
+    runs: number;
+    inputTokens: number;
+    outputTokens: number;
+    avgTokensPerRun: number;
+    estCostUsd: number | null;
+  } | null;
 }
+
+const fmtTokens = (n: number) => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
 interface Stats {
   outcomes: { total: number; resolved: number; escalated: number; reopened: number; closed: number; deflectionRate: number | null };
   gaps: Gap[];
@@ -134,6 +143,13 @@ export default function AnalyticsPanel() {
                     drafts {m.drafts} · approved {m.approved}
                     {m.edited > 0 ? ` (${m.edited} edited)` : ""} · discarded {m.discarded} · escalated {m.escalated} · reopened {m.reopened}
                   </div>
+                  {m.tokens && (
+                    <div className="io">
+                      tokens: {fmtTokens(m.tokens.inputTokens)} in · {fmtTokens(m.tokens.outputTokens)} out
+                      {" "}· avg {fmtTokens(m.tokens.avgTokensPerRun)}/run
+                      {m.tokens.estCostUsd != null ? ` · ~$${m.tokens.estCostUsd.toFixed(m.tokens.estCostUsd < 0.1 ? 4 : 2)} total` : ""}
+                    </div>
+                  )}
                 </div>
               ))}
             </>

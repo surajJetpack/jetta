@@ -3,7 +3,7 @@
  * the approved Knowledge-Loop articles. Read-only; powers the Analytics panel.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { getOutcomes, listReplyDrafts, type OutcomeEvent, type ReplyDraft } from "@/lib/kv";
+import { getOutcomes, getRunLogs, listReplyDrafts, type OutcomeEvent, type ReplyDraft, type RunLog } from "@/lib/kv";
 import { listArticles } from "@/lib/kb-store";
 import { config } from "@/lib/config";
 import { adminAuthorized } from "@/lib/auth";
@@ -28,6 +28,44 @@ function topKeywords(subjects: string[], n = 8): { term: string; count: number }
     .map(([term, count]) => ({ term, count }))
     .sort((a, b) => b.count - a.count)
     .slice(0, n);
+}
+
+/**
+ * $ per million tokens (input, output) for models we run, keyed by the RunLog
+ * model label. Used for estimated-cost display only — billing truth lives with
+ * the provider. Unknown models show token counts without a cost estimate.
+ */
+const PRICES: Record<string, { in: number; out: number }> = {
+  "openrouter/anthropic/claude-sonnet-5": { in: 2, out: 10 },
+  "openrouter/anthropic/claude-haiku-4.5": { in: 1, out: 5 },
+};
+
+/** Aggregate token usage per model from run logs. */
+function tokenStats(runs: RunLog[]) {
+  const by = new Map<string, { runs: number; inputTokens: number; outputTokens: number }>();
+  for (const r of runs) {
+    if (!r.usage) continue;
+    let b = by.get(r.model);
+    if (!b) {
+      b = { runs: 0, inputTokens: 0, outputTokens: 0 };
+      by.set(r.model, b);
+    }
+    b.runs++;
+    b.inputTokens += r.usage.inputTokens ?? 0;
+    b.outputTokens += r.usage.outputTokens ?? 0;
+  }
+  return [...by.entries()].map(([model, b]) => {
+    const price = PRICES[model];
+    const cost = price ? (b.inputTokens * price.in + b.outputTokens * price.out) / 1e6 : null;
+    return {
+      model,
+      runs: b.runs,
+      inputTokens: b.inputTokens,
+      outputTokens: b.outputTokens,
+      avgTokensPerRun: b.runs ? Math.round((b.inputTokens + b.outputTokens) / b.runs) : 0,
+      estCostUsd: cost != null ? Number(cost.toFixed(4)) : null,
+    };
+  });
 }
 
 /**
@@ -103,7 +141,11 @@ export async function GET(req: NextRequest) {
   if (!adminAuthorized(req)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
-  const [outcomes, replyDrafts] = await Promise.all([getOutcomes(500), listReplyDrafts()]);
+  const [outcomes, replyDrafts, runLogs] = await Promise.all([
+    getOutcomes(500),
+    listReplyDrafts(),
+    getRunLogs(500),
+  ]);
   const total = outcomes.length;
   const escalated = outcomes.filter((o) => o.escalated).length;
   const resolved = outcomes.filter((o) => o.resolutionSent).length;
@@ -136,7 +178,14 @@ export async function GET(req: NextRequest) {
       .map(([tool, count]) => ({ tool, count }))
       .sort((a, b) => b.count - a.count),
     approvedArticles: approved.map((a) => ({ title: a.title, approvedBy: a.createdBy, at: a.updatedAt })),
-    models: modelStats(replyDrafts, outcomes),
+    models: (() => {
+      // Join quality (drafts/outcomes) with token usage (run logs) per model.
+      const tokens = new Map(tokenStats(runLogs).map((t) => [t.model, t]));
+      return modelStats(replyDrafts, outcomes).map((m) => ({
+        ...m,
+        tokens: tokens.get(m.model) ?? null,
+      }));
+    })(),
     recent: outcomes.slice(0, 25),
   });
 }

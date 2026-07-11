@@ -93,7 +93,9 @@ export default function ActivityLog() {
             <div style={{ marginTop: 10 }}>
               <div className="io">
                 model {l.model}
-                {l.usage?.totalTokens != null ? ` · ${l.usage.totalTokens} tokens` : ""}
+                {l.usage?.totalTokens != null
+                  ? ` · ${l.usage.totalTokens} tokens (${l.usage.inputTokens ?? "?"} in / ${l.usage.outputTokens ?? "?"} out)`
+                  : ""}
               </div>
               {l.error && <div className="err" style={{ marginTop: 6 }}>error: {l.error}</div>}
 
