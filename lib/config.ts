@@ -38,9 +38,10 @@ function liveFor(flag: string): boolean {
 /**
  * LLM provider. Defaults to Google (Gemini) when a Gemini key is present,
  * else Anthropic (Claude — the production target per the product spec).
- * Override explicitly with LLM_PROVIDER=google|anthropic.
+ * Override explicitly with LLM_PROVIDER=google|anthropic|openrouter.
+ * "openrouter" routes to any hosted model (Claude included) via one key.
  */
-export type LlmProvider = "google" | "anthropic";
+export type LlmProvider = "google" | "anthropic" | "openrouter";
 const explicitProvider = env("LLM_PROVIDER") as LlmProvider | undefined;
 export const LLM_PROVIDER: LlmProvider =
   explicitProvider ??
@@ -72,7 +73,8 @@ export const config = {
     /** Per-provider model ids. Swap the production model here, not in code. */
     models: {
       google: "gemini-2.5-pro",
-      anthropic: "claude-sonnet-4-6",
+      anthropic: "claude-sonnet-5",
+      openrouter: env("OPENROUTER_MODEL") ?? "anthropic/claude-sonnet-5",
     } as Record<LlmProvider, string>,
     /** Max tool-loop steps per turn — bounds runaway loops. */
     maxSteps: 10,
@@ -84,6 +86,9 @@ export const config = {
   },
   anthropic: {
     apiKey: env("ANTHROPIC_API_KEY"),
+  },
+  openrouter: {
+    apiKey: env("OPENROUTER_API_KEY"),
   },
 
   freshdesk: {

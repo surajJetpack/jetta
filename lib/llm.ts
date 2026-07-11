@@ -8,6 +8,7 @@
 import type { LanguageModel } from "ai";
 import { google } from "@ai-sdk/google";
 import { anthropic } from "@ai-sdk/anthropic";
+import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { config } from "./config";
 
 export function getModel(): LanguageModel {
@@ -21,6 +22,9 @@ export function getModel(): LanguageModel {
     case "anthropic":
       if (!config.anthropic.apiKey) throw new Error("ANTHROPIC_API_KEY is not set.");
       return anthropic(modelId);
+    case "openrouter":
+      if (!config.openrouter.apiKey) throw new Error("OPENROUTER_API_KEY is not set.");
+      return createOpenRouter({ apiKey: config.openrouter.apiKey }).chat(modelId);
     default:
       throw new Error(`Unknown LLM provider: ${provider}`);
   }

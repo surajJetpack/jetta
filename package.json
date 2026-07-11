@@ -12,6 +12,7 @@
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.85",
     "@ai-sdk/google": "^3.0.83",
+    "@openrouter/ai-sdk-provider": "^2.10.0",
     "@upstash/redis": "^1.35.6",
     "@upstash/vector": "^1.2.3",
     "ai": "^6.0.208",
