@@ -1,19 +1,21 @@
 /**
- * Resolves the AI SDK language model for the configured provider.
+ * Resolves the AI SDK language model for the configured provider and tier.
  *
  * Switching the LLM is a one-line change: set LLM_PROVIDER (or swap the model
- * id in config.llm.models). Gemini is used for development now; Claude
- * (claude-sonnet-4-6) is the production target per the product spec.
+ * ids in config.llm.models). Tiers: "standard" (default) for quality-critical
+ * customer-facing runs, "light" for cheap/fast calls (classification, rerank).
  */
 import type { LanguageModel } from "ai";
 import { google } from "@ai-sdk/google";
 import { anthropic } from "@ai-sdk/anthropic";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
-import { config } from "./config";
+import { config, type ModelTier } from "./config";
 
-export function getModel(): LanguageModel {
-  const { provider, models } = config.llm;
-  const modelId = models[provider];
+export type { ModelTier };
+
+export function getModel(tier: ModelTier = "standard"): LanguageModel {
+  const { provider } = config.llm;
+  const modelId = config.llm.models[tier][provider];
 
   switch (provider) {
     case "google":
@@ -30,7 +32,21 @@ export function getModel(): LanguageModel {
   }
 }
 
-/** Human-readable label for logs/responses, e.g. "google/gemini-2.5-pro". */
-export function modelLabel(): string {
-  return `${config.llm.provider}/${config.llm.models[config.llm.provider]}`;
+/** True when the active provider's API key is present. */
+export function llmKeyPresent(): boolean {
+  switch (config.llm.provider) {
+    case "google":
+      return !!config.google.apiKey;
+    case "anthropic":
+      return !!config.anthropic.apiKey;
+    case "openrouter":
+      return !!config.openrouter.apiKey;
+    default:
+      return false;
+  }
+}
+
+/** Human-readable label for logs/responses, e.g. "openrouter/anthropic/claude-sonnet-5". */
+export function modelLabel(tier: ModelTier = "standard"): string {
+  return `${config.llm.provider}/${config.llm.models[tier][config.llm.provider]}`;
 }

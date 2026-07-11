@@ -42,6 +42,14 @@ function liveFor(flag: string): boolean {
  * "openrouter" routes to any hosted model (Claude included) via one key.
  */
 export type LlmProvider = "google" | "anthropic" | "openrouter";
+
+/**
+ * Model tiers: "standard" is the quality anchor for customer-facing agent
+ * runs; "light" is the cheap+fast tier for classification, reranking, and
+ * other quality-insensitive calls. Defined here (not llm.ts) so config never
+ * imports llm.
+ */
+export type ModelTier = "light" | "standard";
 const explicitProvider = env("LLM_PROVIDER") as LlmProvider | undefined;
 export const LLM_PROVIDER: LlmProvider =
   explicitProvider ??
@@ -70,12 +78,23 @@ export const config = {
 
   llm: {
     provider: LLM_PROVIDER,
-    /** Per-provider model ids. Swap the production model here, not in code. */
+    /**
+     * Per-tier, per-provider model ids. Swap production models here, not in
+     * code. OpenRouter tiers are env-overridable (OPENROUTER_MODEL /
+     * OPENROUTER_MODEL_LIGHT) since that's the live provider.
+     */
     models: {
-      google: "gemini-2.5-pro",
-      anthropic: "claude-sonnet-5",
-      openrouter: env("OPENROUTER_MODEL") ?? "anthropic/claude-sonnet-5",
-    } as Record<LlmProvider, string>,
+      standard: {
+        google: "gemini-2.5-pro",
+        anthropic: "claude-sonnet-5",
+        openrouter: env("OPENROUTER_MODEL") ?? "anthropic/claude-sonnet-5",
+      },
+      light: {
+        google: "gemini-2.5-flash-lite",
+        anthropic: "claude-haiku-4-5",
+        openrouter: env("OPENROUTER_MODEL_LIGHT") ?? "anthropic/claude-haiku-4.5",
+      },
+    } as Record<ModelTier, Record<LlmProvider, string>>,
     /** Max tool-loop steps per turn — bounds runaway loops. */
     maxSteps: 10,
     maxTokens: 4096,
@@ -216,14 +235,13 @@ export const config = {
     dimension: 768,
   },
 
-  /** LLM-as-reranker for KB retrieval (RERANK_ENABLED=false to kill-switch). */
+  /**
+   * LLM-as-reranker for KB retrieval (RERANK_ENABLED=false to kill-switch).
+   * Uses the "light" model tier (config.llm.models.light); quality is judged
+   * by scripts/kb-eval.ts, not vibes.
+   */
   rerank: {
     enabled: env("RERANK_ENABLED") !== "false",
-    /** Cheap + fast; quality is judged by scripts/kb-eval.ts, not vibes. */
-    models: {
-      google: "gemini-2.5-flash-lite",
-      anthropic: "claude-haiku-4-5",
-    } as Record<LlmProvider, string>,
     timeoutMs: 3500,
   },
 

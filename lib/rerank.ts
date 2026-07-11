@@ -3,8 +3,7 @@
  *
  * The fused/dense top-K from the vector index is loosely ordered; a small,
  * cheap model re-orders it by actual relevance to the query before the agent
- * sees it. No new vendor: uses the already-configured provider with its
- * cheapest fast model (gemini-2.5-flash-lite / claude-haiku).
+ * sees it. No new vendor: uses the configured provider's "light" model tier.
  *
  * Failure posture: retrieval must NEVER fail because reranking failed. Any
  * error, timeout (3.5s), or malformed ranking falls back to the input order.
@@ -12,9 +11,8 @@
  */
 import { generateObject } from "ai";
 import { z } from "zod";
-import { google } from "@ai-sdk/google";
-import { anthropic } from "@ai-sdk/anthropic";
 import { config } from "./config";
+import { getModel, llmKeyPresent } from "./llm";
 import type { VectorHit } from "./vector";
 
 const RankSchema = z.object({
@@ -23,18 +21,8 @@ const RankSchema = z.object({
     .describe("Candidate numbers, most relevant first. Include ONLY relevant candidates."),
 });
 
-function rerankModel() {
-  const provider = config.llm.provider;
-  const modelId = config.rerank.models[provider];
-  return provider === "google" ? google(modelId) : anthropic(modelId);
-}
-
-function providerKeyPresent(): boolean {
-  return config.llm.provider === "google" ? !!config.google.apiKey : !!config.anthropic.apiKey;
-}
-
 export function rerankEnabled(): boolean {
-  return config.rerank.enabled && providerKeyPresent();
+  return config.rerank.enabled && llmKeyPresent();
 }
 
 /**
@@ -54,7 +42,7 @@ export async function rerankHits(
 
   try {
     const { object } = await generateObject({
-      model: rerankModel(),
+      model: getModel("light"),
       schema: RankSchema,
       abortSignal: AbortSignal.timeout(config.rerank.timeoutMs),
       system:

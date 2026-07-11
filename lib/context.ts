@@ -38,7 +38,7 @@ Pick the single most likely product from the ticket's content and phrasing. Pref
 export async function classifyProduct(subject: string, description: string): Promise<Product> {
   try {
     const { object } = await generateObject({
-      model: getModel(),
+      model: getModel("light"),
       schema: z.object({
         product: z.enum(["getsign", "jetpackapps", "unknown"]),
       }),
