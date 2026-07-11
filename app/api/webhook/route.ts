@@ -6,13 +6,18 @@
  *   1. Verify the shared-secret header.
  *   2. Parse the ticket id + a dedupe key from the payload.
  *   3. Skip duplicate deliveries (idempotency via KV).
- *   4. Assemble context, run the Claude tool loop.
+ *   4. ACK 200 immediately, then (via `after`) assemble context and run the
+ *      Claude tool loop. Freshdesk's webhook client times out in well under a
+ *      minute and disables the rule after repeated failures, while an agent
+ *      run takes 60s+ — so the run must never block the response. Outcomes
+ *      are observable in the run log / drafts console, not the ACK.
  *   5. If a resolution was sent, schedule the 24h follow-up.
  *
  * Note: Freshdesk's native webhooks do not HMAC-sign payloads — verification is
  * a shared-secret header you configure on the automation rule, checked here.
  */
 import { NextRequest, NextResponse } from "next/server";
+import { after } from "next/server";
 import { config } from "@/lib/config";
 import { buildContext, buildMessages } from "@/lib/context";
 import { buildSystemPrompt } from "@/lib/system-prompt";
@@ -77,19 +82,26 @@ export async function POST(req: NextRequest) {
 
   const channel = (payload.channel as "freshdesk" | "freshchat" | undefined) ?? "freshdesk";
 
+  // ACK before the (60s+) agent run so Freshdesk never times out and disables
+  // the rule. The pipeline continues after the response via `after` — the
+  // function stays alive up to maxDuration on Vercel.
+  after(() => processTicket(ticketId, channel));
+  return NextResponse.json({ status: "accepted", ticketId });
+}
+
+/** The full agent pipeline, detached from the webhook response. */
+async function processTicket(ticketId: string, channel: "freshdesk" | "freshchat"): Promise<void> {
   try {
     const ctx = await buildContext(ticketId, channel);
     if (!ctx.ticket) {
-      return NextResponse.json({ error: "ticket not found", ticketId }, { status: 404 });
+      console.warn(`Webhook ticket ${ticketId}: not found, skipping.`);
+      return;
     }
 
     // Product filter (controlled rollout): skip before the agent ever runs.
     if (config.productFilter.length && !config.productFilter.includes(ctx.product)) {
-      return NextResponse.json({
-        status: `skipped — product "${ctx.product}" not in JETTA_PRODUCTS`,
-        ticketId,
-        product: ctx.product,
-      });
+      console.log(`Webhook ticket ${ticketId}: product "${ctx.product}" not in JETTA_PRODUCTS, skipping.`);
+      return;
     }
 
     const messages = buildMessages(ctx.ticket, channel);
@@ -126,22 +138,14 @@ export async function POST(req: NextRequest) {
         drafted: !!draft,
         kind: "handled",
       }).catch((e) => console.warn("recordOutcome failed:", e));
-      return NextResponse.json({
-        status: draft ? "drafted" : "handled (no reply proposed)",
-        ticketId,
-        draftId: draft?.id,
-        toolsUsed: result.toolsUsed,
-      });
+      return;
     }
 
     // Allowlist guard: the run was forced to dry-run (ticket not allowlisted) —
     // nothing was written, so don't schedule follow-ups or log a real outcome.
     if (result.blockedByAllowlist) {
-      return NextResponse.json({
-        status: "skipped — ticket not on JETTA_TICKET_ALLOWLIST (forced dry-run, no writes)",
-        ticketId,
-        toolsUsed: result.toolsUsed,
-      });
+      console.log(`Webhook ticket ${ticketId}: not on JETTA_TICKET_ALLOWLIST — forced dry-run, no writes.`);
+      return;
     }
 
     // Defence in depth: only treat a turn as a resolution if a customer-visible
@@ -169,20 +173,10 @@ export async function POST(req: NextRequest) {
       escalated: result.toolsUsed.includes("send_escalation"),
       kind: "handled",
     }).catch((e) => console.warn("recordOutcome failed:", e));
-
-    return NextResponse.json({
-      status: "handled",
-      ticketId,
-      toolsUsed: result.toolsUsed,
-      resolutionSent: result.resolutionSent,
-      reply: result.text,
-    });
   } catch (err) {
-    console.error(`Webhook handling failed for ticket ${ticketId}:`, err);
-    return NextResponse.json(
-      { error: "handler failed", message: err instanceof Error ? err.message : String(err) },
-      { status: 500 },
-    );
+    // The ACK already went out — failures land in the function log (and the
+    // run log when the failure happened after the agent ran).
+    console.error(`Webhook processing failed for ticket ${ticketId}:`, err);
   }
 }
 
