@@ -38,6 +38,7 @@ function topKeywords(subjects: string[], n = 8): { term: string; count: number }
 const PRICES: Record<string, { in: number; out: number; cacheRead?: number }> = {
   "openrouter/anthropic/claude-sonnet-5": { in: 2, out: 10, cacheRead: 0.2 },
   "openrouter/anthropic/claude-haiku-4.5": { in: 1, out: 5, cacheRead: 0.1 },
+  "openrouter/z-ai/glm-5.2": { in: 0.42, out: 1.32, cacheRead: 0.078 },
 };
 
 /** Aggregate token usage per task (triage/rerank/agent) across run logs. */
