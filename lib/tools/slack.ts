@@ -71,6 +71,13 @@ export async function notifyDraftPending(input: {
   );
 }
 
+/** Daily KB-sync summary — posted only when something changed or was flagged. */
+export async function notifyKbSync(lines: string[]): Promise<void> {
+  const channel =
+    config.slack.draftsChannel ?? config.slack.escalationChannel ?? "#jetta-escalations";
+  await postMessage(channel, [`:books: *KB sync*`, ...lines].join("\n"));
+}
+
 /** Notify #partnerships when a user mentions an external implementation partner. */
 export async function notifyPartnerManager(
   freshdeskTicketUrl: string,

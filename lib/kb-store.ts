@@ -55,8 +55,8 @@ export interface KbArticle {
   updatedAt: number;
   /** Unix seconds; article counts as stale once this passes. */
   reviewBy?: number;
-  /** Draft provenance (Slack knowledge-loop thread, mining channel…). */
-  meta?: { channel?: string; threadTs?: string };
+  /** Provenance (Slack knowledge-loop thread, mining channel, site-sync stamp…). */
+  meta?: { channel?: string; threadTs?: string; wpModified?: string };
   /** Possible duplicates flagged at save time — advisory only. */
   duplicates?: { id: string; title: string; score: number }[];
   /** Freshdesk Solutions sync record (customer-facing help center). */
@@ -350,7 +350,7 @@ export async function createArticle(
 }
 
 export type ArticlePatch = Partial<
-  Pick<KbArticle, "title" | "url" | "body" | "keywords" | "category" | "tags" | "reviewBy">
+  Pick<KbArticle, "title" | "url" | "body" | "keywords" | "category" | "tags" | "reviewBy" | "meta">
 >;
 
 /** Edit content/metadata. Content changes bump the version + snapshot. */
@@ -370,6 +370,7 @@ export async function updateArticle(
     ...("category" in patch ? { category: patch.category ?? prev.category } : {}),
     ...("tags" in patch ? { tags: patch.tags ?? prev.tags } : {}),
     ...("reviewBy" in patch ? { reviewBy: patch.reviewBy } : {}),
+    ...("meta" in patch ? { meta: { ...prev.meta, ...patch.meta } } : {}),
     updatedBy: actor,
     updatedAt: now(),
   };
