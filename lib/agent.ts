@@ -38,8 +38,14 @@ export interface AgentResult {
   blockedByAllowlist: boolean;
   /** True if customer-visible writes (reply/close) were held for human approval. */
   heldCustomerWrites: boolean;
-  /** Aggregate token usage across the loop. */
-  usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number };
+  /** Aggregate token usage across the loop. Cache fields only when the provider caches. */
+  usage?: {
+    inputTokens?: number;
+    outputTokens?: number;
+    totalTokens?: number;
+    cacheReadTokens?: number;
+    cacheWriteTokens?: number;
+  };
   /** Label of the model that actually ran this loop (provider/model-id). */
   model: string;
 }
@@ -101,6 +107,13 @@ export async function runAgentLoop(
     messages,
     tools: buildTools(ctx, signals, { dryRun, holdCustomerWrites: hold }),
     stopWhen: stepCountIs(config.llm.maxSteps),
+    // Anthropic automatic prompt caching via OpenRouter: the tool loop
+    // re-sends system+tools+history every step, so steps 2+ read the shared
+    // prefix at ~0.1x input price. No-op for non-Anthropic models (DeepSeek/
+    // GLM/Kimi cache automatically server-side) and for other providers.
+    providerOptions: {
+      openrouter: { cache_control: { type: "ephemeral" } },
+    },
   });
 
   const trace: TraceEntry[] = [];
@@ -117,7 +130,12 @@ export async function runAgentLoop(
   }
 
   const u = (result.totalUsage ?? result.usage) as
-    | { inputTokens?: number; outputTokens?: number; totalTokens?: number }
+    | {
+        inputTokens?: number;
+        outputTokens?: number;
+        totalTokens?: number;
+        inputTokenDetails?: { cacheReadTokens?: number; cacheWriteTokens?: number };
+      }
     | undefined;
 
   return {
@@ -129,7 +147,13 @@ export async function runAgentLoop(
     blockedByAllowlist,
     heldCustomerWrites: hold,
     usage: u
-      ? { inputTokens: u.inputTokens, outputTokens: u.outputTokens, totalTokens: u.totalTokens }
+      ? {
+          inputTokens: u.inputTokens,
+          outputTokens: u.outputTokens,
+          totalTokens: u.totalTokens,
+          cacheReadTokens: u.inputTokenDetails?.cacheReadTokens,
+          cacheWriteTokens: u.inputTokenDetails?.cacheWriteTokens,
+        }
       : undefined,
     model: modelLabel(tier),
   };

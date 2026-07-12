@@ -403,7 +403,13 @@ export interface RunLog {
   resolutionSent: boolean;
   escalated: boolean;
   durationMs: number;
-  usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number };
+  usage?: {
+    inputTokens?: number;
+    outputTokens?: number;
+    totalTokens?: number;
+    cacheReadTokens?: number;
+    cacheWriteTokens?: number;
+  };
   /** Per-task token breakdown for this run (triage, rerank calls, the agent loop). */
   tasks?: { task: string; model: string; inputTokens: number; outputTokens: number }[];
   reply: string;

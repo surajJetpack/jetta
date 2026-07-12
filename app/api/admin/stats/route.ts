@@ -35,9 +35,9 @@ function topKeywords(subjects: string[], n = 8): { term: string; count: number }
  * model label. Used for estimated-cost display only — billing truth lives with
  * the provider. Unknown models show token counts without a cost estimate.
  */
-const PRICES: Record<string, { in: number; out: number }> = {
-  "openrouter/anthropic/claude-sonnet-5": { in: 2, out: 10 },
-  "openrouter/anthropic/claude-haiku-4.5": { in: 1, out: 5 },
+const PRICES: Record<string, { in: number; out: number; cacheRead?: number }> = {
+  "openrouter/anthropic/claude-sonnet-5": { in: 2, out: 10, cacheRead: 0.2 },
+  "openrouter/anthropic/claude-haiku-4.5": { in: 1, out: 5, cacheRead: 0.1 },
 };
 
 /** Aggregate token usage per task (triage/rerank/agent) across run logs. */
@@ -62,26 +62,36 @@ function taskTokenStats(runs: RunLog[]) {
 
 /** Aggregate token usage per model from run logs. */
 function tokenStats(runs: RunLog[]) {
-  const by = new Map<string, { runs: number; inputTokens: number; outputTokens: number }>();
+  const by = new Map<
+    string,
+    { runs: number; inputTokens: number; outputTokens: number; cacheReadTokens: number }
+  >();
   for (const r of runs) {
     if (!r.usage) continue;
     let b = by.get(r.model);
     if (!b) {
-      b = { runs: 0, inputTokens: 0, outputTokens: 0 };
+      b = { runs: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 };
       by.set(r.model, b);
     }
     b.runs++;
     b.inputTokens += r.usage.inputTokens ?? 0;
     b.outputTokens += r.usage.outputTokens ?? 0;
+    b.cacheReadTokens += r.usage.cacheReadTokens ?? 0;
   }
   return [...by.entries()].map(([model, b]) => {
     const price = PRICES[model];
-    const cost = price ? (b.inputTokens * price.in + b.outputTokens * price.out) / 1e6 : null;
+    // Cached reads bill at the cacheRead rate; the remainder at full input
+    // price. (Cache-write premium ~1.25x on a fraction of tokens is ignored.)
+    const freshIn = Math.max(0, b.inputTokens - b.cacheReadTokens);
+    const cost = price
+      ? (freshIn * price.in + b.cacheReadTokens * (price.cacheRead ?? price.in) + b.outputTokens * price.out) / 1e6
+      : null;
     return {
       model,
       runs: b.runs,
       inputTokens: b.inputTokens,
       outputTokens: b.outputTokens,
+      cacheReadTokens: b.cacheReadTokens,
       avgTokensPerRun: b.runs ? Math.round((b.inputTokens + b.outputTokens) / b.runs) : 0,
       estCostUsd: cost != null ? Number(cost.toFixed(4)) : null,
     };

@@ -17,7 +17,13 @@ interface RunLog {
   resolutionSent: boolean;
   escalated: boolean;
   durationMs: number;
-  usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number };
+  usage?: {
+    inputTokens?: number;
+    outputTokens?: number;
+    totalTokens?: number;
+    cacheReadTokens?: number;
+    cacheWriteTokens?: number;
+  };
   tasks?: { task: string; model: string; inputTokens: number; outputTokens: number }[];
   reply: string;
   kbHits: { title: string; source: string; score?: number }[];
@@ -89,7 +95,9 @@ export default function ActivityLog() {
               <div className="io">
                 model {l.model}
                 {l.usage?.totalTokens != null
-                  ? ` · ${l.usage.totalTokens} tokens (${l.usage.inputTokens ?? "?"} in / ${l.usage.outputTokens ?? "?"} out)`
+                  ? ` · ${l.usage.totalTokens} tokens (${l.usage.inputTokens ?? "?"} in / ${l.usage.outputTokens ?? "?"} out${
+                      l.usage.cacheReadTokens ? `, ${l.usage.cacheReadTokens} cached` : ""
+                    })`
                   : ""}
               </div>
               {l.tasks && l.tasks.length > 0 && (

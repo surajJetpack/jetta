@@ -18,6 +18,7 @@ interface ModelStat {
     runs: number;
     inputTokens: number;
     outputTokens: number;
+    cacheReadTokens: number;
     avgTokensPerRun: number;
     estCostUsd: number | null;
   } | null;
@@ -146,7 +147,8 @@ export default function AnalyticsPanel() {
                   </div>
                   {m.tokens && (
                     <div className="io">
-                      tokens: {fmtTokens(m.tokens.inputTokens)} in · {fmtTokens(m.tokens.outputTokens)} out
+                      tokens: {fmtTokens(m.tokens.inputTokens)} in
+                      {m.tokens.cacheReadTokens > 0 ? ` (${fmtTokens(m.tokens.cacheReadTokens)} cached)` : ""} · {fmtTokens(m.tokens.outputTokens)} out
                       {" "}· avg {fmtTokens(m.tokens.avgTokensPerRun)}/run
                       {m.tokens.estCostUsd != null ? ` · ~$${m.tokens.estCostUsd.toFixed(m.tokens.estCostUsd < 0.1 ? 4 : 2)} total` : ""}
                     </div>
