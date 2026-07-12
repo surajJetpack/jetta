@@ -192,6 +192,10 @@ export function buildTools(
     }),
 
     // ── FastSpring ──
+    // When billing isn't connected (FASTSPRING_LIVE unset), every billing tool
+    // says so explicitly. Plausible stub data must never reach a customer
+    // draft, and "no subscription on file" would read as a fact about the
+    // customer rather than about our system.
     get_fastspring_account: tool({
       description:
         "Look up the customer's FastSpring billing account by email. ALWAYS call before answering a billing question or handling a cancellation. Returns plan, billing cycle, next charge date, card last four, recent-activity flag, and invoices.",
@@ -199,6 +203,9 @@ export function buildTools(
         email: z.string().optional().describe("Defaults to the ticket requester's email if omitted."),
       }),
       execute: async ({ email }) => {
+        if (!config.fastspring.live) {
+          return "Billing system is NOT connected in this environment — account data is unavailable. Do not state any plan, price, charge date, or card details. For billing questions, ask the customer for specifics from their receipt/invoice email, or escalate to a human.";
+        }
         const addr = email ?? requesterEmail;
         if (!addr) return "No email available to look up the account.";
         return JSON.stringify(await fastspring.getFastSpringAccount(addr));
@@ -208,7 +215,12 @@ export function buildTools(
     get_invoice_url: tool({
       description: "Get a signed download URL for a specific invoice.",
       inputSchema: z.object({ invoice_id: z.string() }),
-      execute: async ({ invoice_id }) => await fastspring.getInvoiceUrl(invoice_id),
+      execute: async ({ invoice_id }) => {
+        if (!config.fastspring.live) {
+          return "Billing system is NOT connected — invoice links cannot be generated. Escalate billing document requests to a human.";
+        }
+        return await fastspring.getInvoiceUrl(invoice_id);
+      },
     }),
 
     apply_discount: tool({
@@ -216,6 +228,9 @@ export function buildTools(
         "Apply the one-time retention coupon to the customer's subscription. Only in the churn flow, only for accounts with recent activity, before discussing cancellation.",
       inputSchema: z.object({}),
       execute: async () => {
+        if (!config.fastspring.live) {
+          return "Billing system is NOT connected — no discount was applied. Do not tell the customer a discount was applied; escalate to a human for billing actions.";
+        }
         const sub = ctx.account?.accountId;
         if (!sub) return "No subscription on file to discount.";
         if (dry) return `[dry-run] would apply retention coupon ${config.fastspring.retentionCoupon}.`;
@@ -229,6 +244,9 @@ export function buildTools(
         "Cancel the subscription at end of the current billing period. Only after the user EXPLICITLY confirms cancellation. Never cancel on silence.",
       inputSchema: z.object({}),
       execute: async () => {
+        if (!config.fastspring.live) {
+          return "Billing system is NOT connected — nothing was cancelled. Do not confirm any cancellation; escalate to a human for billing actions.";
+        }
         const sub = ctx.account?.accountId;
         if (!sub) return "No subscription on file to cancel.";
         if (dry) return "[dry-run] would cancel the subscription at end of billing period.";

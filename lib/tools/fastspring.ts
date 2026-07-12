@@ -27,24 +27,20 @@ async function fs<T>(path: string, init?: RequestInit): Promise<T> {
 
 export async function getFastSpringAccount(email: string): Promise<FastSpringAccount> {
   if (!config.fastspring.live) {
-    const invoices: FastSpringInvoice[] = [
-      {
-        id: "INV-2026-0412",
-        date: "2026-05-19",
-        amount: "$29.00",
-        url: "https://fastspring.com/invoice/INV-2026-0412.pdf",
-      },
-    ];
+    // SAFETY: never fabricate account data. Plausible stub values leak into
+    // real customer drafts when other integrations are live but billing isn't
+    // (found on the 2026-07-12 human benchmark). found:false reads as
+    // "no linked billing account" everywhere downstream.
     return {
-      found: true,
+      found: false,
       email,
-      accountId: "acct_stub_001",
-      planName: "GetSign Pro (Monthly)",
-      billingCycle: "monthly",
-      nextChargeDate: "2026-06-19",
-      cardLastFour: "4242",
-      activeLast30Days: true,
-      invoices,
+      accountId: null,
+      planName: null,
+      billingCycle: null,
+      nextChargeDate: null,
+      cardLastFour: null,
+      activeLast30Days: false,
+      invoices: [] as FastSpringInvoice[],
     };
   }
 
