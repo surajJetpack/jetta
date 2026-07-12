@@ -29,9 +29,17 @@ export async function createDraftFromRun(
   // Safety net: models occasionally emit the reply as final text instead of
   // calling reply_to_ticket (seen live on ticket 13756). A human reviews every
   // draft anyway, so a text-only reply becomes a draft rather than vanishing.
-  if (!body && result.text.trim().length >= 40) {
+  // But when the agent already handled the turn internally (private note,
+  // escalation), the final text is narration about that action — a deliberate
+  // hold, not a lost reply — so it must not become a junk draft.
+  const handledInternally =
+    result.toolsUsed.includes("add_private_note") || result.toolsUsed.includes("send_escalation");
+  if (!body && !handledInternally && result.text.trim().length >= 40) {
     body = result.text.trim();
     log.warn("draft_from_final_text", { ticketId: ctx.ticket?.id });
+  }
+  if (!body && !lastReply && handledInternally && result.text.trim()) {
+    log.info("draft_skipped_internal_hold", { ticketId: ctx.ticket?.id });
   }
   if (!body || !ctx.ticket) return null;
 
