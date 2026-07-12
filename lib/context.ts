@@ -35,10 +35,17 @@ export function inferProduct(text: string): Product {
   return "unknown";
 }
 
-/** Freshdesk's cf_product custom field is ground truth when agents set it. */
+/**
+ * Freshdesk's cf_product custom field is ground truth when agents set it.
+ * Dropdown values (from the FD ticket form): VLOOKUP Auto-link, Extract,
+ * TrackMy, GetSign, JetScan HR, Triggerly, Pivot Reports Pro, Jobflows,
+ * Smart Columns, Offsite, Other/ General. "Other/ General" is explicitly
+ * not-a-product — fall through to the heuristics for those.
+ */
 export function productFromHint(hint: string | null | undefined): Product | null {
-  if (!hint?.trim()) return null;
-  return /getsign/i.test(hint) ? "getsign" : "jetpackapps";
+  const h = hint?.trim().toLowerCase();
+  if (!h || /other|general/.test(h)) return null;
+  return /getsign/.test(h) ? "getsign" : "jetpackapps";
 }
 
 const TRIAGE_SYSTEM = `You triage customer support tickets: attribute them to a product and rate their complexity.
