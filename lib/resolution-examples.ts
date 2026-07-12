@@ -1,7 +1,8 @@
 /**
  * Top resolved-ticket patterns, inlined into the system prompt as few-shot
- * examples. Maintained manually and refreshed monthly until the Knowledge Loop
- * automates it (v2).
+ * examples. Maintained manually and refreshed monthly. Behavioral rules are
+ * now learned automatically via the /evals loop (lib/evals.ts — LEARNED
+ * GUIDELINES block); this file remains for worked resolution examples only.
  *
  * Format per example:
  *   ## Resolution example: <product> — <short title>

@@ -165,7 +165,7 @@ async function run() {
 
       const started = Date.now();
       const result = await runAgentLoop(
-        buildSystemPrompt(ctx),
+        await buildSystemPrompt(ctx),
         buildMessages(ctx.ticket, "freshdesk"),
         ctx,
         { dryRun: true },

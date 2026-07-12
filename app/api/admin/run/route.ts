@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
 
     const started = Date.now();
     const result = await runAgentLoop(
-      buildSystemPrompt(ctx),
+      await buildSystemPrompt(ctx),
       buildMessages(ctx.ticket, channel),
       ctx,
       { dryRun, tier: body.tier === "light" || body.tier === "standard" ? body.tier : undefined },

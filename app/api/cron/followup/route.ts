@@ -48,7 +48,7 @@ export async function GET(req: NextRequest) {
         if (ctx.ticket) {
           const started = Date.now();
           const result = await runAgentLoop(
-            buildSystemPrompt(ctx),
+            await buildSystemPrompt(ctx),
             buildMessages(ctx.ticket),
             ctx,
             draftMode ? { holdCustomerWrites: true } : {},

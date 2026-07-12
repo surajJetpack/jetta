@@ -182,7 +182,7 @@ async function runPipeline(convId: string) {
     }
 
     const messages = buildMessages(ctx.ticket, "freshchat");
-    const system = buildSystemPrompt(ctx);
+    const system = await buildSystemPrompt(ctx);
     const started = Date.now();
     // Draft mode (JETTA_REPLY_MODE) is intentionally Freshdesk-webhook-only:
     // chat is synchronous, so a human review queue makes no sense mid-conversation.

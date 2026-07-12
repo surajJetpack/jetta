@@ -3,6 +3,48 @@
 import { useCallback, useEffect, useState } from "react";
 import { fmtAgo, fmtExact, useNow } from "@/lib/format";
 
+const EVAL_TAGS = [
+  "product-knowledge-gap",
+  "account-context",
+  "authority",
+  "judgment-call",
+  "tone",
+  "conciseness",
+  "wrong-action",
+  "policy",
+  "other",
+] as const;
+
+function TagPicker({
+  selected,
+  onToggle,
+  disabled,
+}: {
+  selected: string[];
+  onToggle: (tag: string) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+      {EVAL_TAGS.map((t) => {
+        const on = selected.includes(t);
+        return (
+          <button
+            key={t}
+            type="button"
+            disabled={disabled}
+            onClick={() => onToggle(t)}
+            className={`state ${on ? "published" : "draft"}`}
+            style={{ cursor: "pointer", border: on ? "1px solid var(--accent)" : "1px solid transparent" }}
+          >
+            {t}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 interface ReplyDraft {
   id: string;
   ticketId: string;
@@ -34,19 +76,32 @@ function PendingCard({
   const [open, setOpen] = useState(false);
   const [body, setBody] = useState(draft.suggestedReply);
   const [busy, setBusy] = useState(false);
+  const [tags, setTags] = useState<string[]>([]);
+  const [note, setNote] = useState("");
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [discarding, setDiscarding] = useState(false);
   const edited = body.trim() !== draft.suggestedReply;
 
+  function toggleTag(tag: string) {
+    setTags((prev) => (prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]));
+  }
+
   async function decide(action: "approve" | "discard") {
-    const prompt =
-      action === "approve"
-        ? `Send this reply to the customer on ticket #${draft.ticketId}?${edited ? " (edited)" : ""}${draft.wantsClose ? "\nThe ticket will also be marked resolved." : ""}`
-        : "Discard this draft? The customer gets no reply from this run.";
-    if (!confirm(prompt)) return;
+    if (action === "approve") {
+      const prompt = `Send this reply to the customer on ticket #${draft.ticketId}?${edited ? " (edited)" : ""}${draft.wantsClose ? "\nThe ticket will also be marked resolved." : ""}`;
+      if (!confirm(prompt)) return;
+    }
     setBusy(true);
     const r = await fetch("/api/admin/drafts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: draft.id, action, ...(action === "approve" && edited ? { body } : {}) }),
+      body: JSON.stringify({
+        id: draft.id,
+        action,
+        ...(action === "approve" && edited ? { body } : {}),
+        ...(tags.length ? { tags } : {}),
+        ...(note.trim() ? { note: note.trim() } : {}),
+      }),
     });
     setBusy(false);
     if (r.status === 409) {
@@ -94,23 +149,74 @@ function PendingCard({
             rows={Math.min(18, Math.max(6, body.split("\n").length + 2))}
             style={{ width: "100%", marginTop: 8, boxSizing: "border-box", fontFamily: "inherit", fontSize: 14 }}
           />
-          <div className="row" style={{ marginTop: 10, alignItems: "center" }}>
-            <button disabled={busy || !body.trim()} onClick={() => decide("approve")}>
-              {busy ? "Working…" : `Approve & send${edited ? " (edited)" : ""}`}
-            </button>
-            <button
-              disabled={busy}
-              onClick={() => decide("discard")}
-              style={{ background: "var(--panel-2)", color: "var(--danger)" }}
-            >
-              Discard
-            </button>
-            {edited && (
-              <a href="#" onClick={(e) => { e.preventDefault(); setBody(draft.suggestedReply); }}>
-                reset edits
-              </a>
-            )}
-          </div>
+          {!discarding && (
+            <>
+              <div className="row" style={{ marginTop: 10, alignItems: "center" }}>
+                <button disabled={busy || !body.trim()} onClick={() => decide("approve")}>
+                  {busy ? "Working…" : `Approve & send${edited ? " (edited)" : ""}`}
+                </button>
+                <button
+                  disabled={busy}
+                  onClick={() => setDiscarding(true)}
+                  style={{ background: "var(--panel-2)", color: "var(--danger)" }}
+                >
+                  Discard…
+                </button>
+                {edited && (
+                  <a href="#" onClick={(e) => { e.preventDefault(); setBody(draft.suggestedReply); }}>
+                    reset edits
+                  </a>
+                )}
+                <a
+                  href="#"
+                  className="muted"
+                  onClick={(e) => { e.preventDefault(); setFeedbackOpen(!feedbackOpen); }}
+                >
+                  {feedbackOpen ? "hide feedback" : "add feedback"}
+                </a>
+              </div>
+              {feedbackOpen && (
+                <div style={{ marginTop: 8, display: "grid", gap: 6 }}>
+                  <TagPicker selected={tags} onToggle={toggleTag} disabled={busy} />
+                  <input
+                    type="text"
+                    value={note}
+                    onChange={(e) => setNote(e.target.value)}
+                    placeholder="Optional note for the learning loop (why was this edited / what to do differently)"
+                    style={{ width: "100%", boxSizing: "border-box", fontFamily: "inherit", fontSize: 13 }}
+                  />
+                </div>
+              )}
+            </>
+          )}
+
+          {discarding && (
+            <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
+              <p className="muted" style={{ margin: 0 }}>
+                Why is this draft being discarded? Pick at least one reason — it teaches Jetta.
+              </p>
+              <TagPicker selected={tags} onToggle={toggleTag} disabled={busy} />
+              <input
+                type="text"
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="Optional note (what should the reply have done instead?)"
+                style={{ width: "100%", boxSizing: "border-box", fontFamily: "inherit", fontSize: 13 }}
+              />
+              <div className="row" style={{ alignItems: "center" }}>
+                <button
+                  disabled={busy || tags.length === 0}
+                  onClick={() => decide("discard")}
+                  style={{ background: "var(--panel-2)", color: "var(--danger)" }}
+                >
+                  {busy ? "Working…" : "Confirm discard"}
+                </button>
+                <a href="#" onClick={(e) => { e.preventDefault(); setDiscarding(false); }}>
+                  cancel
+                </a>
+              </div>
+            </div>
+          )}
         </>
       )}
     </div>

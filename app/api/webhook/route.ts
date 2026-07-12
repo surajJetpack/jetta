@@ -105,7 +105,7 @@ async function processTicket(ticketId: string, channel: "freshdesk" | "freshchat
     }
 
     const messages = buildMessages(ctx.ticket, channel);
-    const system = buildSystemPrompt(ctx);
+    const system = await buildSystemPrompt(ctx);
     const draftMode = config.replyMode === "draft";
     const started = Date.now();
     // autoTier: complexity-based routing, only active when JETTA_TIERED_AGENT

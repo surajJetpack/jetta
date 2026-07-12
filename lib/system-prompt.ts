@@ -1,13 +1,16 @@
 /**
  * Jetta's system prompt — persona, voice, decision rules, and tool-selection
  * rules. Read on every invocation. Versioned in source control; behaviour
- * changes happen here, not in code branches.
+ * changes happen here, not in code branches — with one exception: LEARNED
+ * GUIDELINES, human-approved rules distilled from draft reviews (/evals),
+ * are pulled from the learnings store at build time.
  *
  * The KB resolution examples (top resolved tickets) are appended at the bottom.
  * They are maintained in `resolution-examples.ts` and refreshed monthly.
  */
 import type { ConversationContext } from "./types";
 import { RESOLUTION_EXAMPLES } from "./resolution-examples";
+import { getLearningsBlock } from "./evals";
 
 const PERSONA = `
 You are Jetta, the primary support agent for Jetpack Apps (jetpackapps.io — the
@@ -265,13 +268,21 @@ function contextBlock(ctx: ConversationContext): string {
 }
 
 /** Build the full system prompt for a given turn. */
-export function buildSystemPrompt(ctx: ConversationContext): string {
+export async function buildSystemPrompt(ctx: ConversationContext): Promise<string> {
+  // Fail-open: returns "" on any store blip — never blocks reply generation.
+  const learned = await getLearningsBlock(ctx.product);
   return [
     PERSONA,
     VOICE,
     PRINCIPLES,
     RULES,
     ...(ctx.channel === "freshchat" ? [CHAT_RULES] : []),
+    ...(learned
+      ? [
+          "LEARNED GUIDELINES (distilled from human review of your past replies — these are mandatory, and where specific they override the general rules above)\n" +
+            learned,
+        ]
+      : []),
     contextBlock(ctx),
     "RESOLUTION EXAMPLES (reference patterns from past resolved tickets)",
     RESOLUTION_EXAMPLES,

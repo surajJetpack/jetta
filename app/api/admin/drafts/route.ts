@@ -2,16 +2,21 @@
  * Reply-draft review queue (admin-gated) — draft mode's approval surface.
  *
  *   GET  → { drafts }  (all reply drafts, pending first, newest first)
- *   POST { id, action: "approve" | "discard", body? }
+ *   POST { id, action: "approve" | "discard", body?, tags?, note? }
  *
  * Approve sends the reply to the customer via the Freshdesk client (optionally
  * edited via `body`), resolves the ticket when the agent wanted to close, and
  * schedules the 24h follow-up when the run logged a resolution — the pieces the
  * webhook deliberately skips in draft mode.
+ *
+ * Every decision also records a ReplyEvaluation (lib/evals.ts) feeding the
+ * /evals learning loop. Discard requires ≥1 reason tag; approve tags/note are
+ * optional (the edit diff itself is the main signal).
  */
 import { NextRequest, NextResponse } from "next/server";
 import { adminAuthorized, adminActor } from "@/lib/auth";
 import { getReplyDraft, updateReplyDraft, listReplyDrafts, scheduleFollowUp, recordOutcome } from "@/lib/kv";
+import { recordEvaluation, EVAL_TAGS, type EvalTag } from "@/lib/evals";
 import { modelLabel } from "@/lib/llm";
 import * as freshdesk from "@/lib/tools/freshdesk";
 
@@ -31,13 +36,22 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   if (!adminAuthorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  const { id, action, body } = (await req.json().catch(() => ({}))) as {
+  const { id, action, body, tags, note } = (await req.json().catch(() => ({}))) as {
     id?: string;
     action?: string;
     body?: string;
+    tags?: string[];
+    note?: string;
   };
   if (!id || (action !== "approve" && action !== "discard")) {
     return NextResponse.json({ error: "id and action (approve|discard) required" }, { status: 400 });
+  }
+  const evalTags = (tags ?? []).filter((t): t is EvalTag => (EVAL_TAGS as readonly string[]).includes(t));
+  if (action === "discard" && evalTags.length === 0) {
+    return NextResponse.json(
+      { error: `discard requires at least one reason tag (${EVAL_TAGS.join(", ")})` },
+      { status: 400 },
+    );
   }
 
   const draft = await getReplyDraft(id);
@@ -53,6 +67,22 @@ export async function POST(req: NextRequest) {
 
   if (action === "discard") {
     await updateReplyDraft(id, { state: "discarded", decidedAt: now, decidedBy: actor });
+    // Discard is the strongest negative signal — record it for the learning loop.
+    await recordEvaluation({
+      id: draft.id,
+      ticketId: draft.ticketId,
+      subject: draft.subject,
+      channel: draft.channel,
+      product: draft.product,
+      model: draft.model,
+      decidedBy: actor,
+      at: now,
+      action: "discard",
+      rating: "bad",
+      tags: evalTags,
+      note: note?.trim() || undefined,
+      suggestedReply: draft.suggestedReply,
+    }).catch(() => {});
     return NextResponse.json({ ok: true, action: "discarded" });
   }
 
@@ -84,6 +114,25 @@ export async function POST(req: NextRequest) {
     editedBody: finalBody !== draft.suggestedReply ? finalBody : undefined,
     error: undefined,
   });
+
+  // Approve-unedited = good, approve-edited = partial; the edit diff is the
+  // feedback the distiller learns from. Never blocks the decision.
+  await recordEvaluation({
+    id: draft.id,
+    ticketId: draft.ticketId,
+    subject: draft.subject,
+    channel: draft.channel,
+    product: draft.product,
+    model: draft.model,
+    decidedBy: actor,
+    at: now,
+    action: "approve",
+    rating: finalBody !== draft.suggestedReply ? "partial" : "good",
+    tags: evalTags,
+    note: note?.trim() || undefined,
+    suggestedReply: draft.suggestedReply,
+    finalBody,
+  }).catch(() => {});
 
   // Count the real send in the outcome feed so Insights reflects approved
   // replies (webhook-time outcomes in draft mode record replied: false).

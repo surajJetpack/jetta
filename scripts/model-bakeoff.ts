@@ -77,7 +77,7 @@ async function runMode(ticketIds: string[]) {
       const ctx = await buildContext(ticketId, "freshdesk");
       if (!ctx.ticket) throw new Error("ticket not found");
       const result = await runAgentLoop(
-        buildSystemPrompt(ctx),
+        await buildSystemPrompt(ctx),
         buildMessages(ctx.ticket, "freshdesk"),
         ctx,
         { dryRun: true },
