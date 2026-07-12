@@ -16,10 +16,13 @@ import { getModel, llmKeyPresent, modelLabel } from "./llm";
 import type { VectorHit } from "./vector";
 import type { TaskUsage } from "./types";
 
+// Plain z.number(), not .int(): zod's int() adds safe-integer minimum/maximum
+// bounds to the JSON schema, which some OpenRouter upstreams (Azure-hosted
+// Anthropic) reject for integer types. Values are rounded on the way back in.
 const RankSchema = z.object({
   ranking: z
-    .array(z.number().int())
-    .describe("Candidate numbers, most relevant first. Include ONLY relevant candidates."),
+    .array(z.number())
+    .describe("Candidate numbers (integers), most relevant first. Include ONLY relevant candidates."),
 });
 
 export function rerankEnabled(): boolean {
@@ -64,7 +67,7 @@ export async function rerankHits(
     const seen = new Set<number>();
     const ranked: VectorHit[] = [];
     for (const n of object.ranking) {
-      const i = n - 1;
+      const i = Math.round(n) - 1;
       if (i >= 0 && i < hits.length && !seen.has(i)) {
         seen.add(i);
         ranked.push(hits[i]);
