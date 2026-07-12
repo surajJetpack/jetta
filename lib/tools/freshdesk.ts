@@ -23,7 +23,8 @@ function fdUrl(path: string): string {
   return `https://${config.freshdesk.domain}/api/v2${path}`;
 }
 
-async function fd<T>(path: string, init?: RequestInit): Promise<T> {
+/** Exported for read-only scripts (benchmark/analysis); app code uses the typed wrappers below. */
+export async function fd<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(fdUrl(path), { ...init, headers: fdHeaders() });
   if (!res.ok) {
     const body = await res.text();
