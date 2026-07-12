@@ -30,7 +30,7 @@ import { vectorEnabled, upsertDocs, deleteDocs, queryVector } from "./vector";
 // ── Types ──────────────────────────────────────────────────────────
 
 export type ArticleState = "draft" | "in_review" | "published" | "archived";
-export type ArticleOrigin = "manual" | "knowledge-loop" | "fd-mined" | "seed-getsign";
+export type ArticleOrigin = "manual" | "knowledge-loop" | "fd-mined" | "seed-getsign" | "seed-jetpackapps";
 
 export interface KbArticle {
   /** Stable forever; doubles as the vector-index id. */

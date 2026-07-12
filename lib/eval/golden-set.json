@@ -1,40 +1,670 @@
 [
-  { "id": "g-001", "query": "how do I send a document for signature from monday", "expected": [{ "url": "https://getsign.io/getting-started/how-to-send-documents-for-esignature-in-monday/" }, { "url": "https://getsign.io/feature/esignature/" }], "tags": ["esignature", "getting-started"] },
-  { "id": "g-002", "query": "signers need to sign one after another in a specific order", "expected": [{ "url": "https://getsign.io/capabilities/set-signing-order/" }, { "url": "https://getsign.io/getting-started/create-or-modify-signing-order/" }], "tags": ["signing-order"] },
-  { "id": "g-003", "query": "verify the signer's identity with a code before they can open the document", "expected": [{ "url": "https://getsign.io/capabilities/otp-authentication/" }, { "titleIncludes": "OTP" }], "tags": ["otp", "security"] },
-  { "id": "g-004", "query": "share a link so someone can sign without logging in", "expected": [{ "url": "https://getsign.io/capabilities/document-signing-link/" }, { "titleIncludes": "signing link" }], "tags": ["signing-link"] },
-  { "id": "g-005", "query": "collect a payment from the customer when they sign the contract", "expected": [{ "url": "https://getsign.io/feature/payment-collection/" }, { "titleIncludes": "Stripe" }], "tags": ["payments"] },
-  { "id": "g-006", "query": "are signatures made with GetSign legally binding", "expected": [{ "url": "https://getsign.io/capabilities/legally-binding/" }], "tags": ["compliance"] },
-  { "id": "g-007", "query": "create a fillable form that writes answers back into board columns", "expected": [{ "url": "https://getsign.io/feature/web-forms/" }, { "url": "https://getsign.io/getting-started/create-fillable-forms-on-monday/" }], "tags": ["forms"] },
-  { "id": "g-008", "query": "generate documents automatically from monday board data", "expected": [{ "url": "https://getsign.io/getting-started/generate-documents-from-monday-com/" }, { "url": "https://getsign.io/feature/document-generation/" }], "tags": ["docgen"] },
-  { "id": "g-009", "query": "pull data from a connect board mirror column into the generated document", "expected": [{ "url": "https://getsign.io/how-tos/generate-documents-from-connect-board-data-on-monday-com/" }], "tags": ["docgen", "mirror"] },
-  { "id": "g-010", "query": "send automatic reminders to people who have not signed yet", "expected": [{ "url": "https://getsign.io/how-tos/send-automatic-signature-reminders-with-getsign/" }], "tags": ["reminders"] },
-  { "id": "g-011", "query": "change the page size orientation and margins of my document", "expected": [{ "url": "https://getsign.io/how-tos/change-page-setup-in-getsign-docx-editor/" }], "tags": ["docx-editor"] },
-  { "id": "g-012", "query": "multiple signers need to sign but the document has no signature fields", "expected": [{ "titleIncludes": "Sign Anywhere" }], "tags": ["sign-anywhere"] },
-  { "id": "g-013", "query": "can I use GetSign on subitems", "expected": [{ "titleIncludes": "subitems" }], "tags": ["subitems"] },
-  { "id": "g-014", "query": "what languages can the signature request email be sent in", "expected": [{ "titleIncludes": "email languages" }], "tags": ["email", "i18n"] },
-  { "id": "g-015", "query": "add our company logo to the email signers receive", "expected": [{ "titleIncludes": "branding" }], "tags": ["email", "branding"] },
-  { "id": "g-016", "query": "generate a quote with line items from board data", "expected": [{ "titleIncludes": "line items" }, { "titleIncludes": "quotes and invoices" }], "tags": ["docgen", "invoices"] },
-  { "id": "g-017", "query": "set up stripe to charge signers", "expected": [{ "titleIncludes": "Stripe" }, { "url": "https://getsign.io/feature/payment-collection/" }], "tags": ["payments"] },
-  { "id": "g-018", "query": "how do I remove the webhooks GetSign created on my board", "expected": [{ "titleIncludes": "webhooks" }], "tags": ["webhooks", "cleanup"] },
-  { "id": "g-019", "query": "create a signing link for a single recipient", "expected": [{ "titleIncludes": "single signer" }, { "titleIncludes": "single-signer" }], "tags": ["signing-link"] },
-  { "id": "g-020", "query": "generate signing links for several different signers", "expected": [{ "titleIncludes": "multi-signer" }], "tags": ["signing-link"] },
-  { "id": "g-021", "query": "assign form fields in a PDF I uploaded that already has acrofields", "expected": [{ "titleIncludes": "AcroFields" }], "tags": ["pdf", "fields"] },
-  { "id": "g-022", "query": "only include certain subitem columns in my PDF template", "expected": [{ "titleIncludes": "sub-item columns" }], "tags": ["pdf", "subitems"] },
-  { "id": "g-023", "query": "let the signer download the document before they sign it", "expected": [{ "titleIncludes": "download documents before signing" }], "tags": ["signing"] },
-  { "id": "g-024", "query": "send signature emails from our own domain instead of getsign", "expected": [{ "titleIncludes": "custom domain" }], "tags": ["email", "dns"] },
-  { "id": "g-025", "query": "send a document that does not need a signature just for viewing", "expected": [{ "titleIncludes": "without requiring signatures" }], "tags": ["sending"] },
-  { "id": "g-026", "query": "send the same contract to a large list of recipients at once", "expected": [{ "titleIncludes": "Batch" }, { "titleIncludes": "AutoSend" }], "tags": ["batch"] },
-  { "id": "g-027", "query": "my formula column value is not appearing in the document", "expected": [{ "titleIncludes": "formula column" }], "tags": ["docgen", "formula"] },
-  { "id": "g-028", "query": "create a PDF form with checkboxes dropdowns and date fields", "expected": [{ "titleIncludes": "fillable forms" }], "tags": ["pdf", "forms"] },
-  { "id": "g-029", "query": "where are the signed documents stored after everyone signs", "expected": [{ "titleIncludes": "store signed documents" }], "tags": ["storage"] },
-  { "id": "g-030", "query": "check the status of a signature request and see the audit log", "expected": [{ "titleIncludes": "Track" }, { "titleIncludes": "audit" }], "tags": ["tracking"] },
-  { "id": "g-031", "query": "import data from an excel file and use it to send documents", "expected": [{ "titleIncludes": "Excel" }], "tags": ["import"] },
-  { "id": "g-032", "query": "does GetSign automatically detect fields in my uploaded form", "expected": [{ "titleIncludes": "field detection" }, { "titleIncludes": "printable forms" }], "tags": ["fields", "ai"] },
-  { "id": "g-033", "query": "I edited the template but the change did not apply to my item", "expected": [{ "titleIncludes": "gallery-level" }], "tags": ["templates"] },
-  { "id": "g-034", "query": "set up the form filler app", "expected": [{ "titleIncludes": "Form Filler" }], "tags": ["forms"] },
-  { "id": "g-035", "query": "how do digital signature certificates and compliance work", "expected": [{ "titleIncludes": "digital signatures work" }, { "url": "https://getsign.io/capabilities/legally-binding/" }], "tags": ["compliance"] },
-  { "id": "g-036", "query": "enable automatic sign anywhere so fields are not required", "expected": [{ "titleIncludes": "Auto Sign Anywhere" }], "tags": ["sign-anywhere"] },
-  { "id": "g-037", "query": "personalize the generated document for each client", "expected": [{ "titleIncludes": "customize a document for each client" }], "tags": ["docgen"] },
-  { "id": "g-038", "query": "add fields like dropdowns and checkboxes to a gallery template", "expected": [{ "url": "https://getsign.io/capabilities/template-gallery/" }], "tags": ["templates", "fields"] }
+ {
+  "id": "g-001",
+  "query": "how do I send a document for signature from monday",
+  "expected": [
+   {
+    "url": "https://getsign.io/getting-started/how-to-send-documents-for-esignature-in-monday/"
+   },
+   {
+    "url": "https://getsign.io/feature/esignature/"
+   }
+  ],
+  "tags": [
+   "esignature",
+   "getting-started"
+  ]
+ },
+ {
+  "id": "g-002",
+  "query": "signers need to sign one after another in a specific order",
+  "expected": [
+   {
+    "url": "https://getsign.io/capabilities/set-signing-order/"
+   },
+   {
+    "url": "https://getsign.io/getting-started/create-or-modify-signing-order/"
+   }
+  ],
+  "tags": [
+   "signing-order"
+  ]
+ },
+ {
+  "id": "g-003",
+  "query": "verify the signer's identity with a code before they can open the document",
+  "expected": [
+   {
+    "url": "https://getsign.io/capabilities/otp-authentication/"
+   },
+   {
+    "titleIncludes": "OTP"
+   }
+  ],
+  "tags": [
+   "otp",
+   "security"
+  ]
+ },
+ {
+  "id": "g-004",
+  "query": "share a link so someone can sign without logging in",
+  "expected": [
+   {
+    "url": "https://getsign.io/capabilities/document-signing-link/"
+   },
+   {
+    "titleIncludes": "signing link"
+   }
+  ],
+  "tags": [
+   "signing-link"
+  ]
+ },
+ {
+  "id": "g-005",
+  "query": "collect a payment from the customer when they sign the contract",
+  "expected": [
+   {
+    "url": "https://getsign.io/feature/payment-collection/"
+   },
+   {
+    "titleIncludes": "Stripe"
+   }
+  ],
+  "tags": [
+   "payments"
+  ]
+ },
+ {
+  "id": "g-006",
+  "query": "are signatures made with GetSign legally binding",
+  "expected": [
+   {
+    "url": "https://getsign.io/capabilities/legally-binding/"
+   }
+  ],
+  "tags": [
+   "compliance"
+  ]
+ },
+ {
+  "id": "g-007",
+  "query": "create a fillable form that writes answers back into board columns",
+  "expected": [
+   {
+    "url": "https://getsign.io/feature/web-forms/"
+   },
+   {
+    "url": "https://getsign.io/getting-started/create-fillable-forms-on-monday/"
+   }
+  ],
+  "tags": [
+   "forms"
+  ]
+ },
+ {
+  "id": "g-008",
+  "query": "generate documents automatically from monday board data",
+  "expected": [
+   {
+    "url": "https://getsign.io/getting-started/generate-documents-from-monday-com/"
+   },
+   {
+    "url": "https://getsign.io/feature/document-generation/"
+   }
+  ],
+  "tags": [
+   "docgen"
+  ]
+ },
+ {
+  "id": "g-009",
+  "query": "pull data from a connect board mirror column into the generated document",
+  "expected": [
+   {
+    "url": "https://getsign.io/how-tos/generate-documents-from-connect-board-data-on-monday-com/"
+   }
+  ],
+  "tags": [
+   "docgen",
+   "mirror"
+  ]
+ },
+ {
+  "id": "g-010",
+  "query": "send automatic reminders to people who have not signed yet",
+  "expected": [
+   {
+    "url": "https://getsign.io/how-tos/send-automatic-signature-reminders-with-getsign/"
+   }
+  ],
+  "tags": [
+   "reminders"
+  ]
+ },
+ {
+  "id": "g-011",
+  "query": "change the page size orientation and margins of my document",
+  "expected": [
+   {
+    "url": "https://getsign.io/how-tos/change-page-setup-in-getsign-docx-editor/"
+   }
+  ],
+  "tags": [
+   "docx-editor"
+  ]
+ },
+ {
+  "id": "g-012",
+  "query": "multiple signers need to sign but the document has no signature fields",
+  "expected": [
+   {
+    "titleIncludes": "Sign Anywhere"
+   }
+  ],
+  "tags": [
+   "sign-anywhere"
+  ]
+ },
+ {
+  "id": "g-013",
+  "query": "can I use GetSign on subitems",
+  "expected": [
+   {
+    "titleIncludes": "subitems"
+   }
+  ],
+  "tags": [
+   "subitems"
+  ]
+ },
+ {
+  "id": "g-014",
+  "query": "what languages can the signature request email be sent in",
+  "expected": [
+   {
+    "titleIncludes": "email languages"
+   }
+  ],
+  "tags": [
+   "email",
+   "i18n"
+  ]
+ },
+ {
+  "id": "g-015",
+  "query": "add our company logo to the email signers receive",
+  "expected": [
+   {
+    "titleIncludes": "branding"
+   }
+  ],
+  "tags": [
+   "email",
+   "branding"
+  ]
+ },
+ {
+  "id": "g-016",
+  "query": "generate a quote with line items from board data",
+  "expected": [
+   {
+    "titleIncludes": "line items"
+   },
+   {
+    "titleIncludes": "quotes and invoices"
+   }
+  ],
+  "tags": [
+   "docgen",
+   "invoices"
+  ]
+ },
+ {
+  "id": "g-017",
+  "query": "set up stripe to charge signers",
+  "expected": [
+   {
+    "titleIncludes": "Stripe"
+   },
+   {
+    "url": "https://getsign.io/feature/payment-collection/"
+   }
+  ],
+  "tags": [
+   "payments"
+  ]
+ },
+ {
+  "id": "g-018",
+  "query": "how do I remove the webhooks GetSign created on my board",
+  "expected": [
+   {
+    "titleIncludes": "webhooks"
+   }
+  ],
+  "tags": [
+   "webhooks",
+   "cleanup"
+  ]
+ },
+ {
+  "id": "g-019",
+  "query": "create a signing link for a single recipient",
+  "expected": [
+   {
+    "titleIncludes": "single signer"
+   },
+   {
+    "titleIncludes": "single-signer"
+   }
+  ],
+  "tags": [
+   "signing-link"
+  ]
+ },
+ {
+  "id": "g-020",
+  "query": "generate signing links for several different signers",
+  "expected": [
+   {
+    "titleIncludes": "multi-signer"
+   }
+  ],
+  "tags": [
+   "signing-link"
+  ]
+ },
+ {
+  "id": "g-021",
+  "query": "assign form fields in a PDF I uploaded that already has acrofields",
+  "expected": [
+   {
+    "titleIncludes": "AcroFields"
+   }
+  ],
+  "tags": [
+   "pdf",
+   "fields"
+  ]
+ },
+ {
+  "id": "g-022",
+  "query": "only include certain subitem columns in my PDF template",
+  "expected": [
+   {
+    "titleIncludes": "sub-item columns"
+   }
+  ],
+  "tags": [
+   "pdf",
+   "subitems"
+  ]
+ },
+ {
+  "id": "g-023",
+  "query": "let the signer download the document before they sign it",
+  "expected": [
+   {
+    "titleIncludes": "download documents before signing"
+   }
+  ],
+  "tags": [
+   "signing"
+  ]
+ },
+ {
+  "id": "g-024",
+  "query": "send signature emails from our own domain instead of getsign",
+  "expected": [
+   {
+    "titleIncludes": "custom domain"
+   }
+  ],
+  "tags": [
+   "email",
+   "dns"
+  ]
+ },
+ {
+  "id": "g-025",
+  "query": "send a document that does not need a signature just for viewing",
+  "expected": [
+   {
+    "titleIncludes": "without requiring signatures"
+   }
+  ],
+  "tags": [
+   "sending"
+  ]
+ },
+ {
+  "id": "g-026",
+  "query": "send the same contract to a large list of recipients at once",
+  "expected": [
+   {
+    "titleIncludes": "Batch"
+   },
+   {
+    "titleIncludes": "AutoSend"
+   }
+  ],
+  "tags": [
+   "batch"
+  ]
+ },
+ {
+  "id": "g-027",
+  "query": "my formula column value is not appearing in the document",
+  "expected": [
+   {
+    "titleIncludes": "formula column"
+   }
+  ],
+  "tags": [
+   "docgen",
+   "formula"
+  ]
+ },
+ {
+  "id": "g-028",
+  "query": "create a PDF form with checkboxes dropdowns and date fields",
+  "expected": [
+   {
+    "titleIncludes": "fillable forms"
+   }
+  ],
+  "tags": [
+   "pdf",
+   "forms"
+  ]
+ },
+ {
+  "id": "g-029",
+  "query": "where are the signed documents stored after everyone signs",
+  "expected": [
+   {
+    "titleIncludes": "store signed documents"
+   }
+  ],
+  "tags": [
+   "storage"
+  ]
+ },
+ {
+  "id": "g-030",
+  "query": "check the status of a signature request and see the audit log",
+  "expected": [
+   {
+    "titleIncludes": "Track"
+   },
+   {
+    "titleIncludes": "audit"
+   }
+  ],
+  "tags": [
+   "tracking"
+  ]
+ },
+ {
+  "id": "g-031",
+  "query": "import data from an excel file and use it to send documents",
+  "expected": [
+   {
+    "titleIncludes": "Excel"
+   }
+  ],
+  "tags": [
+   "import"
+  ]
+ },
+ {
+  "id": "g-032",
+  "query": "does GetSign automatically detect fields in my uploaded form",
+  "expected": [
+   {
+    "titleIncludes": "field detection"
+   },
+   {
+    "titleIncludes": "printable forms"
+   }
+  ],
+  "tags": [
+   "fields",
+   "ai"
+  ]
+ },
+ {
+  "id": "g-033",
+  "query": "I edited the template but the change did not apply to my item",
+  "expected": [
+   {
+    "titleIncludes": "gallery-level"
+   }
+  ],
+  "tags": [
+   "templates"
+  ]
+ },
+ {
+  "id": "g-034",
+  "query": "set up the form filler app",
+  "expected": [
+   {
+    "titleIncludes": "Form Filler"
+   }
+  ],
+  "tags": [
+   "forms"
+  ]
+ },
+ {
+  "id": "g-035",
+  "query": "how do digital signature certificates and compliance work",
+  "expected": [
+   {
+    "titleIncludes": "digital signatures work"
+   },
+   {
+    "url": "https://getsign.io/capabilities/legally-binding/"
+   }
+  ],
+  "tags": [
+   "compliance"
+  ]
+ },
+ {
+  "id": "g-036",
+  "query": "enable automatic sign anywhere so fields are not required",
+  "expected": [
+   {
+    "titleIncludes": "Auto Sign Anywhere"
+   }
+  ],
+  "tags": [
+   "sign-anywhere"
+  ]
+ },
+ {
+  "id": "g-037",
+  "query": "personalize the generated document for each client",
+  "expected": [
+   {
+    "titleIncludes": "customize a document for each client"
+   }
+  ],
+  "tags": [
+   "docgen"
+  ]
+ },
+ {
+  "id": "g-038",
+  "query": "add fields like dropdowns and checkboxes to a gallery template",
+  "expected": [
+   {
+    "url": "https://getsign.io/capabilities/template-gallery/"
+   }
+  ],
+  "tags": [
+   "templates",
+   "fields"
+  ]
+ },
+ {
+  "id": "g-039",
+  "query": "track parcels at the subitem level",
+  "expected": [
+   {
+    "url": "https://jetpackapps.io/trackmy-app/how-to-track-shipments-at-the-sub-item-level-using-trackmy-on-monday-com/"
+   }
+  ],
+  "tags": [
+   "jetpackapps",
+   "trackmy"
+  ]
+ },
+ {
+  "id": "g-040",
+  "query": "connect two boards without mirror columns",
+  "expected": [
+   {
+    "titleIncludes": "VLOOKUP"
+   }
+  ],
+  "tags": [
+   "jetpackapps",
+   "vlookup"
+  ]
+ },
+ {
+  "id": "g-041",
+  "query": "extract email attachments from outlook into my board",
+  "expected": [
+   {
+    "url": "https://jetpackapps.io/extract-ai/how-to-extract-attachments-and-email-content-from-outlook-to-monday-com-with-extract-ai/"
+   }
+  ],
+  "tags": [
+   "jetpackapps",
+   "extract-ai"
+  ]
+ },
+ {
+  "id": "g-042",
+  "query": "generate a public QR code for a board item",
+  "expected": [
+   {
+    "url": "https://jetpackapps.io/triggerly/generate-public-qr-codes-on-monday-com/"
+   }
+  ],
+  "tags": [
+   "jetpackapps",
+   "triggerly"
+  ]
+ },
+ {
+  "id": "g-043",
+  "query": "convert currencies automatically in a column",
+  "expected": [
+   {
+    "titleIncludes": "Currency Converter"
+   }
+  ],
+  "tags": [
+   "jetpackapps",
+   "smart-columns"
+  ]
+ },
+ {
+  "id": "g-044",
+  "query": "make certain fields required before an item can be saved",
+  "expected": [
+   {
+    "titleIncludes": "Mandatory Fields"
+   }
+  ],
+  "tags": [
+   "jetpackapps",
+   "smart-columns"
+  ]
+ },
+ {
+  "id": "g-045",
+  "query": "track SLA deadlines on our support board",
+  "expected": [
+   {
+    "titleIncludes": "SLA"
+   }
+  ],
+  "tags": [
+   "jetpackapps",
+   "smart-columns"
+  ]
+ },
+ {
+  "id": "g-046",
+  "query": "find duplicate entries on my board",
+  "expected": [
+   {
+    "titleIncludes": "Duplicates"
+   }
+  ],
+  "tags": [
+   "jetpackapps",
+   "smart-columns"
+  ]
+ },
+ {
+  "id": "g-047",
+  "query": "set up a recruiting pipeline with jobflows",
+  "expected": [
+   {
+    "url": "https://jetpackapps.io/jobflows/how-to-set-up-jobflows-on-monday-com/"
+   }
+  ],
+  "tags": [
+   "jetpackapps",
+   "jobflows"
+  ]
+ },
+ {
+  "id": "g-048",
+  "query": "automatically scan and manage resumes",
+  "expected": [
+   {
+    "url": "https://jetpackapps.io/jetscan-hr/automate-resume-management-on-monday/"
+   }
+  ],
+  "tags": [
+   "jetpackapps",
+   "jetscan-hr"
+  ]
+ },
+ {
+  "id": "g-049",
+  "query": "turn raw board data into pivot reports",
+  "expected": [
+   {
+    "url": "https://jetpackapps.io/pivot-reports-pro/raw-data-into-reports/"
+   }
+  ],
+  "tags": [
+   "jetpackapps",
+   "pivot-reports"
+  ]
+ },
+ {
+  "id": "g-050",
+  "query": "upgrade vlookup to the pro version",
+  "expected": [
+   {
+    "url": "https://jetpackapps.io/vlookup-auto-link/how-to-upgrade-vlookup-to-pro/"
+   }
+  ],
+  "tags": [
+   "jetpackapps",
+   "vlookup"
+  ]
+ }
 ]
