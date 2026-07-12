@@ -27,15 +27,25 @@ function clip(text: string, max: number): string {
 export function inferProduct(text: string): Product {
   const t = text.toLowerCase();
   if (/getsign|e-?sign|signature|mapping/.test(t)) return "getsign";
-  if (/jetpack|monday\.com|marketplace|widget|board/.test(t)) return "jetpackapps";
+  if (
+    /jetpack|marketplace|widget|trackmy|track my|courier|vlookup|extract ai|extract-ai|jobflow|smart column|jetscan|pivot report|triggerly|qr code/.test(t)
+  )
+    return "jetpackapps";
+  if (/monday\.com|board/.test(t)) return "jetpackapps";
   return "unknown";
+}
+
+/** Freshdesk's cf_product custom field is ground truth when agents set it. */
+export function productFromHint(hint: string | null | undefined): Product | null {
+  if (!hint?.trim()) return null;
+  return /getsign/i.test(hint) ? "getsign" : "jetpackapps";
 }
 
 const TRIAGE_SYSTEM = `You triage customer support tickets: attribute them to a product and rate their complexity.
 
 Products:
 - "getsign" — GetSign (getsign.io), the e-signature app for monday.com: signing documents, signature requests, templates, field mapping, signed-document sync.
-- "jetpackapps" — Jetpack Apps (jetpackapps.io), the monday.com marketplace app portfolio: widgets, dashboards, integrations and other marketplace apps.
+- "jetpackapps" — Jetpack Apps (jetpackapps.io), the monday.com marketplace app portfolio: TrackMy (parcel/courier tracking), VLOOKUP Auto-Link (connect/sync boards), Extract AI (pull data from files/emails into boards), JobFlows (recruiting), Smart Columns (currency converter, mandatory fields, SLA, duplicates, custom IDs, conditional status and other column utilities), JetScan HR (resume scanning), Pivot Reports Pro, Triggerly (QR codes).
 - "unknown" — genuinely impossible to tell from the text (pure billing/account questions with no product hints, empty tickets).
 
 Pick the single most likely product from the ticket's content and phrasing. Prefer a product over "unknown" when the text leans one way, even without an explicit product name.
@@ -117,10 +127,12 @@ export async function buildContext(
     monday.searchDevBoard(ticket.subject).catch(() => []),
   ]);
 
-  // The keyword heuristic wins when it recognizes the product; the LLM triage
-  // fills in only when it can't (exactly the old fallback behavior).
+  // Attribution precedence: Freshdesk's cf_product field (ground truth set by
+  // agents/forms) > keyword heuristic > LLM triage fallback.
   const keywordProduct = inferProduct(`${ticket.subject}\n${ticket.description}`);
-  const product = keywordProduct !== "unknown" ? keywordProduct : triage.product;
+  const product =
+    productFromHint(ticket.productHint) ??
+    (keywordProduct !== "unknown" ? keywordProduct : triage.product);
 
   return { channel, ticket, account, relatedDevItems, product, complexity: triage.complexity, taskUsage };
 }

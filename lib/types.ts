@@ -21,6 +21,8 @@ export interface Ticket {
   requesterName: string | null;
   requesterEmail: string | null;
   replies: TicketReply[];
+  /** Freshdesk cf_product custom field — ground truth for product attribution. */
+  productHint?: string | null;
 }
 
 export interface FastSpringInvoice {

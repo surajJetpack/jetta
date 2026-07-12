@@ -82,6 +82,7 @@ export async function getTicketDetails(ticketId: string): Promise<Ticket> {
     description?: string;
     status: number;
     requester_id: number;
+    custom_fields?: Record<string, unknown>;
     conversations?: FDConversation[];
   };
   type FDContact = { name: string; email: string };
@@ -121,6 +122,7 @@ export async function getTicketDetails(ticketId: string): Promise<Ticket> {
     requesterName,
     requesterEmail,
     replies,
+    productHint: (ticket.custom_fields?.cf_product as string | undefined) ?? null,
   };
 }
 
