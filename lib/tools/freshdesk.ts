@@ -98,13 +98,20 @@ export async function getTicketDetails(ticketId: string): Promise<Ticket> {
   }
 
   const statusMap: Record<number, string> = { 2: "open", 3: "pending", 4: "resolved", 5: "closed" };
-  const replies: TicketReply[] = (ticket.conversations ?? []).map((c) => ({
-    author: c.incoming ? "customer" : "agent",
-    authorEmail: c.from_email ?? null,
-    body: c.body_text ?? stripHtml(c.body ?? ""),
-    createdAt: c.created_at,
-    isPrivate: c.private,
-  }));
+  // Context diet: this result is re-sent into the agent loop on every step, so
+  // long threads are capped — newest replies win, bodies truncated.
+  const MAX_REPLIES = 20;
+  const REPLY_CHARS = 2000;
+  const replies: TicketReply[] = (ticket.conversations ?? []).slice(-MAX_REPLIES).map((c) => {
+    const body = c.body_text ?? stripHtml(c.body ?? "");
+    return {
+      author: c.incoming ? "customer" : "agent",
+      authorEmail: c.from_email ?? null,
+      body: body.length > REPLY_CHARS ? `${body.slice(0, REPLY_CHARS)}\n[…truncated]` : body,
+      createdAt: c.created_at,
+      isPrivate: c.private,
+    };
+  });
 
   return {
     id: String(ticket.id),

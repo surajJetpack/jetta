@@ -103,8 +103,22 @@ export function buildTools(
         }
         // Usage counters — a metric write must never break the agent loop.
         recordKbHits(merged.map((h) => h.id)).catch(() => {});
+        // Context diet: full bodies for the top hits, title+snippet beyond —
+        // the tool result is re-sent into the loop on every subsequent step.
+        const FULL_BODY_HITS = 3;
+        const SNIPPET_CHARS = 300;
         return merged.length
-          ? JSON.stringify(merged.map((h) => ({ title: h.title, url: h.url, body: h.body, source: h.source })))
+          ? JSON.stringify(
+              merged.map((h, i) => ({
+                title: h.title,
+                url: h.url,
+                body:
+                  i < FULL_BODY_HITS || !h.body || h.body.length <= SNIPPET_CHARS
+                    ? h.body
+                    : `${h.body.slice(0, SNIPPET_CHARS)}… [snippet — likely less relevant than the articles above]`,
+                source: h.source,
+              })),
+            )
           : "No knowledge base articles matched. Do not invent product steps — ask the user for specifics or escalate.";
       },
     }),

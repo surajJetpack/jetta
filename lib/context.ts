@@ -13,6 +13,16 @@ import * as freshchat from "./tools/freshchat";
 import * as fastspring from "./tools/fastspring";
 import * as monday from "./tools/monday";
 
+// Context-diet caps for the replayed conversation (lib/tools/freshdesk.ts has
+// the equivalent caps for the get_ticket_details tool result).
+const MAX_HISTORY_REPLIES = 12;
+const REPLY_CHARS = 2000;
+const OPENING_CHARS = 4000;
+
+function clip(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max)}\n[…truncated]` : text;
+}
+
 /** Cheap heuristic to attribute a ticket to a product. */
 export function inferProduct(text: string): Product {
   const t = text.toLowerCase();
@@ -131,16 +141,26 @@ export function buildMessages(
       role: "user",
       content:
         channel === "freshchat"
-          ? `[Live chat — handed off to you by the front-line bot]\n\n${ticket.description}`
-          : `[New ticket]\nSubject: ${ticket.subject}\n\n${ticket.description}`,
+          ? `[Live chat — handed off to you by the front-line bot]\n\n${clip(ticket.description, OPENING_CHARS)}`
+          : `[New ticket]\nSubject: ${ticket.subject}\n\n${clip(ticket.description, OPENING_CHARS)}`,
     },
   ];
 
-  for (const reply of ticket.replies) {
-    if (reply.isPrivate) continue;
+  // Context diet: long threads dominate token spend (the history is re-sent on
+  // every tool-loop step). Replay only the newest exchanges; the model can
+  // always pull specifics with get_ticket_details.
+  const publicReplies = ticket.replies.filter((r) => !r.isPrivate);
+  const recent = publicReplies.slice(-MAX_HISTORY_REPLIES);
+  if (publicReplies.length > recent.length) {
+    messages.push({
+      role: "user",
+      content: `[system] ${publicReplies.length - recent.length} earlier replies omitted for brevity — use get_ticket_details if you need the full history.`,
+    });
+  }
+  for (const reply of recent) {
     messages.push({
       role: reply.author === "customer" ? "user" : "assistant",
-      content: reply.body,
+      content: clip(reply.body, REPLY_CHARS),
     });
   }
 
