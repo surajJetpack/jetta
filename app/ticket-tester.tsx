@@ -1,7 +1,23 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Loader2, Lock, Radio, TriangleAlert } from "lucide-react";
 import { fmtDuration } from "@/lib/format";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
+import { Alert, AlertTitle } from "@/components/ui/alert";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { StepCard, TraceIO } from "@/components/jetta/step-card";
+import { EmptyState } from "@/components/jetta/empty-state";
 
 interface TraceEntry {
   tool: string;
@@ -106,89 +122,114 @@ export default function TicketTester({
   const willPost = !dryRun && (channel === "freshchat" ? freshchatLive : freshdeskLive);
 
   return (
-    <div className="card">
-      <h2>Run a ticket through Jetta</h2>
-      <div className="row">
-        <select value={channel} onChange={(e) => setChannel(e.target.value as Channel)}>
-          <option value="freshdesk">Freshdesk</option>
-          <option value="freshchat">Freshchat</option>
-        </select>
-        <input
-          type="text"
-          placeholder={channel === "freshchat" ? "Freshchat conversation ID" : "Freshdesk ticket ID (e.g. 13599)"}
-          value={ticketId}
-          onChange={(e) => setTicketId(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && run()}
-        />
-        <label className="toggle">
-          <input type="checkbox" checked={dryRun} onChange={(e) => setDryRun(e.target.checked)} />
-          Dry run (preview, no posting)
-        </label>
-        <button onClick={run} disabled={loading || !ticketId.trim()}>
-          {loading ? <span className="spin" /> : null}
-          {loading ? "Running…" : "Run"}
-        </button>
-      </div>
-
-      {willPost && (
-        <div className="warn">
-          ⚠ Dry run is OFF and {channel === "freshchat" ? "Freshchat" : "Freshdesk"} is live — running will post a real
-          reply to the {channel === "freshchat" ? "conversation" : "ticket"}.
+    <Card>
+      <CardHeader>
+        <CardTitle>Run a ticket through Jetta</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <Select value={channel} onValueChange={(v) => setChannel(v as Channel)}>
+            <SelectTrigger className="w-32">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="freshdesk">Freshdesk</SelectItem>
+              <SelectItem value="freshchat">Freshchat</SelectItem>
+            </SelectContent>
+          </Select>
+          <Input
+            type="text"
+            className="w-64 flex-1 sm:flex-none"
+            placeholder={channel === "freshchat" ? "Freshchat conversation ID" : "Freshdesk ticket ID (e.g. 13599)"}
+            value={ticketId}
+            onChange={(e) => setTicketId(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && run()}
+          />
+          <Label className="flex cursor-pointer items-center gap-1.5 text-sm font-normal text-muted-foreground">
+            <Checkbox checked={dryRun} onCheckedChange={(v) => setDryRun(v === true)} />
+            Dry run (preview, no posting)
+          </Label>
+          <Button onClick={run} disabled={loading || !ticketId.trim()}>
+            {loading && <Loader2 className="animate-spin" />}
+            {loading ? "Running…" : "Run"}
+          </Button>
         </div>
-      )}
 
-      {res && (
-        <div className="result">
-          {res.error ? (
-            <p className="err">
-              {res.error}
-              {res.message ? `: ${res.message}` : ""}
-            </p>
+        {willPost && (
+          <Alert variant="destructive">
+            <TriangleAlert />
+            <AlertTitle>
+              Dry run is OFF and {channel === "freshchat" ? "Freshchat" : "Freshdesk"} is live — running will post a
+              real reply to the {channel === "freshchat" ? "conversation" : "ticket"}.
+            </AlertTitle>
+          </Alert>
+        )}
+
+        {res &&
+          (res.error ? (
+            <Alert variant="destructive">
+              <TriangleAlert />
+              <AlertTitle>
+                {res.error}
+                {res.message ? `: ${res.message}` : ""}
+              </AlertTitle>
+            </Alert>
           ) : (
-            <>
-              <div className="tsum">
-                <span>
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
+                <span className="text-foreground">
                   <b>#{res.ticket?.id}</b> {res.ticket?.subject}
                 </span>
                 <span>
-                  product <b>{res.ticket?.product}</b>
+                  product <b className="text-foreground">{res.ticket?.product}</b>
                 </span>
                 <span>
-                  model <b>{res.model}</b>
+                  model <b className="text-foreground">{res.model}</b>
                 </span>
-                <span>{res.dryRun ? "🔒 dry run" : "🟢 live"}</span>
-                {res.blockedByAllowlist ? <span style={{ color: "var(--warn)" }}>⚠ not on allowlist → forced dry-run</span> : null}
-                {res.resolutionSent ? <span><b>resolution sent</b> → follow-up scheduled</span> : null}
+                <span className="inline-flex items-center gap-1">
+                  {res.dryRun ? <Lock className="size-3.5" /> : <Radio className="size-3.5 text-[var(--live)]" />}
+                  {res.dryRun ? "dry run" : "live"}
+                </span>
+                {res.blockedByAllowlist && (
+                  <span className="text-[var(--stub)]">not on allowlist → forced dry-run</span>
+                )}
+                {res.resolutionSent && (
+                  <span>
+                    <b className="text-foreground">resolution sent</b> → follow-up scheduled
+                  </span>
+                )}
                 <span>{fmtDuration(res.durationMs)}</span>
               </div>
 
-              {res.reply ? (
-                <>
-                  <div className="steplabel">Final reply</div>
-                  <div className="reply">{res.reply}</div>
-                </>
-              ) : null}
-
-              <div className="steplabel">
-                Tool trace ({res.trace?.length ?? 0} call{res.trace?.length === 1 ? "" : "s"})
-              </div>
-              {res.trace?.length ? (
-                res.trace.map((t, i) => (
-                  <div className="step" key={i}>
-                    <div className="tool">
-                      {i + 1}. {t.tool}
-                    </div>
-                    <div className="io">→ {JSON.stringify(t.input)}</div>
-                    <div className="io out">{t.result}</div>
+              {res.reply && (
+                <div>
+                  <div className="mb-1 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
+                    Final reply
                   </div>
-                ))
-              ) : (
-                <p className="muted">No tools were called.</p>
+                  <div className="rounded-lg border bg-muted/40 p-3 text-sm whitespace-pre-wrap">{res.reply}</div>
+                </div>
               )}
-            </>
-          )}
-        </div>
-      )}
-    </div>
+
+              <div>
+                <div className="mb-1.5 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
+                  Tool trace ({res.trace?.length ?? 0} call{res.trace?.length === 1 ? "" : "s"})
+                </div>
+                {res.trace?.length ? (
+                  <div className="space-y-2">
+                    {res.trace.map((t, i) => (
+                      <StepCard key={i} title={`${i + 1}. ${t.tool}`}>
+                        <TraceIO>→ {JSON.stringify(t.input)}</TraceIO>
+                        <TraceIO className="whitespace-pre-wrap">{t.result}</TraceIO>
+                      </StepCard>
+                    ))}
+                  </div>
+                ) : (
+                  <EmptyState title="No tools were called" />
+                )}
+              </div>
+            </div>
+          ))}
+      </CardContent>
+    </Card>
   );
 }

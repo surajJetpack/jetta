@@ -1,7 +1,28 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { fmtAgo, fmtExact, useNow } from "@/lib/format";
+import {
+  Archive,
+  Check,
+  ExternalLink,
+  FlaskConical,
+  Loader2,
+  PencilLine,
+  Sparkles,
+  ThumbsDown,
+  ThumbsUp,
+  X,
+} from "lucide-react";
+import { toast } from "sonner";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { Skeleton } from "@/components/ui/skeleton";
+import { StepCard } from "@/components/jetta/step-card";
+import { StatusChip } from "@/components/jetta/status-chip";
+import { ConfirmButton } from "@/components/jetta/confirm-button";
+import { EmptyState } from "@/components/jetta/empty-state";
+import { RelativeTime } from "@/components/jetta/relative-time";
 
 interface ReplyEvaluation {
   id: string;
@@ -47,7 +68,11 @@ interface Learning {
   rationale?: string;
 }
 
-const RATING_ICON = { good: "👍", partial: "✏️", bad: "👎" } as const;
+function RatingIcon({ rating }: { rating: ReplyEvaluation["rating"] }) {
+  if (rating === "good") return <ThumbsUp className="size-4 text-[var(--live)]" />;
+  if (rating === "partial") return <PencilLine className="size-4 text-[var(--stub)]" />;
+  return <ThumbsDown className="size-4 text-destructive" />;
+}
 
 function CandidateCard({ learning, onDecide }: { learning: Learning; onDecide: () => void }) {
   const [text, setText] = useState(learning.text);
@@ -61,57 +86,59 @@ function CandidateCard({ learning, onDecide }: { learning: Learning; onDecide: (
       body: JSON.stringify({ id: learning.id, action, ...(action === "approve" ? { text } : {}) }),
     });
     setBusy(false);
-    if (r.status === 409) alert("This learning was already decided — refreshing.");
+    if (r.status === 409) toast.warning("This learning was already decided — refreshing.");
     else if (!r.ok) {
       const j = (await r.json().catch(() => null)) as { error?: string } | null;
-      alert(`Failed: ${j?.error ?? r.statusText}`);
+      toast.error(`Failed: ${j?.error ?? r.statusText}`);
+    } else {
+      toast.success(action === "approve" ? "Learning approved — live in the next reply" : "Learning rejected");
     }
     onDecide();
   }
 
   return (
-    <div className="step">
-      <div className="io" style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-        <span className="state draft">{learning.category}</span>
-        <span className="state in_review">{learning.product}</span>
-        {learning.supersedes && <span className="state stale">revises an approved learning</span>}
-        <span className="muted" style={{ fontSize: 12 }}>
-          from {learning.sourceEvalIds.length} evaluation{learning.sourceEvalIds.length === 1 ? "" : "s"}
+    <StepCard
+      title={
+        <span className="inline-flex items-center gap-1.5">
+          <Sparkles /> Candidate learning
         </span>
-      </div>
-      <textarea
+      }
+      meta={
+        <>
+          <StatusChip tone="draft">{learning.category}</StatusChip>
+          <StatusChip tone="in_review">{learning.product}</StatusChip>
+          {learning.supersedes && <StatusChip tone="stale">revises an approved learning</StatusChip>}
+          <span>
+            from {learning.sourceEvalIds.length} evaluation{learning.sourceEvalIds.length === 1 ? "" : "s"}
+          </span>
+        </>
+      }
+    >
+      <Textarea
         value={text}
         onChange={(e) => setText(e.target.value)}
         rows={2}
         maxLength={300}
-        style={{ width: "100%", marginTop: 8, boxSizing: "border-box", fontFamily: "inherit", fontSize: 14 }}
+        className="bg-background text-sm"
       />
-      {learning.rationale && (
-        <p className="muted" style={{ margin: "6px 0 0", fontSize: 13 }}>Why: {learning.rationale}</p>
-      )}
-      <div className="row" style={{ marginTop: 8, alignItems: "center" }}>
-        <button disabled={busy || !text.trim()} onClick={() => decide("approve")}>
-          {busy ? "Working…" : `Approve${text.trim() !== learning.text ? " (edited)" : ""}`}
-        </button>
-        <button
-          disabled={busy}
-          onClick={() => decide("reject")}
-          style={{ background: "var(--panel-2)", color: "var(--danger)" }}
-        >
-          Reject
-        </button>
+      {learning.rationale && <p className="text-xs text-muted-foreground">Why: {learning.rationale}</p>}
+      <div className="flex items-center gap-2">
+        <Button disabled={busy || !text.trim()} onClick={() => decide("approve")}>
+          <Check /> {busy ? "Working…" : `Approve${text.trim() !== learning.text ? " (edited)" : ""}`}
+        </Button>
+        <Button variant="destructive" disabled={busy} onClick={() => decide("reject")}>
+          <X /> Reject
+        </Button>
       </div>
-    </div>
+    </StepCard>
   );
 }
 
 export default function EvalsPanel({ freshdeskDomain }: { freshdeskDomain: string }) {
-  const now = useNow();
   const [evals, setEvals] = useState<ReplyEvaluation[] | null>(null);
   const [stats, setStats] = useState<EvalStats | null>(null);
   const [learnings, setLearnings] = useState<Learning[] | null>(null);
   const [distilling, setDistilling] = useState(false);
-  const [distillMsg, setDistillMsg] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(false);
 
   const load = useCallback(async () => {
@@ -129,7 +156,6 @@ export default function EvalsPanel({ freshdeskDomain }: { freshdeskDomain: strin
   }, [load]);
 
   async function retire(id: string) {
-    if (!confirm("Retire this learning? It stops being injected into new replies.")) return;
     const r = await fetch("/api/admin/learnings", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -137,22 +163,23 @@ export default function EvalsPanel({ freshdeskDomain }: { freshdeskDomain: strin
     });
     if (!r.ok) {
       const j = (await r.json().catch(() => null)) as { error?: string } | null;
-      alert(`Failed: ${j?.error ?? r.statusText}`);
+      toast.error(`Failed: ${j?.error ?? r.statusText}`);
+    } else {
+      toast.success("Learning retired — no longer injected.");
     }
     load();
   }
 
   async function distillNow() {
     setDistilling(true);
-    setDistillMsg(null);
     const r = await fetch("/api/admin/evals/distill", { method: "POST" });
     const j = (await r.json().catch(() => null)) as
       | { created?: number; reinforced?: number; revised?: number; consumed?: number; error?: string }
       | null;
     setDistilling(false);
-    if (!r.ok) setDistillMsg(`Distill failed: ${j?.error ?? r.statusText}`);
+    if (!r.ok) toast.error(`Distill failed: ${j?.error ?? r.statusText}`);
     else
-      setDistillMsg(
+      toast.success(
         `Distilled ${j?.consumed ?? 0} evaluations → ${j?.created ?? 0} new, ${j?.reinforced ?? 0} reinforced, ${j?.revised ?? 0} revisions.`,
       );
     load();
@@ -164,109 +191,180 @@ export default function EvalsPanel({ freshdeskDomain }: { freshdeskDomain: strin
 
   return (
     <>
-      <section className="card">
-        <h2>Draft quality {stats ? `(last ${stats.windowDays} days)` : ""}</h2>
-        {stats === null && <p className="muted">Loading…</p>}
-        {stats && (
-          <div style={{ display: "flex", gap: 24, flexWrap: "wrap", alignItems: "baseline" }}>
-            <span><b>{stats.total}</b> <span className="muted">decisions</span></span>
-            <span>👍 <b>{stats.byRating.good}</b> <span className="muted">sent as-is</span></span>
-            <span>✏️ <b>{stats.byRating.partial}</b> <span className="muted">edited ({Math.round(stats.editRate * 100)}%)</span></span>
-            <span>👎 <b>{stats.byRating.bad}</b> <span className="muted">discarded ({Math.round(stats.discardRate * 100)}%)</span></span>
-          </div>
-        )}
-        {stats && Object.keys(stats.tagCounts).length > 0 && (
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 10 }}>
-            {Object.entries(stats.tagCounts)
-              .sort((a, b) => b[1] - a[1])
-              .map(([tag, n]) => (
-                <span key={tag} className="state draft">{tag} ×{n}</span>
-              ))}
-          </div>
-        )}
-      </section>
-
-      <section className="card">
-        <h2>Candidate learnings {learnings ? `(${candidates.length})` : ""}</h2>
-        <p className="muted" style={{ marginBottom: 14 }}>
-          Distilled from your feedback — nothing changes Jetta&apos;s behavior until you approve it here.
-        </p>
-        <div className="row" style={{ alignItems: "center", marginBottom: 12 }}>
-          <button disabled={distilling || undistilled === 0} onClick={distillNow}>
-            {distilling ? "Distilling…" : `Distill now (${undistilled} pending)`}
-          </button>
-          {distillMsg && <span className="muted" style={{ fontSize: 13 }}>{distillMsg}</span>}
-        </div>
-        {candidates.map((l) => (
-          <CandidateCard key={l.id} learning={l} onDecide={load} />
-        ))}
-        {learnings !== null && candidates.length === 0 && (
-          <p className="muted">No candidates waiting for review.</p>
-        )}
-      </section>
-
-      <section className="card">
-        <h2>Approved learnings {learnings ? `(${approved.length})` : ""}</h2>
-        <p className="muted" style={{ marginBottom: 14 }}>
-          Injected into every reply&apos;s system prompt (strongest first, capped at 20 per product).
-        </p>
-        {approved
-          .sort((a, b) => b.reinforcedCount - a.reinforcedCount || b.updatedAt - a.updatedAt)
-          .map((l) => (
-            <div className="step" key={l.id}>
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start" }}>
-                <span style={{ fontSize: 14 }}>{l.text}</span>
-                <button
-                  onClick={() => retire(l.id)}
-                  style={{ background: "var(--panel-2)", color: "var(--danger)", flexShrink: 0 }}
-                >
-                  Retire
-                </button>
+      <Card>
+        <CardHeader>
+          <CardTitle>Draft quality {stats ? `(last ${stats.windowDays} days)` : ""}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {stats === null && <Skeleton className="h-10 w-full" />}
+          {stats && (
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              <div className="rounded-lg border bg-muted/40 p-3">
+                <div className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">Decisions</div>
+                <div className="mt-1 font-mono text-lg font-semibold">{stats.total}</div>
               </div>
-              <div className="io" style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                <span className="state published">{l.product}</span>
-                <span className="state draft">{l.category}</span>
-                {l.reinforcedCount > 0 && <span className="state in_review">reinforced ×{l.reinforcedCount}</span>}
-                <span className="muted" style={{ fontSize: 12 }} title={fmtExact(l.updatedAt)}>
-                  updated {fmtAgo(l.updatedAt, now)}
-                </span>
+              <div className="rounded-lg border bg-muted/40 p-3">
+                <div className="flex items-center gap-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+                  <ThumbsUp className="size-3" /> Sent as-is
+                </div>
+                <div className="mt-1 font-mono text-lg font-semibold">{stats.byRating.good}</div>
+              </div>
+              <div className="rounded-lg border bg-muted/40 p-3">
+                <div className="flex items-center gap-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+                  <PencilLine className="size-3" /> Edited
+                </div>
+                <div className="mt-1 font-mono text-lg font-semibold">
+                  {stats.byRating.partial}
+                  <span className="ml-1 text-xs font-normal text-muted-foreground">
+                    ({Math.round(stats.editRate * 100)}%)
+                  </span>
+                </div>
+              </div>
+              <div className="rounded-lg border bg-muted/40 p-3">
+                <div className="flex items-center gap-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+                  <ThumbsDown className="size-3" /> Discarded
+                </div>
+                <div className="mt-1 font-mono text-lg font-semibold">
+                  {stats.byRating.bad}
+                  <span className="ml-1 text-xs font-normal text-muted-foreground">
+                    ({Math.round(stats.discardRate * 100)}%)
+                  </span>
+                </div>
               </div>
             </div>
+          )}
+          {stats && Object.keys(stats.tagCounts).length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {Object.entries(stats.tagCounts)
+                .sort((a, b) => b[1] - a[1])
+                .map(([tag, n]) => (
+                  <StatusChip key={tag} tone="draft">
+                    {tag} ×{n}
+                  </StatusChip>
+                ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Candidate learnings {learnings ? `(${candidates.length})` : ""}</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2.5">
+          <p className="text-sm text-muted-foreground">
+            Distilled from your feedback — nothing changes Jetta&apos;s behavior until you approve it here.
+          </p>
+          <div className="flex items-center gap-2">
+            <Button variant="secondary" disabled={distilling || undistilled === 0} onClick={distillNow}>
+              {distilling ? <Loader2 className="animate-spin" /> : <FlaskConical />}
+              {distilling ? "Distilling…" : `Distill now (${undistilled} pending)`}
+            </Button>
+          </div>
+          {learnings === null && <Skeleton className="h-20 w-full" />}
+          {candidates.map((l) => (
+            <CandidateCard key={l.id} learning={l} onDecide={load} />
           ))}
-        {learnings !== null && approved.length === 0 && <p className="muted">No approved learnings yet.</p>}
-      </section>
+          {learnings !== null && candidates.length === 0 && (
+            <EmptyState icon={Sparkles} title="No candidates waiting for review" hint="Distill accumulated feedback to generate new candidate rules." />
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Approved learnings {learnings ? `(${approved.length})` : ""}</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2.5">
+          <p className="text-sm text-muted-foreground">
+            Injected into every reply&apos;s system prompt (strongest first, capped at 20 per product).
+          </p>
+          {approved
+            .sort((a, b) => b.reinforcedCount - a.reinforcedCount || b.updatedAt - a.updatedAt)
+            .map((l) => (
+              <StepCard
+                key={l.id}
+                title={<span className="font-normal text-foreground">{l.text}</span>}
+                meta={
+                  <ConfirmButton
+                    title="Retire this learning?"
+                    description="It stops being injected into new replies immediately. The record is kept and the distiller will not re-propose it."
+                    confirmLabel="Retire"
+                    variant="ghost"
+                    size="xs"
+                    onConfirm={() => retire(l.id)}
+                  >
+                    <Archive /> Retire
+                  </ConfirmButton>
+                }
+              >
+                <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                  <StatusChip tone="published">{l.product}</StatusChip>
+                  <StatusChip tone="draft">{l.category}</StatusChip>
+                  {l.reinforcedCount > 0 && <StatusChip tone="in_review">reinforced ×{l.reinforcedCount}</StatusChip>}
+                  <span>
+                    updated <RelativeTime at={l.updatedAt} />
+                  </span>
+                </div>
+              </StepCard>
+            ))}
+          {learnings !== null && approved.length === 0 && <EmptyState title="No approved learnings yet" />}
+        </CardContent>
+      </Card>
 
       {evals !== null && evals.length > 0 && (
-        <section className="card">
-          <h2 style={{ cursor: "pointer" }} onClick={() => setShowHistory(!showHistory)}>
-            Evaluation history ({evals.length}) {showHistory ? "▾" : "▸"}
-          </h2>
-          {showHistory &&
-            evals.slice(0, 50).map((e) => (
-              <div className="step" key={e.id}>
-                <div className="tool" style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span>
-                    {RATING_ICON[e.rating]} {e.subject ?? `Ticket #${e.ticketId}`}
-                  </span>
-                  <span className="muted" style={{ fontWeight: 400, fontSize: 12 }}>
-                    {e.product} · {e.decidedBy} ·{" "}
-                    <span title={fmtExact(e.at)}>{fmtAgo(e.at, now)}</span>
-                  </span>
-                </div>
-                <div className="io" style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-                  <a href={`https://${freshdeskDomain}/a/tickets/${e.ticketId}`} target="_blank" rel="noreferrer">
-                    #{e.ticketId} ↗
-                  </a>
-                  {e.tags.map((t) => (
-                    <span key={t} className="state draft">{t}</span>
-                  ))}
-                  {e.rating === "partial" && <span className="state in_review">edited before send</span>}
-                  {e.distilled && <span className="state published">distilled</span>}
-                </div>
-                {e.note && <div className="io out">{e.note}</div>}
-              </div>
-            ))}
-        </section>
+        <Card>
+          <CardHeader>
+            <button
+              type="button"
+              aria-expanded={showHistory}
+              onClick={() => setShowHistory(!showHistory)}
+              className="cursor-pointer text-left focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+            >
+              <CardTitle>
+                Evaluation history ({evals.length}) {showHistory ? "▾" : "▸"}
+              </CardTitle>
+            </button>
+          </CardHeader>
+          {showHistory && (
+            <CardContent className="space-y-2">
+              {evals.slice(0, 50).map((e) => (
+                <StepCard
+                  key={e.id}
+                  title={
+                    <span className="inline-flex items-center gap-1.5">
+                      <RatingIcon rating={e.rating} /> {e.subject ?? `Ticket #${e.ticketId}`}
+                    </span>
+                  }
+                  meta={
+                    <>
+                      {e.product} · {e.decidedBy} · <RelativeTime at={e.at} />
+                    </>
+                  }
+                >
+                  <div className="flex flex-wrap items-center gap-1.5 text-sm">
+                    <a
+                      href={`https://${freshdeskDomain}/a/tickets/${e.ticketId}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 text-primary hover:underline"
+                    >
+                      #{e.ticketId} <ExternalLink className="size-3.5" />
+                    </a>
+                    {e.tags.map((t) => (
+                      <StatusChip key={t} tone="draft">
+                        {t}
+                      </StatusChip>
+                    ))}
+                    {e.rating === "partial" && <StatusChip tone="in_review">edited before send</StatusChip>}
+                    {e.distilled && <StatusChip tone="published">distilled</StatusChip>}
+                  </div>
+                  {e.note && <p className="font-mono text-xs text-muted-foreground">{e.note}</p>}
+                </StepCard>
+              ))}
+            </CardContent>
+          )}
+        </Card>
       )}
     </>
   );
