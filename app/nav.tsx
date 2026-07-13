@@ -1,5 +1,6 @@
 import Link from "next/link";
 import LogoutButton from "./logout-button";
+import { GuideBanner } from "./guide-banner";
 
 const TABS = [
   { href: "/", label: "Console", id: "console" },
@@ -7,6 +8,7 @@ const TABS = [
   { href: "/evals", label: "Evals", id: "evals" },
   { href: "/kb", label: "Knowledge Base", id: "kb" },
   { href: "/analytics", label: "Insights", id: "insights" },
+  { href: "/guide", label: "Guide", id: "guide" },
 ];
 
 /** Shared header + tab bar. Auth rides the session cookie — no key in links. */
@@ -36,6 +38,7 @@ export function Nav({ current, user }: { current: string; user: string }) {
           </Link>
         ))}
       </nav>
+      <GuideBanner user={user} current={current} />
     </>
   );
 }

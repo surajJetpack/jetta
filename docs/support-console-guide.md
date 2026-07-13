@@ -1,5 +1,8 @@
 # Jetta Console — Reviewer Guide
 
+> Canonical, always-current version: the **Guide** tab inside the console
+> (https://jettajetpack.vercel.app/guide). This file is the email/repo copy.
+
 Jetta drafts a reply for every incoming Freshdesk ticket. **Nothing reaches a
 customer until one of us approves it.** Your job in the console: decide each
 draft, and — through those decisions — teach Jetta.
