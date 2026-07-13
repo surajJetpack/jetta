@@ -3,7 +3,7 @@
 import { useCallback, useState } from "react";
 import { CheckCircle2, ExternalLink, Mail, RotateCcw, Trash2, Undo2 } from "lucide-react";
 import { toast } from "sonner";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -124,7 +124,8 @@ function PendingCard({
       defaultOpen={false}
       title={
         <span className="inline-flex items-center gap-1.5">
-          <Mail /> {draft.subject ?? `Ticket #${draft.ticketId}`}
+          <Mail /> <span className="font-mono text-muted-foreground">#{draft.ticketId}</span>
+          {draft.subject ?? "(no subject)"}
         </span>
       }
       meta={
@@ -235,6 +236,7 @@ export default function DraftsQueue({
 }) {
   const [drafts, setDrafts] = useState<ReplyDraft[] | null>(null);
   const [showDecided, setShowDecided] = useState(false);
+  const [query, setQuery] = useState("");
 
   const load = useCallback(async () => {
     const r = await fetch("/api/admin/drafts", { cache: "no-store" }).then((x) => x.json());
@@ -243,14 +245,36 @@ export default function DraftsQueue({
   // Reviewers keep this tab open — refresh once a minute while it's visible.
   usePolling(load, 60_000);
 
-  const pending = drafts?.filter((d) => d.state === "pending") ?? [];
-  const decided = drafts?.filter((d) => d.state !== "pending") ?? [];
+  const q = query.trim().replace(/^#/, "").toLowerCase();
+  const matchesQuery = (d: ReplyDraft) =>
+    !q ||
+    d.ticketId.toLowerCase().includes(q) ||
+    (d.subject ?? "").toLowerCase().includes(q) ||
+    d.product.toLowerCase().includes(q) ||
+    d.channel.includes(q) ||
+    (d.editedBody ?? d.suggestedReply).toLowerCase().includes(q);
+
+  const pendingAll = drafts?.filter((d) => d.state === "pending") ?? [];
+  const pending = pendingAll.filter(matchesQuery);
+  const decided = drafts?.filter((d) => d.state !== "pending" && matchesQuery(d)) ?? [];
 
   return (
     <>
       <Card>
         <CardHeader>
-          <CardTitle>Reply drafts {drafts ? `(${pending.length} pending)` : ""}</CardTitle>
+          <CardTitle>
+            Reply drafts{" "}
+            {drafts ? (q ? `(${pending.length}/${pendingAll.length} pending)` : `(${pendingAll.length} pending)`) : ""}
+          </CardTitle>
+          <CardAction>
+            <Input
+              type="search"
+              className="w-56"
+              placeholder="Search ticket #, subject…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </CardAction>
         </CardHeader>
         <CardContent className="space-y-2.5">
           <p className="text-sm text-muted-foreground">
@@ -273,7 +297,11 @@ export default function DraftsQueue({
             <PendingCard key={d.id} draft={d} freshdeskDomain={freshdeskDomain} onDecide={load} />
           ))}
           {drafts !== null && pending.length === 0 && (
-            <EmptyState title="Queue is empty" hint="New drafts appear here automatically — this page refreshes every minute." />
+            q ? (
+              <EmptyState title="No pending drafts match" hint={`Nothing pending matches “${query.trim()}” — decided drafts that match still show below.`} />
+            ) : (
+              <EmptyState title="Queue is empty" hint="New drafts appear here automatically — this page refreshes every minute." />
+            )
           )}
         </CardContent>
       </Card>
@@ -292,7 +320,7 @@ export default function DraftsQueue({
               </CardTitle>
             </button>
           </CardHeader>
-          {showDecided && (
+          {(showDecided || !!q) && (
             <CardContent className="space-y-2">
               {decided.slice(0, 30).map((d) => (
                 <StepCard
@@ -306,7 +334,8 @@ export default function DraftsQueue({
                       ) : (
                         <Undo2 className="text-muted-foreground" />
                       )}
-                      {d.subject ?? `Ticket #${d.ticketId}`}
+                      <span className="font-mono text-muted-foreground">#{d.ticketId}</span>
+                      {d.subject ?? "(no subject)"}
                     </span>
                   }
                   meta={
