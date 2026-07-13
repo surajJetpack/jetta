@@ -22,7 +22,7 @@ import { config } from "@/lib/config";
 import { buildContext, buildMessages } from "@/lib/context";
 import { buildSystemPrompt } from "@/lib/system-prompt";
 import { runAgentLoop } from "@/lib/agent";
-import { markEventSeen, unmarkEventSeen, scheduleFollowUp, recordOutcome } from "@/lib/kv";
+import { markEventSeen, unmarkEventSeen, scheduleFollowUp, recordOutcome, recordWebhookProbe } from "@/lib/kv";
 import { recordRun } from "@/lib/runlog";
 import { createDraftFromRun } from "@/lib/drafts";
 
@@ -66,6 +66,17 @@ export async function POST(req: NextRequest) {
   if (!ticketId) {
     return NextResponse.json({ error: "no ticket id in payload" }, { status: 400 });
   }
+
+  // Diagnostic probe: record who calls this endpoint (an unidentified sender
+  // fires on ticket updates — the user-agent names the platform). Remove once
+  // the sender is found and dealt with.
+  await recordWebhookProbe({
+    at: Math.floor(Date.now() / 1000),
+    ticketId,
+    event: payload.event as string | undefined,
+    userAgent: req.headers.get("user-agent") ?? undefined,
+    hasUpdatedAt: payload.updated_at != null,
+  }).catch(() => {});
 
   // Idempotency: dedupe by event id when present, else ticket + rule marker +
   // timestamp. Freshdesk automations can't always send a timestamp — without
