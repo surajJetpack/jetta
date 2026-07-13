@@ -22,7 +22,7 @@ import { config } from "@/lib/config";
 import { buildContext, buildMessages } from "@/lib/context";
 import { buildSystemPrompt } from "@/lib/system-prompt";
 import { runAgentLoop } from "@/lib/agent";
-import { markEventSeen, scheduleFollowUp, recordOutcome } from "@/lib/kv";
+import { markEventSeen, unmarkEventSeen, scheduleFollowUp, recordOutcome } from "@/lib/kv";
 import { recordRun } from "@/lib/runlog";
 import { createDraftFromRun } from "@/lib/drafts";
 
@@ -89,8 +89,17 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ status: "accepted", ticketId });
 }
 
+/**
+ * TTL for the per-customer-message run marker. Long enough that a webhook
+ * storm weeks later can't re-run an old message; a NEW customer message always
+ * has a new marker, so nothing legitimate is ever blocked.
+ */
+const CUSTOMER_MSG_MARKER_TTL = 30 * 86400;
+
 /** The full agent pipeline, detached from the webhook response. */
 async function processTicket(ticketId: string, channel: "freshdesk" | "freshchat"): Promise<void> {
+  // Set once the run marker is claimed, so the catch can release it on failure.
+  let claimedMarker: string | null = null;
   try {
     const ctx = await buildContext(ticketId, channel);
     if (!ctx.ticket) {
@@ -103,6 +112,28 @@ async function processTicket(ticketId: string, channel: "freshdesk" | "freshchat
       console.log(`Webhook ticket ${ticketId}: product "${ctx.product}" not in JETTA_PRODUCTS, skipping.`);
       return;
     }
+
+    // Semantic idempotency: run at most once per CUSTOMER message. Upstream
+    // senders (Freshdesk automations, Make scenarios) fire on all kinds of
+    // ticket updates — including Jetta's own private notes, which produced a
+    // note → webhook → run → note loop (seen on ticket 13756). The event-id
+    // dedupe above can't stop that because each bot update looks fresh; this
+    // marker only changes when the customer actually says something new.
+    // (Console re-runs and the follow-up cron bypass this path on purpose.)
+    // Marker = timestamp of the newest customer reply, or "initial" when the
+    // only customer content is the ticket description (which never changes).
+    const lastCustomerAt =
+      ctx.ticket.replies
+        .filter((r) => r.author === "customer" && !r.isPrivate)
+        .map((r) => r.createdAt)
+        .sort()
+        .pop() ?? "initial";
+    const marker = `customer-msg:${ticketId}:${lastCustomerAt}`;
+    if (!(await markEventSeen(marker, CUSTOMER_MSG_MARKER_TTL))) {
+      console.log(`Webhook ticket ${ticketId}: no new customer message since last run, skipping.`);
+      return;
+    }
+    claimedMarker = marker;
 
     const messages = buildMessages(ctx.ticket, channel);
     const system = await buildSystemPrompt(ctx);
@@ -177,6 +208,8 @@ async function processTicket(ticketId: string, channel: "freshdesk" | "freshchat
     // The ACK already went out — failures land in the function log (and the
     // run log when the failure happened after the agent ran).
     console.error(`Webhook processing failed for ticket ${ticketId}:`, err);
+    // Release the customer-message marker so a retry can process this message.
+    if (claimedMarker) await unmarkEventSeen(claimedMarker).catch(() => {});
   }
 }
 

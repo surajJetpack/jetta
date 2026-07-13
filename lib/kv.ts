@@ -58,6 +58,16 @@ export async function markEventSeen(eventId: string, ttlSeconds = 3600): Promise
   return true;
 }
 
+/** Release a seen-marker so the event can be processed again (run-failure retry). */
+export async function unmarkEventSeen(eventId: string): Promise<void> {
+  const r = client();
+  if (r) {
+    await r.del(dedupeKey(eventId));
+    return;
+  }
+  memEvents.delete(eventId);
+}
+
 /** Store a follow-up job, due `delaySeconds` from now (default 24h). */
 export async function scheduleFollowUp(
   ticketId: string,
