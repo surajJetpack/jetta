@@ -17,7 +17,7 @@ export default async function ArticlePage({
     redirect(`/login?next=${encodeURIComponent(id ? `/kb/article?id=${id}` : "/kb")}`);
   }
   return (
-    <div className="wrap">
+    <div className="mx-auto max-w-4xl space-y-5 px-5 pt-8 pb-20">
       <Nav current="kb" user={user} />
       <KbNav current="list" />
       <KbArticle id={id} />

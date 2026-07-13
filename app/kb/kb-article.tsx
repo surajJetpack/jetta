@@ -3,6 +3,26 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { ArrowLeft, ArrowRight, Trash2, TriangleAlert, Upload } from "lucide-react";
+import { toast } from "sonner";
+import { fmtDate, fmtDateTime } from "@/lib/format";
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { Alert, AlertTitle } from "@/components/ui/alert";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
+import { StatusChip } from "@/components/jetta/status-chip";
+import { ConfirmButton } from "@/components/jetta/confirm-button";
 import { Md } from "./markdown";
 import type { Article, Category, Usage } from "./kb-list";
 
@@ -36,8 +56,23 @@ const NEXT_STATES: Record<string, string[]> = {
   archived: ["draft"],
 };
 
-const fmt = (unix?: number) => (unix ? new Date(unix * 1000).toISOString().slice(0, 16).replace("T", " ") : "—");
+// The review-by <input type="date"> needs YYYY-MM-DD — this is the edit-buffer
+// encoding (also used by the dirty check), not display formatting.
 const fmtDay = (unix?: number) => (unix ? new Date(unix * 1000).toISOString().slice(0, 10) : "");
+
+// Radix Select items can't have an empty value — sentinel for "uncategorized".
+const NONE = "__none__";
+
+const SECTION_LABEL = "text-[11px] font-semibold tracking-wider text-muted-foreground uppercase";
+
+function Meta({ k, children }: { k: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <div className={SECTION_LABEL}>{k}</div>
+      <div className="text-sm">{children}</div>
+    </div>
+  );
+}
 
 export default function KbArticle({ id }: { id?: string }) {
   const router = useRouter();
@@ -59,7 +94,9 @@ export default function KbArticle({ id }: { id?: string }) {
   const [tags, setTags] = useState("");
   const [reviewBy, setReviewBy] = useState("");
   const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState("");
+  // Duplicate warning from the last save — stays inline (an easy-to-miss toast
+  // isn't enough for a data-quality flag).
+  const [dupTitles, setDupTitles] = useState<string[]>([]);
 
   // Freshdesk publishing
   const [fdFolders, setFdFolders] = useState<FdFolder[] | null>(null);
@@ -106,7 +143,6 @@ export default function KbArticle({ id }: { id?: string }) {
 
   async function save() {
     setBusy(true);
-    setNotice("");
     const payload = {
       id: article?.id,
       title,
@@ -125,18 +161,15 @@ export default function KbArticle({ id }: { id?: string }) {
     }).then((x) => x.json());
     setBusy(false);
     if (r.error) {
-      setNotice(`Error: ${r.error}`);
+      toast.error(r.error);
       return;
     }
     if (isNew && r.article?.id) {
       router.replace(`/kb/article?id=${encodeURIComponent(r.article.id)}`);
       return;
     }
-    setNotice(
-      r.duplicates?.length
-        ? `Saved v${r.article.version}. Possible duplicates: ${r.duplicates.map((d: { title: string }) => d.title).join(" · ")}`
-        : `Saved v${r.article.version}.`,
-    );
+    setDupTitles(r.duplicates?.length ? r.duplicates.map((d: { title: string }) => d.title) : []);
+    toast.success(`Saved v${r.article.version}.`);
     load();
   }
 
@@ -148,12 +181,12 @@ export default function KbArticle({ id }: { id?: string }) {
       body: JSON.stringify({ id: article!.id, to }),
     }).then((x) => x.json());
     setBusy(false);
-    setNotice(r.error ? `Error: ${r.error}` : `Now ${to.replace("_", " ")}.`);
+    if (r.error) toast.error(r.error);
+    else toast.success(`Now ${to.replace("_", " ")}.`);
     load();
   }
 
   async function restore(version: number) {
-    if (!confirm(`Restore the content of v${version}? (saved as a new version)`)) return;
     setBusy(true);
     const r = await fetch("/api/admin/kb/versions", {
       method: "POST",
@@ -161,7 +194,8 @@ export default function KbArticle({ id }: { id?: string }) {
       body: JSON.stringify({ id: article!.id, version }),
     }).then((x) => x.json());
     setBusy(false);
-    setNotice(r.error ? `Error: ${r.error}` : `Restored v${version} as v${r.article.version}.`);
+    if (r.error) toast.error(r.error);
+    else toast.success(`Restored v${version} as v${r.article.version}.`);
     load();
   }
 
@@ -174,7 +208,6 @@ export default function KbArticle({ id }: { id?: string }) {
 
   async function pushToFreshdesk() {
     setBusy(true);
-    setNotice("");
     // Persist the folder mapping first if the reviewer picked one here.
     if (fdFolderPick && article?.category) {
       await fetch("/api/admin/kb/freshdesk", {
@@ -189,24 +222,47 @@ export default function KbArticle({ id }: { id?: string }) {
       body: JSON.stringify({ id: article!.id }),
     }).then((x) => x.json());
     setBusy(false);
-    setNotice(r.error ? `Error: ${r.error}` : `Pushed to Freshdesk (v${r.freshdesk?.syncedVersion}) — ${r.url}`);
+    if (r.error) toast.error(r.error);
+    else toast.success(`Pushed to Freshdesk (v${r.freshdesk?.syncedVersion}) — ${r.url}`);
     load();
   }
 
   async function remove() {
-    if (!confirm("Delete this article? This also removes it from the vector index.")) return;
     await fetch(`/api/admin/kb?id=${encodeURIComponent(article!.id)}`, { method: "DELETE" });
     router.push("/kb");
   }
 
   if (missing) {
     return (
-      <section className="card">
-        <h2>Article not found</h2>
-        <p className="muted">
-          It may have been deleted. <Link href={"/kb"}>Back to the list</Link>.
-        </p>
-      </section>
+      <Card>
+        <CardHeader>
+          <CardTitle>Article not found</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">
+            It may have been deleted.{" "}
+            <Link href={"/kb"} className="text-primary hover:underline">
+              Back to the list
+            </Link>
+            .
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!isNew && !article) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Loading…</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2.5">
+          <Skeleton className="h-8 w-full" />
+          <Skeleton className="h-64 w-full" />
+          <Skeleton className="h-8 w-1/2" />
+        </CardContent>
+      </Card>
     );
   }
 
@@ -221,145 +277,235 @@ export default function KbArticle({ id }: { id?: string }) {
       reviewBy !== fmtDay(article.reviewBy));
 
   return (
-    <section className="card">
-      <h2 style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <span>
-          {isNew ? "New article" : article ? article.title : "Loading…"}{" "}
-          {article && <span className={`state ${article.state}`}>{article.state.replace("_", " ")}</span>}
-        </span>
-        <Link href={"/kb"} className="muted" style={{ fontSize: 13 }}>← all articles</Link>
-      </h2>
-
-      <div className="kb-toolbar">
-        <input type="text" placeholder="Title" value={title} onChange={(e) => setTitle(e.target.value)} style={{ flexBasis: "100%" }} />
-        <input type="text" placeholder="Public citation URL (empty = internal)" value={url} onChange={(e) => setUrl(e.target.value)} style={{ flexBasis: "100%" }} />
-        <input type="text" placeholder="keywords, comma, separated" value={keywords} onChange={(e) => setKeywords(e.target.value)} />
-        <select value={category} onChange={(e) => setCategory(e.target.value)}>
-          <option value="">uncategorized</option>
-          {categories.map((c) => (
-            <option key={c.slug} value={c.slug}>{c.name}</option>
-          ))}
-        </select>
-        <input type="text" placeholder="tags, comma, separated" value={tags} onChange={(e) => setTags(e.target.value)} style={{ maxWidth: 220 }} />
-        <label className="toggle" title="Review-by date — the article is flagged stale after this">
-          review by
-          <input type="date" value={reviewBy} onChange={(e) => setReviewBy(e.target.value)}
-            style={{ background: "var(--panel-2)", border: "1px solid var(--border)", color: "var(--text)", borderRadius: 8, padding: "6px 9px" }} />
-        </label>
-      </div>
-
-      <div className="kb-split">
-        <textarea placeholder="Article body (markdown)…" value={body} onChange={(e) => setBody(e.target.value)} />
-        <div style={{ border: "1px solid var(--border)", borderRadius: 9, padding: "4px 14px", background: "var(--panel-2)", overflowY: "auto", maxHeight: 500 }}>
-          {body ? <Md>{body}</Md> : <p className="muted">Live preview…</p>}
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex flex-wrap items-center gap-2">
+          {isNew ? "New article" : article!.title}
+          {article && <StatusChip tone={article.state}>{article.state.replace("_", " ")}</StatusChip>}
+        </CardTitle>
+        <CardAction>
+          <Link
+            href={"/kb"}
+            className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:underline"
+          >
+            <ArrowLeft className="size-3.5" /> all articles
+          </Link>
+        </CardAction>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <Input type="text" placeholder="Title" value={title} onChange={(e) => setTitle(e.target.value)} className="w-full" />
+          <Input
+            type="text"
+            placeholder="Public citation URL (empty = internal)"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            className="w-full"
+          />
+          <Input
+            type="text"
+            placeholder="keywords, comma, separated"
+            value={keywords}
+            onChange={(e) => setKeywords(e.target.value)}
+            className="min-w-48 flex-1"
+          />
+          <Select value={category || NONE} onValueChange={(v) => setCategory(v === NONE ? "" : v)}>
+            <SelectTrigger className="w-44">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={NONE}>uncategorized</SelectItem>
+              {categories.map((c) => (
+                <SelectItem key={c.slug} value={c.slug}>
+                  {c.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Input
+            type="text"
+            placeholder="tags, comma, separated"
+            value={tags}
+            onChange={(e) => setTags(e.target.value)}
+            className="max-w-56"
+          />
+          <Label
+            className="flex items-center gap-1.5 text-sm font-normal text-muted-foreground"
+            title="Review-by date — the article is flagged stale after this"
+          >
+            review by
+            <Input type="date" value={reviewBy} onChange={(e) => setReviewBy(e.target.value)} className="w-fit" />
+          </Label>
         </div>
-      </div>
 
-      <div className="row" style={{ marginTop: 12 }}>
-        <button onClick={save} disabled={busy || !title || !body || (!isNew && !dirty)}>
-          {busy ? "Saving…" : isNew ? "Create draft" : dirty ? `Save (v${(article?.version ?? 0) + 1})` : "Saved"}
-        </button>
-        {article &&
-          NEXT_STATES[article.state]?.map((s) => (
-            <button key={s} onClick={() => transition(s)} disabled={busy || dirty} title={dirty ? "Save your edits first" : undefined}
-              style={{ background: "var(--panel-2)", color: "var(--accent)" }}>
-              → {s.replace("_", " ")}
-            </button>
-          ))}
-        {article && (
-          <button onClick={remove} disabled={busy} style={{ background: "var(--panel-2)", color: "var(--danger)" }}>
-            Delete
-          </button>
+        <div className="grid gap-4 md:grid-cols-2">
+          <Textarea
+            placeholder="Article body (markdown)…"
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            className="min-h-[420px] bg-background font-mono text-xs"
+          />
+          <div className="max-h-[500px] overflow-y-auto rounded-lg border bg-muted/40 px-3.5 py-1">
+            {body ? <Md>{body}</Md> : <p className="py-2 text-sm text-muted-foreground">Live preview…</p>}
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <Button onClick={save} disabled={busy || !title || !body || (!isNew && !dirty)}>
+            {busy ? "Saving…" : isNew ? "Create draft" : dirty ? `Save (v${(article?.version ?? 0) + 1})` : "Saved"}
+          </Button>
+          {article &&
+            NEXT_STATES[article.state]?.map((s) => (
+              <Button
+                key={s}
+                variant="secondary"
+                size="sm"
+                onClick={() => transition(s)}
+                disabled={busy || dirty}
+                title={dirty ? "Save your edits first" : undefined}
+              >
+                <ArrowRight /> {s.replace("_", " ")}
+              </Button>
+            ))}
+          {article && (
+            <ConfirmButton
+              variant="destructive"
+              title="Delete this article?"
+              description="This also removes it from the vector index."
+              confirmLabel="Delete"
+              onConfirm={remove}
+              disabled={busy}
+            >
+              <Trash2 /> Delete
+            </ConfirmButton>
+          )}
+        </div>
+        {dupTitles.length > 0 && (
+          <Alert>
+            <TriangleAlert />
+            <AlertTitle>Possible duplicates: {dupTitles.join(" · ")}</AlertTitle>
+          </Alert>
         )}
-      </div>
-      {notice && <div className={notice.startsWith("Error") ? "warn" : "muted"} style={{ marginTop: 10 }}>{notice}</div>}
 
-      {article && (
-        <div className="grid" style={{ marginTop: 20, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 14 }}>
-          <div>
-            <div className="steplabel">Details</div>
-            <div className="kb-meta">
-              <div><span className="k">id</span><code style={{ fontSize: 12 }}>{article.id}</code></div>
-              <div><span className="k">origin / source</span>{article.origin} · {article.source || "—"}</div>
-              <div><span className="k">created</span>{fmt(article.createdAt)} by {article.createdBy}</div>
-              <div><span className="k">last update</span>{fmt(article.updatedAt)} by {article.updatedBy}</div>
-              <div><span className="k">usage (retrieval hits)</span>{usage ? `${usage.total} all-time · ${usage.month} this month · last ${usage.lastHit ? fmt(usage.lastHit) : "never"}` : "none recorded"}</div>
+        {article && (
+          <div className="grid gap-4 pt-2 md:grid-cols-2 lg:grid-cols-3">
+            <div className="space-y-2">
+              <div className={SECTION_LABEL}>Details</div>
+              <Meta k="id">
+                <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">{article.id}</code>
+              </Meta>
+              <Meta k="origin / source">
+                {article.origin} · {article.source || "—"}
+              </Meta>
+              <Meta k="created">
+                {fmtDateTime(article.createdAt)} by {article.createdBy}
+              </Meta>
+              <Meta k="last update">
+                {fmtDateTime(article.updatedAt)} by {article.updatedBy}
+              </Meta>
+              <Meta k="usage (retrieval hits)">
+                {usage
+                  ? `${usage.total} all-time · ${usage.month} this month · last ${usage.lastHit ? fmtDateTime(usage.lastHit) : "never"}`
+                  : "none recorded"}
+              </Meta>
               {article.state === "published" && (
-                <div>
-                  <span className="k">freshdesk help center</span>
+                <Meta k="freshdesk help center">
                   {article.freshdesk ? (
-                    <div style={{ marginBottom: 6 }}>
-                      synced v{article.freshdesk.syncedVersion} on {fmt(article.freshdesk.syncedAt)}
+                    <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
+                      synced v{article.freshdesk.syncedVersion} on {fmtDateTime(article.freshdesk.syncedAt)}
                       {article.freshdesk.syncedVersion < article.version && (
-                        <span className="state stale" style={{ marginLeft: 6 }}>outdated</span>
+                        <StatusChip tone="stale">outdated</StatusChip>
                       )}
                     </div>
                   ) : (
-                    <div className="muted" style={{ marginBottom: 6 }}>not published to the help center</div>
+                    <div className="mb-1.5 text-muted-foreground">not published to the help center</div>
                   )}
                   {fdFolders === null ? (
-                    <button onClick={loadFdFolders} disabled={busy} style={{ padding: "3px 10px", fontSize: 12 }}>
-                      {article.freshdesk ? "Push update…" : "Publish to Freshdesk…"}
-                    </button>
+                    <Button variant="secondary" size="sm" onClick={loadFdFolders} disabled={busy}>
+                      <Upload /> {article.freshdesk ? "Push update…" : "Publish to Freshdesk…"}
+                    </Button>
                   ) : (
-                    <div className="row">
-                      <select value={fdFolderPick} onChange={(e) => setFdFolderPick(e.target.value)}
-                        style={{ background: "var(--panel-2)", border: "1px solid var(--border)", color: "var(--text)", borderRadius: 8, padding: "5px 8px", fontSize: 12 }}>
-                        <option value="">pick a folder…</option>
-                        {fdFolders.map((fo) => (
-                          <option key={fo.id} value={fo.id}>{fo.categoryName} / {fo.name}</option>
-                        ))}
-                      </select>
-                      <button onClick={pushToFreshdesk} disabled={busy || (!fdFolderPick && !article.freshdesk)}
-                        style={{ padding: "3px 10px", fontSize: 12 }}>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Select value={fdFolderPick} onValueChange={setFdFolderPick}>
+                        <SelectTrigger size="sm" className="max-w-56">
+                          <SelectValue placeholder="pick a folder…" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {fdFolders.map((fo) => (
+                            <SelectItem key={fo.id} value={fo.id}>
+                              {fo.categoryName} / {fo.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Button size="sm" onClick={pushToFreshdesk} disabled={busy || (!fdFolderPick && !article.freshdesk)}>
                         Push
-                      </button>
+                      </Button>
                     </div>
                   )}
-                </div>
+                </Meta>
               )}
               {(article.duplicates?.length ?? 0) > 0 && (
-                <div>
-                  <span className="k">possible duplicates</span>
+                <Meta k="possible duplicates">
                   {article.duplicates!.map((d) => (
                     <div key={d.id}>
-                      <Link href={`/kb/article?id=${encodeURIComponent(d.id)}`}>{d.title}</Link>{" "}
-                      <span className="muted">({d.score})</span>
+                      <Link href={`/kb/article?id=${encodeURIComponent(d.id)}`} className="text-primary hover:underline">
+                        {d.title}
+                      </Link>{" "}
+                      <span className="text-muted-foreground">({d.score})</span>
                     </div>
                   ))}
-                </div>
+                </Meta>
               )}
             </div>
-          </div>
 
-          <div>
-            <div className="steplabel">Versions ({versions.length})</div>
-            {versions.map((v) => (
-              <div className="kb-row" key={v.version} style={{ padding: "6px 4px" }}>
-                <span className="n">v{v.version}</span>
-                <span className="t" title={v.title}>{v.title}</span>
-                <span className="n">{fmt(v.at).slice(0, 10)}</span>
-                {v.version !== article.version && (
-                  <button onClick={() => restore(v.version)} disabled={busy} style={{ padding: "2px 9px", fontSize: 11 }}>restore</button>
-                )}
-              </div>
-            ))}
-          </div>
+            <div className="space-y-2">
+              <div className={SECTION_LABEL}>Versions ({versions.length})</div>
+              <Table>
+                <TableBody>
+                  {versions.map((v) => (
+                    <TableRow key={v.version}>
+                      <TableCell className="w-10 font-mono text-xs text-muted-foreground">v{v.version}</TableCell>
+                      <TableCell className="max-w-44 truncate" title={v.title}>
+                        {v.title}
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground">{fmtDate(v.at)}</TableCell>
+                      <TableCell className="w-20 text-right">
+                        {v.version !== article.version && (
+                          <ConfirmButton
+                            variant="outline"
+                            size="xs"
+                            title={`Restore the content of v${v.version}?`}
+                            description="It will be saved as a new version."
+                            confirmLabel="Restore"
+                            onConfirm={() => restore(v.version)}
+                            disabled={busy}
+                          >
+                            restore
+                          </ConfirmButton>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
 
-          <div>
-            <div className="steplabel">Audit trail</div>
-            {audit.slice(0, 12).map((e, i) => (
-              <div className="io" key={i} style={{ padding: "3px 0" }}>
-                {fmt(e.at)} · <b>{e.action}</b>
-                {e.fromState ? ` ${e.fromState}→${e.toState}` : ""}
-                {e.version ? ` v${e.version}` : ""} · {e.actor}
-                {e.detail ? <span className="muted"> — {e.detail}</span> : null}
-              </div>
-            ))}
-            {audit.length === 0 && <p className="muted">No events.</p>}
+            <div className="space-y-2">
+              <div className={SECTION_LABEL}>Audit trail</div>
+              {audit.slice(0, 12).map((e, i) => (
+                <div key={i} className="py-0.5 font-mono text-xs text-muted-foreground">
+                  {fmtDateTime(e.at)} · <b className="text-foreground">{e.action}</b>
+                  {e.fromState ? ` ${e.fromState}→${e.toState}` : ""}
+                  {e.version ? ` v${e.version}` : ""} · {e.actor}
+                  {e.detail ? <span> — {e.detail}</span> : null}
+                </div>
+              ))}
+              {audit.length === 0 && <p className="text-sm text-muted-foreground">No events.</p>}
+            </div>
           </div>
-        </div>
-      )}
-    </section>
+        )}
+      </CardContent>
+    </Card>
   );
 }

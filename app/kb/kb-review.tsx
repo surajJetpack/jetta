@@ -3,6 +3,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { diffWords } from "diff";
+import { Check, ChevronDown, ChevronRight, FileText, Pencil, Trash2 } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import { StepCard, TraceIO } from "@/components/jetta/step-card";
+import { StatusChip } from "@/components/jetta/status-chip";
+import { ConfirmButton } from "@/components/jetta/confirm-button";
+import { EmptyState } from "@/components/jetta/empty-state";
 import { Md } from "./markdown";
 import type { Article } from "./kb-list";
 
@@ -41,7 +49,6 @@ function DraftCard({ draft, onDecide }: { draft: Article; onDecide: () => void }
   }, [open, similar, draft.id, draft.title]);
 
   async function decide(action: "approve" | "reject") {
-    if (action === "reject" && !confirm("Reject and delete this draft?")) return;
     setBusy(true);
     await fetch("/api/admin/kb/drafts", {
       method: "POST",
@@ -55,49 +62,72 @@ function DraftCard({ draft, onDecide }: { draft: Article; onDecide: () => void }
   const dup = draft.duplicates?.[0];
 
   return (
-    <div className="step">
-      <div className="tool" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }} onClick={() => setOpen(!open)}>
-        <span>📝 {draft.title}</span>
-        <span className="muted" style={{ fontWeight: 400, fontSize: 12 }}>
-          {draft.origin} · {draft.createdBy} {dup && <span className="state stale" style={{ marginLeft: 6 }}>dup? {dup.title.slice(0, 40)}</span>} {open ? "▾" : "▸"}
-        </span>
-      </div>
-
-      {!open && <div className="io out">{draft.body.slice(0, 200)}…</div>}
-
-      {open && (
+    <StepCard
+      title={
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => setOpen(!open)}
+          className="flex min-w-0 cursor-pointer items-center gap-1.5 rounded-sm text-left focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+        >
+          {open ? <ChevronDown className="text-muted-foreground" /> : <ChevronRight className="text-muted-foreground" />}
+          <FileText />
+          <span className="truncate">{draft.title}</span>
+        </button>
+      }
+      meta={
         <>
-          <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "2px 12px", margin: "8px 0", background: "var(--panel)" }}>
+          {draft.origin} · {draft.createdBy}
+          {dup && <StatusChip tone="stale">dup? {dup.title.slice(0, 40)}</StatusChip>}
+        </>
+      }
+    >
+      {!open ? (
+        <TraceIO>{draft.body.slice(0, 200)}…</TraceIO>
+      ) : (
+        <>
+          <div className="rounded-lg border bg-background px-3 py-1">
             <Md>{draft.body}</Md>
           </div>
-          {draft.keywords.length > 0 && <div className="io">keywords: {draft.keywords.join(", ")}</div>}
+          {draft.keywords.length > 0 && <TraceIO>keywords: {draft.keywords.join(", ")}</TraceIO>}
 
           {similar && (
-            <div style={{ marginTop: 10 }}>
-              <div className="muted" style={{ marginBottom: 6 }}>
-                Closest existing article:{" "}
-                <Link href={`/kb/article?id=${encodeURIComponent(similar.id)}`}>{similar.title}</Link>
-                {similar.score !== undefined && ` (${similar.score.toFixed(3)})`} ·{" "}
-                <a onClick={(e) => { e.preventDefault(); setShowDiff(!showDiff); }} href="#" style={{ cursor: "pointer" }}>
-                  {showDiff ? "hide diff" : "show diff"}
-                </a>
-              </div>
+            <div className="text-xs text-muted-foreground">
+              Closest existing article:{" "}
+              <Link href={`/kb/article?id=${encodeURIComponent(similar.id)}`} className="text-primary hover:underline">
+                {similar.title}
+              </Link>
+              {similar.score !== undefined && ` (${similar.score.toFixed(3)})`}
+              <Button variant="link" size="sm" onClick={() => setShowDiff(!showDiff)}>
+                {showDiff ? "hide diff" : "show diff"}
+              </Button>
               {showDiff && <DiffView oldText={similar.body} newText={draft.body} />}
             </div>
           )}
 
-          <div className="row" style={{ marginTop: 10 }}>
-            <button disabled={busy} onClick={() => decide("approve")}>Approve → publish</button>
-            <Link href={`/kb/article?id=${encodeURIComponent(draft.id)}`}>
-              <button style={{ background: "var(--panel-2)", color: "var(--accent)" }}>Edit first</button>
-            </Link>
-            <button disabled={busy} onClick={() => decide("reject")} style={{ background: "var(--panel-2)", color: "var(--danger)" }}>
-              Reject
-            </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button disabled={busy} onClick={() => decide("approve")}>
+              <Check /> Approve → publish
+            </Button>
+            <Button variant="secondary" asChild>
+              <Link href={`/kb/article?id=${encodeURIComponent(draft.id)}`}>
+                <Pencil /> Edit first
+              </Link>
+            </Button>
+            <ConfirmButton
+              variant="destructive"
+              title="Reject and delete this draft?"
+              description="The draft is removed permanently."
+              confirmLabel="Reject"
+              onConfirm={() => decide("reject")}
+              disabled={busy}
+            >
+              <Trash2 /> Reject
+            </ConfirmButton>
           </div>
         </>
       )}
-    </div>
+    </StepCard>
   );
 }
 
@@ -114,14 +144,26 @@ export default function KbReview() {
   }, [load]);
 
   return (
-    <section className="card">
-      <h2>Review queue {drafts ? `(${drafts.length})` : ""}</h2>
-      <p className="muted" style={{ marginBottom: 14 }}>
-        Drafts from the Knowledge Loop (Slack escalations) and Freshdesk mining. Nothing reaches the
-        agent until a human approves it — approving publishes the article and embeds it for retrieval.
-      </p>
-      {drafts?.map((d) => <DraftCard key={d.id} draft={d} onDecide={load} />)}
-      {drafts?.length === 0 && <p className="muted">Queue is empty. 🎉</p>}
-    </section>
+    <Card>
+      <CardHeader>
+        <CardTitle>Review queue {drafts ? `(${drafts.length})` : ""}</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-2.5">
+        <p className="text-sm text-muted-foreground">
+          Drafts from the Knowledge Loop (Slack escalations) and Freshdesk mining. Nothing reaches the
+          agent until a human approves it — approving publishes the article and embeds it for retrieval.
+        </p>
+        {drafts === null && (
+          <div className="space-y-2.5">
+            <Skeleton className="h-14 w-full" />
+            <Skeleton className="h-14 w-2/3" />
+          </div>
+        )}
+        {drafts?.map((d) => <DraftCard key={d.id} draft={d} onDecide={load} />)}
+        {drafts?.length === 0 && (
+          <EmptyState title="Queue is empty" hint="New drafts from the Knowledge Loop and Freshdesk mining land here." />
+        )}
+      </CardContent>
+    </Card>
   );
 }

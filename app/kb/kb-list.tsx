@@ -1,8 +1,36 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { fmtDuration } from "@/lib/format";
 import Link from "next/link";
+import { Plus, RefreshCw, Search, Trash2 } from "lucide-react";
+import { toast } from "sonner";
+import { fmtDate, fmtDuration } from "@/lib/format";
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { StatusChip } from "@/components/jetta/status-chip";
+import { ConfirmButton } from "@/components/jetta/confirm-button";
+import { EmptyState } from "@/components/jetta/empty-state";
+import { TraceIO } from "@/components/jetta/step-card";
 
 export interface Article {
   id: string;
@@ -45,7 +73,11 @@ function readStorage(): ListState | null {
   }
 }
 
-const fmtDate = (unix?: number) => (unix ? new Date(unix * 1000).toISOString().slice(0, 10) : "—");
+// Radix Select items can't have an empty value — map "" (all) to a sentinel
+// so the persisted filter state shape stays unchanged.
+const ALL = "__all__";
+
+const SECTION_LABEL = "text-[11px] font-semibold tracking-wider text-muted-foreground uppercase";
 
 export default function KbList() {
   const [articles, setArticles] = useState<Article[]>([]);
@@ -56,7 +88,7 @@ export default function KbList() {
   const [f, setF] = useState<ListState>(() => cache ?? DEFAULTS);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState("");
+  const [loaded, setLoaded] = useState(false);
 
   // Retrieval tester
   const [q, setQ] = useState("");
@@ -87,6 +119,7 @@ export default function KbList() {
     setUsage(r.usage ?? {});
     setStaleIds(new Set(r.stale ?? []));
     setByState(r.byState ?? {});
+    setLoaded(true);
   }, []);
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- async fetch; state set after await, not synchronously
@@ -132,7 +165,6 @@ export default function KbList() {
 
   async function bulk(action: "publish" | "archive" | "delete" | "reingest") {
     if (!selected.size) return;
-    if (action === "delete" && !confirm(`Delete ${selected.size} article(s)? This also removes them from the vector index.`)) return;
     setBusy(true);
     const r = await fetch("/api/admin/kb/bulk", {
       method: "POST",
@@ -140,7 +172,13 @@ export default function KbList() {
       body: JSON.stringify({ ids: [...selected], action }),
     }).then((x) => x.json());
     setBusy(false);
-    setNotice(r.error ?? `${action}: ${r.ok ?? 0} ok${r.failed?.length ? `, ${r.failed.length} failed (${r.failed.map((e: { error: string }) => e.error).join("; ")})` : ""}`);
+    if (r.error) {
+      toast.error(r.error);
+    } else {
+      toast.success(
+        `${action}: ${r.ok ?? 0} ok${r.failed?.length ? `, ${r.failed.length} failed (${r.failed.map((e: { error: string }) => e.error).join("; ")})` : ""}`,
+      );
+    }
     setSelected(new Set());
     load();
   }
@@ -157,106 +195,227 @@ export default function KbList() {
   }
 
   return (
-    <section className="card">
-      <h2 style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <span>
-          Articles ({articles.length}) ·{" "}
-          <span className="muted" style={{ fontWeight: 400 }}>
-            {(["published", "draft", "in_review", "archived"] as const).map((s) => `${byState[s] ?? 0} ${s.replace("_", " ")}`).join(" · ")}
-          </span>
-        </span>
-        <span className="row">
-          <Link href="/kb/article">
-            <button style={{ padding: "5px 12px", fontSize: 12 }}>+ New article</button>
-          </Link>
-          <button onClick={load} style={{ padding: "5px 12px", fontSize: 12 }}>↻</button>
-        </span>
-      </h2>
+    <Card>
+      <CardHeader>
+        <CardTitle>Articles ({articles.length})</CardTitle>
+        <CardDescription className="text-xs">
+          {(["published", "draft", "in_review", "archived"] as const).map((s) => `${byState[s] ?? 0} ${s.replace("_", " ")}`).join(" · ")}
+        </CardDescription>
+        <CardAction className="flex items-center gap-2">
+          <Button size="sm" asChild>
+            <Link href="/kb/article">
+              <Plus /> New article
+            </Link>
+          </Button>
+          <Button variant="outline" size="icon-sm" onClick={load} aria-label="Reload articles">
+            <RefreshCw />
+          </Button>
+        </CardAction>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {/* Retrieval tester — the exact pipeline the agent runs */}
+        <div className="space-y-2">
+          <div className={SECTION_LABEL}>Test retrieval (what Jetta finds)</div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Input
+              type="text"
+              className="w-72 flex-1 sm:flex-none"
+              placeholder="e.g. my mappings disappear"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && testSearch()}
+            />
+            <Button variant="secondary" onClick={testSearch}>
+              <Search /> Search
+            </Button>
+          </div>
+          {searchMeta && <div className="text-xs text-muted-foreground">{searchMeta}</div>}
+          {hits &&
+            (hits.length ? (
+              <div className="space-y-1">
+                {hits.map((h, i) => (
+                  <TraceIO key={i}>
+                    {h.score !== undefined ? h.score.toFixed(3) : "kw"}{" "}
+                    <Link href={`/kb/article?id=${encodeURIComponent(h.id)}`} className="text-primary hover:underline">
+                      {h.title}
+                    </Link>{" "}
+                    [{h.source}]
+                  </TraceIO>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">No hits.</p>
+            ))}
+        </div>
 
-      {/* Retrieval tester — the exact pipeline the agent runs */}
-      <div className="steplabel">Test retrieval (what Jetta finds)</div>
-      <div className="row" style={{ marginBottom: 4 }}>
-        <input type="text" placeholder="e.g. my mappings disappear" value={q}
-          onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && testSearch()} />
-        <button onClick={testSearch}>Search</button>
-      </div>
-      {searchMeta && <div className="muted" style={{ marginBottom: 6 }}>{searchMeta}</div>}
-      {hits &&
-        (hits.length ? (
-          hits.map((h, i) => (
-            <div className="io" key={i}>
-              {h.score !== undefined ? h.score.toFixed(3) : "kw"}{" "}
-              <Link href={`/kb/article?id=${encodeURIComponent(h.id)}`}>{h.title}</Link>{" "}
-              <span className="muted">[{h.source}]</span>
-            </div>
-          ))
+        {/* Filters */}
+        <div className="flex flex-wrap items-center gap-2 pt-2">
+          <Input
+            type="text"
+            className="w-52"
+            placeholder="filter articles…"
+            value={f.q}
+            onChange={(e) => setF({ ...f, q: e.target.value })}
+          />
+          <Select value={f.state || ALL} onValueChange={(v) => setF({ ...f, state: v === ALL ? "" : v })}>
+            <SelectTrigger size="sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>all states</SelectItem>
+              <SelectItem value="draft">draft</SelectItem>
+              <SelectItem value="in_review">in review</SelectItem>
+              <SelectItem value="published">published</SelectItem>
+              <SelectItem value="archived">archived</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={f.category || ALL} onValueChange={(v) => setF({ ...f, category: v === ALL ? "" : v })}>
+            <SelectTrigger size="sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>all categories</SelectItem>
+              {categories.map((c) => (
+                <SelectItem key={c.slug} value={c.slug}>
+                  {c.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={f.origin || ALL} onValueChange={(v) => setF({ ...f, origin: v === ALL ? "" : v })}>
+            <SelectTrigger size="sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>all origins</SelectItem>
+              <SelectItem value="manual">manual</SelectItem>
+              <SelectItem value="knowledge-loop">knowledge-loop</SelectItem>
+              <SelectItem value="fd-mined">fd-mined</SelectItem>
+              <SelectItem value="seed-getsign">seed-getsign</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={f.sort} onValueChange={(v) => setF({ ...f, sort: v })}>
+            <SelectTrigger size="sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="updated">newest first</SelectItem>
+              <SelectItem value="title">by title</SelectItem>
+              <SelectItem value="usage">most used</SelectItem>
+              <SelectItem value="stale">stalest first</SelectItem>
+            </SelectContent>
+          </Select>
+          <Label className="flex cursor-pointer items-center gap-1.5 text-sm font-normal text-muted-foreground">
+            <Checkbox checked={f.stale} onCheckedChange={(v) => setF({ ...f, stale: v === true })} />
+            stale only ({staleIds.size})
+          </Label>
+        </div>
+
+        {/* Bulk actions */}
+        {selected.size > 0 && (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm text-muted-foreground">{selected.size} selected</span>
+            <Button variant="secondary" size="sm" disabled={busy} onClick={() => bulk("publish")}>
+              Publish
+            </Button>
+            <Button variant="secondary" size="sm" disabled={busy} onClick={() => bulk("archive")}>
+              Archive
+            </Button>
+            <Button variant="secondary" size="sm" disabled={busy} onClick={() => bulk("reingest")}>
+              Re-ingest
+            </Button>
+            <ConfirmButton
+              variant="destructive"
+              size="sm"
+              title={`Delete ${selected.size} article(s)?`}
+              description="This also removes them from the vector index."
+              confirmLabel="Delete"
+              onConfirm={() => bulk("delete")}
+              disabled={busy}
+            >
+              <Trash2 /> Delete
+            </ConfirmButton>
+            <Button variant="ghost" size="sm" disabled={busy} onClick={() => setSelected(new Set())}>
+              Clear
+            </Button>
+          </div>
+        )}
+
+        {/* Rows */}
+        {!loaded ? (
+          <div className="space-y-2">
+            <Skeleton className="h-8 w-full" />
+            <Skeleton className="h-8 w-full" />
+            <Skeleton className="h-8 w-2/3" />
+          </div>
+        ) : shown.length === 0 ? (
+          <EmptyState title="No articles match the filters" />
         ) : (
-          <p className="muted">No hits.</p>
-        ))}
-
-      {/* Filters */}
-      <div className="kb-toolbar" style={{ marginTop: 18 }}>
-        <input type="text" placeholder="filter articles…" value={f.q} onChange={(e) => setF({ ...f, q: e.target.value })} />
-        <select value={f.state} onChange={(e) => setF({ ...f, state: e.target.value })}>
-          <option value="">all states</option>
-          <option value="draft">draft</option>
-          <option value="in_review">in review</option>
-          <option value="published">published</option>
-          <option value="archived">archived</option>
-        </select>
-        <select value={f.category} onChange={(e) => setF({ ...f, category: e.target.value })}>
-          <option value="">all categories</option>
-          {categories.map((c) => (
-            <option key={c.slug} value={c.slug}>{c.name}</option>
-          ))}
-        </select>
-        <select value={f.origin} onChange={(e) => setF({ ...f, origin: e.target.value })}>
-          <option value="">all origins</option>
-          <option value="manual">manual</option>
-          <option value="knowledge-loop">knowledge-loop</option>
-          <option value="fd-mined">fd-mined</option>
-          <option value="seed-getsign">seed-getsign</option>
-        </select>
-        <select value={f.sort} onChange={(e) => setF({ ...f, sort: e.target.value })}>
-          <option value="updated">newest first</option>
-          <option value="title">by title</option>
-          <option value="usage">most used</option>
-          <option value="stale">stalest first</option>
-        </select>
-        <label className="toggle">
-          <input type="checkbox" checked={f.stale} onChange={(e) => setF({ ...f, stale: e.target.checked })} /> stale only ({staleIds.size})
-        </label>
-      </div>
-
-      {/* Bulk actions */}
-      {selected.size > 0 && (
-        <div className="row" style={{ marginBottom: 10 }}>
-          <span className="muted">{selected.size} selected</span>
-          <button disabled={busy} onClick={() => bulk("publish")} style={{ padding: "5px 12px", fontSize: 12 }}>Publish</button>
-          <button disabled={busy} onClick={() => bulk("archive")} style={{ padding: "5px 12px", fontSize: 12 }}>Archive</button>
-          <button disabled={busy} onClick={() => bulk("reingest")} style={{ padding: "5px 12px", fontSize: 12 }}>Re-ingest</button>
-          <button disabled={busy} onClick={() => bulk("delete")} style={{ padding: "5px 12px", fontSize: 12, background: "var(--panel-2)", color: "var(--danger)" }}>Delete</button>
-          <button disabled={busy} onClick={() => setSelected(new Set())} style={{ padding: "5px 12px", fontSize: 12, background: "var(--panel-2)", color: "var(--muted)" }}>Clear</button>
-        </div>
-      )}
-      {notice && <div className="muted" style={{ marginBottom: 8 }}>{notice}</div>}
-
-      {/* Rows */}
-      {shown.map((a) => (
-        <div className="kb-row" key={a.id}>
-          <input type="checkbox" checked={selected.has(a.id)} onChange={() => toggle(a.id)} />
-          <span className={`state ${a.state}`}>{a.state.replace("_", " ")}</span>
-          <span className="t">
-            <Link href={`/kb/article?id=${encodeURIComponent(a.id)}`}>{a.title}</Link>
-            {staleIds.has(a.id) && <span className="state stale" style={{ marginLeft: 8 }}>stale</span>}
-            {(a.duplicates?.length ?? 0) > 0 && <span className="state stale" style={{ marginLeft: 8 }} title={a.duplicates!.map((d) => d.title).join("\n")}>dup?</span>}
-          </span>
-          <span className="n" title="retrieval hits — all time / this month">{usage[a.id]?.total ?? 0}/{usage[a.id]?.month ?? 0}</span>
-          <span className="n" title={`v${a.version} · updated ${fmtDate(a.updatedAt)}`}>v{a.version}</span>
-          <span className="n">{fmtDate(a.updatedAt)}</span>
-        </div>
-      ))}
-      {shown.length === 0 && <p className="muted">No articles match the filters.</p>}
-    </section>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-8">
+                  <span className="sr-only">Select</span>
+                </TableHead>
+                <TableHead className="w-24">State</TableHead>
+                <TableHead>Title</TableHead>
+                <TableHead className="w-20 text-right" title="retrieval hits — all time / this month">
+                  Hits
+                </TableHead>
+                <TableHead className="w-14 text-right">Ver</TableHead>
+                <TableHead className="w-28 text-right">Updated</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {shown.map((a) => (
+                <TableRow key={a.id} data-state={selected.has(a.id) ? "selected" : undefined}>
+                  <TableCell>
+                    <Checkbox
+                      checked={selected.has(a.id)}
+                      onCheckedChange={() => toggle(a.id)}
+                      aria-label={`Select ${a.title}`}
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <StatusChip tone={a.state}>{a.state.replace("_", " ")}</StatusChip>
+                  </TableCell>
+                  <TableCell className="whitespace-normal">
+                    <span className="inline-flex flex-wrap items-center gap-2">
+                      <Link
+                        href={`/kb/article?id=${encodeURIComponent(a.id)}`}
+                        className="font-medium text-primary hover:underline"
+                      >
+                        {a.title}
+                      </Link>
+                      {staleIds.has(a.id) && <StatusChip tone="stale">stale</StatusChip>}
+                      {(a.duplicates?.length ?? 0) > 0 && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="inline-flex">
+                              <StatusChip tone="stale">dup?</StatusChip>
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent className="whitespace-pre-line">
+                            {a.duplicates!.map((d) => d.title).join("\n")}
+                          </TooltipContent>
+                        </Tooltip>
+                      )}
+                    </span>
+                  </TableCell>
+                  <TableCell
+                    className="text-right font-mono text-xs text-muted-foreground"
+                    title="retrieval hits — all time / this month"
+                  >
+                    {usage[a.id]?.total ?? 0}/{usage[a.id]?.month ?? 0}
+                  </TableCell>
+                  <TableCell className="text-right font-mono text-xs text-muted-foreground">v{a.version}</TableCell>
+                  <TableCell className="text-right text-xs text-muted-foreground">{fmtDate(a.updatedAt)}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
   );
 }

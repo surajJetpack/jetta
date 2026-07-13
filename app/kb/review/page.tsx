@@ -12,7 +12,7 @@ export default async function ReviewPage() {
   if (locked) redirect("/login?next=%2Fkb%2Freview");
   const byState = await countByState().catch(() => ({ draft: 0 }));
   return (
-    <div className="wrap">
+    <div className="mx-auto max-w-4xl space-y-5 px-5 pt-8 pb-20">
       <Nav current="kb" user={user} />
       <KbNav current="review" draftCount={byState.draft} />
       <KbReview />
