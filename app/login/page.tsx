@@ -1,5 +1,7 @@
 import { redirect } from "next/navigation";
+import Image from "next/image";
 import { gate } from "@/lib/console-auth";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import LoginForm from "./login-form";
 
 export const dynamic = "force-dynamic";
@@ -20,16 +22,23 @@ export default async function LoginPage({
   if (!locked) redirect(target); // already signed in (or dev-open)
 
   return (
-    <div className="wrap" style={{ display: "flex", minHeight: "80vh", alignItems: "center", justifyContent: "center" }}>
-      <section className="card" style={{ width: "100%", maxWidth: 400, textAlign: "center", padding: "32px 28px" }}>
-        {/* eslint-disable-next-line @next/next/no-img-element -- static asset, no optimization needed */}
-        <img src="/jetta.png" alt="Jetta" className="logo lg" style={{ margin: "0 auto 14px" }} />
-        <h1 style={{ fontSize: 20, fontWeight: 700, letterSpacing: "-0.01em", color: "var(--heading)" }}>
-          Jetta — Ops Console
-        </h1>
-        <p className="muted" style={{ margin: "4px 0 22px" }}>Internal · sign in to continue</p>
-        <LoginForm next={target} />
-      </section>
+    <div className="flex min-h-svh items-center justify-center p-5">
+      <Card className="w-full max-w-sm">
+        <CardHeader className="items-center text-center">
+          <Image
+            src="/jetta.png"
+            alt="Jetta"
+            width={72}
+            height={72}
+            className="mx-auto mb-2 size-18 rounded-full ring-2 ring-primary/20"
+          />
+          <CardTitle className="text-lg">Jetta — Ops Console</CardTitle>
+          <CardDescription>Internal · sign in to continue</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <LoginForm next={target} />
+        </CardContent>
+      </Card>
     </div>
   );
 }

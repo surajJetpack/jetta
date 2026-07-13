@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { X } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 /**
  * One-time "start with the Guide" pointer for new reviewers. Per-user flag in
@@ -26,35 +28,17 @@ export function GuideBanner({ user, current }: { user: string; current: string }
 
   if (!show) return null;
   return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: 12,
-        background: "#eef2ff",
-        color: "var(--accent)",
-        border: "1px solid #c7d2fe",
-        borderRadius: "var(--radius)",
-        padding: "8px 14px",
-        margin: "12px 0 4px",
-        fontSize: 14,
-      }}
-    >
+    <div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-primary/25 bg-primary/5 px-3.5 py-2 text-sm text-primary dark:bg-primary/10">
       <span>
         👋 New here? Start with the{" "}
-        <Link href="/guide" onClick={dismiss} style={{ fontWeight: 600 }}>
+        <Link href="/guide" onClick={dismiss} className="font-semibold underline underline-offset-2">
           Guide
         </Link>{" "}
         — 3 minutes, everything you need to review drafts.
       </span>
-      <button
-        onClick={dismiss}
-        aria-label="Dismiss"
-        style={{ background: "none", border: "none", color: "var(--accent)", cursor: "pointer", fontSize: 16, padding: 2 }}
-      >
-        ×
-      </button>
+      <Button variant="ghost" size="icon-xs" aria-label="Dismiss" onClick={dismiss} className="shrink-0 text-primary">
+        <X />
+      </Button>
     </div>
   );
 }

@@ -1,6 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import { Loader2, TriangleAlert } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Alert, AlertTitle } from "@/components/ui/alert";
 
 export default function LoginForm({ next }: { next: string }) {
   const [username, setUsername] = useState("");
@@ -33,29 +38,38 @@ export default function LoginForm({ next }: { next: string }) {
   }
 
   return (
-    <form onSubmit={submit}>
-      <div className="row" style={{ flexDirection: "column", alignItems: "stretch", gap: 10 }}>
-        <input
+    <form onSubmit={submit} className="grid gap-3 text-left">
+      <div className="grid gap-1.5">
+        <Label htmlFor="username">Username</Label>
+        <Input
+          id="username"
           type="text"
-          placeholder="Username"
           autoComplete="username"
           value={username}
           onChange={(e) => setUsername(e.target.value)}
           autoFocus
         />
-        <input
+      </div>
+      <div className="grid gap-1.5">
+        <Label htmlFor="password">Password</Label>
+        <Input
+          id="password"
           type="password"
-          placeholder="Password"
           autoComplete="current-password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
         />
-        <button type="submit" disabled={busy || !username.trim() || !password}>
-          {busy ? <span className="spin" /> : null}
-          {busy ? "Signing in…" : "Sign in"}
-        </button>
       </div>
-      {error && <p className="err" style={{ marginTop: 10 }}>{error}</p>}
+      <Button type="submit" disabled={busy || !username.trim() || !password} className="mt-1">
+        {busy && <Loader2 className="animate-spin" />}
+        {busy ? "Signing in…" : "Sign in"}
+      </Button>
+      {error && (
+        <Alert variant="destructive">
+          <TriangleAlert />
+          <AlertTitle>{error}</AlertTitle>
+        </Alert>
+      )}
     </form>
   );
 }

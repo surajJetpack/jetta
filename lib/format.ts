@@ -22,6 +22,24 @@ export function fmtExact(atSeconds: number): string {
   return new Date(atSeconds * 1000).toLocaleString();
 }
 
+/** Local date ("Jul 13, 2026") of a unix-seconds or ISO timestamp. */
+export function fmtDate(at: number | string): string {
+  const d = typeof at === "number" ? new Date(at * 1000) : new Date(at);
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
+/** Local date + time ("Jul 13, 2026, 14:30") of a unix-seconds or ISO timestamp. */
+export function fmtDateTime(at: number | string): string {
+  const d = typeof at === "number" ? new Date(at * 1000) : new Date(at);
+  return d.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 /**
  * Ticking clock for relative timestamps: re-renders on an interval so
  * "Xm ago" stays correct while the page sits open.

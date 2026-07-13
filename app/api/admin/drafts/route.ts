@@ -27,6 +27,10 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   if (!adminAuthorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const drafts = await listReplyDrafts();
+  // Cheap payload for the nav badge's 60s poll.
+  if (req.nextUrl.searchParams.get("count")) {
+    return NextResponse.json({ pending: drafts.filter((d) => d.state === "pending").length });
+  }
   drafts.sort((a, b) =>
     a.state === "pending" && b.state !== "pending" ? -1
     : a.state !== "pending" && b.state === "pending" ? 1
