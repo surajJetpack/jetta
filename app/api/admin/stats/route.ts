@@ -218,6 +218,33 @@ export async function GET(req: NextRequest) {
       }));
     })(),
     taskTokens: taskTokenStats(runLogs),
+    // Daily token/cost series for the Insights charts (raw run logs stay
+    // server-side; only the aggregates ship).
+    daily: (() => {
+      const days = new Map<string, { day: string; tokensIn: number; tokensOut: number; costUsd: number }>();
+      const now = Date.now();
+      for (let i = 29; i >= 0; i--) {
+        const day = new Date(now - i * 86400_000).toISOString().slice(0, 10);
+        days.set(day, { day, tokensIn: 0, tokensOut: 0, costUsd: 0 });
+      }
+      for (const r of runLogs) {
+        const day = new Date(r.at * 1000).toISOString().slice(0, 10);
+        const b = days.get(day);
+        if (!b) continue;
+        const inTok = r.usage?.inputTokens ?? 0;
+        const outTok = r.usage?.outputTokens ?? 0;
+        const cacheRead = r.usage?.cacheReadTokens ?? 0;
+        b.tokensIn += inTok;
+        b.tokensOut += outTok;
+        const price = PRICES[r.model];
+        if (price) {
+          const freshIn = Math.max(0, inTok - cacheRead);
+          b.costUsd +=
+            (freshIn * price.in + cacheRead * (price.cacheRead ?? price.in) + outTok * price.out) / 1_000_000;
+        }
+      }
+      return [...days.values()];
+    })(),
     recent: outcomes.slice(0, 25),
   });
 }

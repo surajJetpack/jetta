@@ -1,7 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { fmtAgo, fmtExact, useNow } from "@/lib/format";
+import { Download, Info, OctagonX, RotateCw, TriangleAlert } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Separator } from "@/components/ui/separator";
+import { StepCard, TraceIO } from "@/components/jetta/step-card";
+import { ChipButton, type ChipTone } from "@/components/jetta/status-chip";
+import { EmptyState } from "@/components/jetta/empty-state";
+import { RelativeTime } from "@/components/jetta/relative-time";
 
 interface OpsEvent {
   id: string;
@@ -14,17 +23,21 @@ interface OpsEvent {
   data?: Record<string, unknown>;
 }
 
-const LEVEL_ICON = { info: "ℹ️", warn: "⚠️", error: "🛑" } as const;
+const LEVEL_TONE: Record<OpsEvent["level"], ChipTone> = { info: "published", warn: "draft", error: "stale" };
 const SOURCES = ["webhook", "freshchat", "console", "cron", "slack", "auth", "app"];
 
+function LevelIcon({ level }: { level: OpsEvent["level"] }) {
+  if (level === "error") return <OctagonX className="size-4 shrink-0 text-destructive" aria-hidden />;
+  if (level === "warn") return <TriangleAlert className="size-4 shrink-0 text-[var(--stub)]" aria-hidden />;
+  return <Info className="size-4 shrink-0 text-muted-foreground" aria-hidden />;
+}
+
 export default function EventsLog() {
-  const now = useNow();
   const [events, setEvents] = useState<OpsEvent[] | null>(null);
   const [open, setOpen] = useState(false);
   const [level, setLevel] = useState<string>("");
   const [source, setSource] = useState<string>("");
   const [prefix, setPrefix] = useState("");
-  const [expanded, setExpanded] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const params = new URLSearchParams({ limit: "300" });
@@ -42,80 +55,98 @@ export default function EventsLog() {
   }, [open, load]);
 
   return (
-    <section className="card">
-      <h2 style={{ cursor: "pointer" }} onClick={() => setOpen(!open)}>
-        Event log {events ? `(${events.length})` : ""} {open ? "▾" : "▸"}
-      </h2>
+    <Card>
+      <CardHeader>
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => setOpen(!open)}
+          className="cursor-pointer text-left focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+        >
+          <CardTitle>
+            Event log {events ? `(${events.length})` : ""} {open ? "▾" : "▸"}
+          </CardTitle>
+        </button>
+      </CardHeader>
       {open && (
-        <>
-          <p className="muted" style={{ marginBottom: 10 }}>
-            Every system event — webhook receipts and skips, runs, draft decisions, learnings,
-            logins, cron and Slack activity — durable and machine-readable.{" "}
-            <a href="/api/admin/events?format=ndjson&limit=1000">Download NDJSON</a> for analysis.
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Every system event — webhook receipts and skips, runs, draft decisions, learnings, logins, cron and Slack
+            activity — durable and machine-readable.
           </p>
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
+          <div className="flex flex-wrap items-center gap-1.5">
             {["", "info", "warn", "error"].map((l) => (
-              <button
+              <ChipButton
                 key={l || "all"}
-                type="button"
-                onClick={() => setLevel(l)}
-                className={`state ${level === l ? "published" : "draft"}`}
-                style={{ cursor: "pointer", border: level === l ? "1px solid var(--accent)" : "1px solid transparent" }}
+                tone={l ? LEVEL_TONE[l as OpsEvent["level"]] : "archived"}
+                pressed={level === l}
+                onPressedChange={() => setLevel(l)}
               >
                 {l || "all levels"}
-              </button>
+              </ChipButton>
             ))}
-            <span style={{ width: 8 }} />
+            <Separator orientation="vertical" className="mx-1 !h-4" />
             {["", ...SOURCES].map((s) => (
-              <button
-                key={s || "all"}
-                type="button"
-                onClick={() => setSource(s)}
-                className={`state ${source === s ? "published" : "draft"}`}
-                style={{ cursor: "pointer", border: source === s ? "1px solid var(--accent)" : "1px solid transparent" }}
-              >
+              <ChipButton key={s || "all"} tone="archived" pressed={source === s} onPressedChange={() => setSource(s)}>
                 {s || "all sources"}
-              </button>
+              </ChipButton>
             ))}
-            <input
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Input
               type="text"
               value={prefix}
               onChange={(e) => setPrefix(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && load()}
               placeholder="event prefix, e.g. webhook."
-              style={{ fontFamily: "inherit", fontSize: 13, minWidth: 180 }}
+              className="w-56"
             />
-            <button type="button" onClick={load}>Refresh</button>
+            <Button variant="ghost" size="sm" onClick={load}>
+              <RotateCw /> Refresh
+            </Button>
+            <Button variant="outline" size="sm" asChild>
+              <a href="/api/admin/events?format=ndjson&limit=1000">
+                <Download /> Download NDJSON
+              </a>
+            </Button>
           </div>
 
-          {events === null && <p className="muted">Loading…</p>}
-          {events !== null && events.length === 0 && <p className="muted">No events match.</p>}
-          {events?.map((e) => (
-            <div className="step" key={e.id}>
-              <div
-                className="tool"
-                style={{ display: "flex", justifyContent: "space-between", cursor: "pointer", gap: 10 }}
-                onClick={() => setExpanded(expanded === e.id ? null : e.id)}
-              >
-                <span>
-                  {LEVEL_ICON[e.level]} {e.event}
-                  {e.ticketId ? <span className="muted" style={{ fontWeight: 400 }}> · #{e.ticketId}</span> : null}
-                </span>
-                <span className="muted" style={{ fontWeight: 400, fontSize: 12, flexShrink: 0 }}>
-                  {e.source}
-                  {e.actor ? ` · ${e.actor}` : ""} ·{" "}
-                  <span title={fmtExact(Math.floor(e.at / 1000))}>{fmtAgo(Math.floor(e.at / 1000), now)}</span>
-                </span>
-              </div>
-              {expanded === e.id && (
-                <pre className="io" style={{ overflowX: "auto", fontSize: 12, marginTop: 6 }}>
-                  {JSON.stringify(e, null, 2)}
-                </pre>
-              )}
+          {events === null && (
+            <div className="space-y-2">
+              <Skeleton className="h-11 w-full" />
+              <Skeleton className="h-11 w-full" />
+              <Skeleton className="h-11 w-2/3" />
             </div>
+          )}
+          {events !== null && events.length === 0 && (
+            <EmptyState title="No events match" hint="Adjust the level, source, or prefix filters and refresh." />
+          )}
+          {events?.map((e) => (
+            <StepCard
+              key={e.id}
+              collapsible
+              defaultOpen={false}
+              title={
+                <span className="inline-flex min-w-0 items-center gap-1.5">
+                  <LevelIcon level={e.level} />
+                  <span className="truncate">{e.event}</span>
+                  {e.ticketId && <span className="shrink-0 font-normal text-muted-foreground">#{e.ticketId}</span>}
+                </span>
+              }
+              meta={
+                <>
+                  {e.source}
+                  {e.actor ? ` · ${e.actor}` : ""} · <RelativeTime at={Math.floor(e.at / 1000)} />
+                </>
+              }
+            >
+              <TraceIO>
+                <pre className="whitespace-pre-wrap">{JSON.stringify(e, null, 2)}</pre>
+              </TraceIO>
+            </StepCard>
           ))}
-        </>
+        </CardContent>
       )}
-    </section>
+    </Card>
   );
 }

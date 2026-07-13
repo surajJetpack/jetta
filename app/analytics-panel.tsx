@@ -1,6 +1,15 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { BookOpen, RotateCw, TriangleAlert } from "lucide-react";
+import { fmtDate } from "@/lib/format";
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Alert, AlertAction, AlertTitle } from "@/components/ui/alert";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { StepCard } from "@/components/jetta/step-card";
+import { StatusChip } from "@/components/jetta/status-chip";
 
 interface Gap { ticketId: string; subject: string; reason: string; at: number; url: string }
 interface ModelStat {
@@ -35,6 +44,19 @@ interface Stats {
   taskTokens?: { task: string; calls: number; inputTokens: number; outputTokens: number }[];
 }
 
+function Stat({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-lg border bg-muted/40 p-3">
+      <div className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">{label}</div>
+      <div className="mt-1 flex items-center gap-2 font-mono text-sm font-semibold">{children}</div>
+    </div>
+  );
+}
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return <div className="text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">{children}</div>;
+}
+
 export default function AnalyticsPanel() {
   const [s, setS] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -66,123 +88,209 @@ export default function AnalyticsPanel() {
   const pct = o?.deflectionRate != null ? `${Math.round(o.deflectionRate * 100)}%` : "—";
 
   return (
-    <section className="card">
-      <h2 style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <span>Learning &amp; gap analytics</span>
-        <button onClick={refresh} disabled={loading} style={{ padding: "5px 12px", fontSize: 12 }}>
-          {loading ? <span className="spin" /> : "↻"} Refresh
-        </button>
-      </h2>
+    <Card>
+      <CardHeader>
+        <CardTitle>Learning &amp; gap analytics</CardTitle>
+        <CardAction>
+          <Button variant="ghost" size="sm" onClick={refresh} disabled={loading}>
+            <RotateCw className={loading ? "animate-spin" : undefined} /> Refresh
+          </Button>
+        </CardAction>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {err && (
+          <Alert variant="destructive">
+            <TriangleAlert />
+            <AlertTitle>{err}</AlertTitle>
+            <AlertAction>
+              <Button variant="outline" size="sm" onClick={refresh} disabled={loading}>
+                Retry
+              </Button>
+            </AlertAction>
+          </Alert>
+        )}
 
-      {err && <p className="err">{err}</p>}
-
-      {o && (
-        <>
-          <div className="grid" style={{ marginBottom: 18 }}>
-            <div className="stat"><div className="k">Runs logged</div><div className="v">{o.total}</div></div>
-            <div className="stat"><div className="k">Deflection rate</div><div className="v">{pct}</div></div>
-            <div className="stat"><div className="k">Escalated</div><div className="v">{o.escalated}</div></div>
-            <div className="stat"><div className="k">Reopened</div><div className="v">{o.reopened}</div></div>
-            <div className="stat"><div className="k">Auto-closed</div><div className="v">{o.closed}</div></div>
-            <div className="stat"><div className="k">KB articles learned</div><div className="v">{s.approvedArticles.length}</div></div>
+        {loading && !s && (
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+              <Skeleton className="h-16" />
+              <Skeleton className="h-16" />
+              <Skeleton className="h-16" />
+              <Skeleton className="h-16" />
+              <Skeleton className="h-16" />
+              <Skeleton className="h-16" />
+            </div>
+            <Skeleton className="h-14 w-full" />
+            <Skeleton className="h-14 w-2/3" />
           </div>
+        )}
 
-          <div className="steplabel">Knowledge gaps — document these next ({s.gaps.length})</div>
-          {s.gaps.length ? (
-            s.gaps.slice(0, 12).map((g) => (
-              <div className="step" key={g.ticketId}>
-                <div className="tool" style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                  <span className={`badge ${g.reason === "reopened" ? "stub" : "live"}`}>{g.reason}</span>
-                  <a href={g.url} target="_blank" rel="noreferrer">#{g.ticketId}</a>
+        {o && s && (
+          <>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+              <Stat label="Runs logged">{o.total}</Stat>
+              <Stat label="Deflection rate">{pct}</Stat>
+              <Stat label="Escalated">{o.escalated}</Stat>
+              <Stat label="Reopened">{o.reopened}</Stat>
+              <Stat label="Auto-closed">{o.closed}</Stat>
+              <Stat label="KB articles learned">{s.approvedArticles.length}</Stat>
+            </div>
+
+            <div className="space-y-2">
+              <SectionLabel>Knowledge gaps — document these next ({s.gaps.length})</SectionLabel>
+              {s.gaps.length ? (
+                s.gaps.slice(0, 12).map((g) => (
+                  <StepCard
+                    key={g.ticketId}
+                    title={
+                      <a href={g.url} target="_blank" rel="noreferrer" className="hover:underline">
+                        #{g.ticketId}
+                      </a>
+                    }
+                    meta={<StatusChip tone={g.reason === "reopened" ? "draft" : "published"}>{g.reason}</StatusChip>}
+                  >
+                    <p className="text-xs text-muted-foreground">{g.subject}</p>
+                  </StepCard>
+                ))
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  No escalations or reopens logged yet — Jetta is closing everything herself, or there&apos;s no traffic.
+                </p>
+              )}
+            </div>
+
+            {s.gapKeywords.length > 0 && (
+              <div className="space-y-2">
+                <SectionLabel>Recurring gap themes</SectionLabel>
+                <div className="flex flex-wrap gap-1.5">
+                  {s.gapKeywords.map((k) => (
+                    <StatusChip key={k.term}>
+                      {k.term} · {k.count}
+                    </StatusChip>
+                  ))}
                 </div>
-                <div className="io out">{g.subject}</div>
               </div>
-            ))
-          ) : (
-            <p className="muted">No escalations or reopens logged yet — Jetta is closing everything herself, or there&apos;s no traffic.</p>
-          )}
+            )}
 
-          {s.gapKeywords.length > 0 && (
-            <>
-              <div className="steplabel" style={{ marginTop: 16 }}>Recurring gap themes</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                {s.gapKeywords.map((k) => (
-                  <span key={k.term} className="badge stub">{k.term} · {k.count}</span>
-                ))}
-              </div>
-            </>
-          )}
-
-          <div className="steplabel" style={{ marginTop: 18 }}>Learned via the Knowledge Loop ({s.approvedArticles.length})</div>
-          {s.approvedArticles.length ? (
-            s.approvedArticles.slice(0, 10).map((a, i) => (
-              <div className="step" key={i}>
-                <div className="io out">📘 {a.title}</div>
-                <div className="io">approved by {a.approvedBy}</div>
-              </div>
-            ))
-          ) : (
-            <p className="muted">No articles approved yet. When a dev resolves an escalation in Slack, run <code>@Jetta draft kb</code> → <code>@Jetta publish kb</code>.</p>
-          )}
-
-          {(s.models?.length ?? 0) > 0 && (
-            <>
-              <div className="steplabel" style={{ marginTop: 18 }}>
-                Model quality — evidence for tiered routing
-              </div>
-              {s.models!.map((m) => (
-                <div className="step" key={m.model}>
-                  <div className="tool" style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                    <span>{m.model}</span>
-                    <span className="badge live">{m.runs} runs</span>
-                    {m.drafts > 0 && (
-                      <span className={`badge ${m.approvalRate != null && m.approvalRate < 0.8 ? "stub" : "live"}`}>
-                        {m.approvalRate != null ? `${Math.round(m.approvalRate * 100)}% approved` : "no decisions yet"}
+            <div className="space-y-2">
+              <SectionLabel>Learned via the Knowledge Loop ({s.approvedArticles.length})</SectionLabel>
+              {s.approvedArticles.length ? (
+                <ul className="space-y-1.5">
+                  {s.approvedArticles.slice(0, 10).map((a, i) => (
+                    <li key={i} className="flex flex-wrap items-baseline gap-x-2 text-sm">
+                      <span className="inline-flex items-center gap-1.5 font-medium">
+                        <BookOpen className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                        {a.title}
                       </span>
-                    )}
-                  </div>
-                  <div className="io out">
-                    drafts {m.drafts} · approved {m.approved}
-                    {m.edited > 0 ? ` (${m.edited} edited)` : ""} · discarded {m.discarded} · escalated {m.escalated} · reopened {m.reopened}
-                  </div>
-                  {m.tokens && (
-                    <div className="io">
-                      tokens: {fmtTokens(m.tokens.inputTokens)} in
-                      {m.tokens.cacheReadTokens > 0 ? ` (${fmtTokens(m.tokens.cacheReadTokens)} cached)` : ""} · {fmtTokens(m.tokens.outputTokens)} out
-                      {" "}· avg {fmtTokens(m.tokens.avgTokensPerRun)}/run
-                      {m.tokens.estCostUsd != null ? ` · ~$${m.tokens.estCostUsd.toFixed(m.tokens.estCostUsd < 0.1 ? 4 : 2)} total` : ""}
-                    </div>
-                  )}
+                      <span className="text-xs text-muted-foreground">
+                        approved by {a.approvedBy} · {fmtDate(a.at)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  No articles approved yet. When a dev resolves an escalation in Slack, run{" "}
+                  <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">@Jetta draft kb</code> →{" "}
+                  <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">@Jetta publish kb</code>.
+                </p>
+              )}
+            </div>
+
+            {(s.models?.length ?? 0) > 0 && (
+              <div className="space-y-2">
+                <SectionLabel>Model quality — evidence for tiered routing</SectionLabel>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Model</TableHead>
+                      <TableHead className="text-right">Drafts</TableHead>
+                      <TableHead className="text-right">Approved</TableHead>
+                      <TableHead className="text-right">Edited</TableHead>
+                      <TableHead className="text-right">Discarded</TableHead>
+                      <TableHead className="text-right">Approval %</TableHead>
+                      <TableHead>Tokens</TableHead>
+                      <TableHead className="text-right">Est. cost</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {s.models!.map((m) => (
+                      <TableRow key={m.model}>
+                        <TableCell>
+                          <div className="font-medium">{m.model}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {m.runs} runs · {m.escalated} escalated · {m.reopened} reopened
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right font-mono text-xs">{m.drafts}</TableCell>
+                        <TableCell className="text-right font-mono text-xs">{m.approved}</TableCell>
+                        <TableCell className="text-right font-mono text-xs">{m.edited}</TableCell>
+                        <TableCell className="text-right font-mono text-xs">{m.discarded}</TableCell>
+                        <TableCell className="text-right">
+                          {m.drafts > 0 ? (
+                            m.approvalRate != null ? (
+                              <StatusChip tone={m.approvalRate < 0.8 ? "draft" : "published"}>
+                                {Math.round(m.approvalRate * 100)}%
+                              </StatusChip>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">no decisions yet</span>
+                            )
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="font-mono text-xs text-muted-foreground">
+                          {m.tokens ? (
+                            <>
+                              {fmtTokens(m.tokens.inputTokens)} in
+                              {m.tokens.cacheReadTokens > 0 ? ` (${fmtTokens(m.tokens.cacheReadTokens)} cached)` : ""} /{" "}
+                              {fmtTokens(m.tokens.outputTokens)} out · avg {fmtTokens(m.tokens.avgTokensPerRun)}/run
+                            </>
+                          ) : (
+                            "—"
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right font-mono text-xs">
+                          {m.tokens?.estCostUsd != null
+                            ? `~$${m.tokens.estCostUsd.toFixed(m.tokens.estCostUsd < 0.1 ? 4 : 2)}`
+                            : "—"}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+
+            {(s.taskTokens?.length ?? 0) > 0 && (
+              <div className="space-y-2">
+                <SectionLabel>Token consumption by task</SectionLabel>
+                <div className="flex flex-wrap gap-1.5">
+                  {s.taskTokens!.map((t) => (
+                    <StatusChip key={t.task} className="font-mono">
+                      {t.task} · {fmtTokens(t.inputTokens + t.outputTokens)} ({fmtTokens(t.inputTokens)} in /{" "}
+                      {fmtTokens(t.outputTokens)} out) · {t.calls} calls
+                    </StatusChip>
+                  ))}
                 </div>
-              ))}
-            </>
-          )}
-
-          {(s.taskTokens?.length ?? 0) > 0 && (
-            <>
-              <div className="steplabel" style={{ marginTop: 18 }}>Token consumption by task</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                {s.taskTokens!.map((t) => (
-                  <span key={t.task} className="badge live" style={{ fontFamily: "var(--mono)" }}>
-                    {t.task} · {fmtTokens(t.inputTokens + t.outputTokens)} ({fmtTokens(t.inputTokens)} in / {fmtTokens(t.outputTokens)} out) · {t.calls} calls
-                  </span>
-                ))}
               </div>
-            </>
-          )}
+            )}
 
-          {s.toolUsage.length > 0 && (
-            <>
-              <div className="steplabel" style={{ marginTop: 18 }}>Tool usage</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                {s.toolUsage.map((t) => (
-                  <span key={t.tool} className="badge live" style={{ fontFamily: "var(--mono)" }}>{t.tool} · {t.count}</span>
-                ))}
+            {s.toolUsage.length > 0 && (
+              <div className="space-y-2">
+                <SectionLabel>Tool usage</SectionLabel>
+                <div className="flex flex-wrap gap-1.5">
+                  {s.toolUsage.map((t) => (
+                    <StatusChip key={t.tool} className="font-mono">
+                      {t.tool} · {t.count}
+                    </StatusChip>
+                  ))}
+                </div>
               </div>
-            </>
-          )}
-        </>
-      )}
-    </section>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }
