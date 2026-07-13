@@ -23,6 +23,17 @@ import * as fastspring from "@/lib/tools/fastspring";
 import * as monday from "@/lib/tools/monday";
 import { replyInThread, readThread } from "@/lib/tools/slack";
 import { draftKbArticle } from "@/lib/knowledge-loop";
+import { logOpsEvent } from "@/lib/events";
+
+/** Audit trail for privileged Slack commands and their rejections. */
+async function logSlackEvent(
+  level: "info" | "warn",
+  event: string,
+  userId: string,
+  data?: Record<string, unknown>,
+): Promise<void> {
+  await logOpsEvent({ level, event, source: "slack", actor: userId, data });
+}
 
 export const runtime = "nodejs";
 
@@ -90,10 +101,12 @@ async function handleCommand(
   if (m) {
     if (!isAdmin(userId)) {
       console.warn(`Rejected extend_trial from non-admin Slack user ${userId}`);
+      await logSlackEvent("warn", "slack.command_rejected", userId, { action: "extend_trial" });
       await reply(":no_entry: You're not authorised to run that command.");
       return;
     }
     const r = await monday.extendTrial(m[1], Number(m[2]));
+    await logSlackEvent("info", "slack.privileged_action", userId, { action: "extend_trial", email: m[1], days: Number(m[2]) });
     await reply(`:white_check_mark: Trial for ${m[1]} extended to ${r.newTrialEndDate}.`);
     return;
   }
@@ -103,6 +116,7 @@ async function handleCommand(
   if (m) {
     if (!isAdmin(userId)) {
       console.warn(`Rejected apply_discount from non-admin Slack user ${userId}`);
+      await logSlackEvent("warn", "slack.command_rejected", userId, { action: "apply_discount" });
       await reply(":no_entry: You're not authorised to run that command.");
       return;
     }
@@ -112,6 +126,7 @@ async function handleCommand(
       return;
     }
     const r = await fastspring.applyDiscount(account.accountId, m[1]);
+    await logSlackEvent("info", "slack.privileged_action", userId, { action: "apply_discount", coupon: m[1], email: m[2] });
     await reply(`:white_check_mark: Discount ${m[1]} applied to ${m[2]}. New price ${r.newPrice}, effective ${r.effectiveDate}.`);
     return;
   }
@@ -121,9 +136,11 @@ async function handleCommand(
   if (m) {
     if (!isAdmin(userId)) {
       console.warn(`Rejected cancel_account from non-admin Slack user ${userId}`);
+      await logSlackEvent("warn", "slack.command_rejected", userId, { action: "cancel_account" });
       await reply(":no_entry: You're not authorised to run that command.");
       return;
     }
+    await logSlackEvent("info", "slack.privileged_action", userId, { action: "cancel_account_requested", email: m[1] });
     await kvSet(`jetta:cancel-pending:${m[1].toLowerCase()}`, userId, 600);
     await reply(
       `:warning: Cancellation of *${m[1]}* requested by <@${userId}>. ` +
@@ -158,6 +175,7 @@ async function handleCommand(
     }
     const r = await fastspring.cancelSubscription(account.accountId);
     await kvDel(key);
+    await logSlackEvent("info", "slack.privileged_action", userId, { action: "cancel_account_confirmed", email: m[1], requestedBy: requester });
     await reply(`:white_check_mark: Subscription for ${m[1]} cancelled. Access ends ${r.accessEndsDate}.`);
     return;
   }
@@ -222,6 +240,7 @@ async function handleCommand(
   if (/^publish kb/i.test(cmd)) {
     if (!isAdmin(userId)) {
       console.warn(`Rejected publish kb from non-admin Slack user ${userId}`);
+      await logSlackEvent("warn", "slack.command_rejected", userId, { action: "publish_kb" });
       await reply(":no_entry: Only an admin can publish to the knowledge base.");
       return;
     }
@@ -285,9 +304,16 @@ export async function POST(req: NextRequest) {
       const channel = String(event.channel ?? "");
       const threadTs = String(event.thread_ts ?? event.ts ?? "");
       // Handle async so we can ack Slack within 3s.
-      handleCommand(cmd, userId, channel, threadTs).catch((err) =>
-        console.error("Slack command failed:", err),
-      );
+      handleCommand(cmd, userId, channel, threadTs).catch(async (err) => {
+        console.error("Slack command failed:", err);
+        await logOpsEvent({
+          level: "error",
+          event: "slack.command_failed",
+          source: "slack",
+          actor: userId,
+          data: { cmd: cmd.slice(0, 120), error: err instanceof Error ? err.message : String(err) },
+        });
+      });
     }
     return NextResponse.json({ ok: true });
   }

@@ -16,6 +16,7 @@ import { runAgentLoop } from "@/lib/agent";
 import { recordRun } from "@/lib/runlog";
 import { createDraftFromRun } from "@/lib/drafts";
 import * as freshdesk from "@/lib/tools/freshdesk";
+import { logOpsEvent } from "@/lib/events";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -105,9 +106,25 @@ export async function GET(req: NextRequest) {
         ticketId: job.ticketId,
         action: `error: ${err instanceof Error ? err.message : String(err)}`,
       });
+      await logOpsEvent({
+        level: "error",
+        event: "cron.followup_job_failed",
+        source: "cron",
+        ticketId: job.ticketId,
+        data: { error: err instanceof Error ? err.message : String(err) },
+      });
     } finally {
       await clearFollowUp(job.ticketId);
     }
+  }
+
+  if (due.length) {
+    await logOpsEvent({
+      level: handled.some((h) => h.action.startsWith("error")) ? "warn" : "info",
+      event: "cron.followup_run",
+      source: "cron",
+      data: { due: due.length, processed: handled },
+    });
   }
 
   return NextResponse.json({ status: "ok", stubMode: config.stubMode, processed: handled });

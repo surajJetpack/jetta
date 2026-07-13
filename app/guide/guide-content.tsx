@@ -137,7 +137,8 @@ export default function GuideContent() {
           Outcome counts (handled, drafted, escalated), knowledge-gap signals, and the
           model-quality table live here. The numbers come from the same decisions you make in
           Drafts — approval and edit rates per model are how we judge whether the current model is
-          holding up.
+          holding up. The <b>Event log</b> at the bottom records every system event — runs, skips,
+          decisions, logins — for audit and analysis.
         </p>
       </section>
 

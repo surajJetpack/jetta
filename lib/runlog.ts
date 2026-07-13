@@ -76,13 +76,19 @@ export async function recordRun(
     error: error instanceof Error ? error.message : error ? String(error) : undefined,
   };
   await recordRunLog(entry).catch((e) => log.error("recordRunLog_failed", e, { ticketId: entry.ticketId }));
-  log.info("run", {
+  // Lightweight timeline entry in the unified ops event log; the deep record
+  // (trace, reply, per-task tokens) lives in the RunLog above.
+  log.info("run.completed", {
     source,
     ticketId: entry.ticketId,
+    model: entry.model,
     tools: result.toolsUsed,
     dryRun: entry.dryRun,
+    replied: entry.replied,
     escalated: entry.escalated,
     resolutionSent: entry.resolutionSent,
     durationMs,
+    totalTokens: entry.usage?.totalTokens,
+    error: entry.error,
   });
 }

@@ -36,10 +36,10 @@ export async function createDraftFromRun(
     result.toolsUsed.includes("add_private_note") || result.toolsUsed.includes("send_escalation");
   if (!body && !handledInternally && result.text.trim().length >= 40) {
     body = result.text.trim();
-    log.warn("draft_from_final_text", { ticketId: ctx.ticket?.id });
+    log.warn("draft.from_final_text", { ticketId: ctx.ticket?.id });
   }
   if (!body && !lastReply && handledInternally && result.text.trim()) {
-    log.info("draft_skipped_internal_hold", { ticketId: ctx.ticket?.id });
+    log.info("draft.skipped_internal_hold", { ticketId: ctx.ticket?.id });
   }
   if (!body || !ctx.ticket) return null;
 
@@ -70,7 +70,7 @@ export async function createDraftFromRun(
         draft.ticketId,
         `[Jetta — draft pending review]\n\n${body}\n\n— Approve, edit, or discard in the Jetta console: ${config.consoleUrl}/drafts`,
       )
-      .catch((e) => log.warn("draft_note_failed", { ticketId: draft.ticketId, error: String(e) }));
+      .catch((e) => log.warn("draft.note_failed", { ticketId: draft.ticketId, error: String(e) }));
   }
   await slack
     .notifyDraftPending({
@@ -78,8 +78,8 @@ export async function createDraftFromRun(
       ticketUrl,
       consoleUrl: config.consoleUrl,
     })
-    .catch((e) => log.warn("draft_ping_failed", { ticketId: draft.ticketId, error: String(e) }));
+    .catch((e) => log.warn("draft.ping_failed", { ticketId: draft.ticketId, error: String(e) }));
 
-  log.info("draft_created", { draftId: draft.id, ticketId: draft.ticketId, wantsClose: draft.wantsClose });
+  log.info("draft.created", { draftId: draft.id, ticketId: draft.ticketId, wantsClose: draft.wantsClose });
   return draft;
 }

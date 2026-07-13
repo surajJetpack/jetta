@@ -21,6 +21,7 @@ import { buildContext, buildMessages } from "@/lib/context";
 import { buildSystemPrompt } from "@/lib/system-prompt";
 import { runAgentLoop } from "@/lib/agent";
 import { markEventSeen, recordOutcome } from "@/lib/kv";
+import { logOpsEvent } from "@/lib/events";
 import { recordRun } from "@/lib/runlog";
 import { isAssignedToJetta, getLatestUserMessageId } from "@/lib/tools/freshchat";
 
@@ -68,6 +69,12 @@ function verifySignature(raw: string, signature: string | null): boolean {
     return crypto.createVerify("RSA-SHA256").update(raw).end().verify(pem, signature, "base64");
   } catch (e) {
     console.error("Freshchat signature verification errored:", e);
+    void logOpsEvent({
+      level: "error",
+      event: "freshchat.sig_error",
+      source: "freshchat",
+      data: { error: e instanceof Error ? e.message : String(e) },
+    }).catch(() => {});
     return false;
   }
 }
@@ -223,6 +230,12 @@ async function runPipeline(convId: string) {
     });
   } catch (err) {
     console.error(`Freshchat webhook handling failed for conversation ${convId}:`, err);
+    await logOpsEvent({
+      level: "error",
+      event: "freshchat.failed",
+      source: "freshchat",
+      data: { convId, error: err instanceof Error ? err.message : String(err) },
+    });
     return NextResponse.json(
       { error: "handler failed", message: err instanceof Error ? err.message : String(err) },
       { status: 500 },

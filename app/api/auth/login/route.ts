@@ -8,6 +8,7 @@ import { z } from "zod";
 import { config } from "@/lib/config";
 import { parseUsers, safeEqual, createSession, SESSION_COOKIE, SESSION_TTL_S } from "@/lib/console-auth";
 import { rateCount, rateCountPeek } from "@/lib/kv";
+import { logOpsEvent } from "@/lib/events";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -49,9 +50,16 @@ export async function POST(req: NextRequest) {
   const ok = users.has(username) && safeEqual(password, expected);
   if (!ok) {
     await rateCount(rateKey, WINDOW_S).catch(() => {});
+    await logOpsEvent({
+      level: "warn",
+      event: "auth.login_failed",
+      source: "auth",
+      data: { username, ip },
+    });
     return NextResponse.json({ error: "invalid username or password" }, { status: 401 });
   }
 
+  await logOpsEvent({ level: "info", event: "auth.login_success", source: "auth", actor: username, data: { ip } });
   const res = NextResponse.json({ ok: true, user: username });
   res.cookies.set(SESSION_COOKIE, createSession(username), {
     httpOnly: true,

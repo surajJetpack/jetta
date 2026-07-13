@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { SITES, syncSite, type SyncResult } from "@/lib/kb-sync";
 import { notifyKbSync } from "@/lib/tools/slack";
+import { logOpsEvent } from "@/lib/events";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -34,6 +35,12 @@ export async function GET(req: NextRequest) {
       const msg = `${site.key}: ${e instanceof Error ? e.message : String(e)}`;
       errors.push(msg);
       console.error("kb-sync failed for", msg);
+      await logOpsEvent({
+        level: "error",
+        event: "kbsync.site_failed",
+        source: "cron",
+        data: { site: site.key, error: e instanceof Error ? e.message : String(e) },
+      });
     }
   }
 

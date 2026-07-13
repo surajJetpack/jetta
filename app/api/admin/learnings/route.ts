@@ -23,6 +23,26 @@ import {
   type EvalTag,
   type LearningProduct,
 } from "@/lib/evals";
+import { logOpsEvent } from "@/lib/events";
+
+/** Audit trail for learning state changes (the record itself is overwritten). */
+async function logLearningEvent(
+  action: "created" | "approved" | "rejected" | "retired",
+  actor: string,
+  learning: { id: string; text: string; supersedes?: string },
+): Promise<void> {
+  await logOpsEvent({
+    level: "info",
+    event: `learning.${action}`,
+    source: "console",
+    actor,
+    data: {
+      learningId: learning.id,
+      text: learning.text.slice(0, 120),
+      supersedes: learning.supersedes,
+    },
+  });
+}
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -75,6 +95,7 @@ export async function POST(req: NextRequest) {
       reinforcedCount: 0,
       rationale: "manually added",
     });
+    await logLearningEvent("created", actor, learning);
     return NextResponse.json({ ok: true, learning });
   }
 
@@ -93,6 +114,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: `cannot retire a ${learning.state} learning` }, { status: 409 });
     }
     await updateLearning(id, { state: "retired", decidedBy: actor });
+    await logLearningEvent("retired", actor, learning);
     return NextResponse.json({ ok: true, action: "retired" });
   }
 
@@ -102,6 +124,7 @@ export async function POST(req: NextRequest) {
 
   if (action === "reject") {
     await updateLearning(id, { state: "rejected", decidedBy: actor });
+    await logLearningEvent("rejected", actor, learning);
     return NextResponse.json({ ok: true, action: "rejected" });
   }
 
@@ -115,7 +138,9 @@ export async function POST(req: NextRequest) {
     const old = await getLearning(learning.supersedes);
     if (old && old.state === "approved") {
       await updateLearning(old.id, { state: "retired", decidedBy: actor });
+      await logLearningEvent("retired", actor, old);
     }
   }
+  await logLearningEvent("approved", actor, { ...learning, text: text?.trim() || learning.text });
   return NextResponse.json({ ok: true, action: "approved", decidedAt: now });
 }

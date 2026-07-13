@@ -329,6 +329,6 @@ export async function syncSite(site: SiteConfig, opts: { dryRun?: boolean } = {}
     }
   }
 
-  log.info("kb_sync", { ...res, skippedHumanEdited: res.skippedHumanEdited.length });
+  log.info("cron.kbsync_run", { ...res, skippedHumanEdited: res.skippedHumanEdited.length, source: "cron" });
   return res;
 }

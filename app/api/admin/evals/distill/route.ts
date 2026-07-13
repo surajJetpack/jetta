@@ -12,7 +12,7 @@
  * Nothing reaches the system prompt without approval in /evals.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { adminAuthorized } from "@/lib/auth";
+import { adminAuthorized, adminActor } from "@/lib/auth";
 import {
   addLearning,
   getUndistilledEvaluations,
@@ -31,6 +31,7 @@ const BATCH_CAP = 25;
 
 export async function POST(req: NextRequest) {
   if (!adminAuthorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const actor = adminActor(req) ?? "console";
 
   const [pending, learnings] = await Promise.all([getUndistilledEvaluations(), listLearnings()]);
   if (!pending.length) {
@@ -43,7 +44,7 @@ export async function POST(req: NextRequest) {
     proposals = await distillEvaluations(batch, learnings);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    log.warn("distill_failed", { error: msg });
+    log.warn("distill.failed", { error: msg, actor, source: "console" });
     // Nothing written — evaluations stay undistilled and retryable.
     return NextResponse.json({ error: `distillation failed: ${msg}` }, { status: 502 });
   }
@@ -97,6 +98,6 @@ export async function POST(req: NextRequest) {
   }
 
   await markDistilled(batch.map((e) => e.id), learningIdsByEval);
-  log.info("distill_done", { consumed: batch.length, created, reinforced, revised });
+  log.info("distill.completed", { consumed: batch.length, created, reinforced, revised, actor, source: "console" });
   return NextResponse.json({ consumed: batch.length, created, reinforced, revised });
 }

@@ -22,7 +22,8 @@ import { config } from "@/lib/config";
 import { buildContext, buildMessages } from "@/lib/context";
 import { buildSystemPrompt } from "@/lib/system-prompt";
 import { runAgentLoop } from "@/lib/agent";
-import { markEventSeen, unmarkEventSeen, scheduleFollowUp, recordOutcome, recordWebhookProbe } from "@/lib/kv";
+import { markEventSeen, unmarkEventSeen, scheduleFollowUp, recordOutcome } from "@/lib/kv";
+import { logOpsEvent } from "@/lib/events";
 import { recordRun } from "@/lib/runlog";
 import { createDraftFromRun } from "@/lib/drafts";
 
@@ -67,16 +68,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "no ticket id in payload" }, { status: 400 });
   }
 
-  // Diagnostic probe: record who calls this endpoint (an unidentified sender
-  // fires on ticket updates — the user-agent names the platform). Remove once
-  // the sender is found and dealt with.
-  await recordWebhookProbe({
-    at: Math.floor(Date.now() / 1000),
+  // Every authenticated POST is recorded — the user-agent names the sender
+  // (Freshdesk rule, Make, n8n, manual), which is how unknown update-path
+  // callers get identified.
+  await logOpsEvent({
+    level: "info",
+    event: "webhook.received",
+    source: "webhook",
     ticketId,
-    event: payload.event as string | undefined,
-    userAgent: req.headers.get("user-agent") ?? undefined,
-    hasUpdatedAt: payload.updated_at != null,
-  }).catch(() => {});
+    data: {
+      payloadEvent: payload.event as string | undefined,
+      userAgent: req.headers.get("user-agent") ?? undefined,
+      hasUpdatedAt: payload.updated_at != null,
+    },
+  });
 
   // Idempotency: dedupe by event id when present, else ticket + rule marker +
   // timestamp. Freshdesk automations can't always send a timestamp — without
@@ -88,6 +93,7 @@ export async function POST(req: NextRequest) {
     `${ticketId}:${(payload.event as string | undefined) ?? ""}:${updatedAt ?? ""}`;
   const fresh = await markEventSeen(eventId, updatedAt ? 3600 : 300);
   if (!fresh) {
+    await logOpsEvent({ level: "info", event: "webhook.duplicate_ignored", source: "webhook", ticketId, data: { eventId } });
     return NextResponse.json({ status: "duplicate, ignored", ticketId });
   }
 
@@ -115,12 +121,14 @@ async function processTicket(ticketId: string, channel: "freshdesk" | "freshchat
     const ctx = await buildContext(ticketId, channel);
     if (!ctx.ticket) {
       console.warn(`Webhook ticket ${ticketId}: not found, skipping.`);
+      await logOpsEvent({ level: "warn", event: "webhook.skipped_ticket_not_found", source: "webhook", ticketId });
       return;
     }
 
     // Product filter (controlled rollout): skip before the agent ever runs.
     if (config.productFilter.length && !config.productFilter.includes(ctx.product)) {
       console.log(`Webhook ticket ${ticketId}: product "${ctx.product}" not in JETTA_PRODUCTS, skipping.`);
+      await logOpsEvent({ level: "info", event: "webhook.skipped_product_filter", source: "webhook", ticketId, data: { product: ctx.product } });
       return;
     }
 
@@ -142,6 +150,13 @@ async function processTicket(ticketId: string, channel: "freshdesk" | "freshchat
     const marker = `customer-msg:${ticketId}:${lastCustomerAt}`;
     if (!(await markEventSeen(marker, CUSTOMER_MSG_MARKER_TTL))) {
       console.log(`Webhook ticket ${ticketId}: no new customer message since last run, skipping.`);
+      await logOpsEvent({
+        level: "info",
+        event: "webhook.skipped_no_new_customer_message",
+        source: "webhook",
+        ticketId,
+        data: { lastCustomerAt },
+      });
       return;
     }
     claimedMarker = marker;
@@ -219,6 +234,16 @@ async function processTicket(ticketId: string, channel: "freshdesk" | "freshchat
     // The ACK already went out — failures land in the function log (and the
     // run log when the failure happened after the agent ran).
     console.error(`Webhook processing failed for ticket ${ticketId}:`, err);
+    await logOpsEvent({
+      level: "error",
+      event: "webhook.failed",
+      source: "webhook",
+      ticketId,
+      data: {
+        error: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+      },
+    });
     // Release the customer-message marker so a retry can process this message.
     if (claimedMarker) await unmarkEventSeen(claimedMarker).catch(() => {});
   }

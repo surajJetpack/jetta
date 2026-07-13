@@ -17,6 +17,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { adminAuthorized, adminActor } from "@/lib/auth";
 import { getReplyDraft, updateReplyDraft, listReplyDrafts, scheduleFollowUp, recordOutcome } from "@/lib/kv";
 import { recordEvaluation, EVAL_TAGS, type EvalTag } from "@/lib/evals";
+import { logOpsEvent } from "@/lib/events";
 import { modelLabel } from "@/lib/llm";
 import * as freshdesk from "@/lib/tools/freshdesk";
 
@@ -83,6 +84,14 @@ export async function POST(req: NextRequest) {
       note: note?.trim() || undefined,
       suggestedReply: draft.suggestedReply,
     }).catch(() => {});
+    await logOpsEvent({
+      level: "info",
+      event: "draft.discarded",
+      source: "console",
+      ticketId: draft.ticketId,
+      actor,
+      data: { draftId: draft.id, tags: evalTags, note: note?.trim() || undefined },
+    });
     return NextResponse.json({ ok: true, action: "discarded" });
   }
 
@@ -101,6 +110,14 @@ export async function POST(req: NextRequest) {
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     await updateReplyDraft(id, { error: msg }); // stays pending — retryable
+    await logOpsEvent({
+      level: "error",
+      event: "draft.send_failed",
+      source: "console",
+      ticketId: draft.ticketId,
+      actor,
+      data: { draftId: draft.id, error: msg },
+    });
     return NextResponse.json({ error: `send failed: ${msg}` }, { status: 502 });
   }
 
@@ -150,6 +167,15 @@ export async function POST(req: NextRequest) {
     drafted: true,
     kind: "handled",
   }).catch(() => {});
+
+  await logOpsEvent({
+    level: "info",
+    event: "draft.approved",
+    source: "console",
+    ticketId: draft.ticketId,
+    actor,
+    data: { draftId: draft.id, edited: finalBody !== draft.suggestedReply, wantsClose: draft.wantsClose, tags: evalTags },
+  });
 
   return NextResponse.json({ ok: true, action: "approved", ticketId: draft.ticketId });
 }

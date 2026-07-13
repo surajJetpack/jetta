@@ -11,6 +11,7 @@
  */
 import { Redis } from "@upstash/redis";
 import { config } from "./config";
+import { log } from "./logger";
 
 // TODO: add a `channel` field before scheduling any freshchat follow-ups — the
 // cron's reply/close path is Freshdesk-only, so chat runs skip scheduling today.
@@ -68,34 +69,8 @@ export async function unmarkEventSeen(eventId: string): Promise<void> {
   memEvents.delete(eventId);
 }
 
-// ── Webhook probes (identify who is calling /api/webhook) ──────────
-/**
- * One entry per authenticated webhook POST. Temporary diagnostic: an unknown
- * sender fires on ticket updates (the 13756 note-loop source) — the recorded
- * user-agent names the platform. Read via Redis (jetta:webhookprobes).
- */
-export interface WebhookProbe {
-  at: number; // unix seconds
-  ticketId: string;
-  /** The payload's `event` field — our FD rules send "created"/"customer_reply". */
-  event?: string;
-  userAgent?: string;
-  hasUpdatedAt: boolean;
-}
-
-const WEBHOOK_PROBES_KEY = "jetta:webhookprobes";
-const memProbes: WebhookProbe[] = [];
-
-export async function recordWebhookProbe(p: WebhookProbe): Promise<void> {
-  const r = client();
-  if (r) {
-    await r.lpush(WEBHOOK_PROBES_KEY, JSON.stringify(p));
-    await r.ltrim(WEBHOOK_PROBES_KEY, 0, 199);
-    return;
-  }
-  memProbes.unshift(p);
-  if (memProbes.length > 200) memProbes.pop();
-}
+// (The temporary webhook-probe list was absorbed into the unified ops event
+// log — every POST is now a "webhook.received" event in lib/events.ts.)
 
 /** Store a follow-up job, due `delaySeconds` from now (default 24h). */
 export async function scheduleFollowUp(
@@ -545,6 +520,7 @@ export async function addReplyDraft(d: ReplyDraft): Promise<void> {
           { ...prev, state: "superseded", decidedAt: Math.floor(Date.now() / 1000) },
           { ex: REPLY_DRAFT_TTL },
         );
+        log.info("draft.superseded", { ticketId: d.ticketId, oldDraftId: prevId, newDraftId: d.id });
       }
     }
     await r.set(replyDraftKey(d.id), d, { ex: REPLY_DRAFT_TTL });
@@ -556,6 +532,7 @@ export async function addReplyDraft(d: ReplyDraft): Promise<void> {
   const prev = prevId ? memReplyDrafts.get(prevId) : undefined;
   if (prev && prev.state === "pending") {
     memReplyDrafts.set(prev.id, { ...prev, state: "superseded", decidedAt: Math.floor(Date.now() / 1000) });
+    log.info("draft.superseded", { ticketId: d.ticketId, oldDraftId: prev.id, newDraftId: d.id });
   }
   memReplyDrafts.set(d.id, d);
   memReplyDraftByTicket.set(d.ticketId, d.id);

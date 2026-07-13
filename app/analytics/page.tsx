@@ -3,6 +3,7 @@ import { gate } from "@/lib/console-auth";
 import { Nav } from "../nav";
 import AnalyticsPanel from "../analytics-panel";
 import ActivityLog from "../activity-log";
+import EventsLog from "../events-log";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +15,7 @@ export default async function AnalyticsPage() {
       <Nav current="insights" user={user} />
       <AnalyticsPanel />
       <ActivityLog />
+      <EventsLog />
     </div>
   );
 }
