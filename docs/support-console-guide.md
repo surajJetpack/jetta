@@ -4,13 +4,20 @@
 > (https://jettajetpack.vercel.app/guide). This file is the email/repo copy.
 
 Jetta drafts a reply for every incoming Freshdesk ticket. **Nothing reaches a
-customer until one of us approves it.** Your job in the console: decide each
-draft, and — through those decisions — teach Jetta.
+customer until one of us sends it.** The suggested reply is posted as a
+**private note on the Freshdesk ticket** (customers never see notes) and also
+appears in the console's Drafts tab.
 
-Console: **https://jettajetpack.vercel.app** (log in with the username +
-password you were given; sessions last 7 days).
+**The everyday flow happens in Freshdesk:** copy the note's suggested reply
+into the reply editor, edit freely, send as yourself. Jetta notices your reply,
+compares it with its suggestion, and records your decision automatically
+(sent as-is = approved, edited = approved with edits, something completely
+different = draft unused). No console visit needed.
 
-## The Drafts tab — your queue
+Console (fallback + audit trail): **https://jettajetpack.vercel.app** (log in
+with the username + password you were given; sessions last 7 days).
+
+## The Drafts tab — the console fallback
 
 Each pending card is one suggested reply. Click the header to expand it, check
 the ticket link (`#12345 ↗`) for context, then pick one of three moves:
@@ -33,8 +40,31 @@ the ticket link (`#12345 ↗`) for context, then pick one of three moves:
 Notes:
 - If a customer replies again while a draft is waiting, the old draft is
   marked *superseded* automatically — only ever act on pending cards.
-- The private notes you see on tickets in Freshdesk are Jetta's internal work
-  log. Drafts only ever appear here in the console, never on the ticket.
+- When you're about to reply with something entirely your own, discard the
+  draft in the console first (with a reason tag) when you have 10 seconds —
+  otherwise Jetta only learns that its draft went unused, not why.
+
+## Ops: the agent-reply automation rule (one-time Freshdesk admin setup)
+
+The "decision recorded automatically" flow depends on a Freshdesk automation:
+
+- Admin → Workflows → Automations → **Ticket updates** → new rule
+  "Jetta — reconcile agent reply".
+- **When**: Reply is sent, performed by **Agent** (do not include private
+  notes or forwards).
+- **Action**: Trigger webhook — `POST
+  https://jettajetpack.vercel.app/api/webhook/agent-reply`, encoding JSON,
+  custom header `x-jetta-secret: <WEBHOOK_SECRET>` (same secret as the main
+  rule), content (custom JSON):
+
+  ```json
+  {"event": "agent_replied", "ticket_id": "{{ticket.id}}", "updated_at": "{{ticket.updated_at}}"}
+  ```
+
+- Env prerequisite: `FRESHDESK_AGENT_ID` must be set in prod (Jetta's own
+  agent id, from `GET /api/v2/agents/me` with Jetta's API key) **before**
+  enabling the rule — it's how console-approved sends avoid reconciling
+  themselves.
 
 ## The Evals tab — how Jetta learns
 

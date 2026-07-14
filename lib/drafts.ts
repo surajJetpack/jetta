@@ -14,6 +14,7 @@ import { addReplyDraft, type ReplyDraft } from "./kv";
 import * as freshdesk from "./tools/freshdesk";
 import * as slack from "./tools/slack";
 import { log } from "./logger";
+import { logOpsEvent } from "./events";
 
 /**
  * Create a pending ReplyDraft from the run's trace. Returns null when the
@@ -62,13 +63,26 @@ export async function createDraftFromRun(
   const ticketUrl = `https://${config.freshdesk.domain ?? "jetpackapps.freshdesk.com"}/a/tickets/${draft.ticketId}`;
 
   // Best-effort notifications — a failure here never loses the draft.
-  // The Freshdesk note is opt-in (JETTA_DRAFT_FD_NOTE): the console is the
-  // review surface, so by default nothing draft-related touches the ticket.
+  // The Freshdesk note IS the primary review surface (JETTA_DRAFT_FD_NOTE=false
+  // kills it): the agent copies it into the reply editor and sends as
+  // themselves; the agent-reply webhook then reconciles the draft.
   if (draft.channel === "freshdesk" && config.draftNoteToFreshdesk) {
+    const noteHtml =
+      `<p><b>Jetta — suggested reply (pending)</b></p><hr>` +
+      freshdesk.textToFdHtml(body) +
+      `<hr><p><b>To use it:</b> copy into the reply editor, edit freely, and send as yourself.<br>` +
+      `Your decision is recorded automatically when you reply — no console step needed.<br>` +
+      `Fallback console: ${config.consoleUrl}/drafts</p>`;
     await freshdesk
-      .addPrivateNote(
-        draft.ticketId,
-        `[Jetta — draft pending review]\n\n${body}\n\n— Approve, edit, or discard in the Jetta console: ${config.consoleUrl}/drafts`,
+      .addPrivateNote(draft.ticketId, noteHtml)
+      .then(() =>
+        logOpsEvent({
+          level: "info",
+          event: "draft.fd_note_posted",
+          source: "webhook",
+          ticketId: draft.ticketId,
+          data: { draftId: draft.id },
+        }),
       )
       .catch((e) => log.warn("draft.note_failed", { ticketId: draft.ticketId, error: String(e) }));
   }

@@ -544,6 +544,15 @@ export async function getReplyDraft(id: string): Promise<ReplyDraft | null> {
   return memReplyDrafts.get(id) ?? null;
 }
 
+/** The current pending draft for a ticket (via the supersede pointer), if any. */
+export async function getPendingReplyDraftForTicket(ticketId: string): Promise<ReplyDraft | null> {
+  const r = client();
+  const id = r ? await r.get<string>(replyDraftTicketKey(ticketId)) : memReplyDraftByTicket.get(ticketId);
+  if (!id) return null;
+  const draft = await getReplyDraft(id);
+  return draft?.state === "pending" ? draft : null;
+}
+
 /** Patch a draft; clears the ticket pointer when the draft leaves "pending". */
 export async function updateReplyDraft(
   id: string,

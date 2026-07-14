@@ -65,8 +65,8 @@ export async function notifyDraftPending(input: {
     [
       `:memo: *Draft reply pending review*`,
       `*Ticket:* ${input.subject}`,
-      `${input.ticketUrl}`,
-      `Review: ${input.consoleUrl}/drafts`,
+      `Review & reply in Freshdesk (draft is in a private note): ${input.ticketUrl}`,
+      `Console fallback: ${input.consoleUrl}/drafts`,
     ].join("\n"),
   );
 }

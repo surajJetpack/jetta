@@ -278,8 +278,9 @@ export default function DraftsQueue({
         </CardHeader>
         <CardContent className="space-y-2.5">
           <p className="text-sm text-muted-foreground">
-            Jetta proposes, you approve. Every webhook ticket gets a suggested reply here — nothing reaches the
-            customer until it&apos;s approved.
+            Jetta proposes, you approve. Every suggested reply is also posted as a private note on the
+            Freshdesk ticket — replying there records your decision automatically; this queue is the
+            fallback and audit trail.
           </p>
           {replyMode === "auto" && (
             <Alert variant="destructive">

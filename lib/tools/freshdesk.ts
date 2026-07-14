@@ -34,7 +34,7 @@ export async function fd<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 // HTML → text for conversation bodies (Freshdesk stores rich text).
-function stripHtml(html: string): string {
+export function stripHtml(html: string): string {
   return html
     .replace(/<br\s*\/?>/gi, "\n")
     .replace(/<\/(p|div)>/gi, "\n")
@@ -313,6 +313,58 @@ export async function addPrivateNote(ticketId: string, body: string): Promise<vo
     method: "POST",
     body: JSON.stringify({ body, private: true }),
   });
+}
+
+export interface LatestAgentReply {
+  /** Plain text (HTML stripped). */
+  body: string;
+  /** FD agent user id of the author. */
+  userId: number;
+  createdAt: string;
+}
+
+/** Newest outgoing (non-private) agent reply on a ticket, for draft reconciliation. */
+export async function getLatestAgentReply(ticketId: string): Promise<LatestAgentReply | null> {
+  if (!config.freshdesk.live) {
+    return { body: "Stub agent reply body.", userId: 42, createdAt: new Date().toISOString() };
+  }
+  type FDConversation = {
+    body_text?: string;
+    body?: string;
+    private: boolean;
+    incoming: boolean;
+    user_id: number;
+    created_at: string;
+  };
+  const ticket = await fd<{ conversations?: FDConversation[] }>(`/tickets/${ticketId}?include=conversations`);
+  const replies = (ticket.conversations ?? [])
+    .filter((c) => !c.incoming && !c.private)
+    .sort((a, b) => a.created_at.localeCompare(b.created_at));
+  const last = replies.pop();
+  if (!last) return null;
+  return {
+    body: last.body_text ?? stripHtml(last.body ?? ""),
+    userId: last.user_id,
+    createdAt: last.created_at,
+  };
+}
+
+// Agents change rarely — cache name lookups for the life of the instance.
+const agentNameCache = new Map<number, string>();
+
+/** Display name of an FD agent, or null when the lookup fails. */
+export async function getAgentName(agentId: number): Promise<string | null> {
+  if (!config.freshdesk.live) return "Stub Agent";
+  const cached = agentNameCache.get(agentId);
+  if (cached) return cached;
+  try {
+    const agent = await fd<{ contact?: { name?: string } }>(`/agents/${agentId}`);
+    const name = agent.contact?.name ?? null;
+    if (name) agentNameCache.set(agentId, name);
+    return name;
+  } catch {
+    return null;
+  }
 }
 
 export async function closeTicket(ticketId: string, resolveOnly = false): Promise<void> {

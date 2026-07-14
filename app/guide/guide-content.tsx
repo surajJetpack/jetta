@@ -35,9 +35,10 @@ export default function GuideContent() {
             dev board, and writes a suggested reply.
           </p>
           <p>
-            <b>Nothing reaches a customer until someone here approves it.</b> The suggested reply
-            lands in the <b>Drafts</b> tab as a pending card; your decision — approve, edit, or
-            discard — is both the safety net and how Jetta gets better over time.
+            <b>Nothing reaches a customer until a human sends it.</b> The suggested reply is posted
+            as a <b>private note on the Freshdesk ticket</b> (customers never see notes) and also
+            lands in the <b>Drafts</b> tab here. Reply straight from Freshdesk or decide in the
+            console — either way your decision is the safety net and how Jetta gets better.
           </p>
           <p className="text-muted-foreground">
             Sessions last 7 days. If you get logged out, sign back in at /login with your personal
@@ -54,9 +55,15 @@ export default function GuideContent() {
         </CardHeader>
         <CardContent className="space-y-2.5 text-sm">
           <p className="text-muted-foreground">
-            This is where you&apos;ll spend most of your time. Each pending card is one suggested
-            reply. Click the card header to expand it, open the ticket link (#12345) for context,
-            then make one of three moves:
+            <b>The everyday flow happens in Freshdesk:</b> Jetta&apos;s suggested reply is in a
+            private note on the ticket. Copy it into the reply editor, edit freely, and send as
+            yourself — Jetta notices your reply, compares it with its suggestion, and records your
+            decision automatically (sent as-is = approved, edited = approved with edits, something
+            completely different = draft unused). No console visit needed.
+          </p>
+          <p className="text-muted-foreground">
+            This tab is the fallback and the audit trail: each pending card is one suggested reply.
+            Expand it, open the ticket link (#12345) for context, then make one of three moves:
           </p>
 
           <StepCard title="1 · Approve & send">
@@ -92,9 +99,10 @@ export default function GuideContent() {
 
           <p className="text-muted-foreground">
             Good to know: if a customer replies again while a draft waits, the old draft is marked{" "}
-            <i>superseded</i> automatically — only ever act on pending cards. And the private notes
-            you see on tickets in Freshdesk are Jetta&apos;s internal work log; drafts only exist
-            here, never on the ticket.
+            <i>superseded</i> automatically — only ever act on pending cards. One caveat of the
+            Freshdesk flow: when you&apos;re about to reply with something entirely your own,
+            discard the draft here first (with a reason tag) when you have 10 seconds — otherwise
+            Jetta only learns that its draft went unused, not why.
           </p>
         </CardContent>
       </Card>

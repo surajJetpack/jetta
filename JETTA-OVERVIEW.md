@@ -50,6 +50,7 @@ resolution sent? → scheduleFollowUp() (24h)
 | Route | Purpose | Auth |
 |---|---|---|
 | `POST /api/webhook` | Main entry — Freshdesk/Freshchat events | `x-jetta-secret` |
+| `POST /api/webhook/agent-reply` | Reconcile pending drafts when an agent replies in Freshdesk | `x-jetta-secret` |
 | `POST /api/admin/run` | Run/replay a ticket (dry-run default) | console login / x-admin-secret |
 | `GET /api/admin/stats` | Outcome metrics + gaps + approved articles | console login / x-admin-secret |
 | `GET /api/admin/logs` | Run log | console login / x-admin-secret |

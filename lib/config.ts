@@ -120,6 +120,12 @@ export const config = {
     apiKey: env("FRESHDESK_API_KEY"),
     domain: env("FRESHDESK_DOMAIN"),
     live: liveFor("FRESHDESK_LIVE"),
+    /**
+     * Jetta's own Freshdesk agent user id (owner of the API key; find it via
+     * GET /api/v2/agents/me). The agent-reply reconciler skips replies authored
+     * by this id so console-approved sends don't reconcile themselves.
+     */
+    agentId: env("FRESHDESK_AGENT_ID"),
   },
 
   freshchat: {
@@ -212,11 +218,13 @@ export const config = {
     .filter(Boolean),
 
   /**
-   * Also post a "[draft pending review]" private note on the Freshdesk ticket
-   * when a draft is created. Off by default — the console (/drafts) is the
-   * review surface. Set JETTA_DRAFT_FD_NOTE=true to re-enable.
+   * Post the suggested reply as a private note on the Freshdesk ticket when a
+   * draft is created. On by default — Freshdesk is the primary review surface
+   * (agents copy the note into the reply editor and send as themselves; the
+   * agent-reply webhook reconciles the draft). JETTA_DRAFT_FD_NOTE=false is
+   * the kill switch, which falls back to console-only review.
    */
-  draftNoteToFreshdesk: env("JETTA_DRAFT_FD_NOTE") === "true",
+  draftNoteToFreshdesk: env("JETTA_DRAFT_FD_NOTE") !== "false",
 
   kv: {
     // Accept both the legacy Vercel KV names and the Upstash Marketplace names,
