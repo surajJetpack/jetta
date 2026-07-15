@@ -99,10 +99,10 @@ export default function GuideContent() {
 
           <p className="text-muted-foreground">
             Good to know: if a customer replies again while a draft waits, the old draft is marked{" "}
-            <i>superseded</i> automatically — only ever act on pending cards. One caveat of the
-            Freshdesk flow: when you&apos;re about to reply with something entirely your own,
-            discard the draft here first (with a reason tag) when you have 10 seconds — otherwise
-            Jetta only learns that its draft went unused, not why.
+            <i>superseded</i> automatically — only ever act on pending cards. Replying in
+            Freshdesk with your own text? Hit &quot;Save feedback&quot; on the card first (tags +
+            note, no send happens) — it attaches automatically to whatever closes the draft, so
+            Jetta learns <i>why</i> its suggestion wasn&apos;t used, not just that it wasn&apos;t.
           </p>
         </CardContent>
       </Card>

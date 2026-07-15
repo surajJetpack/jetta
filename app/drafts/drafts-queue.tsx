@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { CheckCircle2, ExternalLink, Mail, RotateCcw, Trash2, Undo2 } from "lucide-react";
+import { CheckCircle2, ExternalLink, Mail, Plus, RotateCcw, Trash2, Undo2 } from "lucide-react";
 import { toast } from "sonner";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -32,6 +32,10 @@ interface ReplyDraft {
   decidedBy?: string;
   editedBody?: string;
   error?: string;
+  feedbackTags?: string[];
+  feedbackNote?: string;
+  feedbackBy?: string;
+  feedbackAt?: number;
 }
 
 const EVAL_TAGS = [
@@ -83,8 +87,8 @@ function PendingCard({
 }) {
   const [body, setBody] = useState(draft.suggestedReply);
   const [busy, setBusy] = useState(false);
-  const [tags, setTags] = useState<string[]>([]);
-  const [note, setNote] = useState("");
+  const [tags, setTags] = useState<string[]>(draft.feedbackTags ?? []);
+  const [note, setNote] = useState(draft.feedbackNote ?? "");
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [discarding, setDiscarding] = useState(false);
   const edited = body.trim() !== draft.suggestedReply;
@@ -93,7 +97,7 @@ function PendingCard({
     setTags((prev) => (prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]));
   }
 
-  async function decide(action: "approve" | "discard") {
+  async function decide(action: "approve" | "discard" | "feedback") {
     setBusy(true);
     const r = await fetch("/api/admin/drafts", {
       method: "POST",
@@ -112,6 +116,8 @@ function PendingCard({
     } else if (!r.ok) {
       const j = (await r.json().catch(() => null)) as { error?: string } | null;
       toast.error(`Failed: ${j?.error ?? r.statusText}`);
+    } else if (action === "feedback") {
+      toast.success("Feedback saved — it'll attach to whatever decision closes this draft.");
     } else {
       toast.success(action === "approve" ? `Reply sent on #${draft.ticketId}` : "Draft discarded");
     }
@@ -147,6 +153,9 @@ function PendingCard({
         {draft.resolutionSent && <StatusChip tone="published">schedules 24h follow-up</StatusChip>}
         {draft.escalated && <StatusChip tone="draft">escalated to dev team</StatusChip>}
         {draft.error && <StatusChip tone="stale">last send failed: {draft.error.slice(0, 60)}</StatusChip>}
+        {(draft.feedbackTags?.length || draft.feedbackNote) && (
+          <StatusChip tone="published">feedback saved{draft.feedbackBy ? ` by ${draft.feedbackBy}` : ""}</StatusChip>
+        )}
       </div>
 
       <Textarea
@@ -186,7 +195,7 @@ function PendingCard({
               className="text-muted-foreground"
               onClick={() => setFeedbackOpen(!feedbackOpen)}
             >
-              {feedbackOpen ? "Hide feedback" : "Add feedback"}
+              {feedbackOpen ? "Hide feedback" : "Add feedback (saves without sending)"}
             </Button>
           </div>
           {feedbackOpen && (
@@ -198,6 +207,16 @@ function PendingCard({
                 placeholder="Optional note for the learning loop (why was this edited / what to do differently)"
                 className="bg-background text-xs"
               />
+              <div>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={busy || (tags.length === 0 && !note.trim())}
+                  onClick={() => decide("feedback")}
+                >
+                  <Plus /> Add
+                </Button>
+              </div>
             </div>
           )}
         </>

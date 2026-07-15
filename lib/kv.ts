@@ -493,6 +493,15 @@ export interface ReplyDraft {
   editedBody?: string;
   /** Last send failure — the draft stays pending so approval can be retried. */
   error?: string;
+  /**
+   * Feedback saved on the pending draft without deciding it — merged into the
+   * evaluation by whatever decision eventually closes the draft (console or
+   * agent-reply reconciliation).
+   */
+  feedbackTags?: string[];
+  feedbackNote?: string;
+  feedbackBy?: string;
+  feedbackAt?: number;
 }
 
 const REPLY_DRAFT_IDS = "jetta:replydrafts:ids";

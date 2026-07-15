@@ -48,11 +48,11 @@ export async function POST(req: NextRequest) {
     tags?: string[];
     note?: string;
   };
-  if (!id || (action !== "approve" && action !== "discard")) {
-    return NextResponse.json({ error: "id and action (approve|discard) required" }, { status: 400 });
+  if (!id || (action !== "approve" && action !== "discard" && action !== "feedback")) {
+    return NextResponse.json({ error: "id and action (approve|discard|feedback) required" }, { status: 400 });
   }
-  const evalTags = (tags ?? []).filter((t): t is EvalTag => (EVAL_TAGS as readonly string[]).includes(t));
-  if (action === "discard" && evalTags.length === 0) {
+  const requestTags = (tags ?? []).filter((t): t is EvalTag => (EVAL_TAGS as readonly string[]).includes(t));
+  if (action === "discard" && requestTags.length === 0) {
     return NextResponse.json(
       { error: `discard requires at least one reason tag (${EVAL_TAGS.join(", ")})` },
       { status: 400 },
@@ -70,6 +70,38 @@ export async function POST(req: NextRequest) {
   const now = Math.floor(Date.now() / 1000);
   const actor = adminActor(req) ?? "console";
 
+  // Standalone feedback: saved on the pending draft, no decision made. Whatever
+  // eventually closes the draft (console decision or the agent-reply
+  // reconciler) merges it into the evaluation.
+  if (action === "feedback") {
+    if (requestTags.length === 0 && !note?.trim()) {
+      return NextResponse.json({ error: "feedback requires at least one tag or a note" }, { status: 400 });
+    }
+    await updateReplyDraft(id, {
+      feedbackTags: requestTags,
+      feedbackNote: note?.trim() || undefined,
+      feedbackBy: actor,
+      feedbackAt: now,
+    });
+    await logOpsEvent({
+      level: "info",
+      event: "draft.feedback_saved",
+      source: "console",
+      ticketId: draft.ticketId,
+      actor,
+      data: { draftId: draft.id, tags: requestTags, hasNote: !!note?.trim() },
+    });
+    return NextResponse.json({ ok: true, action: "feedback" });
+  }
+
+  // Decisions merge any feedback saved earlier on the card.
+  const savedTags = (draft.feedbackTags ?? []).filter((t): t is EvalTag =>
+    (EVAL_TAGS as readonly string[]).includes(t),
+  );
+  const evalTags = [...new Set([...requestTags, ...savedTags])];
+  const mergedNote =
+    [note?.trim(), draft.feedbackNote?.trim()].filter(Boolean).join(" · ") || undefined;
+
   if (action === "discard") {
     await updateReplyDraft(id, { state: "discarded", decidedAt: now, decidedBy: actor });
     // Discard is the strongest negative signal — record it for the learning loop.
@@ -85,7 +117,7 @@ export async function POST(req: NextRequest) {
       action: "discard",
       rating: "bad",
       tags: evalTags,
-      note: note?.trim() || undefined,
+      note: mergedNote,
       suggestedReply: draft.suggestedReply,
     }).catch(() => {});
     await logOpsEvent({
@@ -94,7 +126,7 @@ export async function POST(req: NextRequest) {
       source: "console",
       ticketId: draft.ticketId,
       actor,
-      data: { draftId: draft.id, tags: evalTags, note: note?.trim() || undefined },
+      data: { draftId: draft.id, tags: evalTags, note: mergedNote },
     });
     return NextResponse.json({ ok: true, action: "discarded" });
   }
@@ -150,7 +182,7 @@ export async function POST(req: NextRequest) {
     action: "approve",
     rating: finalBody !== draft.suggestedReply ? "partial" : "good",
     tags: evalTags,
-    note: note?.trim() || undefined,
+    note: mergedNote,
     suggestedReply: draft.suggestedReply,
     finalBody,
   }).catch(() => {});

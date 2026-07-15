@@ -40,9 +40,10 @@ the ticket link (`#12345 ↗`) for context, then pick one of three moves:
 Notes:
 - If a customer replies again while a draft is waiting, the old draft is
   marked *superseded* automatically — only ever act on pending cards.
-- When you're about to reply with something entirely your own, discard the
-  draft in the console first (with a reason tag) when you have 10 seconds —
-  otherwise Jetta only learns that its draft went unused, not why.
+- Replying in Freshdesk with your own text? Hit **"Save feedback"** on the
+  console card first (tags + note — nothing is sent) — it attaches
+  automatically to whatever decision closes the draft, so Jetta learns *why*
+  its suggestion wasn't used, not just that it wasn't.
 
 ## Ops: the agent-reply automation rule (one-time Freshdesk admin setup)
 

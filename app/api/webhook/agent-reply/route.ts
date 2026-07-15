@@ -22,7 +22,7 @@ import {
   recordOutcome,
   markEventSeen,
 } from "@/lib/kv";
-import { recordEvaluation } from "@/lib/evals";
+import { recordEvaluation, EVAL_TAGS, type EvalTag } from "@/lib/evals";
 import { logOpsEvent } from "@/lib/events";
 import { normalizeReplyText, replySimilarity, classifyReplySimilarity } from "@/lib/reply-similarity";
 import * as freshdesk from "@/lib/tools/freshdesk";
@@ -137,6 +137,15 @@ async function reconcile(ticketId: string, payload: Record<string, unknown>): Pr
       return;
     }
 
+    // Feedback saved on the card pre-decision (console "Save feedback") rides
+    // along into the evaluation — it's the reviewer's "why" that reconciliation
+    // can't infer on its own.
+    const savedTags = (draft.feedbackTags ?? []).filter((t): t is EvalTag =>
+      (EVAL_TAGS as readonly string[]).includes(t),
+    );
+    const withFeedbackNote = (auto: string) =>
+      [draft.feedbackNote?.trim(), auto].filter(Boolean).join(" · ");
+
     if (rating === "bad") {
       await updateReplyDraft(draft.id, { state: "discarded", decidedAt: now, decidedBy });
       await recordEvaluation({
@@ -150,8 +159,10 @@ async function reconcile(ticketId: string, payload: Record<string, unknown>): Pr
         at: now,
         action: "discard",
         rating: "bad",
-        tags: ["other"],
-        note: `agent sent an unrelated reply (auto-reconciled from Freshdesk, similarity ${score.toFixed(2)})`,
+        tags: savedTags.length ? savedTags : ["other"],
+        note: withFeedbackNote(
+          `agent sent an unrelated reply (auto-reconciled from Freshdesk, similarity ${score.toFixed(2)})`,
+        ),
         suggestedReply: draft.suggestedReply,
       }).catch(() => {});
     } else {
@@ -173,8 +184,8 @@ async function reconcile(ticketId: string, payload: Record<string, unknown>): Pr
         at: now,
         action: "approve",
         rating,
-        tags: [],
-        note: `auto-reconciled from Freshdesk (similarity ${score.toFixed(2)})`,
+        tags: savedTags,
+        note: withFeedbackNote(`auto-reconciled from Freshdesk (similarity ${score.toFixed(2)})`),
         suggestedReply: draft.suggestedReply,
         finalBody: reply.body,
       }).catch(() => {});
@@ -206,7 +217,13 @@ async function reconcile(ticketId: string, payload: Record<string, unknown>): Pr
       source: "webhook",
       ticketId,
       actor: decidedBy,
-      data: { draftId: draft.id, rating, score: Number(score.toFixed(3)), agentUserId: reply.userId },
+      data: {
+        draftId: draft.id,
+        rating,
+        score: Number(score.toFixed(3)),
+        agentUserId: reply.userId,
+        ...(draft.feedbackBy ? { feedbackBy: draft.feedbackBy } : {}),
+      },
     });
   } catch (e) {
     await logOpsEvent({
