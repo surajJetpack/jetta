@@ -12,6 +12,7 @@
 import { Redis } from "@upstash/redis";
 import { config } from "./config";
 import { log } from "./logger";
+import type { Gap, ModelTokenStat } from "./analytics";
 
 // TODO: add a `channel` field before scheduling any freshchat follow-ups — the
 // cron's reply/close path is Freshdesk-only, so chat runs skip scheduling today.
@@ -601,4 +602,67 @@ export async function listReplyDrafts(): Promise<ReplyDraft[]> {
     return live.sort((a, b) => b.createdAt - a.createdAt);
   }
   return [...memReplyDrafts.values()].sort((a, b) => b.createdAt - a.createdAt);
+}
+
+// ── Daily rollups (Daily Overview + AI Insight) ────────────────────
+// One persisted aggregate per UTC day, computed by the daily-overview cron
+// (or on demand via the regenerate endpoint). Persisted rather than recomputed
+// on every page load because the raw run-log/outcome feeds are capped windows
+// (500 each) — a busy day could otherwise fall out of the window before the
+// day even ends.
+export interface DailyInsight {
+  headline: string;
+  highlights: string[];
+  watchouts: string[];
+  /** Unix ms when the narrative was generated. */
+  generatedAt: number;
+  /** Label of the model that wrote the narrative (provider/model-id). */
+  model: string;
+}
+
+export interface DailyRollup {
+  /** UTC day key, "2026-07-20". */
+  date: string;
+  /** Unix ms when the rollup was computed. */
+  computedAt: number;
+  outcomes: {
+    total: number;
+    resolved: number;
+    escalated: number;
+    reopened: number;
+    closed: number;
+    deflectionRate: number | null;
+  };
+  byProduct: { product: string; count: number }[];
+  models: ModelTokenStat[];
+  gaps: Gap[];
+  /** AI narrative; null until generated (rollup can be saved before insight). */
+  insight: DailyInsight | null;
+}
+
+const dailyKey = (date: string) => `jetta:daily:${date}`;
+const DAILY_TTL = 400 * 86400; // ~13 months, so a year of history survives.
+const memDaily = new Map<string, DailyRollup>();
+
+export async function saveDailyRollup(rollup: DailyRollup): Promise<void> {
+  const r = client();
+  if (r) {
+    await r.set(dailyKey(rollup.date), rollup, { ex: DAILY_TTL });
+    return;
+  }
+  memDaily.set(rollup.date, rollup);
+}
+
+export async function getDailyRollup(date: string): Promise<DailyRollup | null> {
+  const r = client();
+  if (r) return await r.get<DailyRollup>(dailyKey(date));
+  return memDaily.get(date) ?? null;
+}
+
+/** Fetch several rollups by date key; missing days come back as null. */
+export async function getDailyRollups(dates: string[]): Promise<(DailyRollup | null)[]> {
+  if (!dates.length) return [];
+  const r = client();
+  if (r) return await Promise.all(dates.map((d) => r.get<DailyRollup>(dailyKey(d))));
+  return dates.map((d) => memDaily.get(d) ?? null);
 }

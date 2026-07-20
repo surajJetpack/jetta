@@ -8,6 +8,10 @@
     {
       "path": "/api/cron/kb-sync",
       "schedule": "0 5 * * *"
+    },
+    {
+      "path": "/api/cron/daily-overview",
+      "schedule": "10 6 * * *"
     }
   ]
 }
