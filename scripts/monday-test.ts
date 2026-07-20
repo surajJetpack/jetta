@@ -1,6 +1,7 @@
 /**
- * Live test for the monday.com client. Reads the board, then creates ONE test
- * item with structured columns. Run against the TEST board only.
+ * Live test for the monday.com client: searches the GetSign board, then
+ * attempts to create one test item. The create is a no-op (logged only)
+ * unless MONDAY_ALLOW_WRITES=true.
  *
  *   MONDAY_LIVE=true npx tsx scripts/monday-test.ts
  */
@@ -8,7 +9,7 @@ import { searchDevBoard, createDevItem } from "../lib/tools/monday";
 
 async function main() {
   console.log("--- search_dev_board('mapping') ---");
-  console.log(JSON.stringify(await searchDevBoard("mapping"), null, 2));
+  console.log(JSON.stringify(await searchDevBoard("mapping", "getsign"), null, 2));
 
   console.log("\n--- create_dev_item ---");
   const item = await createDevItem({

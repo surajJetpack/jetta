@@ -151,15 +151,42 @@ export const config = {
 
   fastspring: {
     live: liveFor("FASTSPRING_LIVE"),
-    username: env("FASTSPRING_API_USERNAME"),
-    password: env("FASTSPRING_API_PASSWORD"),
+    // Each monday.com app bills through its own separate FastSpring store —
+    // there is no single set of "the" FastSpring credentials. Apps without an
+    // entry here (or with missing username/password) fall back to the safe
+    // "no billing account found" stub rather than erroring.
+    stores: {
+      vlookup: {
+        username: env("FASTSPRING_API_USERNAME_VLOOKUP"),
+        password: env("FASTSPRING_API_PASSWORD_VLOOKUP"),
+      },
+      trackmy: {
+        username: env("FASTSPRING_API_USERNAME_TRACKMY"),
+        password: env("FASTSPRING_API_PASSWORD_TRACKMY"),
+      },
+    },
     retentionCoupon: env("FASTSPRING_RETENTION_COUPON") ?? "RETAIN20",
+    // Explicit opt-in, independent of STUB_MODE/FASTSPRING_LIVE: must be "true"
+    // for apply_discount/cancel_subscription to actually touch a real
+    // subscription. Account/invoice reads are unaffected and follow
+    // FASTSPRING_LIVE as usual. This also covers the Slack admin commands
+    // (apply discount / confirm cancel), which have no other dry-run gate.
+    allowWrites: env("FASTSPRING_ALLOW_WRITES") === "true",
   },
 
   monday: {
     live: liveFor("MONDAY_LIVE"),
     apiToken: env("MONDAY_API_TOKEN"),
-    devBoardId: env("MONDAY_DEV_BOARD_ID"),
+    // Dev boards, one per product line. "unknown"-product tickets fall back to
+    // the jetpackapps board (see boardIdFor in lib/tools/monday.ts).
+    boardIds: {
+      jetpackapps: env("MONDAY_BOARD_ID_JETPACKAPPS"),
+      getsign: env("MONDAY_BOARD_ID_GETSIGN"),
+    },
+    // Explicit opt-in, independent of STUB_MODE/MONDAY_LIVE: creating items or
+    // posting +1 updates on the real boards requires this to be "true". Search
+    // (read-only) is unaffected and follows MONDAY_LIVE as usual.
+    allowWrites: env("MONDAY_ALLOW_WRITES") === "true",
     // Account subdomain for deep links, e.g. https://jetpackteam.monday.com
     accountUrl: (env("MONDAY_ACCOUNT_URL") ?? "https://monday.com").replace(/\/$/, ""),
   },

@@ -2,6 +2,23 @@
 
 export type Product = "jetpackapps" | "getsign" | "unknown";
 
+/**
+ * The specific monday.com app a ticket concerns — finer-grained than `Product`.
+ * Each app bills through its own separate FastSpring store, so billing lookups
+ * need to know which app, not just the "jetpackapps" vs "getsign" bucket.
+ */
+export type AppProduct =
+  | "vlookup"
+  | "trackmy"
+  | "extract"
+  | "jobflows"
+  | "smartcolumns"
+  | "jetscan"
+  | "pivotreports"
+  | "triggerly"
+  | "getsign"
+  | "unknown";
+
 /** A single message in a Freshdesk ticket conversation. */
 export interface TicketReply {
   /** "agent" (Jetta or a human) or "customer". */
@@ -62,6 +79,8 @@ export interface ConversationContext {
   account: FastSpringAccount | null;
   relatedDevItems: DevBoardItem[];
   product: Product;
+  /** Which app's FastSpring store `account` (if any) was looked up against. */
+  appProduct: AppProduct;
   /** Light-model triage rating; drives tiered model routing. Absent in stub mode. */
   complexity?: "simple" | "standard";
   /** Token usage of auxiliary LLM calls made for this ticket (triage, rerank). */

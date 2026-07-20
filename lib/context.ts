@@ -5,7 +5,7 @@
  */
 import { generateObject, type ModelMessage } from "ai";
 import { z } from "zod";
-import type { ConversationContext, Product, TaskUsage, Ticket } from "./types";
+import type { AppProduct, ConversationContext, Product, TaskUsage, Ticket } from "./types";
 import { config } from "./config";
 import { getModel, modelLabel } from "./llm";
 import * as freshdesk from "./tools/freshdesk";
@@ -46,6 +46,46 @@ export function productFromHint(hint: string | null | undefined): Product | null
   const h = hint?.trim().toLowerCase();
   if (!h || /other|general/.test(h)) return null;
   return /getsign/.test(h) ? "getsign" : "jetpackapps";
+}
+
+/**
+ * Cheap heuristic to attribute a ticket to the *specific* monday.com app it
+ * concerns — finer-grained than `inferProduct`, since each app bills through
+ * its own separate FastSpring store (confirmed 2026-07-20: VLOOKUP and
+ * TrackMy are already two distinct stores, not one shared "jetpackapps" one).
+ */
+export function inferAppProduct(text: string): AppProduct {
+  const t = text.toLowerCase();
+  if (/getsign|e-?sign|signature|mapping/.test(t)) return "getsign";
+  if (/trackmy|track my|courier|parcel|shipment tracking|tracking number/.test(t)) return "trackmy";
+  if (/vlookup/.test(t)) return "vlookup";
+  if (/extract ai|extract-ai|\bextract\b/.test(t)) return "extract";
+  if (/jobflow/.test(t)) return "jobflows";
+  if (/smart column/.test(t)) return "smartcolumns";
+  if (/jetscan/.test(t)) return "jetscan";
+  if (/pivot report/.test(t)) return "pivotreports";
+  if (/triggerly|qr code/.test(t)) return "triggerly";
+  return "unknown";
+}
+
+/**
+ * Freshdesk cf_product dropdown value → AppProduct. Same ground-truth
+ * precedence as `productFromHint`, at the finer per-app grain FastSpring
+ * routing needs.
+ */
+export function appProductFromHint(hint: string | null | undefined): AppProduct | null {
+  const h = hint?.trim().toLowerCase();
+  if (!h || /other|general/.test(h)) return null;
+  if (/getsign/.test(h)) return "getsign";
+  if (/vlookup/.test(h)) return "vlookup";
+  if (/trackmy/.test(h)) return "trackmy";
+  if (/extract/.test(h)) return "extract";
+  if (/jobflow/.test(h)) return "jobflows";
+  if (/smart column/.test(h)) return "smartcolumns";
+  if (/jetscan/.test(h)) return "jetscan";
+  if (/pivot report/.test(h)) return "pivotreports";
+  if (/triggerly/.test(h)) return "triggerly";
+  return null;
 }
 
 const TRIAGE_SYSTEM = `You triage customer support tickets: attribute them to a product and rate their complexity.
@@ -124,24 +164,46 @@ export async function buildContext(
   const contentIsLive = channel === "freshchat" ? config.freshchat.live : config.freshdesk.live;
   const taskUsage: TaskUsage[] = [];
 
+  // Dev board search needs a product (to pick which board to query) before the
+  // async LLM triage below has run. Use the synchronous cf_product/keyword
+  // signals only — "unknown" here falls back to the general jetpackapps board.
+  const keywordProduct = inferProduct(`${ticket.subject}\n${ticket.description}`);
+  const searchProduct = productFromHint(ticket.productHint) ?? keywordProduct;
+
+  // FastSpring lookup needs the specific app (each app has its own store),
+  // same synchronous cf_product/keyword precedence as the dev-board search.
+  const appProduct =
+    appProductFromHint(ticket.productHint) ??
+    inferAppProduct(`${ticket.subject}\n${ticket.description}`);
+
   const [triage, account, relatedDevItems] = await Promise.all([
     contentIsLive
       ? triageTicket(ticket.subject, ticket.description, taskUsage)
       : Promise.resolve<TicketTriage>({ product: "unknown", complexity: "standard" }),
     ticket.requesterEmail
-      ? fastspring.getFastSpringAccount(ticket.requesterEmail).catch(() => null)
+      ? fastspring.getFastSpringAccount(ticket.requesterEmail, appProduct).catch(() => null)
       : Promise.resolve(null),
-    monday.searchDevBoard(ticket.subject).catch(() => []),
+    monday
+      .searchDevBoard(ticket.subject, searchProduct === "unknown" ? "jetpackapps" : searchProduct)
+      .catch(() => []),
   ]);
 
   // Attribution precedence: Freshdesk's cf_product field (ground truth set by
   // agents/forms) > keyword heuristic > LLM triage fallback.
-  const keywordProduct = inferProduct(`${ticket.subject}\n${ticket.description}`);
   const product =
     productFromHint(ticket.productHint) ??
     (keywordProduct !== "unknown" ? keywordProduct : triage.product);
 
-  return { channel, ticket, account, relatedDevItems, product, complexity: triage.complexity, taskUsage };
+  return {
+    channel,
+    ticket,
+    account,
+    relatedDevItems,
+    product,
+    appProduct,
+    complexity: triage.complexity,
+    taskUsage,
+  };
 }
 
 /**

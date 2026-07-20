@@ -120,12 +120,12 @@ async function handleCommand(
       await reply(":no_entry: You're not authorised to run that command.");
       return;
     }
-    const account = await fastspring.getFastSpringAccount(m[2]);
-    if (!account.found || !account.accountId) {
+    const found = await fastspring.findAccountAcrossStores(m[2]);
+    if (!found?.account.accountId) {
       await reply(`No FastSpring account found for ${m[2]}.`);
       return;
     }
-    const r = await fastspring.applyDiscount(account.accountId, m[1]);
+    const r = await fastspring.applyDiscount(found.account.accountId, m[1], found.appProduct);
     await logSlackEvent("info", "slack.privileged_action", userId, { action: "apply_discount", coupon: m[1], email: m[2] });
     await reply(`:white_check_mark: Discount ${m[1]} applied to ${m[2]}. New price ${r.newPrice}, effective ${r.effectiveDate}.`);
     return;
@@ -167,13 +167,13 @@ async function handleCommand(
       await reply(":no_entry: The confirmation must come from a *different* admin than the requester.");
       return;
     }
-    const account = await fastspring.getFastSpringAccount(m[1]);
-    if (!account.found || !account.accountId) {
+    const found = await fastspring.findAccountAcrossStores(m[1]);
+    if (!found?.account.accountId) {
       await reply(`No FastSpring account found for ${m[1]}.`);
       await kvDel(key);
       return;
     }
-    const r = await fastspring.cancelSubscription(account.accountId);
+    const r = await fastspring.cancelSubscription(found.account.accountId, found.appProduct);
     await kvDel(key);
     await logSlackEvent("info", "slack.privileged_action", userId, { action: "cancel_account_confirmed", email: m[1], requestedBy: requester });
     await reply(`:white_check_mark: Subscription for ${m[1]} cancelled. Access ends ${r.accessEndsDate}.`);

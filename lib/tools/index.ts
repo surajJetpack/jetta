@@ -208,7 +208,7 @@ export function buildTools(
         }
         const addr = email ?? requesterEmail;
         if (!addr) return "No email available to look up the account.";
-        return JSON.stringify(await fastspring.getFastSpringAccount(addr));
+        return JSON.stringify(await fastspring.getFastSpringAccount(addr, ctx.appProduct));
       },
     }),
 
@@ -219,7 +219,7 @@ export function buildTools(
         if (!config.fastspring.live) {
           return "Billing system is NOT connected — invoice links cannot be generated. Escalate billing document requests to a human.";
         }
-        return await fastspring.getInvoiceUrl(invoice_id);
+        return await fastspring.getInvoiceUrl(invoice_id, ctx.appProduct);
       },
     }),
 
@@ -234,7 +234,7 @@ export function buildTools(
         const sub = ctx.account?.accountId;
         if (!sub) return "No subscription on file to discount.";
         if (dry) return `[dry-run] would apply retention coupon ${config.fastspring.retentionCoupon}.`;
-        const r = await fastspring.applyDiscount(sub, config.fastspring.retentionCoupon);
+        const r = await fastspring.applyDiscount(sub, config.fastspring.retentionCoupon, ctx.appProduct);
         return `Discount applied. New price ${r.newPrice}, effective ${r.effectiveDate}.`;
       },
     }),
@@ -250,7 +250,7 @@ export function buildTools(
         const sub = ctx.account?.accountId;
         if (!sub) return "No subscription on file to cancel.";
         if (dry) return "[dry-run] would cancel the subscription at end of billing period.";
-        const r = await fastspring.cancelSubscription(sub);
+        const r = await fastspring.cancelSubscription(sub, ctx.appProduct);
         return `Subscription cancelled. Access ends ${r.accessEndsDate}.`;
       },
     }),
@@ -260,7 +260,7 @@ export function buildTools(
       description:
         "Search the Dev board for open items matching the error/symptom. ALWAYS call before create_dev_item. Returns matching item id, title, status, and URL.",
       inputSchema: z.object({ symptom: z.string().describe("Short description of the error/symptom.") }),
-      execute: async ({ symptom }) => JSON.stringify(await monday.searchDevBoard(symptom)),
+      execute: async ({ symptom }) => JSON.stringify(await monday.searchDevBoard(symptom, ctx.product)),
     }),
 
     create_dev_item: tool({
@@ -291,10 +291,12 @@ export function buildTools(
         "Add a +1 note to an existing Dev board item when another user is affected by the same issue.",
       inputSchema: z.object({ item_id: z.string() }),
       execute: async ({ item_id }) => {
-        const url = `${config.monday.accountUrl}/boards/${config.monday.devBoardId}/pulses/${item_id}`;
+        const boardId =
+          ctx.product === "getsign" ? config.monday.boardIds.getsign : config.monday.boardIds.jetpackapps;
+        const url = `${config.monday.accountUrl}/boards/${boardId}/pulses/${item_id}`;
         mondayItemUrl = url;
         if (dry) return `[dry-run] would add +1 to Dev board item ${item_id}. INTERNAL item URL (private note only): ${url}`;
-        const r = await monday.addPlusOne(item_id, ticketId ? interactionUrl(ticketId) : "(no ticket)");
+        const r = await monday.addPlusOne(item_id, ticketId ? interactionUrl(ticketId) : "(no ticket)", ctx.product);
         return `Added +1 to the Dev board item. INTERNAL item URL — put in the private note ONLY, never the customer reply: ${r.url}`;
       },
     }),

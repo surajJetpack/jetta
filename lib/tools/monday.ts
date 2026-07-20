@@ -7,9 +7,14 @@
  * here so the rest of the system depends only on the typed interface.
  */
 import { config } from "../config";
-import type { DevBoardItem } from "../types";
+import type { DevBoardItem, Product } from "../types";
 
 const GRAPHQL = "https://api.monday.com/v2";
+
+/** "unknown"-product tickets fall back to the general jetpackapps board. */
+function boardIdFor(product: Product): string | undefined {
+  return product === "getsign" ? config.monday.boardIds.getsign : config.monday.boardIds.jetpackapps;
+}
 
 async function gql<T>(query: string, variables?: Record<string, unknown>): Promise<T> {
   const res = await fetch(GRAPHQL, {
@@ -29,11 +34,11 @@ async function gql<T>(query: string, variables?: Record<string, unknown>): Promi
   return json.data;
 }
 
-function itemUrl(itemId: string): string {
-  return `${config.monday.accountUrl}/boards/${config.monday.devBoardId}/pulses/${itemId}`;
+function itemUrl(itemId: string, product: Product): string {
+  return `${config.monday.accountUrl}/boards/${boardIdFor(product)}/pulses/${itemId}`;
 }
 
-export async function searchDevBoard(symptom: string): Promise<DevBoardItem[]> {
+export async function searchDevBoard(symptom: string, product: Product): Promise<DevBoardItem[]> {
   if (!config.monday.live) {
     if (/mapping|map|column/i.test(symptom)) {
       return [
@@ -41,7 +46,7 @@ export async function searchDevBoard(symptom: string): Promise<DevBoardItem[]> {
           id: "5566778899",
           title: "[GetSign] Mapping editor: confirm-on-close UX confusion",
           status: "In Progress",
-          url: itemUrl("5566778899"),
+          url: itemUrl("5566778899", "getsign"),
         },
       ];
     }
@@ -52,11 +57,12 @@ export async function searchDevBoard(symptom: string): Promise<DevBoardItem[]> {
   // native contains_text is a strict substring match on the full phrase, which
   // misses near-matches (e.g. "signed document syncing" vs "...not syncing...")
   // — and missing an existing item would make Jetta file a duplicate.
+  const board = boardIdFor(product);
   const data = await gql<{
     boards: { items_page: { items: { id: string; name: string }[] } }[];
   }>(
     `query ($board: [ID!]) { boards(ids: $board) { items_page(limit: 100) { items { id name } } } }`,
-    { board: [config.monday.devBoardId] },
+    { board: [board] },
   ).catch(() => null);
 
   const items = data?.boards?.[0]?.items_page?.items ?? [];
@@ -75,12 +81,12 @@ export async function searchDevBoard(symptom: string): Promise<DevBoardItem[]> {
     .filter((s) => s.score > 0)
     .sort((a, b) => b.score - a.score)
     .slice(0, 5)
-    .map(({ i }) => ({ id: i.id, title: i.name, status: "open", url: itemUrl(i.id) }));
+    .map(({ i }) => ({ id: i.id, title: i.name, status: "open", url: itemUrl(i.id, product) }));
 }
 
 export interface CreateDevItemInput {
   title: string;
-  product: string;
+  product: Product;
   accountUrl: string;
   errorDescription: string;
   reproSteps: string;
@@ -91,10 +97,15 @@ export async function createDevItem(input: CreateDevItemInput): Promise<DevBoard
   if (!config.monday.live) {
     const id = "9900112233";
     console.log(`[stub] create_dev_item "${input.title}"`);
-    return { id, title: input.title, status: "New", url: itemUrl(id) };
+    return { id, title: input.title, status: "New", url: itemUrl(id, input.product) };
+  }
+  if (!config.monday.allowWrites) {
+    const id = "9900112233";
+    console.log(`[MONDAY_ALLOW_WRITES=false] would create_dev_item "${input.title}" — no write made.`);
+    return { id, title: input.title, status: "New", url: itemUrl(id, input.product) };
   }
 
-  const board = config.monday.devBoardId;
+  const board = boardIdFor(input.product);
 
   // Discover the board's columns so we can populate structured fields by title,
   // adapting to whatever board is configured (test board or real bug tracker).
@@ -145,20 +156,28 @@ export async function createDevItem(input: CreateDevItemInput): Promise<DevBoard
     { item: id, body },
   ).catch(() => undefined);
 
-  return { id, title: input.title, status: "New", url: itemUrl(id) };
+  return { id, title: input.title, status: "New", url: itemUrl(id, input.product) };
 }
 
 /** Add a "+1 / me too" note to an existing dev item. Returns the item URL. */
-export async function addPlusOne(itemId: string, ticketUrl: string): Promise<{ url: string }> {
+export async function addPlusOne(
+  itemId: string,
+  ticketUrl: string,
+  product: Product,
+): Promise<{ url: string }> {
   if (!config.monday.live) {
     console.log(`[stub] +1 on item ${itemId} from ${ticketUrl}`);
-    return { url: itemUrl(itemId) };
+    return { url: itemUrl(itemId, product) };
+  }
+  if (!config.monday.allowWrites) {
+    console.log(`[MONDAY_ALLOW_WRITES=false] would +1 item ${itemId} from ${ticketUrl} — no write made.`);
+    return { url: itemUrl(itemId, product) };
   }
   await gql(
     `mutation ($item: ID!, $body: String!) { create_update(item_id: $item, body: $body) { id } }`,
     { item: itemId, body: `+1 — another user affected. Freshdesk ticket: ${ticketUrl}` },
   );
-  return { url: itemUrl(itemId) };
+  return { url: itemUrl(itemId, product) };
 }
 
 export async function extendTrial(

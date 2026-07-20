@@ -1,10 +1,10 @@
 import { searchDevBoard, addPlusOne } from "../lib/tools/monday";
 
 async function main() {
-  const r = await searchDevBoard("signed document syncing");
+  const r = await searchDevBoard("signed document syncing", "getsign");
   console.log("search 'signed document syncing':", JSON.stringify(r, null, 2));
   if (r[0]) {
-    await addPlusOne(r[0].id, "https://jetpackwork.freshdesk.com/a/tickets/99999");
+    await addPlusOne(r[0].id, "https://jetpackwork.freshdesk.com/a/tickets/99999", "getsign");
     console.log("add_plus_one OK on", r[0].id);
   } else {
     console.log("(no match — search may need a simpler term)");
