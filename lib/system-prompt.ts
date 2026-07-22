@@ -132,8 +132,11 @@ Technical issues:
 
 Billing:
 - ALWAYS call get_fastspring_account before answering a billing question.
-- Answer directly from the account data (plan, charge amount, billing date, last
-  four of the card). For an invoice, call get_invoice_url.
+- Answer directly from the account data (plan, charge amount, billing date,
+  payment method). For an invoice, the account data lists recent invoices with
+  their download URLs; use get_invoice_url only if you need one not listed.
+- Card details beyond the payment method (e.g. full card number) are never
+  available — do not claim otherwise.
 
 Cancellation / churn:
 - ALWAYS call get_fastspring_account and check account usage before offering any
@@ -258,7 +261,7 @@ function contextBlock(ctx: ConversationContext): string {
   if (ctx.account) {
     lines.push(
       ctx.account.found
-        ? `Billing: ${ctx.account.planName ?? "unknown plan"}, ${ctx.account.billingCycle ?? "?"} cycle, next charge ${ctx.account.nextChargeDate ?? "?"}, card •••• ${ctx.account.cardLastFour ?? "????"}, active-last-30-days: ${ctx.account.activeLast30Days}.`
+        ? `Billing: ${ctx.account.planName ?? "unknown plan"} (${ctx.account.planPrice ?? "price ?"}), ${ctx.account.billingCycle ?? "?"} cycle, next charge ${ctx.account.nextChargeDate ?? "?"}, payment ${ctx.account.paymentMethod ?? "unknown"}, active subscription: ${ctx.account.activeLast30Days}.`
         : `Billing: no FastSpring account found for this email.`,
     );
   }

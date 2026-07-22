@@ -53,11 +53,20 @@ export interface FastSpringAccount {
   found: boolean;
   email: string;
   accountId: string | null;
+  /** The subscription to act on (discount/cancel target). Active one preferred. */
+  subscriptionId: string | null;
   planName: string | null;
+  /** Recurring charge amount, formatted (e.g. "$45.00"). */
+  planPrice: string | null;
   billingCycle: string | null;
   nextChargeDate: string | null;
-  cardLastFour: string | null;
-  /** Whether the account shows usage in the last 30 days (drives the churn flow). */
+  /** Human-readable payment method, e.g. "Mastercard ····5937" or "PayPal". */
+  paymentMethod: string | null;
+  /**
+   * Proxy for "worth offering a retention discount": the account has an ACTIVE
+   * (not deactivated/canceled) subscription. FastSpring exposes no true product
+   * usage signal, so subscription state is the best available proxy.
+   */
   activeLast30Days: boolean;
   invoices: FastSpringInvoice[];
 }

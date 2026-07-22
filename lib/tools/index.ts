@@ -231,7 +231,7 @@ export function buildTools(
         if (!config.fastspring.live) {
           return "Billing system is NOT connected — no discount was applied. Do not tell the customer a discount was applied; escalate to a human for billing actions.";
         }
-        const sub = ctx.account?.accountId;
+        const sub = ctx.account?.subscriptionId;
         if (!sub) return "No subscription on file to discount.";
         if (dry) return `[dry-run] would apply retention coupon ${config.fastspring.retentionCoupon}.`;
         const r = await fastspring.applyDiscount(sub, config.fastspring.retentionCoupon, ctx.appProduct);
@@ -247,7 +247,7 @@ export function buildTools(
         if (!config.fastspring.live) {
           return "Billing system is NOT connected — nothing was cancelled. Do not confirm any cancellation; escalate to a human for billing actions.";
         }
-        const sub = ctx.account?.accountId;
+        const sub = ctx.account?.subscriptionId;
         if (!sub) return "No subscription on file to cancel.";
         if (dry) return "[dry-run] would cancel the subscription at end of billing period.";
         const r = await fastspring.cancelSubscription(sub, ctx.appProduct);

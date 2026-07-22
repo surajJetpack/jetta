@@ -121,11 +121,11 @@ async function handleCommand(
       return;
     }
     const found = await fastspring.findAccountAcrossStores(m[2]);
-    if (!found?.account.accountId) {
-      await reply(`No FastSpring account found for ${m[2]}.`);
+    if (!found?.account.subscriptionId) {
+      await reply(`No FastSpring subscription found for ${m[2]}.`);
       return;
     }
-    const r = await fastspring.applyDiscount(found.account.accountId, m[1], found.appProduct);
+    const r = await fastspring.applyDiscount(found.account.subscriptionId, m[1], found.appProduct);
     await logSlackEvent("info", "slack.privileged_action", userId, { action: "apply_discount", coupon: m[1], email: m[2] });
     await reply(`:white_check_mark: Discount ${m[1]} applied to ${m[2]}. New price ${r.newPrice}, effective ${r.effectiveDate}.`);
     return;
@@ -168,12 +168,12 @@ async function handleCommand(
       return;
     }
     const found = await fastspring.findAccountAcrossStores(m[1]);
-    if (!found?.account.accountId) {
-      await reply(`No FastSpring account found for ${m[1]}.`);
+    if (!found?.account.subscriptionId) {
+      await reply(`No FastSpring subscription found for ${m[1]}.`);
       await kvDel(key);
       return;
     }
-    const r = await fastspring.cancelSubscription(found.account.accountId, found.appProduct);
+    const r = await fastspring.cancelSubscription(found.account.subscriptionId, found.appProduct);
     await kvDel(key);
     await logSlackEvent("info", "slack.privileged_action", userId, { action: "cancel_account_confirmed", email: m[1], requestedBy: requester });
     await reply(`:white_check_mark: Subscription for ${m[1]} cancelled. Access ends ${r.accessEndsDate}.`);
