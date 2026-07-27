@@ -184,6 +184,77 @@ export async function kvDel(key: string): Promise<void> {
   memKv.delete(key);
 }
 
+// ── Monetization approvals (Slack human-in-the-loop for trial/discount) ──
+// Jetta requests a trial extension or discount; a human approves it in Slack,
+// which then executes the monday call. Pending requests live here briefly.
+export interface MonetApproval {
+  id: string;
+  action: "trial" | "discount";
+  /** AppProduct key (which monday app). */
+  app: string;
+  accountSlug: string;
+  /** trial only — target total trial length in days. */
+  days?: number;
+  /** discount only. */
+  percent?: number;
+  daysValid?: number;
+  period?: "MONTHLY" | "YEARLY";
+  /** Freshdesk ticket this was requested from, if any. */
+  ticketId?: string;
+  createdAt: number; // unix seconds
+}
+
+const monetApprovalKey = (id: string) => `jetta:monet-approval:${id}`;
+const MONET_APPROVAL_IDS = "jetta:monet-approvals:ids";
+const MONET_APPROVAL_TTL = 3 * 86400; // pending approvals expire after 3 days
+const memMonetApprovals = new Map<string, MonetApproval>();
+
+// Store the object directly (Upstash serializes it) rather than via the string
+// kvSet helper, which would double-encode and break on read. An index set backs
+// listMonetApprovals (the console/Slack review queue).
+export async function saveMonetApproval(a: MonetApproval): Promise<void> {
+  const r = client();
+  if (r) {
+    await r.set(monetApprovalKey(a.id), a, { ex: MONET_APPROVAL_TTL });
+    await r.sadd(MONET_APPROVAL_IDS, a.id);
+    return;
+  }
+  memMonetApprovals.set(a.id, a);
+}
+
+export async function getMonetApproval(id: string): Promise<MonetApproval | null> {
+  const r = client();
+  if (r) return await r.get<MonetApproval>(monetApprovalKey(id));
+  return memMonetApprovals.get(id) ?? null;
+}
+
+export async function deleteMonetApproval(id: string): Promise<void> {
+  const r = client();
+  if (r) {
+    await r.del(monetApprovalKey(id));
+    await r.srem(MONET_APPROVAL_IDS, id);
+    return;
+  }
+  memMonetApprovals.delete(id);
+}
+
+/** All pending approvals (newest first); prunes expired ids from the index. */
+export async function listMonetApprovals(): Promise<MonetApproval[]> {
+  const r = client();
+  if (r) {
+    const ids = await r.smembers(MONET_APPROVAL_IDS);
+    if (!ids.length) return [];
+    const raw = await Promise.all(ids.map((id) => r.get<MonetApproval>(monetApprovalKey(id))));
+    const live: MonetApproval[] = [];
+    for (let i = 0; i < ids.length; i++) {
+      if (raw[i]) live.push(raw[i]!);
+      else await r.srem(MONET_APPROVAL_IDS, ids[i]); // expired (TTL) → drop from index
+    }
+    return live.sort((a, b) => b.createdAt - a.createdAt);
+  }
+  return [...memMonetApprovals.values()].sort((a, b) => b.createdAt - a.createdAt);
+}
+
 // ── Phase 0: outcome feedback log ──────────────────────────────────
 export interface OutcomeEvent {
   ticketId: string;

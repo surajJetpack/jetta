@@ -17,10 +17,12 @@ import { NextRequest, NextResponse } from "next/server";
 import crypto from "node:crypto";
 import { config } from "@/lib/config";
 import { kvSet, kvGet, kvDel } from "@/lib/kv";
+import { resolveMonetApproval } from "@/lib/monetization-approvals";
 import { getArticle, createArticle, updateArticle, transitionState } from "@/lib/kb-store";
 import * as freshdesk from "@/lib/tools/freshdesk";
 import * as fastspring from "@/lib/tools/fastspring";
-import * as monday from "@/lib/tools/monday";
+import * as mondayMonetization from "@/lib/tools/monday-monetization";
+import type { AppProduct } from "@/lib/types";
 import { replyInThread, readThread } from "@/lib/tools/slack";
 import { draftKbArticle } from "@/lib/knowledge-loop";
 import { logOpsEvent } from "@/lib/events";
@@ -96,8 +98,9 @@ async function handleCommand(
     return;
   }
 
-  // extend trial for <email> <N> days
-  m = cmd.match(/^extend trial for (\S+@\S+)\s+(\d+)\s*days?/i);
+  // extend monday trial <app> <account-url-or-slug> <N> days
+  // (monday's mutation is keyed by account slug + app, so both are required.)
+  m = cmd.match(/^extend monday trial (\S+) (\S+)\s+(\d+)\s*days?/i);
   if (m) {
     if (!isAdmin(userId)) {
       console.warn(`Rejected extend_trial from non-admin Slack user ${userId}`);
@@ -105,9 +108,59 @@ async function handleCommand(
       await reply(":no_entry: You're not authorised to run that command.");
       return;
     }
-    const r = await monday.extendTrial(m[1], Number(m[2]));
-    await logSlackEvent("info", "slack.privileged_action", userId, { action: "extend_trial", email: m[1], days: Number(m[2]) });
-    await reply(`:white_check_mark: Trial for ${m[1]} extended to ${r.newTrialEndDate}.`);
+    const app = m[1].toLowerCase() as AppProduct;
+    const slug = mondayMonetization.parseAccountSlug(m[2]);
+    if (!config.monday.monetization.stores[app]?.appId) {
+      await reply(`:warning: No monday monetization config for app "${m[1]}". Configured apps: ${Object.keys(config.monday.monetization.stores).join(", ") || "(none)"}.`);
+      return;
+    }
+    if (!slug) { await reply(`:warning: "${m[2]}" isn't a monday account URL or slug.`); return; }
+    const r = await mondayMonetization.extendTrial(app, slug, Number(m[3]));
+    await logSlackEvent("info", "slack.privileged_action", userId, { action: "extend_trial", app, slug, days: Number(m[3]) });
+    await reply(r.success
+      ? `:white_check_mark: Trial for *${slug}* (${app}) set to ${m[3]} days.`
+      : `:x: monday declined the trial extension for *${slug}*: ${r.reason || "no reason given"}.`);
+    return;
+  }
+
+  // apply monday discount <app> <account> <percent> <days> <monthly|yearly>
+  m = cmd.match(/^apply monday discount (\S+) (\S+)\s+(\d+)\s+(\d+)\s+(monthly|yearly)/i);
+  if (m) {
+    if (!isAdmin(userId)) {
+      await logSlackEvent("warn", "slack.command_rejected", userId, { action: "apply_monday_discount" });
+      await reply(":no_entry: You're not authorised to run that command.");
+      return;
+    }
+    const app = m[1].toLowerCase() as AppProduct;
+    const slug = mondayMonetization.parseAccountSlug(m[2]);
+    if (!config.monday.monetization.stores[app]?.appId) {
+      await reply(`:warning: No monday monetization config for app "${m[1]}". Configured apps: ${Object.keys(config.monday.monetization.stores).join(", ") || "(none)"}.`);
+      return;
+    }
+    if (!slug) { await reply(`:warning: "${m[2]}" isn't a monday account URL or slug.`); return; }
+    const r = await mondayMonetization.applyDiscount(app, slug, {
+      percent: Number(m[3]), daysValid: Number(m[4]), period: m[5].toUpperCase() as "MONTHLY" | "YEARLY",
+    });
+    await logSlackEvent("info", "slack.privileged_action", userId, { action: "apply_monday_discount", app, slug, percent: Number(m[3]) });
+    await reply(r.applied
+      ? `:white_check_mark: Discount applied to *${slug}* (${app}): ${r.detail}.`
+      : `:x: Discount NOT applied to *${slug}*: ${r.detail}.`);
+    return;
+  }
+
+  // approve / reject monet <ref> — decide a trial/discount request Jetta made
+  m = cmd.match(/^(approve|reject) monet (\w+)/i);
+  if (m) {
+    const decision = m[1].toLowerCase() as "approve" | "reject";
+    if (!isAdmin(userId)) {
+      await logSlackEvent("warn", "slack.command_rejected", userId, { action: `${decision}_monet` });
+      await reply(":no_entry: You're not authorised to decide monetization actions.");
+      return;
+    }
+    const res = await resolveMonetApproval(m[2], decision, `slack:${userId}`);
+    await logSlackEvent("info", "slack.privileged_action", userId, { action: `${decision}_monet`, ref: m[2], ok: res.ok });
+    const icon = !res.found ? ":grey_question:" : decision === "reject" ? ":wastebasket:" : res.ok ? ":white_check_mark:" : ":x:";
+    await reply(`${icon} ${res.message}`);
     return;
   }
 

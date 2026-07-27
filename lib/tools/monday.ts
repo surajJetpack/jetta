@@ -1,10 +1,10 @@
 /**
- * monday.com tool client — Dev board search/create + Marketplace actions.
+ * monday.com tool client — Dev board search / create / +1 (board GraphQL API,
+ * board-scoped MONDAY_API_TOKEN).
  *
- * Dev board items use the GraphQL API. `extend_trial` and
- * `apply_platform_discount` hit the monday Marketplace/platform API, which is
- * the least standardised part of this integration — the real calls are wrapped
- * here so the rest of the system depends only on the typed interface.
+ * Marketplace monetization (trial extension + discounts) lives in
+ * lib/tools/monday-monetization.ts — it needs app-level credentials the board
+ * token can't provide, so it's a separate client.
  */
 import { config } from "../config";
 import type { DevBoardItem, Product } from "../types";
@@ -180,30 +180,6 @@ export async function addPlusOne(
   return { url: itemUrl(itemId, product) };
 }
 
-export async function extendTrial(
-  email: string,
-  days: number,
-): Promise<{ newTrialEndDate: string }> {
-  if (!config.monday.live) {
-    console.log(`[stub] extend_trial ${email} +${days}d`);
-    return { newTrialEndDate: "2026-06-26" };
-  }
-  // monday Marketplace trial extension is account-specific; this is the
-  // integration point to wire to the platform API once the endpoint is known.
-  throw new Error(
-    "extend_trial: live monday Marketplace API not yet wired — set STUB_MODE=true or implement.",
-  );
-}
-
-export async function applyPlatformDiscount(
-  email: string,
-  percent: number,
-): Promise<{ applied: boolean }> {
-  if (!config.monday.live) {
-    console.log(`[stub] apply_platform_discount ${email} ${percent}%`);
-    return { applied: true };
-  }
-  throw new Error(
-    "apply_platform_discount: live monday Marketplace API not yet wired — set STUB_MODE=true or implement.",
-  );
-}
+// Trial extension + discounts moved to lib/tools/monday-monetization.ts — they
+// use the Marketplace monetization API (app collaborator token), not the
+// board GraphQL client above.

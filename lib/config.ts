@@ -189,6 +189,36 @@ export const config = {
     allowWrites: env("MONDAY_ALLOW_WRITES") === "true",
     // Account subdomain for deep links, e.g. https://jetpackteam.monday.com
     accountUrl: (env("MONDAY_ACCOUNT_URL") ?? "https://monday.com").replace(/\/$/, ""),
+    // Marketplace monetization (trial extension + per-account discounts). This
+    // is a DIFFERENT credential from apiToken above: the board apiToken cannot
+    // touch monetization. Each product is its own monday app, so config is
+    // per-app (keyed by AppProduct) — mirrors config.fastspring.stores.
+    //   collaboratorToken — app collaborator token, for the trial/discount mutations
+    //   appId              — the monday app id
+    //   planIds            — comma-separated plan ids (first is the default target)
+    // Apps without an entry (or missing token/appId) fail closed in
+    // lib/tools/monday-monetization.ts.
+    monetization: {
+      stores: {
+        getsign: {
+          // The board MONDAY_API_TOKEN's owner is an app collaborator, so it can
+          // manage monetization too — fall back to it if no dedicated token is set.
+          collaboratorToken: env("MONDAY_COLLAB_TOKEN_GETSIGN") ?? env("MONDAY_API_TOKEN"),
+          appId: env("MONDAY_APP_ID_GETSIGN"),
+          planIds: (env("MONDAY_PLAN_IDS_GETSIGN") ?? "").split(",").map((s) => s.trim()).filter(Boolean),
+          // For phase-2 webhook JWT verification / mock-subscription testing.
+          signingSecret: env("MONDAY_SIGNING_SECRET_GETSIGN"),
+          clientSecret: env("MONDAY_CLIENT_SECRET_GETSIGN"),
+        },
+      } as Record<
+        string,
+        { collaboratorToken?: string; appId?: string; planIds: string[]; signingSecret?: string; clientSecret?: string }
+      >,
+      // Explicit opt-in, independent of STUB_MODE/MONDAY_LIVE: must be "true" for
+      // extend_trial / apply_discount to actually call monday. Also gates the
+      // Slack admin commands, which have no other dry-run.
+      allowWrites: env("MONDAY_MONETIZATION_ALLOW_WRITES") === "true",
+    },
   },
 
   slack: {

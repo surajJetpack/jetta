@@ -5,6 +5,7 @@ import LogoutButton from "./logout-button";
 import { GuideBanner } from "./guide-banner";
 import { ThemeToggle } from "@/components/jetta/theme-toggle";
 import { PendingDraftsBadge } from "@/components/jetta/pending-drafts-badge";
+import { PendingMonetBadge } from "@/components/jetta/pending-monet-badge";
 
 const TABS = [
   { href: "/", label: "Console", id: "console" },
@@ -12,6 +13,7 @@ const TABS = [
   { href: "/evals", label: "Evals", id: "evals" },
   { href: "/kb", label: "Knowledge Base", id: "kb" },
   { href: "/analytics", label: "Insights", id: "insights" },
+  { href: "/billing", label: "Billing", id: "billing" },
   { href: "/guide", label: "Guide", id: "guide" },
 ];
 
@@ -60,6 +62,7 @@ export function Nav({ current, user }: { current: string; user: string }) {
             >
               {t.label}
               {t.id === "drafts" && <PendingDraftsBadge active={t.id === current} />}
+              {t.id === "billing" && <PendingMonetBadge active={t.id === current} />}
             </Link>
           ))}
         </div>

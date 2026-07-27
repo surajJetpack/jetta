@@ -18,11 +18,12 @@ import * as freshdesk from "./freshdesk";
 import * as freshchat from "./freshchat";
 import * as fastspring from "./fastspring";
 import * as monday from "./monday";
+import * as mondayMonetization from "./monday-monetization";
 import * as slack from "./slack";
 import { searchPublishedKb } from "../knowledge/dynamic-kb";
 import { vectorEnabled, queryVector, type VectorHit } from "../vector";
 import { rerankHits } from "../rerank";
-import { recordKbHits } from "../kv";
+import { recordKbHits, saveMonetApproval } from "../kv";
 
 export interface AgentSignals {
   resolutionSent: boolean;
@@ -302,22 +303,54 @@ export function buildTools(
     }),
 
     extend_trial: tool({
-      description: "Extend a user's trial by a number of days.",
-      inputSchema: z.object({ email: z.string().optional(), days: z.number().int() }),
-      execute: async ({ email, days }) => {
-        if (dry) return `[dry-run] would extend trial for ${email ?? requesterEmail ?? "?"} by ${days} days.`;
-        const r = await monday.extendTrial(email ?? requesterEmail ?? "", days);
-        return `Trial extended. New end date ${r.newTrialEndDate}.`;
+      description:
+        "REQUEST a trial extension for the customer's monday.com app (a human on the team approves it in Slack before it takes effect — it is NOT applied immediately). Requires their monday account (their monday URL, e.g. https://acme.monday.com, or account slug) — ask for it if you don't have it. The extension REPLACES the remaining trial (not additive).",
+      inputSchema: z.object({
+        account: z.string().describe("The customer's monday URL or account slug."),
+        days: z.number().int().describe("Total trial length in days from now (max 365)."),
+      }),
+      execute: async ({ account, days }) => {
+        const slug = mondayMonetization.parseAccountSlug(account);
+        if (!slug) return "That doesn't look like a monday account URL or slug — ask the customer for their monday URL (e.g. https://acme.monday.com).";
+        if (dry) return `[dry-run] would request approval to extend ${slug}'s trial to ${days} days.`;
+        const id = crypto.randomUUID().slice(0, 6);
+        await saveMonetApproval({
+          id, action: "trial", app: ctx.appProduct, accountSlug: slug, days,
+          ticketId, createdAt: Math.floor(Date.now() / 1000),
+        });
+        await slack.requestMonetApproval({
+          id, action: "trial", app: ctx.appProduct, accountSlug: slug,
+          summary: `set trial to ${days} days`,
+          ticketUrl: ticketId ? interactionUrl(ticketId) : undefined,
+        });
+        return `Trial-extension request sent to the team for approval (ref ${id}). It is NOT applied yet. Tell the customer their request is being processed and will be confirmed shortly — do NOT say the trial has been extended.`;
       },
     }),
 
-    apply_platform_discount: tool({
-      description: "Grant a monday Marketplace platform-level discount.",
-      inputSchema: z.object({ email: z.string().optional(), percent: z.number().int() }),
-      execute: async ({ email, percent }) => {
-        if (dry) return `[dry-run] would apply ${percent}% platform discount for ${email ?? requesterEmail ?? "?"}.`;
-        await monday.applyPlatformDiscount(email ?? requesterEmail ?? "", percent);
-        return "Platform discount applied.";
+    apply_monday_discount: tool({
+      description:
+        "REQUEST a monday Marketplace discount for the customer's account (a human approves it in Slack before it takes effect — NOT applied immediately). Requires their monday account (URL or slug). Only in the churn/retention flow, framed as a one-time offer. This is the discount tool for CURRENT (monday-billed) customers; the separate apply_discount tool is only for legacy FastSpring accounts.",
+      inputSchema: z.object({
+        account: z.string().describe("The customer's monday URL or account slug."),
+        percent: z.number().int().describe("Percent off, 1-100."),
+        days_valid: z.number().int().describe("How many days the discount stays valid."),
+        period: z.enum(["MONTHLY", "YEARLY"]).describe("Which billing period the discount applies to."),
+      }),
+      execute: async ({ account, percent, days_valid, period }) => {
+        const slug = mondayMonetization.parseAccountSlug(account);
+        if (!slug) return "That doesn't look like a monday account URL or slug — ask the customer for their monday URL.";
+        if (dry) return `[dry-run] would request approval for a ${percent}% ${period.toLowerCase()} discount to ${slug} for ${days_valid} days.`;
+        const id = crypto.randomUUID().slice(0, 6);
+        await saveMonetApproval({
+          id, action: "discount", app: ctx.appProduct, accountSlug: slug,
+          percent, daysValid: days_valid, period, ticketId, createdAt: Math.floor(Date.now() / 1000),
+        });
+        await slack.requestMonetApproval({
+          id, action: "discount", app: ctx.appProduct, accountSlug: slug,
+          summary: `${percent}% off ${period.toLowerCase()}, valid ${days_valid} days (one-time)`,
+          ticketUrl: ticketId ? interactionUrl(ticketId) : undefined,
+        });
+        return `Discount request sent to the team for approval (ref ${id}). It is NOT applied yet. Tell the customer the offer is being processed and will be confirmed shortly — do NOT say a discount has been applied.`;
       },
     }),
 

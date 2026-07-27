@@ -52,6 +52,38 @@ export async function sendEscalation(input: EscalationInput): Promise<{ ts: stri
   return { ts };
 }
 
+export interface MonetApprovalRequest {
+  id: string;
+  action: "trial" | "discount";
+  app: string;
+  accountSlug: string;
+  /** Human-readable summary of what will happen, e.g. "set trial to 20 days". */
+  summary: string;
+  ticketUrl?: string;
+}
+
+/**
+ * Post a trial/discount approval request to the escalation channel, WITH the
+ * exact Slack commands to approve or reject. A human runs one of them; the
+ * approve path then executes the monday call.
+ */
+export async function requestMonetApproval(req: MonetApprovalRequest): Promise<{ ts: string }> {
+  const channel = config.slack.escalationChannel ?? "#jetta-escalations";
+  const icon = req.action === "trial" ? ":hourglass_flowing_sand:" : ":money_with_wings:";
+  const text = [
+    `${icon} *Approval needed — ${req.app} ${req.action}*  (ref \`${req.id}\`)`,
+    req.ticketUrl ? `*Ticket:* ${req.ticketUrl}` : `_Requested by Jetta_`,
+    `*Account:* \`${req.accountSlug}\``,
+    `*Action:* ${req.summary}`,
+    "",
+    `*To approve* — reply in this channel:  \`@Jetta approve monet ${req.id}\``,
+    `*To reject* — reply:  \`@Jetta reject monet ${req.id}\``,
+    `_Nothing happens on monday until an admin approves. This request expires in 3 days._`,
+  ].join("\n");
+  const ts = await postMessage(channel, text);
+  return { ts };
+}
+
 /** Ping the team that a Jetta draft reply is waiting for review (draft mode). */
 export async function notifyDraftPending(input: {
   subject: string;
