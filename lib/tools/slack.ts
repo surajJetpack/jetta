@@ -57,9 +57,11 @@ export interface MonetApprovalRequest {
   action: "trial" | "discount";
   app: string;
   accountSlug: string;
-  /** Human-readable summary of what will happen, e.g. "set trial to 20 days". */
+  /** Human-readable summary of what will happen, e.g. "extend trial by 7 days". */
   summary: string;
   ticketUrl?: string;
+  /** Abuse/heads-up note surfaced to the reviewer, if any. */
+  flagged?: string;
 }
 
 /**
@@ -75,6 +77,7 @@ export async function requestMonetApproval(req: MonetApprovalRequest): Promise<{
     req.ticketUrl ? `*Ticket:* ${req.ticketUrl}` : `_Requested by Jetta_`,
     `*Account:* \`${req.accountSlug}\``,
     `*Action:* ${req.summary}`,
+    ...(req.flagged ? [`:triangular_flag_on_post: *Flagged:* ${req.flagged}`] : []),
     "",
     `*To approve* — reply in this channel:  \`@Jetta approve monet ${req.id}\``,
     `*To reject* — reply:  \`@Jetta reject monet ${req.id}\``,

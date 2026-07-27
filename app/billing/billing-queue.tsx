@@ -24,6 +24,7 @@ interface MonetApproval {
   daysValid?: number;
   period?: "MONTHLY" | "YEARLY";
   ticketId?: string;
+  flagged?: string;
   createdAt: number;
 }
 
@@ -76,6 +77,12 @@ function ApprovalCard({
         </>
       }
     >
+      {appr.flagged && (
+        <Alert variant="destructive">
+          <TriangleAlert />
+          <AlertTitle>Flagged: {appr.flagged}</AlertTitle>
+        </Alert>
+      )}
       <div className="flex flex-wrap items-center gap-1.5 text-sm">
         <StatusChip tone={appr.action === "trial" ? "draft" : "published"}>{summary(appr)}</StatusChip>
         {appr.ticketId && (

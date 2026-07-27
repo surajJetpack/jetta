@@ -26,6 +26,9 @@ import { rerankHits } from "../rerank";
 import { recordKbHits } from "../kv";
 import { submitMonetApproval } from "../monetization-approvals";
 
+/** Standard trial extension length Jetta grants — fixed policy, not customer-chosen. */
+const TRIAL_EXTENSION_DAYS = 7;
+
 export interface AgentSignals {
   resolutionSent: boolean;
 }
@@ -305,21 +308,22 @@ export function buildTools(
 
     extend_trial: tool({
       description:
-        "REQUEST a trial extension for the customer's monday.com app (a human on the team approves it in Slack before it takes effect — it is NOT applied immediately). Requires their monday account (their monday URL, e.g. https://acme.monday.com, or account slug) — ask for it if you don't have it. The extension REPLACES the remaining trial (not additive).",
+        "REQUEST the standard 7-day trial extension for the customer's monday.com app (a human on the team approves it in Slack before it takes effect — it is NOT applied immediately). Extensions are always 7 days — do not offer a different length even if the customer asks for more. Requires their monday account (their monday URL, e.g. https://acme.monday.com, or account slug) — ask for it if you don't have it.",
       inputSchema: z.object({
         account: z.string().describe("The customer's monday URL or account slug."),
-        days: z.number().int().describe("Total trial length in days from now (max 365)."),
       }),
-      execute: async ({ account, days }) => {
+      execute: async ({ account }) => {
         const slug = mondayMonetization.parseAccountSlug(account);
         if (!slug) return "That doesn't look like a monday account URL or slug — ask the customer for their monday URL (e.g. https://acme.monday.com).";
-        if (dry) return `[dry-run] would request approval to extend ${slug}'s trial to ${days} days.`;
-        const { id, deduped } = await submitMonetApproval({
+        const days = TRIAL_EXTENSION_DAYS; // standard, fixed
+        if (dry) return `[dry-run] would request approval to extend ${slug}'s trial by the standard ${days} days.`;
+        const { id, deduped, flagged } = await submitMonetApproval({
           action: "trial", app: ctx.appProduct, accountSlug: slug, days, ticketId,
-          summary: `set trial to ${days} days`,
+          summary: `extend trial by ${days} days`,
           ticketUrl: ticketId ? interactionUrl(ticketId) : undefined,
         });
-        return `${deduped ? `A matching trial-extension request is already pending approval (ref ${id})` : `Trial-extension request sent to the team for approval (ref ${id})`}. It is NOT applied yet. Tell the customer their request is being processed and will be confirmed shortly — do NOT say the trial has been extended.`;
+        const flagNote = flagged ? ` (Heads up: flagged for review — ${flagged})` : "";
+        return `${deduped ? `A trial-extension request for this account is already pending approval (ref ${id})` : `Trial-extension request sent to the team for approval (ref ${id})`}${flagNote}. It is NOT applied yet — the extension is a standard ${days} days. Tell the customer their request is being processed and will be confirmed shortly — do NOT say the trial has been extended, and do NOT promise a specific number of days.`;
       },
     }),
 

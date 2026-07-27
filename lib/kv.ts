@@ -201,6 +201,8 @@ export interface MonetApproval {
   period?: "MONTHLY" | "YEARLY";
   /** Freshdesk ticket this was requested from, if any. */
   ticketId?: string;
+  /** Set when the request looks abusive (e.g. repeat trial extension) — shown to the reviewer. */
+  flagged?: string;
   createdAt: number; // unix seconds
 }
 

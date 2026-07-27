@@ -10,6 +10,7 @@ import {
   deleteMonetApproval,
   saveMonetApproval,
   listMonetApprovals,
+  rateCount,
   type MonetApproval,
 } from "./kv";
 import type { AppProduct } from "./types";
@@ -48,9 +49,19 @@ function sameRequest(a: MonetApproval, b: MonetRequestInput): boolean {
  * already pending, in which case reuse it (dedup guard: LLMs sometimes call the
  * tool twice, which would otherwise queue duplicate requests).
  */
-export async function submitMonetApproval(input: MonetRequestInput): Promise<{ id: string; deduped: boolean }> {
+export async function submitMonetApproval(
+  input: MonetRequestInput,
+): Promise<{ id: string; deduped: boolean; flagged?: string }> {
   const existing = (await listMonetApprovals()).find((a) => sameRequest(a, input));
-  if (existing) return { id: existing.id, deduped: true };
+  if (existing) return { id: existing.id, deduped: true, flagged: existing.flagged };
+
+  // Abuse flag: count trial-extension requests per account over a rolling 90-day
+  // window; the 2nd+ request is surfaced to the reviewer (a human still decides).
+  let flagged: string | undefined;
+  if (input.action === "trial") {
+    const n = await rateCount(`jetta:trial-ext:${input.app}:${input.accountSlug}`, 90 * 86400).catch(() => 1);
+    if (n >= 2) flagged = `possible abuse — trial-extension request #${n} for this account in the last 90 days`;
+  }
 
   const id = crypto.randomUUID().slice(0, 6);
   await saveMonetApproval({
@@ -63,6 +74,7 @@ export async function submitMonetApproval(input: MonetRequestInput): Promise<{ i
     daysValid: input.daysValid,
     period: input.period,
     ticketId: input.ticketId,
+    flagged,
     createdAt: Math.floor(Date.now() / 1000),
   });
   await slack.requestMonetApproval({
@@ -72,8 +84,9 @@ export async function submitMonetApproval(input: MonetRequestInput): Promise<{ i
     accountSlug: input.accountSlug,
     summary: input.summary,
     ticketUrl: input.ticketUrl,
+    flagged,
   });
-  return { id, deduped: false };
+  return { id, deduped: false, flagged };
 }
 
 export interface ResolveResult {
