@@ -5,9 +5,76 @@
  * place. Approving runs the real monday call (still bounded by
  * MONDAY_MONETIZATION_ALLOW_WRITES); rejecting just discards the request.
  */
-import { getMonetApproval, deleteMonetApproval } from "./kv";
+import {
+  getMonetApproval,
+  deleteMonetApproval,
+  saveMonetApproval,
+  listMonetApprovals,
+  type MonetApproval,
+} from "./kv";
 import type { AppProduct } from "./types";
 import * as monetization from "./tools/monday-monetization";
+import * as slack from "./tools/slack";
+
+export interface MonetRequestInput {
+  action: "trial" | "discount";
+  app: string;
+  accountSlug: string;
+  days?: number;
+  percent?: number;
+  daysValid?: number;
+  period?: "MONTHLY" | "YEARLY";
+  ticketId?: string;
+  /** Human-readable summary for the Slack message, e.g. "set trial to 23 days". */
+  summary: string;
+  ticketUrl?: string;
+}
+
+/** Two requests are duplicates when every identifying field matches. */
+function sameRequest(a: MonetApproval, b: MonetRequestInput): boolean {
+  return (
+    a.action === b.action &&
+    a.app === b.app &&
+    a.accountSlug === b.accountSlug &&
+    a.days === b.days &&
+    a.percent === b.percent &&
+    a.daysValid === b.daysValid &&
+    a.period === b.period
+  );
+}
+
+/**
+ * Create a pending approval + post it to Slack — unless an identical one is
+ * already pending, in which case reuse it (dedup guard: LLMs sometimes call the
+ * tool twice, which would otherwise queue duplicate requests).
+ */
+export async function submitMonetApproval(input: MonetRequestInput): Promise<{ id: string; deduped: boolean }> {
+  const existing = (await listMonetApprovals()).find((a) => sameRequest(a, input));
+  if (existing) return { id: existing.id, deduped: true };
+
+  const id = crypto.randomUUID().slice(0, 6);
+  await saveMonetApproval({
+    id,
+    action: input.action,
+    app: input.app,
+    accountSlug: input.accountSlug,
+    days: input.days,
+    percent: input.percent,
+    daysValid: input.daysValid,
+    period: input.period,
+    ticketId: input.ticketId,
+    createdAt: Math.floor(Date.now() / 1000),
+  });
+  await slack.requestMonetApproval({
+    id,
+    action: input.action,
+    app: input.app,
+    accountSlug: input.accountSlug,
+    summary: input.summary,
+    ticketUrl: input.ticketUrl,
+  });
+  return { id, deduped: false };
+}
 
 export interface ResolveResult {
   ok: boolean;

@@ -23,7 +23,8 @@ import * as slack from "./slack";
 import { searchPublishedKb } from "../knowledge/dynamic-kb";
 import { vectorEnabled, queryVector, type VectorHit } from "../vector";
 import { rerankHits } from "../rerank";
-import { recordKbHits, saveMonetApproval } from "../kv";
+import { recordKbHits } from "../kv";
+import { submitMonetApproval } from "../monetization-approvals";
 
 export interface AgentSignals {
   resolutionSent: boolean;
@@ -313,17 +314,12 @@ export function buildTools(
         const slug = mondayMonetization.parseAccountSlug(account);
         if (!slug) return "That doesn't look like a monday account URL or slug — ask the customer for their monday URL (e.g. https://acme.monday.com).";
         if (dry) return `[dry-run] would request approval to extend ${slug}'s trial to ${days} days.`;
-        const id = crypto.randomUUID().slice(0, 6);
-        await saveMonetApproval({
-          id, action: "trial", app: ctx.appProduct, accountSlug: slug, days,
-          ticketId, createdAt: Math.floor(Date.now() / 1000),
-        });
-        await slack.requestMonetApproval({
-          id, action: "trial", app: ctx.appProduct, accountSlug: slug,
+        const { id, deduped } = await submitMonetApproval({
+          action: "trial", app: ctx.appProduct, accountSlug: slug, days, ticketId,
           summary: `set trial to ${days} days`,
           ticketUrl: ticketId ? interactionUrl(ticketId) : undefined,
         });
-        return `Trial-extension request sent to the team for approval (ref ${id}). It is NOT applied yet. Tell the customer their request is being processed and will be confirmed shortly — do NOT say the trial has been extended.`;
+        return `${deduped ? `A matching trial-extension request is already pending approval (ref ${id})` : `Trial-extension request sent to the team for approval (ref ${id})`}. It is NOT applied yet. Tell the customer their request is being processed and will be confirmed shortly — do NOT say the trial has been extended.`;
       },
     }),
 
@@ -340,17 +336,13 @@ export function buildTools(
         const slug = mondayMonetization.parseAccountSlug(account);
         if (!slug) return "That doesn't look like a monday account URL or slug — ask the customer for their monday URL.";
         if (dry) return `[dry-run] would request approval for a ${percent}% ${period.toLowerCase()} discount to ${slug} for ${days_valid} days.`;
-        const id = crypto.randomUUID().slice(0, 6);
-        await saveMonetApproval({
-          id, action: "discount", app: ctx.appProduct, accountSlug: slug,
-          percent, daysValid: days_valid, period, ticketId, createdAt: Math.floor(Date.now() / 1000),
-        });
-        await slack.requestMonetApproval({
-          id, action: "discount", app: ctx.appProduct, accountSlug: slug,
+        const { id, deduped } = await submitMonetApproval({
+          action: "discount", app: ctx.appProduct, accountSlug: slug,
+          percent, daysValid: days_valid, period, ticketId,
           summary: `${percent}% off ${period.toLowerCase()}, valid ${days_valid} days (one-time)`,
           ticketUrl: ticketId ? interactionUrl(ticketId) : undefined,
         });
-        return `Discount request sent to the team for approval (ref ${id}). It is NOT applied yet. Tell the customer the offer is being processed and will be confirmed shortly — do NOT say a discount has been applied.`;
+        return `${deduped ? `A matching discount request is already pending approval (ref ${id})` : `Discount request sent to the team for approval (ref ${id})`}. It is NOT applied yet. Tell the customer the offer is being processed and will be confirmed shortly — do NOT say a discount has been applied.`;
       },
     }),
 
