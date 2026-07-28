@@ -20,9 +20,7 @@ import { generateObject } from "ai";
 import { z } from "zod";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { fd } from "../lib/tools/freshdesk";
-import { buildContext, buildMessages } from "../lib/context";
-import { buildSystemPrompt } from "../lib/system-prompt";
-import { runAgentLoop } from "../lib/agent";
+import { jettaDraftForTicket } from "../lib/human-compare";
 import { config } from "../lib/config";
 
 const DIR = path.join(process.cwd(), ".benchmark");
@@ -148,42 +146,22 @@ async function run() {
     if (done.has(t.ticketId)) continue;
     process.stderr.write(`ticket ${t.ticketId}… `);
     try {
-      const ctx = await buildContext(t.ticketId, "freshdesk");
-      if (!ctx.ticket) throw new Error("not found");
-
-      // Human baseline: first public agent reply.
-      const firstHuman = ctx.ticket.replies.find((r) => r.author === "agent" && !r.isPrivate);
-      if (!firstHuman) throw new Error("no public agent reply");
-      const humanLatencyHours =
-        (Date.parse(firstHuman.createdAt) - Date.parse(t.createdAt)) / 3_600_000;
-
-      // Fairness: Jetta sees only what existed BEFORE the human replied.
-      const cutoff = Date.parse(firstHuman.createdAt);
-      ctx.ticket.replies = ctx.ticket.replies.filter(
-        (r) => r.author === "customer" && !r.isPrivate && Date.parse(r.createdAt) < cutoff,
-      );
-
       const started = Date.now();
-      const result = await runAgentLoop(
-        await buildSystemPrompt(ctx),
-        buildMessages(ctx.ticket, "freshdesk"),
-        ctx,
-        { dryRun: true },
-      );
-      const lastReply = [...result.trace].reverse().find((x) => x.tool === "reply_to_ticket");
-      const jettaReply = ((lastReply?.input as { body?: string })?.body ?? result.text).trim();
+      const cmp = await jettaDraftForTicket(t.ticketId);
+      if (!cmp) throw new Error("no public agent reply / not found");
+      const humanLatencyHours = (Date.parse(cmp.humanReplyAt) - Date.parse(t.createdAt)) / 3_600_000;
 
       runs.push({
         ...t,
-        customerMessage: `${ctx.ticket.subject}\n\n${ctx.ticket.description}`.slice(0, 4000),
-        humanReply: firstHuman.body.slice(0, 4000),
+        customerMessage: cmp.customerMessage,
+        humanReply: cmp.humanReply,
         humanLatencyHours: Number(humanLatencyHours.toFixed(1)),
-        jettaReply: jettaReply.slice(0, 4000),
-        jettaEscalated: result.toolsUsed.includes("send_escalation"),
-        jettaToolsUsed: result.toolsUsed,
+        jettaReply: cmp.jettaReply,
+        jettaEscalated: cmp.jettaToolsUsed.includes("send_escalation"),
+        jettaToolsUsed: cmp.jettaToolsUsed,
         jettaDurationS: Number(((Date.now() - started) / 1000).toFixed(1)),
-        jettaCitations: countCitations(jettaReply),
-        humanCitations: countCitations(firstHuman.body),
+        jettaCitations: countCitations(cmp.jettaReply),
+        humanCitations: countCitations(cmp.humanReply),
       });
       process.stderr.write("ok\n");
     } catch (e) {

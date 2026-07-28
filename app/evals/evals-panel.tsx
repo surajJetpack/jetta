@@ -11,6 +11,7 @@ import {
   Sparkles,
   ThumbsDown,
   ThumbsUp,
+  Users,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -40,6 +41,7 @@ interface ReplyEvaluation {
   suggestedReply: string;
   finalBody?: string;
   distilled?: boolean;
+  source?: "review" | "reconcile" | "mined";
   learningIds?: string[];
 }
 
@@ -139,6 +141,7 @@ export default function EvalsPanel({ freshdeskDomain }: { freshdeskDomain: strin
   const [stats, setStats] = useState<EvalStats | null>(null);
   const [learnings, setLearnings] = useState<Learning[] | null>(null);
   const [distilling, setDistilling] = useState(false);
+  const [mining, setMining] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
 
   const load = useCallback(async () => {
@@ -182,6 +185,31 @@ export default function EvalsPanel({ freshdeskDomain }: { freshdeskDomain: strin
       toast.success(
         `Distilled ${j?.consumed ?? 0} evaluations → ${j?.created ?? 0} new, ${j?.reinforced ?? 0} reinforced, ${j?.revised ?? 0} revisions.`,
       );
+    load();
+  }
+
+  // Mine recent human-answered tickets → record divergences → distill them into
+  // candidate learnings, in one action. Slow (an agent replay per ticket).
+  async function mineHumanReplies() {
+    setMining(true);
+    toast.info("Comparing Jetta's drafts against recent human replies — this can take a minute…");
+    const r = await fetch("/api/admin/evals/mine-human-replies", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ limit: 20 }),
+    });
+    const j = (await r.json().catch(() => null)) as
+      | { compared?: number; divergent?: number; recorded?: number; error?: string }
+      | null;
+    if (!r.ok) {
+      setMining(false);
+      toast.error(`Mining failed: ${j?.error ?? r.statusText}`);
+      return;
+    }
+    toast.success(`Compared ${j?.compared ?? 0} tickets · ${j?.recorded ?? 0} divergences recorded. Distilling…`);
+    // Roll straight into distillation so the patterns show up as candidates.
+    await fetch("/api/admin/evals/distill", { method: "POST" }).catch(() => {});
+    setMining(false);
     load();
   }
 
@@ -255,10 +283,14 @@ export default function EvalsPanel({ freshdeskDomain }: { freshdeskDomain: strin
           <p className="text-sm text-muted-foreground">
             Distilled from your feedback — nothing changes Jetta&apos;s behavior until you approve it here.
           </p>
-          <div className="flex items-center gap-2">
-            <Button variant="secondary" disabled={distilling || undistilled === 0} onClick={distillNow}>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="secondary" disabled={distilling || mining || undistilled === 0} onClick={distillNow}>
               {distilling ? <Loader2 className="animate-spin" /> : <FlaskConical />}
               {distilling ? "Distilling…" : `Distill now (${undistilled} pending)`}
+            </Button>
+            <Button variant="outline" disabled={mining || distilling} onClick={mineHumanReplies}>
+              {mining ? <Loader2 className="animate-spin" /> : <Users />}
+              {mining ? "Comparing…" : "Learn from human replies"}
             </Button>
           </div>
           {learnings === null && <Skeleton className="h-20 w-full" />}
@@ -357,6 +389,7 @@ export default function EvalsPanel({ freshdeskDomain }: { freshdeskDomain: strin
                       </StatusChip>
                     ))}
                     {e.rating === "partial" && <StatusChip tone="in_review">edited before send</StatusChip>}
+                    {e.source === "mined" && <StatusChip tone="draft">mined from human reply</StatusChip>}
                     {e.distilled && <StatusChip tone="published">distilled</StatusChip>}
                   </div>
                   {e.note && <p className="font-mono text-xs text-muted-foreground">{e.note}</p>}

@@ -164,6 +164,10 @@ async function reconcile(ticketId: string, payload: Record<string, unknown>): Pr
           `agent sent an unrelated reply (auto-reconciled from Freshdesk, similarity ${score.toFixed(2)})`,
         ),
         suggestedReply: draft.suggestedReply,
+        // Keep the human's actual reply — a full rewrite is the highest-signal
+        // case for the distiller to learn from (draft-vs-human diff).
+        finalBody: reply.body,
+        source: "reconcile",
       }).catch(() => {});
     } else {
       const edited = rating === "partial";
@@ -188,6 +192,7 @@ async function reconcile(ticketId: string, payload: Record<string, unknown>): Pr
         note: withFeedbackNote(`auto-reconciled from Freshdesk (similarity ${score.toFixed(2)})`),
         suggestedReply: draft.suggestedReply,
         finalBody: reply.body,
+        source: "reconcile",
       }).catch(() => {});
 
       // The human sent the reply themselves — never touch ticket status here.

@@ -53,8 +53,17 @@ export interface ReplyEvaluation {
   note?: string;
   /** Snapshots — drafts expire after 30d, evaluations live 180d. */
   suggestedReply: string;
-  /** What was actually sent (approve only). */
+  /** What was actually sent / what the human wrote instead. */
   finalBody?: string;
+  /**
+   * How this evaluation was produced:
+   *  - "review"    — a human decided a draft in the console (/drafts)
+   *  - "reconcile" — auto-derived from the human's Freshdesk reply vs the draft
+   *  - "mined"     — offline comparison of Jetta's would-be draft vs a past human
+   *                  reply (mine-human-replies); excluded from draft-decision stats
+   * Absent on older records; treat as "review"/"reconcile".
+   */
+  source?: "review" | "reconcile" | "mined";
   /** Set once a distill batch has consumed this evaluation. */
   distilled?: boolean;
   /** Learnings this evaluation contributed to (provenance forward-link). */

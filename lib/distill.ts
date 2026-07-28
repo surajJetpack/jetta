@@ -65,20 +65,25 @@ function renderEval(e: ReplyEvaluation): string {
     .filter(Boolean)
     .join("\n");
 
-  if (e.rating === "partial" && e.finalBody) {
+  // When the human's actual text is available, show a diff so the model can see
+  // exactly how the human's answer differed — the richest learning signal. This
+  // covers both partial edits and full rewrites ("bad" with finalBody, now
+  // captured by reconciliation and the mine-human-replies job).
+  if (e.finalBody) {
+    const label = e.rating === "bad" ? "human wrote a different reply" : "what the human changed before sending";
     const patch = createTwoFilesPatch(
       "jetta-draft",
-      "human-edited",
+      "human-reply",
       e.suggestedReply,
       e.finalBody,
       undefined,
       undefined,
       { context: 2 },
     );
-    return `${head}\nedit diff (what the human changed before sending):\n${clip(patch, 2000)}`;
+    return `${head}\ndiff (${label}):\n${clip(patch, 2000)}`;
   }
   if (e.rating === "bad") {
-    return `${head}\ndiscarded draft:\n${clip(e.suggestedReply)}`;
+    return `${head}\ndiscarded draft (no human reply captured):\n${clip(e.suggestedReply)}`;
   }
   return head;
 }
