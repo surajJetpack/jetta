@@ -225,7 +225,8 @@ export const config = {
     live: liveFor("SLACK_LIVE"),
     botToken: env("SLACK_BOT_TOKEN"),
     escalationChannel: env("SLACK_ESCALATION_CHANNEL"),
-    /** Where "draft pending review" pings land; falls back to escalationChannel. */
+    /** Dedicated channel for "draft pending review" pings. Unset = no draft pings
+     * (they're noise on #escalations; drafts are reviewable in FD + /drafts). */
     draftsChannel: env("JETTA_DRAFTS_SLACK_CHANNEL"),
     partnershipsChannel: env("SLACK_PARTNERSHIPS_CHANNEL"),
     signingSecret: env("SLACK_SIGNING_SECRET"),

@@ -87,14 +87,19 @@ export async function requestMonetApproval(req: MonetApprovalRequest): Promise<{
   return { ts };
 }
 
-/** Ping the team that a Jetta draft reply is waiting for review (draft mode). */
+/**
+ * Ping the team that a Jetta draft reply is waiting for review (draft mode).
+ * Only posts when a DEDICATED drafts channel is configured — we never fall back
+ * to the escalations channel, since a ping per held draft is noise there. Drafts
+ * are always reviewable via the Freshdesk private note and the /drafts console.
+ */
 export async function notifyDraftPending(input: {
   subject: string;
   ticketUrl: string;
   consoleUrl: string;
 }): Promise<void> {
-  const channel =
-    config.slack.draftsChannel ?? config.slack.escalationChannel ?? "#jetta-escalations";
+  const channel = config.slack.draftsChannel;
+  if (!channel) return;
   await postMessage(
     channel,
     [
