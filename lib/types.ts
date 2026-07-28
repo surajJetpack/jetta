@@ -92,6 +92,8 @@ export interface ConversationContext {
   appProduct: AppProduct;
   /** Light-model triage rating; drives tiered model routing. Absent in stub mode. */
   complexity?: "simple" | "standard";
+  /** Intake classification — non-"customer_query" tickets are skipped (no draft). */
+  intake?: "customer_query" | "auto_reply" | "marketing" | "spam" | "other";
   /** Token usage of auxiliary LLM calls made for this ticket (triage, rerank). */
   taskUsage?: TaskUsage[];
 }

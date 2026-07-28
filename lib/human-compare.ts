@@ -16,6 +16,7 @@ import { runAgentLoop } from "./agent";
 import { getModel } from "./llm";
 import { config } from "./config";
 import type { EvalTag } from "./evals";
+import { JUNK } from "./intake";
 
 export interface JettaComparison {
   ticketId: string;
@@ -80,7 +81,6 @@ export async function jettaDraftForTicket(ticketId: string): Promise<JettaCompar
   };
 }
 
-const JUNK = /automatic reply|auto-?reply|out of office|automatisch antwoord|abwesenheit|undeliverable/i;
 /** Jetta test tickets — their "agent" replies are Jetta's approved drafts, not human. */
 const JETTA_TEST_TICKETS = new Set(["13662", "13756", "13759", "13762", "13763", "13859"]);
 

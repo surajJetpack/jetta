@@ -88,7 +88,15 @@ export function appProductFromHint(hint: string | null | undefined): AppProduct 
   return null;
 }
 
-const TRIAGE_SYSTEM = `You triage customer support tickets: attribute them to a product and rate their complexity.
+const TRIAGE_SYSTEM = `You triage customer support tickets: classify the intake type, attribute them to a product, and rate their complexity.
+
+Intake type — is this a real customer who needs a reply, or noise?
+- "customer_query" — an actual person asking a question, reporting a problem, or making a request. This is the DEFAULT: when there is any genuine human message to respond to, choose this even if it is short or vague.
+- "auto_reply" — an automated response with no human intent: out-of-office / vacation autoresponders, "I am away" messages, delivery-failure / bounce / undeliverable notices, read receipts.
+- "marketing" — promotional / bulk mail, newsletters, sales outreach, cold pitches, notifications from other services. Not a support request.
+- "spam" — junk, phishing, or clearly irrelevant content.
+- "other" — none of the above and clearly not something to reply to.
+Only pick a non-"customer_query" type when you are confident. If in doubt, choose "customer_query".
 
 Products:
 - "getsign" — GetSign (getsign.io), the e-signature app for monday.com: signing documents, signature requests, templates, field mapping, signed-document sync.
@@ -101,9 +109,13 @@ Complexity:
 - "simple" — a single, clearly-stated question likely answerable from documentation: a how-to, a pricing/plan question, a plain factual billing lookup.
 - "standard" — anything else: multiple issues, technical debugging, error reports, angry or escalation-prone tone, refunds needing judgment, or unclear requests. When in doubt, "standard".`;
 
+export type IntakeType = "customer_query" | "auto_reply" | "marketing" | "spam" | "other";
+
 export interface TicketTriage {
   product: Product;
   complexity: "simple" | "standard";
+  /** Whether this ticket is a genuine customer query worth drafting for. */
+  intake: IntakeType;
 }
 
 /**
@@ -121,6 +133,7 @@ export async function triageTicket(
     const { object, usage } = await generateObject({
       model: getModel("light"),
       schema: z.object({
+        intake: z.enum(["customer_query", "auto_reply", "marketing", "spam", "other"]),
         product: z.enum(["getsign", "jetpackapps", "unknown"]),
         complexity: z.enum(["simple", "standard"]),
       }),
@@ -135,8 +148,8 @@ export async function triageTicket(
     });
     return object;
   } catch (e) {
-    console.warn("Ticket triage failed, using {unknown, standard}:", e);
-    return { product: "unknown", complexity: "standard" };
+    console.warn("Ticket triage failed, using {unknown, standard, customer_query}:", e);
+    return { product: "unknown", complexity: "standard", intake: "customer_query" };
   }
 }
 
@@ -179,7 +192,7 @@ export async function buildContext(
   const [triage, account, relatedDevItems] = await Promise.all([
     contentIsLive
       ? triageTicket(ticket.subject, ticket.description, taskUsage)
-      : Promise.resolve<TicketTriage>({ product: "unknown", complexity: "standard" }),
+      : Promise.resolve<TicketTriage>({ product: "unknown", complexity: "standard", intake: "customer_query" }),
     ticket.requesterEmail
       ? fastspring.getFastSpringAccount(ticket.requesterEmail, appProduct).catch(() => null)
       : Promise.resolve(null),
@@ -202,6 +215,7 @@ export async function buildContext(
     product,
     appProduct,
     complexity: triage.complexity,
+    intake: triage.intake,
     taskUsage,
   };
 }

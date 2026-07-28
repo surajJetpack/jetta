@@ -21,6 +21,7 @@ import { z } from "zod";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { fd } from "../lib/tools/freshdesk";
 import { jettaDraftForTicket } from "../lib/human-compare";
+import { JUNK } from "../lib/intake";
 import { config } from "../lib/config";
 
 const DIR = path.join(process.cwd(), ".benchmark");
@@ -65,8 +66,6 @@ const save = (f: string, data: unknown) => {
 };
 
 // ── sample ─────────────────────────────────────────────────────────
-
-const JUNK = /automatic reply|auto-?reply|out of office|automatisch antwoord|abwesenheit|undeliverable/i;
 
 /**
  * Only tickets created before Jetta went live on Freshdesk qualify — later

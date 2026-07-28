@@ -68,6 +68,14 @@ export const config = {
    */
   replyMode: (env("JETTA_REPLY_MODE") === "auto" ? "auto" : "draft") as "auto" | "draft",
 
+  /**
+   * Intake filter: skip drafting for tickets that aren't genuine customer
+   * queries (out-of-office / auto-replies, bounces, marketing, spam). ON by
+   * default; set JETTA_INTAKE_FILTER=false to disable instantly if it ever
+   * over-filters. Freshdesk (email) intake only — see app/api/webhook/route.ts.
+   */
+  intakeFilter: env("JETTA_INTAKE_FILTER") !== "false",
+
   /** Console base URL for deep links in Slack pings / FD notes. Never embeds the admin key. */
   consoleUrl: (
     env("JETTA_CONSOLE_URL") ??

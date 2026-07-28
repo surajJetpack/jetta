@@ -20,6 +20,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { after } from "next/server";
 import { config } from "@/lib/config";
 import { buildContext, buildMessages } from "@/lib/context";
+import { obviousNonQuery } from "@/lib/intake";
 import { buildSystemPrompt } from "@/lib/system-prompt";
 import { runAgentLoop } from "@/lib/agent";
 import { markEventSeen, unmarkEventSeen, scheduleFollowUp, recordOutcome } from "@/lib/kv";
@@ -130,6 +131,29 @@ async function processTicket(ticketId: string, channel: "freshdesk" | "freshchat
       console.log(`Webhook ticket ${ticketId}: product "${ctx.product}" not in JETTA_PRODUCTS, skipping.`);
       await logOpsEvent({ level: "info", event: "webhook.skipped_product_filter", source: "webhook", ticketId, data: { product: ctx.product } });
       return;
+    }
+
+    // Intake filter (freshdesk/email only): only draft for genuine customer
+    // queries. Skip out-of-office / auto-replies, bounces, marketing, and spam
+    // before the agent runs. Two signals: a cheap deterministic pre-check on
+    // the ticket text/sender, plus the light-model triage classification. Both
+    // fail toward "customer_query" so a real customer is never dropped. Live
+    // chat is human-initiated, so this gate is email-only.
+    if (config.intakeFilter && channel === "freshdesk") {
+      const reason =
+        obviousNonQuery(ctx.ticket) ??
+        (ctx.intake && ctx.intake !== "customer_query" ? `triage:${ctx.intake}` : null);
+      if (reason) {
+        console.log(`Webhook ticket ${ticketId}: intake "${reason}" — not a customer query, skipping.`);
+        await logOpsEvent({
+          level: "info",
+          event: "webhook.skipped_not_customer_query",
+          source: "webhook",
+          ticketId,
+          data: { reason, subject: ctx.ticket.subject },
+        });
+        return;
+      }
     }
 
     // Semantic idempotency: run at most once per CUSTOMER message. Upstream
