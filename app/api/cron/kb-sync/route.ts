@@ -1,13 +1,12 @@
 /**
  * Daily KB sync cron: mirror jetpackapps.io + getsign.io into the KB store
  * (new pages published, changed pages updated unless human-edited, removed
- * pages archived). Slack summary only when something changed or was flagged.
+ * pages archived). Summary goes to the console log only — never Slack.
  * Scheduled in vercel.json (05:00 UTC); also invocable manually with the
  * CRON_SECRET bearer token.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { SITES, syncSite, type SyncResult } from "@/lib/kb-sync";
-import { notifyKbSync } from "@/lib/tools/slack";
 import { logOpsEvent } from "@/lib/events";
 
 export const runtime = "nodejs";
@@ -57,7 +56,18 @@ export async function GET(req: NextRequest) {
         (r.flagged.length ? `\n:warning: ${r.flagged.join("; ")}` : ""),
     );
     if (errors.length) lines.push(`:x: ${errors.join("; ")}`);
-    await notifyKbSync(lines).catch((e) => console.warn("kb-sync slack ping failed:", e));
+    const sum = (pick: (r: SyncResult) => number) => results.reduce((n, r) => n + pick(r), 0);
+    const flagged = sum((r) => r.flagged.length);
+    const headline =
+      `+${sum((r) => r.created)} new · ${sum((r) => r.updated)} updated · ` +
+      `${sum((r) => r.archived)} archived` +
+      (flagged ? ` · :warning: ${flagged} flagged` : "") +
+      (errors.length ? ` · :x: ${errors.length} site error(s)` : "");
+    // Console only — KB sync is routine housekeeping, and pinging the
+    // escalations channel daily trains the team to ignore that channel. The
+    // per-site numbers are also in the cron.kbsync_run ops events, so the
+    // console/analytics views keep the queryable history.
+    console.log(`kb-sync: ${headline}\n${lines.join("\n")}`);
   }
 
   return NextResponse.json({ results, errors });
