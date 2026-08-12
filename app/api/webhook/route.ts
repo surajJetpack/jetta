@@ -21,6 +21,7 @@ import { after } from "next/server";
 import { config } from "@/lib/config";
 import { buildContext, buildMessages } from "@/lib/context";
 import { obviousNonQuery } from "@/lib/intake";
+import * as freshdesk from "@/lib/tools/freshdesk";
 import { buildSystemPrompt } from "@/lib/system-prompt";
 import { runAgentLoop } from "@/lib/agent";
 import { markEventSeen, unmarkEventSeen, scheduleFollowUp, recordOutcome } from "@/lib/kv";
@@ -154,6 +155,27 @@ async function processTicket(ticketId: string, channel: "freshdesk" | "freshchat
         });
         return;
       }
+    }
+
+    // Finished threads get no autonomous draft. Deliberately placed BEFORE the
+    // idempotency claim below: skipping must not consume the customer-message
+    // marker, so a reopened ticket still runs on that same message.
+    //
+    // Safe because closure follows the conversation ending, not vice versa —
+    // across 12 closed tickets, zero had a customer message after closed_at, and
+    // a post-closure reply lands as "reopened". Only resolved/closed qualify;
+    // "waiting on customer" and "escalated to dev" are live threads where a new
+    // customer message is precisely what should wake Jetta up.
+    if (freshdesk.isTerminalStatus(ctx.ticket.status)) {
+      console.log(`Webhook ticket ${ticketId}: status "${ctx.ticket.status}" — thread finished, skipping.`);
+      await logOpsEvent({
+        level: "info",
+        event: "webhook.skipped_terminal_status",
+        source: "webhook",
+        ticketId,
+        data: { status: ctx.ticket.status },
+      });
+      return;
     }
 
     // Semantic idempotency: run at most once per CUSTOMER message. Upstream

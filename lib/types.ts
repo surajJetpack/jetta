@@ -19,6 +19,28 @@ export type AppProduct =
   | "getsign"
   | "unknown";
 
+/**
+ * A file attached to a ticket. `url` is Freshdesk's pre-signed S3 link, which
+ * expires within minutes — re-resolve it before downloading rather than holding
+ * onto one captured earlier in the run.
+ */
+export interface Attachment {
+  id: string;
+  name: string;
+  contentType: string;
+  size: number;
+  url: string;
+  /** Who attached it — customer-sent files are the ones devs need. */
+  author: "agent" | "customer";
+}
+
+/** An attachment's downloaded bytes, ready to forward into another system. */
+export interface AttachmentFile {
+  name: string;
+  contentType: string;
+  data: ArrayBuffer;
+}
+
 /** A single message in a Freshdesk ticket conversation. */
 export interface TicketReply {
   /** "agent" (Jetta or a human) or "customer". */
@@ -40,6 +62,8 @@ export interface Ticket {
   replies: TicketReply[];
   /** Freshdesk cf_product custom field — ground truth for product attribution. */
   productHint?: string | null;
+  /** Files attached across the description and every reply, oldest first. */
+  attachments?: Attachment[];
 }
 
 export interface FastSpringInvoice {

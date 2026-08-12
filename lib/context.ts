@@ -15,7 +15,12 @@ import * as monday from "./tools/monday";
 
 // Context-diet caps for the replayed conversation (lib/tools/freshdesk.ts has
 // the equivalent caps for the get_ticket_details tool result).
-const MAX_HISTORY_REPLIES = 12;
+//
+// Aligned with freshdesk.ts's MAX_REPLIES so the replay isn't tighter than what
+// the tool already fetched. Measured over 19 recent tickets: 21% have more than
+// 12 public replies, none have more than 20 (max seen 15), and 12 → 20 adds ~43
+// tokens of history on average. Raising it past 20 would add nothing.
+const MAX_HISTORY_REPLIES = 20;
 const REPLY_CHARS = 2000;
 const OPENING_CHARS = 4000;
 

@@ -5,10 +5,44 @@
  * canned data so the Claude loop and webhook path can be exercised end-to-end.
  */
 import { config } from "../config";
-import type { Ticket, TicketReply } from "../types";
+import { imageDimensions } from "../image-dims";
+import type { Attachment, AttachmentFile, Ticket, TicketReply } from "../types";
 
 const FRESHDESK_RESOLVED = 4;
 const FRESHDESK_CLOSED = 5;
+
+/**
+ * Freshdesk status id → label, including this account's CUSTOM statuses (read
+ * from /ticket_fields on 2026-08-12). Only 2-5 were mapped before, so a ticket
+ * parked on any custom status reached the model as a bare number — "status: 6"
+ * rather than "waiting on customer".
+ */
+const STATUS_LABELS: Record<number, string> = {
+  2: "open",
+  3: "pending",
+  4: "resolved",
+  5: "closed",
+  6: "waiting on customer",
+  7: "working on it",
+  8: "escalated to dev",
+  9: "reopened",
+  10: "hold - account access",
+  11: "validating",
+  12: "customer responded",
+  9000: "assigned to AI agent",
+};
+
+/**
+ * Statuses where an autonomous draft is unwanted: the thread is finished. Kept
+ * deliberately narrow — "waiting on customer" and "escalated to dev" are LIVE
+ * threads where a customer reply is exactly what should trigger a run.
+ */
+const TERMINAL_STATUSES = new Set(["resolved", "closed"]);
+
+/** True when the ticket is done and should not receive a new autonomous draft. */
+export function isTerminalStatus(status: string): boolean {
+  return TERMINAL_STATUSES.has(status);
+}
 
 function fdHeaders(): HeadersInit {
   // Freshdesk uses Basic auth: "<api_key>:X" base64-encoded.
@@ -54,6 +88,120 @@ export interface KbArticle {
 /** Cap on per-article body length included in the tool result. */
 const KB_BODY_CHARS = 2500;
 
+type FDAttachment = {
+  id: number;
+  name: string;
+  content_type: string;
+  size: number;
+  attachment_url: string;
+};
+
+function toAttachment(a: FDAttachment, author: "agent" | "customer"): Attachment {
+  return {
+    id: String(a.id),
+    name: a.name,
+    contentType: a.content_type,
+    size: a.size,
+    url: a.attachment_url,
+    author,
+  };
+}
+
+type FDConversation = {
+  body_text?: string;
+  body?: string;
+  private: boolean;
+  incoming: boolean;
+  from_email?: string;
+  created_at: string;
+  attachments?: FDAttachment[];
+};
+
+const CONVERSATIONS_PER_PAGE = 100;
+/** Page ceiling — bounds cost on a runaway thread. 500 replies is far past any real ticket. */
+const MAX_CONVERSATION_PAGES = 5;
+
+/**
+ * Every conversation on a ticket, oldest first.
+ *
+ * NOT `GET /tickets/:id?include=conversations`: that embeds only the **first 10**
+ * — verified on tickets 13901, 13894, 13924 and 13895, where the embedded set was
+ * always positions 0-9 of the full thread. It therefore hides the NEWEST replies,
+ * which are the ones a reply has to answer, and it silently froze the webhook's
+ * "newest customer message" marker so long threads stopped being answered at all.
+ */
+async function fetchConversations(ticketId: string): Promise<FDConversation[]> {
+  const all: FDConversation[] = [];
+  for (let page = 1; page <= MAX_CONVERSATION_PAGES; page++) {
+    const batch = await fd<FDConversation[]>(
+      `/tickets/${ticketId}/conversations?per_page=${CONVERSATIONS_PER_PAGE}&page=${page}`,
+    );
+    all.push(...batch);
+    if (batch.length < CONVERSATIONS_PER_PAGE) break;
+  }
+  return all;
+}
+
+/**
+ * Freshdesk serves images pasted INTO a message body (rather than attached to
+ * it) from this host, with an access token in the URL and no expiry. These never
+ * appear in the API's `attachments[]` — the ticket HTML is the only record.
+ */
+const INLINE_HOST = "attachment.freshdesk.com";
+
+/**
+ * Inline-image floor. Most inline images in support email are not evidence: they
+ * are email-signature logos, spacers, and tracking pixels. Measured on ticket
+ * 13944, whose description holds three real screenshots (803×615, 570×273,
+ * 529×263) plus the sender's signature logo (215×50) — dimensions separate those
+ * cleanly, file size does not. The aspect cap catches wide signature banners
+ * that would otherwise clear the width and height floors.
+ */
+const MIN_INLINE_BYTES = 5 * 1024;
+const MIN_INLINE_WIDTH = 250;
+const MIN_INLINE_HEIGHT = 120;
+const MAX_INLINE_ASPECT = 5;
+
+/**
+ * How many evidence-sized images are pasted into this HTML.
+ *
+ * Freshdesk's `<img>` tags carry width/height attributes, so this costs no
+ * requests — the same thresholds the download path applies to real pixels are
+ * applied here to the declared ones. A tag without dimensions is counted:
+ * over-reporting an image is better than staying silent about one.
+ */
+function countInlineImages(html: string): number {
+  let n = 0;
+  for (const [tag] of html.matchAll(/<img[^>]*>/gi)) {
+    if (!tag.includes(`https://${INLINE_HOST}/`)) continue;
+    const w = Number(/\bwidth="(\d+)"/.exec(tag)?.[1] ?? 0);
+    const h = Number(/\bheight="(\d+)"/.exec(tag)?.[1] ?? 0);
+    if (w && h && (w < MIN_INLINE_WIDTH || h < MIN_INLINE_HEIGHT || w / h > MAX_INLINE_ASPECT)) {
+      continue;
+    }
+    n++;
+  }
+  return n;
+}
+
+/**
+ * Tell Jetta an image is there without pretending she can read it.
+ *
+ * Appended to the message text rather than substituted into it, because
+ * getTicketDetails prefers Freshdesk's own `description_text`/`body_text` — which
+ * silently omit images — so a placeholder inside stripHtml would never run on a
+ * real ticket. (stripHtml is deliberately left alone: it also renders KB article
+ * bodies, where "[image]" markers would be noise.)
+ */
+function withImageNote(text: string, html: string | undefined): string {
+  const n = countInlineImages(html ?? "");
+  if (!n) return text;
+  // Prepended, not appended: the reply cap here and buildMessages' opening cap
+  // both truncate the tail, which would silently eat a note placed at the end.
+  const it = n === 1 ? "it" : "them";
+  return `[system] The customer pasted ${n} image${n === 1 ? "" : "s"} into this message. You cannot view ${it} — never claim you have, and do not ask them to resend ${it}; ${n === 1 ? "it is" : "they are"} forwarded to the Dev board automatically if you escalate.\n\n${text}`;
+}
+
 export async function getTicketDetails(ticketId: string): Promise<Ticket> {
   if (!config.freshdesk.live) {
     return {
@@ -68,14 +216,6 @@ export async function getTicketDetails(ticketId: string): Promise<Ticket> {
     };
   }
 
-  type FDConversation = {
-    body_text?: string;
-    body?: string;
-    private: boolean;
-    incoming: boolean;
-    from_email?: string;
-    created_at: string;
-  };
   type FDTicket = {
     id: number;
     subject: string;
@@ -84,11 +224,14 @@ export async function getTicketDetails(ticketId: string): Promise<Ticket> {
     status: number;
     requester_id: number;
     custom_fields?: Record<string, unknown>;
-    conversations?: FDConversation[];
+    attachments?: FDAttachment[];
   };
   type FDContact = { name: string; email: string };
 
-  const ticket = await fd<FDTicket>(`/tickets/${ticketId}?include=conversations`);
+  const [ticket, conversations] = await Promise.all([
+    fd<FDTicket>(`/tickets/${ticketId}`),
+    fetchConversations(ticketId),
+  ]);
   let requesterName: string | null = null;
   let requesterEmail: string | null = null;
   try {
@@ -99,13 +242,19 @@ export async function getTicketDetails(ticketId: string): Promise<Ticket> {
     // Contact lookup is best-effort; the reply path can still proceed.
   }
 
-  const statusMap: Record<number, string> = { 2: "open", 3: "pending", 4: "resolved", 5: "closed" };
+  const statusMap = STATUS_LABELS;
   // Context diet: this result is re-sent into the agent loop on every step, so
-  // long threads are capped — newest replies win, bodies truncated.
+  // long threads are capped — newest replies win, bodies truncated. (This slice
+  // only actually selects the newest now that fetchConversations returns the
+  // whole thread; against the old embedded-10 it was a no-op keeping the oldest.)
   const MAX_REPLIES = 20;
   const REPLY_CHARS = 2000;
-  const replies: TicketReply[] = (ticket.conversations ?? []).slice(-MAX_REPLIES).map((c) => {
-    const body = c.body_text ?? stripHtml(c.body ?? "");
+  const replies: TicketReply[] = conversations.slice(-MAX_REPLIES).map((c) => {
+    // Note pasted images on incoming messages only — our own replies' inline
+    // images (signatures, KB screenshots) are not customer evidence.
+    const body = c.incoming
+      ? withImageNote(c.body_text ?? stripHtml(c.body ?? ""), c.body)
+      : (c.body_text ?? stripHtml(c.body ?? ""));
     return {
       author: c.incoming ? "customer" : "agent",
       authorEmail: c.from_email ?? null,
@@ -115,16 +264,183 @@ export async function getTicketDetails(ticketId: string): Promise<Ticket> {
     };
   });
 
+  // Attachments across the WHOLE thread, not the capped `replies` slice above —
+  // an old screenshot is still the one the devs need.
+  const attachments: Attachment[] = [
+    // Ticket-level attachments came in with the description, i.e. from the requester.
+    ...(ticket.attachments ?? []).map((a) => toAttachment(a, "customer")),
+    ...conversations.flatMap((c) =>
+      (c.attachments ?? []).map((a) => toAttachment(a, c.incoming ? "customer" : "agent")),
+    ),
+  ];
+
   return {
     id: String(ticket.id),
     subject: ticket.subject,
-    description: ticket.description_text ?? stripHtml(ticket.description ?? ""),
+    description: withImageNote(
+      ticket.description_text ?? stripHtml(ticket.description ?? ""),
+      ticket.description,
+    ),
     status: statusMap[ticket.status] ?? String(ticket.status),
     requesterName,
     requesterEmail,
     replies,
     productHint: (ticket.custom_fields?.cf_product as string | undefined) ?? null,
+    attachments,
   };
+}
+
+/**
+ * What we forward to the Dev board: the evidence types monday.com accepts on an
+ * update. Deliberately wider than screenshots — a survey of live tickets found
+ * customers send screen recordings (.mp4) and documents far more often than
+ * PNGs, and a repro video is the single most useful thing a dev can get.
+ * message/rfc822 (forwarded .eml) is excluded: monday rejects it.
+ */
+const FORWARDABLE_TYPES =
+  /^(image\/(png|jpe?g|gif|webp|svg\+xml)|video\/mp4|application\/pdf|text\/(plain|csv)|application\/(msword|vnd\.openxmlformats-officedocument\.(wordprocessingml\.document|spreadsheetml\.sheet)|vnd\.ms-excel))$/i;
+const MAX_FORWARD_FILES = 5;
+/** Per file: Freshdesk's own attachment ceiling. Total: keeps peak memory sane. */
+const MAX_FORWARD_BYTES = 20 * 1024 * 1024;
+const MAX_FORWARD_TOTAL_BYTES = 40 * 1024 * 1024;
+
+/**
+ * Every attachment on a ticket, across the entire thread — the leaner path for
+ * the forwarding flow, which needs files but none of the rest of the ticket.
+ */
+export async function listTicketAttachments(ticketId: string): Promise<Attachment[]> {
+  if (!config.freshdesk.live) return [];
+
+  const [ticket, conversations] = await Promise.all([
+    fd<{ attachments?: FDAttachment[] }>(`/tickets/${ticketId}`),
+    fetchConversations(ticketId),
+  ]);
+
+  return [
+    // Ticket-level attachments came in with the description, i.e. from the requester.
+    ...(ticket.attachments ?? []).map((a) => toAttachment(a, "customer")),
+    ...conversations.flatMap((c) =>
+      (c.attachments ?? []).map((a) => toAttachment(a, c.incoming ? "customer" : "agent")),
+    ),
+  ];
+}
+
+/** Freshdesk-hosted inline image URLs from the customer's own messages. */
+async function inlineImageUrls(ticketId: string): Promise<string[]> {
+  const [ticket, conversations] = await Promise.all([
+    fd<{ description?: string }>(`/tickets/${ticketId}`),
+    fetchConversations(ticketId),
+  ]);
+
+  const html = [
+    ticket.description ?? "",
+    // Incoming only — our own replies' inline images are not customer evidence.
+    ...conversations.filter((c) => c.incoming).map((c) => c.body ?? ""),
+  ].join("\n");
+
+  const srcs = [...html.matchAll(/<img[^>]+src="([^"]+)"/gi)].map((m) => m[1]);
+  // Freshdesk-hosted URLs ONLY. Remote <img> srcs in inbound mail are signature
+  // assets and tracking pixels, and fetching an arbitrary URL out of an email
+  // would turn this into a request-forgery vector pointed wherever a sender likes.
+  return [...new Set(srcs.filter((u) => u.startsWith(`https://${INLINE_HOST}/`)))];
+}
+
+/**
+ * Download the inline images a customer pasted into a ticket, keeping the ones
+ * big enough to be actual evidence. Filename comes from the attachment id inside
+ * the URL token, so the same image keeps the same name across runs.
+ */
+async function downloadInlineImages(ticketId: string, budgetBytes: number): Promise<AttachmentFile[]> {
+  const urls = await inlineImageUrls(ticketId);
+  const kept: AttachmentFile[] = [];
+  let spent = 0;
+
+  for (const url of urls) {
+    if (spent >= budgetBytes) break;
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const contentType = res.headers.get("content-type") ?? "image/jpeg";
+      const data = await res.arrayBuffer();
+      if (data.byteLength < MIN_INLINE_BYTES) continue;
+
+      const dims = imageDimensions(data);
+      if (
+        dims &&
+        (dims.width < MIN_INLINE_WIDTH ||
+          dims.height < MIN_INLINE_HEIGHT ||
+          dims.width / dims.height > MAX_INLINE_ASPECT)
+      ) {
+        continue;
+      }
+
+      // The token's JWT payload carries Freshdesk's own attachment id.
+      let id = String(kept.length + 1);
+      try {
+        const token = new URL(url).searchParams.get("token") ?? "";
+        const claims = JSON.parse(Buffer.from(token.split(".")[1], "base64url").toString());
+        if (claims?.id) id = String(claims.id);
+      } catch {
+        // Token shape changed — the positional fallback name is fine.
+      }
+      const ext = contentType.split("/")[1]?.replace("jpeg", "jpg") ?? "jpg";
+
+      kept.push({ name: `inline-${id}.${ext}`, contentType, data });
+      spent += data.byteLength;
+    } catch (e) {
+      console.warn(`Inline image (ticket ${ticketId}) download failed, skipping:`, e);
+    }
+  }
+  return kept;
+}
+
+/**
+ * Download the files a customer attached to a ticket so they can be forwarded
+ * elsewhere (today: the monday Dev board on escalation).
+ *
+ * Attachment URLs are re-resolved here rather than reusing ones captured when
+ * the run started: Freshdesk hands out short-lived pre-signed S3 links and an
+ * agent loop can run for a minute or more before it escalates. Per-file failures
+ * are logged and skipped — a bad download must never sink the escalation itself.
+ */
+export async function downloadTicketAttachments(ticketId: string): Promise<AttachmentFile[]> {
+  if (!config.freshdesk.live) return [];
+
+  const attachments = await listTicketAttachments(ticketId);
+  const forwardable = attachments
+    .filter(
+      (a) =>
+        a.author === "customer" && FORWARDABLE_TYPES.test(a.contentType) && a.size <= MAX_FORWARD_BYTES,
+    )
+    .slice(-MAX_FORWARD_FILES);
+
+  const files: AttachmentFile[] = [];
+  let total = 0;
+  for (const a of forwardable) {
+    if (total + a.size > MAX_FORWARD_TOTAL_BYTES) {
+      console.warn(`Attachment "${a.name}" (ticket ${ticketId}) skipped — total forward budget reached.`);
+      continue;
+    }
+    try {
+      // No auth header — attachment_url is already signed, and S3 rejects extras.
+      const res = await fetch(a.url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      files.push({ name: a.name, contentType: a.contentType, data: await res.arrayBuffer() });
+      total += a.size;
+    } catch (e) {
+      console.warn(`Attachment "${a.name}" (ticket ${ticketId}) download failed, skipping:`, e);
+    }
+  }
+
+  // Pasted-in screenshots are invisible to the attachments API, so they are a
+  // second pass over the ticket HTML. They share the budget with real
+  // attachments, and lose the race for it — a deliberately attached file is
+  // stronger evidence than something that might be a signature graphic.
+  if (files.length < MAX_FORWARD_FILES && total < MAX_FORWARD_TOTAL_BYTES) {
+    files.push(...(await downloadInlineImages(ticketId, MAX_FORWARD_TOTAL_BYTES - total)));
+  }
+
+  return files.slice(0, MAX_FORWARD_FILES);
 }
 
 export async function searchKnowledgeBase(keyword: string): Promise<KbArticle[]> {
