@@ -57,14 +57,48 @@ function fdUrl(path: string): string {
   return `https://${config.freshdesk.domain}/api/v2${path}`;
 }
 
+/**
+ * Retry budget for Freshdesk rate limits. Bounded so a run can't outlive its
+ * function: worst case is 3 waits of at most 30s. The 30s ceiling is set above
+ * the largest Retry-After observed in practice (22s) so we don't retry early and
+ * burn an attempt on a second 429.
+ */
+const RATE_LIMIT_RETRIES = 3;
+const MAX_RETRY_WAIT_MS = 30_000;
+
 /** Exported for read-only scripts (benchmark/analysis); app code uses the typed wrappers below. */
 export async function fd<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(fdUrl(path), { ...init, headers: fdHeaders() });
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`Freshdesk ${init?.method ?? "GET"} ${path} failed: ${res.status} ${body}`);
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(fdUrl(path), { ...init, headers: fdHeaders() });
+
+    // A 429 means Freshdesk REJECTED the request without processing it, so this
+    // is safe to retry even for POST/PUT — there's no risk of a duplicate reply
+    // or note. Without this, one rate-limited call failed an entire webhook run
+    // and the customer's message went unanswered (ticket 13654, 2026-08-12).
+    if (res.status === 429) {
+      if (attempt >= RATE_LIMIT_RETRIES) {
+        throw new Error(
+          `Freshdesk ${init?.method ?? "GET"} ${path} failed: 429 after ${RATE_LIMIT_RETRIES} retries`,
+        );
+      }
+      const retryAfter = Number(res.headers.get("retry-after"));
+      const wait = Math.min(
+        Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 2 ** attempt * 1000,
+        MAX_RETRY_WAIT_MS,
+      );
+      console.warn(
+        `Freshdesk 429 on ${path} — retrying in ${wait}ms (${attempt + 1}/${RATE_LIMIT_RETRIES}).`,
+      );
+      await new Promise((r) => setTimeout(r, wait));
+      continue;
+    }
+
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`Freshdesk ${init?.method ?? "GET"} ${path} failed: ${res.status} ${body}`);
+    }
+    return (await res.json()) as T;
   }
-  return (await res.json()) as T;
 }
 
 // HTML → text for conversation bodies (Freshdesk stores rich text).
