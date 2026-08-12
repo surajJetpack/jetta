@@ -7,9 +7,11 @@
  * token can't provide, so it's a separate client.
  */
 import { config } from "../config";
-import type { DevBoardItem, Product } from "../types";
+import type { AttachmentFile, DevBoardItem, Product } from "../types";
 
 const GRAPHQL = "https://api.monday.com/v2";
+/** File uploads go to a separate multipart endpoint, not the GraphQL one. */
+const FILE_UPLOAD = "https://api.monday.com/v2/file";
 
 /** "unknown"-product tickets fall back to the general jetpackapps board. */
 function boardIdFor(product: Product): string | undefined {
@@ -36,6 +38,57 @@ async function gql<T>(query: string, variables?: Record<string, unknown>): Promi
 
 function itemUrl(itemId: string, product: Product): string {
   return `${config.monday.accountUrl}/boards/${boardIdFor(product)}/pulses/${itemId}`;
+}
+
+/**
+ * Attach the customer's own evidence (screenshots, screen recordings, documents)
+ * to an update, so a dev opening the item sees the bug instead of only a
+ * description of it.
+ *
+ * monday takes files over the GraphQL multipart spec at a dedicated endpoint:
+ * the mutation goes in `query`, and `map` points a named file part at the $file
+ * variable. `update_id` is interpolated rather than sent as a variable because
+ * its declared GraphQL type has moved between API versions (Int! → ID!) — the
+ * value comes from monday's own response, and is digit-checked below.
+ *
+ * Best-effort by design: returns the names that actually landed, and never
+ * throws. A failed upload must not undo an escalation that already succeeded.
+ */
+async function attachFilesToUpdate(
+  updateId: string | null,
+  files: AttachmentFile[],
+): Promise<string[]> {
+  if (!updateId || !files.length) return [];
+  if (!/^\d+$/.test(updateId)) {
+    console.warn(`monday: unexpected update id "${updateId}", skipping ${files.length} file(s).`);
+    return [];
+  }
+
+  const uploaded: string[] = [];
+  for (const file of files) {
+    try {
+      const form = new FormData();
+      form.append(
+        "query",
+        `mutation ($file: File!) { add_file_to_update(update_id: ${updateId}, file: $file) { id } }`,
+      );
+      form.append("map", JSON.stringify({ image: "variables.file" }));
+      form.append("image", new Blob([file.data], { type: file.contentType }), file.name);
+
+      const res = await fetch(FILE_UPLOAD, {
+        method: "POST",
+        // No Content-Type header — fetch must set the multipart boundary itself.
+        headers: { Authorization: config.monday.apiToken ?? "", "API-Version": "2024-10" },
+        body: form,
+      });
+      const json = (await res.json()) as { errors?: { message: string }[] };
+      if (json.errors?.length) throw new Error(json.errors.map((e) => e.message).join("; "));
+      uploaded.push(file.name);
+    } catch (e) {
+      console.warn(`monday: upload of "${file.name}" failed, skipping:`, e);
+    }
+  }
+  return uploaded;
 }
 
 export async function searchDevBoard(symptom: string, product: Product): Promise<DevBoardItem[]> {
@@ -91,18 +144,27 @@ export interface CreateDevItemInput {
   errorDescription: string;
   reproSteps: string;
   freshdeskTicketUrl: string;
+  /** Customer-supplied evidence to attach to the item's update. */
+  attachments?: AttachmentFile[];
 }
 
-export async function createDevItem(input: CreateDevItemInput): Promise<DevBoardItem> {
+/** A created item, plus the names of the files that actually attached. */
+export type CreatedDevItem = DevBoardItem & { filesAttached: string[] };
+
+export async function createDevItem(input: CreateDevItemInput): Promise<CreatedDevItem> {
+  const fileCount = input.attachments?.length ?? 0;
+  const files = fileCount ? ` (+${fileCount} file${fileCount === 1 ? "" : "s"})` : "";
   if (!config.monday.live) {
     const id = "9900112233";
-    console.log(`[stub] create_dev_item "${input.title}"`);
-    return { id, title: input.title, status: "New", url: itemUrl(id, input.product) };
+    console.log(`[stub] create_dev_item "${input.title}"${files}`);
+    return { id, title: input.title, status: "New", url: itemUrl(id, input.product), filesAttached: [] };
   }
   if (!config.monday.allowWrites) {
     const id = "9900112233";
-    console.log(`[MONDAY_ALLOW_WRITES=false] would create_dev_item "${input.title}" — no write made.`);
-    return { id, title: input.title, status: "New", url: itemUrl(id, input.product) };
+    console.log(
+      `[MONDAY_ALLOW_WRITES=false] would create_dev_item "${input.title}"${files} — no write made.`,
+    );
+    return { id, title: input.title, status: "New", url: itemUrl(id, input.product), filesAttached: [] };
   }
 
   const board = boardIdFor(input.product);
@@ -151,33 +213,48 @@ export async function createDevItem(input: CreateDevItemInput): Promise<DevBoard
     "",
     `Reproduction steps:\n${input.reproSteps}`,
   ].join("\n");
-  await gql(
+  const update = await gql<{ create_update: { id: string } }>(
     `mutation ($item: ID!, $body: String!) { create_update(item_id: $item, body: $body) { id } }`,
     { item: id, body },
-  ).catch(() => undefined);
+  ).catch(() => null);
 
-  return { id, title: input.title, status: "New", url: itemUrl(id, input.product) };
+  // Screenshots hang off that update — it's the one place on the item guaranteed
+  // to exist regardless of which columns the configured board happens to have.
+  const filesAttached = await attachFilesToUpdate(
+    update?.create_update.id ?? null,
+    input.attachments ?? [],
+  );
+
+  return { id, title: input.title, status: "New", url: itemUrl(id, input.product), filesAttached };
 }
 
-/** Add a "+1 / me too" note to an existing dev item. Returns the item URL. */
+/**
+ * Add a "+1 / me too" note to an existing dev item, with this reporter's own
+ * screenshots — a second user's evidence often shows the case the first didn't.
+ */
 export async function addPlusOne(
   itemId: string,
   ticketUrl: string,
   product: Product,
-): Promise<{ url: string }> {
+  attachments: AttachmentFile[] = [],
+): Promise<{ url: string; filesAttached: string[] }> {
+  const files = attachments.length ? ` (+${attachments.length} file${attachments.length === 1 ? "" : "s"})` : "";
   if (!config.monday.live) {
-    console.log(`[stub] +1 on item ${itemId} from ${ticketUrl}`);
-    return { url: itemUrl(itemId, product) };
+    console.log(`[stub] +1 on item ${itemId} from ${ticketUrl}${files}`);
+    return { url: itemUrl(itemId, product), filesAttached: [] };
   }
   if (!config.monday.allowWrites) {
-    console.log(`[MONDAY_ALLOW_WRITES=false] would +1 item ${itemId} from ${ticketUrl} — no write made.`);
-    return { url: itemUrl(itemId, product) };
+    console.log(
+      `[MONDAY_ALLOW_WRITES=false] would +1 item ${itemId} from ${ticketUrl}${files} — no write made.`,
+    );
+    return { url: itemUrl(itemId, product), filesAttached: [] };
   }
-  await gql(
+  const update = await gql<{ create_update: { id: string } }>(
     `mutation ($item: ID!, $body: String!) { create_update(item_id: $item, body: $body) { id } }`,
     { item: itemId, body: `+1 — another user affected. Freshdesk ticket: ${ticketUrl}` },
   );
-  return { url: itemUrl(itemId, product) };
+  const filesAttached = await attachFilesToUpdate(update.create_update.id, attachments);
+  return { url: itemUrl(itemId, product), filesAttached };
 }
 
 // Trial extension + discounts moved to lib/tools/monday-monetization.ts — they

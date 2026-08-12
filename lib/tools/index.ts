@@ -72,6 +72,28 @@ export function buildTools(
   // board item link automatically, the same way ticket/account URLs are.
   let mondayItemUrl: string | undefined;
 
+  /**
+   * The customer's own evidence (screenshots, screen recordings, documents),
+   * downloaded to forward onto the Dev board. Not model-supplied and not
+   * model-selected: whatever the customer attached to this ticket goes with the
+   * escalation, so devs stop having to ask for it. Freshdesk-only (Freshchat
+   * attachments come through a different API), and best-effort — a download
+   * failure must not block filing the bug.
+   */
+  const customerAttachments = async () =>
+    ticketId && !isChat
+      ? await freshdesk.downloadTicketAttachments(ticketId).catch((e) => {
+          console.warn(`Attachment forwarding skipped for ticket ${ticketId}:`, e);
+          return [];
+        })
+      : [];
+
+  /** Tell Jetta exactly what got attached, so her private note reflects reality. */
+  const filesNote = (names: string[]) =>
+    names.length
+      ? ` Forwarded ${names.length} customer file${names.length === 1 ? "" : "s"} to the item: ${names.join(", ")}.`
+      : "";
+
   return {
     // ── Freshdesk ──
     get_ticket_details: tool({
@@ -285,9 +307,10 @@ export function buildTools(
           errorDescription: error_description,
           reproSteps: repro_steps,
           freshdeskTicketUrl: ticketId ? interactionUrl(ticketId) : "(no ticket)",
+          attachments: await customerAttachments(),
         });
         mondayItemUrl = item.url;
-        return `Created Dev board item "${item.title}". INTERNAL URL — put in the private note ONLY, never the customer reply: ${item.url}`;
+        return `Created Dev board item "${item.title}".${filesNote(item.filesAttached)} INTERNAL URL — put in the private note ONLY, never the customer reply: ${item.url}`;
       },
     }),
 
@@ -301,8 +324,13 @@ export function buildTools(
         const url = `${config.monday.accountUrl}/boards/${boardId}/pulses/${item_id}`;
         mondayItemUrl = url;
         if (dry) return `[dry-run] would add +1 to Dev board item ${item_id}. INTERNAL item URL (private note only): ${url}`;
-        const r = await monday.addPlusOne(item_id, ticketId ? interactionUrl(ticketId) : "(no ticket)", ctx.product);
-        return `Added +1 to the Dev board item. INTERNAL item URL — put in the private note ONLY, never the customer reply: ${r.url}`;
+        const r = await monday.addPlusOne(
+          item_id,
+          ticketId ? interactionUrl(ticketId) : "(no ticket)",
+          ctx.product,
+          await customerAttachments(),
+        );
+        return `Added +1 to the Dev board item.${filesNote(r.filesAttached)} INTERNAL item URL — put in the private note ONLY, never the customer reply: ${r.url}`;
       },
     }),
 
