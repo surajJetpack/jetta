@@ -20,6 +20,8 @@ import { z } from "zod";
 import { getModel, modelLabel } from "../lib/llm";
 import { getOutcomes, replaceOutcomes, recordTopicUse, getKnownTopics, type OutcomeEvent } from "../lib/kv";
 import { normalizeTopic, displayTopic } from "../lib/topics";
+import { inferAppProduct } from "../lib/context";
+import { appName } from "../lib/types";
 
 const commit = process.argv.includes("--commit");
 const batchArg = process.argv.indexOf("--batch");
@@ -35,22 +37,46 @@ For each numbered ticket, return that ticket's number and a topic label:
 - If a subject genuinely says nothing about the problem ("Help needed", "Re: Conversation with michael"), name the surface it touches ("account access", "signing document") rather than reaching for filler. Never stretch a vague subject into a specific-sounding label you can't support.
 - Reuse a label from the list of topics already in use whenever one fits, EXACTLY as written. Only coin a new label when none of them describes the ticket.
 
+Also attribute each ticket to the SPECIFIC app. "Jetpack Apps" is a portfolio of nine separate apps, so the portfolio name is useless — name the app:
+- "getsign" — GetSign, the e-signature app (its own product and site): signature requests, signers, signing links, templates, field mapping, signed PDFs, where signed documents go.
+- "vlookup" — VLOOKUP Auto-Link: connecting/matching items between boards, auto-linking, copy & sync, lookup/mirror columns not updating.
+- "trackmy" — TrackMy: parcel/courier/shipment tracking, tracking numbers.
+- "extract" — Extract AI: pulling data from files, PDFs or emails into board columns.
+- "jobflows" — JobFlows: recruiting pipelines, candidates, job postings.
+- "smartcolumns" — Smart Columns: currency conversion, mandatory fields, SLA timers, duplicates, custom IDs, conditional status.
+- "jetscan" — JetScan HR: resume/CV scanning.
+- "pivotreports" — Pivot Reports Pro: pivot tables and cross-tab reports.
+- "triggerly" — Triggerly: QR codes and scan-triggered automations.
+- "unknown" — a pure billing/invoice/VAT/account question with no app in sight, or nothing to go on.
+A wrong app is worse than no app: it lands in another app's trend line. Choose "unknown" over guessing.
+
 You are working from subject lines alone. A vague subject gets a vague-but-honest label; do not invent specifics that aren't there.
 Return one entry for every ticket number given.`;
+
+const APP_VALUES = [
+  "getsign", "vlookup", "trackmy", "extract", "jobflows",
+  "smartcolumns", "jetscan", "pivotreports", "triggerly", "unknown",
+] as const;
 
 const Labels = z.object({
   labels: z.array(
     z.object({
       n: z.number().describe("The ticket number as given in the list"),
       topic: z.string().describe("2-4 lowercase words"),
+      app: z.enum(APP_VALUES).describe("Which specific app the ticket is about"),
     }),
   ),
 });
 
+/** Keyword result unless it gave up, in which case the model's answer. */
+function pick(keyword: string, llm: string): string {
+  return keyword !== "unknown" ? keyword : llm;
+}
+
 async function labelBatch(
   batch: { n: number; subject: string; product: string }[],
   taxonomy: string[],
-): Promise<Map<number, string>> {
+): Promise<Map<number, { topic: string | null; app: string }>> {
   const system = taxonomy.length
     ? `${SYSTEM}\n\nTopics already in use, most common first:\n${taxonomy.map((t) => `- ${t}`).join("\n")}`
     : SYSTEM;
@@ -60,11 +86,8 @@ async function labelBatch(
     system,
     prompt: batch.map((b) => `${b.n}. [${b.product}] ${b.subject}`).join("\n"),
   });
-  const out = new Map<number, string>();
-  for (const l of object.labels) {
-    const topic = normalizeTopic(l.topic);
-    if (topic) out.set(l.n, topic);
-  }
+  const out = new Map<number, { topic: string | null; app: string }>();
+  for (const l of object.labels) out.set(l.n, { topic: normalizeTopic(l.topic), app: l.app });
   return out;
 }
 
@@ -73,7 +96,7 @@ async function main() {
   // Same ticket, many outcomes (drafted → approved → reopened): label the
   // ticket once and stamp every one of its events, so a backfilled ticket
   // counts the same way a live one does.
-  const needing = outcomes.filter((o) => !o.topic && (o.subject ?? "").trim().length > 2);
+  const needing = outcomes.filter((o) => (!o.topic || !o.app) && (o.subject ?? "").trim().length > 2);
   const bySubject = new Map<string, { subject: string; product: string; events: OutcomeEvent[] }>();
   for (const o of needing) {
     const key = o.ticketId;
@@ -83,10 +106,10 @@ async function main() {
   }
 
   const tickets = [...bySubject.values()];
-  const alreadyLabelled = outcomes.filter((o) => o.topic).length;
   console.log(`outcomes in feed:   ${outcomes.length}`);
-  console.log(`already labelled:   ${alreadyLabelled}`);
-  console.log(`unlabelled tickets: ${tickets.length} (${needing.length} events)`);
+  console.log(`have topic:         ${outcomes.filter((o) => o.topic).length}`);
+  console.log(`have app:           ${outcomes.filter((o) => o.app).length}`);
+  console.log(`needing work:       ${tickets.length} tickets (${needing.length} events)`);
   console.log(`skipped (no subject): ${outcomes.filter((o) => !o.topic && !(o.subject ?? "").trim()).length}`);
   if (!tickets.length) {
     console.log("\nnothing to do.");
@@ -99,12 +122,13 @@ async function main() {
   const taxonomy = new Map<string, number>();
   for (const t of await getKnownTopics(40).catch(() => [])) taxonomy.set(t, 1);
 
+  const appDist = new Map<string, number>();
   let labelled = 0;
   for (let i = 0; i < tickets.length; i += BATCH) {
     const slice = tickets.slice(i, i + BATCH);
     const batch = slice.map((t, j) => ({ n: i + j, subject: t.subject, product: t.product }));
     const top = [...taxonomy.entries()].sort((a, b) => b[1] - a[1]).slice(0, 40).map(([t]) => t);
-    let labels: Map<number, string>;
+    let labels: Map<number, { topic: string | null; app: string }>;
     try {
       labels = await labelBatch(batch, top);
     } catch (e) {
@@ -112,13 +136,25 @@ async function main() {
       continue;
     }
     for (const [j, t] of slice.entries()) {
-      const topic = labels.get(i + j);
-      if (!topic) continue;
-      for (const ev of t.events) ev.topic = topic;
-      taxonomy.set(topic, (taxonomy.get(topic) ?? 0) + 1);
+      const label = labels.get(i + j);
+      if (!label) continue;
+      // Same precedence the live path uses, minus cf_product: the outcome feed
+      // never stored the hint, so history only has keywords then the model.
+      const app = pick(inferAppProduct(t.subject), label.app);
+      for (const ev of t.events) {
+        if (!ev.topic && label.topic) ev.topic = label.topic;
+        if (!ev.app) ev.app = app;
+      }
+      if (label.topic) taxonomy.set(label.topic, (taxonomy.get(label.topic) ?? 0) + 1);
+      appDist.set(app, (appDist.get(app) ?? 0) + 1);
       labelled++;
     }
     process.stdout.write(`  ${Math.min(i + BATCH, tickets.length)}/${tickets.length} tickets labelled\n`);
+  }
+
+  console.log("\napp attribution:");
+  for (const [app, n] of [...appDist.entries()].sort((a, b) => b[1] - a[1])) {
+    console.log(`  ${String(n).padStart(4)}  (${((n / tickets.length) * 100).toFixed(0).padStart(2)}%)  ${appName(app)}`);
   }
 
   const dist = [...taxonomy.entries()].sort((a, b) => b[1] - a[1]);

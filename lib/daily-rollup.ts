@@ -22,6 +22,26 @@ function byProduct(outcomes: OutcomeEvent[]): { product: string; count: number }
 }
 
 /**
+ * Volume by specific app. `byProduct` above buckets nine marketplace apps into
+ * one "jetpackapps" bar, which tells nobody which app is having a bad day —
+ * this is the breakdown worth reading, and what the narrative should cite.
+ */
+function byApp(outcomes: OutcomeEvent[]): { app: string; count: number }[] {
+  const tickets = new Map<string, string>();
+  for (const o of outcomes) {
+    // One vote per ticket, and never let a later "unknown" event overwrite a
+    // resolved attribution from an earlier one.
+    const existing = tickets.get(o.ticketId);
+    if (!existing || existing === "unknown") tickets.set(o.ticketId, o.app || "unknown");
+  }
+  const freq = new Map<string, number>();
+  for (const app of tickets.values()) freq.set(app, (freq.get(app) ?? 0) + 1);
+  return [...freq.entries()]
+    .map(([app, count]) => ({ app, count }))
+    .sort((a, b) => b.count - a.count);
+}
+
+/**
  * Build the numeric rollup for `date` (UTC "YYYY-MM-DD") from the full recent
  * feeds — both are filtered down to that day here. The `insight` field is left
  * for the caller to fill via lib/daily-insight.ts.
@@ -52,6 +72,7 @@ export function computeDailyRollup(
       deflectionRate: total ? Number((1 - escalated / total).toFixed(2)) : null,
     },
     byProduct: byProduct(dayOutcomes),
+    byApp: byApp(dayOutcomes),
     byTopic: topicCounts(dayOutcomes),
     models: tokenStats(dayRuns),
     gaps: gapList(dayOutcomes),

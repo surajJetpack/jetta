@@ -265,6 +265,13 @@ export interface OutcomeEvent {
   channel: string;
   product: string;
   /**
+   * The specific app ("vlookup", "trackmy", "getsign"…). `product` collapses
+   * nine marketplace apps into "jetpackapps", which is too coarse to act on —
+   * this is the grain the dashboards report at. Absent on events recorded
+   * before app attribution shipped.
+   */
+  app?: string;
+  /**
    * Short triage-written theme ("signing link expired"). Denormalized onto the
    * event on purpose: the morning brief counts topics across the whole feed, and
    * a per-ticket lookup would be ~1000 KV reads a page load. Absent on events
@@ -556,6 +563,8 @@ export interface RunLog {
   model: string;
   /** Triage complexity rating for the ticket, when triage ran. */
   complexity?: string;
+  /** The specific app, at finer grain than `product`. */
+  app?: string;
   /** Short triage-written theme, mirrored onto the outcome for topic trends. */
   topic?: string;
   dryRun: boolean;
@@ -624,6 +633,8 @@ export interface ReplyDraft {
   subject?: string;
   channel: "freshdesk" | "freshchat";
   product: string;
+  /** The specific app, at finer grain than `product`. */
+  app?: string;
   /** Short triage-written theme, carried so approvals keep feeding topic trends. */
   topic?: string;
   /** The reply body the agent would have sent (last reply_to_ticket call). */
@@ -797,6 +808,8 @@ export interface DailyRollup {
     deflectionRate: number | null;
   };
   byProduct: { product: string; count: number }[];
+  /** Distinct tickets per specific app — the actionable grain. */
+  byApp?: { app: string; count: number }[];
   /**
    * Distinct tickets per topic for the day. Persisted so topic history outlives
    * the capped outcome feed — the raw list holds ~1000 events, this holds ~13

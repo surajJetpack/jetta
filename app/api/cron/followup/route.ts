@@ -66,6 +66,7 @@ export async function GET(req: NextRequest) {
             at: Math.floor(Date.now() / 1000),
             channel: ctx.channel,
             product: ctx.product,
+            app: ctx.app,
             topic: ctx.topic,
             model: result.model,
             toolsUsed: result.toolsUsed,

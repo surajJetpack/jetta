@@ -32,14 +32,34 @@ function clip(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max)}\n[…truncated]` : text;
 }
 
+/**
+ * App-name patterns, tolerant of how customers actually type them.
+ *
+ * Every name here is a compound word that people space out or hyphenate at
+ * will: "V lookup Not responding", "Purchase of Get Sign", "Track My". The
+ * original patterns matched only the closed-up spelling, so those tickets
+ * attributed to nothing — measured at 71% unresolved across 190 real tickets.
+ */
+const APP_PATTERNS = {
+  getsign: /get\s*-?\s*sign|e-?\s?sign|signature|mapping/,
+  trackmy: /track\s*-?\s*my|courier|parcel|shipment tracking|tracking number/,
+  vlookup: /v\s*-?\s*lookup/,
+  extract: /extract\s*-?\s*ai|\bextract\b/,
+  jobflows: /job\s*-?\s*flows?/,
+  smartcolumns: /smart\s*-?\s*columns?/,
+  jetscan: /jet\s*-?\s*scan/,
+  pivotreports: /pivot\s*-?\s*reports?/,
+  triggerly: /triggerly|qr code/,
+} as const satisfies Record<Exclude<AppProduct, "unknown">, RegExp>;
+
 /** Cheap heuristic to attribute a ticket to a product. */
 export function inferProduct(text: string): Product {
   const t = text.toLowerCase();
-  if (/getsign|e-?sign|signature|mapping/.test(t)) return "getsign";
-  if (
-    /jetpack|marketplace|widget|trackmy|track my|courier|vlookup|extract ai|extract-ai|jobflow|smart column|jetscan|pivot report|triggerly|qr code/.test(t)
-  )
-    return "jetpackapps";
+  if (APP_PATTERNS.getsign.test(t)) return "getsign";
+  if (/jetpack|marketplace|widget/.test(t)) return "jetpackapps";
+  for (const [app, re] of Object.entries(APP_PATTERNS)) {
+    if (app !== "getsign" && re.test(t)) return "jetpackapps";
+  }
   if (/monday\.com|board/.test(t)) return "jetpackapps";
   return "unknown";
 }
@@ -65,15 +85,13 @@ export function productFromHint(hint: string | null | undefined): Product | null
  */
 export function inferAppProduct(text: string): AppProduct {
   const t = text.toLowerCase();
-  if (/getsign|e-?sign|signature|mapping/.test(t)) return "getsign";
-  if (/trackmy|track my|courier|parcel|shipment tracking|tracking number/.test(t)) return "trackmy";
-  if (/vlookup/.test(t)) return "vlookup";
-  if (/extract ai|extract-ai|\bextract\b/.test(t)) return "extract";
-  if (/jobflow/.test(t)) return "jobflows";
-  if (/smart column/.test(t)) return "smartcolumns";
-  if (/jetscan/.test(t)) return "jetscan";
-  if (/pivot report/.test(t)) return "pivotreports";
-  if (/triggerly|qr code/.test(t)) return "triggerly";
+  // Order matters: getsign first (its "signature"/"mapping" terms are the most
+  // generic), then the rest by how specific their names are.
+  for (const app of [
+    "getsign", "trackmy", "vlookup", "jobflows", "smartcolumns", "jetscan", "pivotreports", "triggerly", "extract",
+  ] as const) {
+    if (APP_PATTERNS[app].test(t)) return app;
+  }
   return "unknown";
 }
 
@@ -114,6 +132,19 @@ Products:
 
 Pick the single most likely product from the ticket's content and phrasing. Prefer a product over "unknown" when the text leans one way, even without an explicit product name.
 
+App — WHICH app, specifically. "jetpackapps" is a portfolio of separate apps, so naming it alone is useless for spotting which app is having a bad week. Attribute by what the ticket describes, not just by a name it mentions:
+- "getsign" — GetSign, the e-signature app (its own product with its own site, getsign.io): signature requests, signers and signing order, signing links, templates, field mapping onto a document, generated/signed PDFs, where signed documents are stored.
+- "vlookup" — VLOOKUP Auto-Link: connecting/matching items between boards, auto-linking, copy & sync between boards, lookup or mirror columns not updating.
+- "trackmy" — TrackMy: parcel/courier/shipment tracking, tracking numbers, carrier status.
+- "extract" — Extract AI: pulling data out of files, PDFs or emails into board columns.
+- "jobflows" — JobFlows: recruiting pipelines, candidates, job postings, hiring boards.
+- "smartcolumns" — Smart Columns: currency conversion, mandatory fields, SLA timers, duplicate detection, custom IDs, conditional status and similar column utilities.
+- "jetscan" — JetScan HR: resume/CV scanning and parsing.
+- "pivotreports" — Pivot Reports Pro: pivot tables, cross-tab reporting, report widgets.
+- "triggerly" — Triggerly: QR codes, and automations triggered by scanning them.
+- "unknown" — only when the ticket really gives nothing to go on: a pure billing, invoice, VAT or account question with no app in sight, or an empty/unintelligible ticket.
+Choose "unknown" over guessing. A wrong app is worse than no app, because it lands in another app's trend line.
+
 Complexity:
 - "simple" — a single, clearly-stated question likely answerable from documentation: a how-to, a pricing/plan question, a plain factual billing lookup.
 - "standard" — anything else: multiple issues, technical debugging, error reports, angry or escalation-prone tone, refunds needing judgment, or unclear requests. When in doubt, "standard".
@@ -143,12 +174,19 @@ export type IntakeType = "customer_query" | "auto_reply" | "marketing" | "spam" 
 
 export interface TicketTriage {
   product: Product;
+  /** Which specific app — the grain "jetpackapps" is too coarse to act on. */
+  app: AppProduct;
   complexity: "simple" | "standard";
   /** Whether this ticket is a genuine customer query worth drafting for. */
   intake: IntakeType;
   /** Canonical theme label, or undefined when triage failed / produced noise. */
   topic?: string;
 }
+
+const APP_VALUES = [
+  "getsign", "vlookup", "trackmy", "extract", "jobflows",
+  "smartcolumns", "jetscan", "pivotreports", "triggerly", "unknown",
+] as const;
 
 /**
  * The taxonomy changes slowly and every ticket needs it, so hold it in process
@@ -181,6 +219,7 @@ export async function triageTicket(
       schema: z.object({
         intake: z.enum(["customer_query", "auto_reply", "marketing", "spam", "other"]),
         product: z.enum(["getsign", "jetpackapps", "unknown"]),
+        app: z.enum(APP_VALUES).describe("The specific app the ticket is about"),
         complexity: z.enum(["simple", "standard"]),
         topic: z.string().describe("2-4 lowercase words naming what the ticket is about"),
       }),
@@ -202,7 +241,7 @@ export async function triageTicket(
     return { ...object, topic };
   } catch (e) {
     console.warn("Ticket triage failed, using {unknown, standard, customer_query}:", e);
-    return { product: "unknown", complexity: "standard", intake: "customer_query" };
+    return { product: "unknown", app: "unknown", complexity: "standard", intake: "customer_query" };
   }
 }
 
@@ -263,7 +302,12 @@ export async function buildContext(
   const [triage, account, relatedDevItems] = await Promise.all([
     contentIsLive
       ? triageTicket(ticket.subject, ticket.description, taskUsage)
-      : Promise.resolve<TicketTriage>({ product: "unknown", complexity: "standard", intake: "customer_query" }),
+      : Promise.resolve<TicketTriage>({
+          product: "unknown",
+          app: "unknown",
+          complexity: "standard",
+          intake: "customer_query",
+        }),
     ticket.requesterEmail
       ? fastspring.getFastSpringAccount(ticket.requesterEmail, appProduct).catch(() => null)
       : Promise.resolve(null),
@@ -278,6 +322,15 @@ export async function buildContext(
     productFromHint(ticket.productHint) ??
     (keywordProduct !== "unknown" ? keywordProduct : triage.product);
 
+  // Same precedence at app grain, for reporting. Deliberately a SEPARATE field
+  // from `appProduct` above: that one is computed before triage because the
+  // FastSpring prefetch needs it, and it routes billing writes to a specific
+  // store. Letting an LLM guess feed store selection could apply a discount
+  // against the wrong app's store, so billing keeps the conservative
+  // hint/keyword value and only reporting takes the model's fallback.
+  const app: AppProduct =
+    appProduct !== "unknown" ? appProduct : triage.app;
+
   return {
     channel,
     ticket,
@@ -285,6 +338,7 @@ export async function buildContext(
     relatedDevItems,
     product,
     appProduct,
+    app,
     complexity: triage.complexity,
     intake: triage.intake,
     topic: triage.topic,

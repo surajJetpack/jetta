@@ -7,6 +7,28 @@ export type Product = "jetpackapps" | "getsign" | "unknown";
  * Each app bills through its own separate FastSpring store, so billing lookups
  * need to know which app, not just the "jetpackapps" vs "getsign" bucket.
  */
+/**
+ * Display names for the apps. Lives with the type so server digests and the
+ * console render an app the same way — "vlookup" should never reach a human.
+ */
+export const APP_NAMES: Record<string, string> = {
+  getsign: "GetSign",
+  vlookup: "VLOOKUP Auto-Link",
+  trackmy: "TrackMy",
+  extract: "Extract AI",
+  jobflows: "JobFlows",
+  smartcolumns: "Smart Columns",
+  jetscan: "JetScan HR",
+  pivotreports: "Pivot Reports Pro",
+  triggerly: "Triggerly",
+  unknown: "Unattributed",
+};
+
+/** Human-readable app name, falling back to the raw key. */
+export function appName(app: string | null | undefined): string {
+  return APP_NAMES[app ?? "unknown"] ?? app ?? "Unattributed";
+}
+
 export type AppProduct =
   | "vlookup"
   | "trackmy"
@@ -162,8 +184,19 @@ export interface ConversationContext {
   account: FastSpringAccount | null;
   relatedDevItems: DevBoardItem[];
   product: Product;
-  /** Which app's FastSpring store `account` (if any) was looked up against. */
+  /**
+   * Which app's FastSpring store `account` (if any) was looked up against, and
+   * which store a billing write would hit. Derived from cf_product/keywords
+   * only — never from the LLM, so a misread can't move money in the wrong
+   * store. Use `app` for reporting.
+   */
   appProduct: AppProduct;
+  /**
+   * Best-known specific app, for attribution and reporting: cf_product >
+   * keywords > triage. "jetpackapps" covers nine separate apps, so the coarse
+   * `product` field can't answer "which app is having a bad week".
+   */
+  app?: AppProduct;
   /** Light-model triage rating; drives tiered model routing. Absent in stub mode. */
   complexity?: "simple" | "standard";
   /** Intake classification — non-"customer_query" tickets are skipped (no draft). */

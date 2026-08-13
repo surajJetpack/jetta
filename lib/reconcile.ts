@@ -146,6 +146,7 @@ export async function reconcileTicketDraft(
       at: now,
       channel: draft.channel,
       product: draft.product,
+      app: draft.app,
       topic: draft.topic,
       model: draft.model ?? "unknown",
       toolsUsed: ["reply_to_ticket"],

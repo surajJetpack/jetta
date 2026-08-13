@@ -117,6 +117,7 @@ export async function runChatTurn(conversationId: string, messageId: string): Pr
       at: Math.floor(Date.now() / 1000),
       channel: "jettachat",
       product: ctx.product,
+      app: ctx.app,
       topic: ctx.topic,
       model: result.model,
       toolsUsed: result.toolsUsed,

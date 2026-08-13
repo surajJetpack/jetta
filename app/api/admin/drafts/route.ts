@@ -195,6 +195,7 @@ export async function POST(req: NextRequest) {
     at: now,
     channel: draft.channel,
     product: draft.product,
+    app: draft.app,
     topic: draft.topic,
     model: draft.model ?? modelLabel(),
     toolsUsed: ["reply_to_ticket", ...(draft.wantsClose ? ["close_ticket"] : [])],

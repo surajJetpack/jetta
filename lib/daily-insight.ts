@@ -9,6 +9,7 @@ import { generateObject } from "ai";
 import { z } from "zod";
 import { getModel, modelLabel } from "./llm";
 import { PRICES } from "./analytics";
+import { appName } from "./types";
 import type { DailyInsight, DailyRollup } from "./kv";
 
 // NB: no array min/max constraints — some structured-output backends (the
@@ -30,6 +31,7 @@ Rules:
 1. Be factual and specific — cite the actual numbers from the data. Never invent figures.
 2. Plain language, no marketing tone, no emoji. Each bullet is one short clause.
 3. "watchouts" are for genuine signals only: a jump in escalations or reopens vs. yesterday, an unusual cost, a product suddenly dominating. If the day looks normal, return an empty watchouts array.
+3a. When a "by app" line is present, name the specific app — GetSign, VLOOKUP Auto-Link, TrackMy and so on. Never attribute anything to "Jetpack Apps": that is a portfolio of nine separate apps, so it tells the reader nothing about where to look.
 4. When yesterday's numbers are given, frame changes as deltas ("escalations up from 2 to 7"). Otherwise describe today alone.
 5. A quiet day is a fine answer — say so plainly rather than padding.`;
 
@@ -42,6 +44,9 @@ function renderRollup(label: string, r: Omit<DailyRollup, "insight">): string {
   const o = r.outcomes;
   const cost = totalCostUsd(r);
   const products = r.byProduct.map((p) => `${p.product}:${p.count}`).join(", ") || "none";
+  // Name the specific app. "jetpackapps" spans nine separate apps, so a
+  // narrative citing it tells the reader nothing they can act on.
+  const apps = (r.byApp ?? []).map((a) => `${appName(a.app)}:${a.count}`).join(", ");
   const knownCost = r.models.some((m) => PRICES[m.model]);
   return [
     `${label} (${r.date}):`,
@@ -49,6 +54,7 @@ function renderRollup(label: string, r: Omit<DailyRollup, "insight">): string {
     `  resolved: ${o.resolved}, escalated: ${o.escalated}, reopened: ${o.reopened}, auto-closed: ${o.closed}`,
     `  deflection rate: ${o.deflectionRate != null ? `${Math.round(o.deflectionRate * 100)}%` : "n/a"}`,
     `  by product: ${products}`,
+    ...(apps ? [`  by app: ${apps}`] : []),
     `  est. spend: ${knownCost ? `$${cost.toFixed(2)}` : "n/a (unpriced model)"}`,
     r.gaps.length
       ? `  unresolved (escalated/reopened): ${r.gaps.map((g) => `#${g.ticketId} ${g.subject}`).slice(0, 8).join("; ")}`

@@ -71,6 +71,8 @@ export interface TopicTicket {
   subject: string;
   at: number; // unix seconds
   product: string;
+  /** The specific app ("vlookup", "getsign"…), not the coarse portfolio name. */
+  app: string;
   /** Where it came from — decides whether the id is a Freshdesk ticket or a chat. */
   channel: string;
   escalated: boolean;
@@ -94,6 +96,8 @@ export interface TicketRecord {
   topic: string | null;
   subject: string;
   product: string;
+  /** The specific app ("vlookup", "getsign"…), not the coarse portfolio name. */
+  app: string;
   /**
    * Origin channel. Chat conversations carry a UUID rather than a Freshdesk
    * ticket number, so anything building a link has to branch on this — a
@@ -126,6 +130,7 @@ export function ticketRecords(outcomes: OutcomeEvent[]): TicketRecord[] {
         topic,
         subject: o.subject ?? "(no subject)",
         product: o.product,
+        app: o.app || "unknown",
         channel: o.channel,
         at: o.at,
         lastAt: o.at,
@@ -141,6 +146,7 @@ export function ticketRecords(outcomes: OutcomeEvent[]): TicketRecord[] {
     existing.lastAt = Math.max(existing.lastAt, o.at);
     existing.replied ||= o.replied;
     existing.topic ??= topic;
+    if (existing.app === "unknown" && o.app) existing.app = o.app;
     if (o.subject && existing.subject === "(no subject)") existing.subject = o.subject;
     if (o.escalated) {
       existing.escalated = true;
@@ -176,6 +182,12 @@ export interface TopicTrend {
   isNew: boolean;
   /** Clears both the volume and the multiplier bar — worth someone's morning. */
   emerging: boolean;
+  /**
+   * Which apps the window's tickets belong to, most common first. A spike that
+   * is all one app is a different conversation from one spread across the
+   * portfolio, and "jetpackapps" alone can't tell them apart.
+   */
+  apps: { app: string; count: number }[];
   /** Newest-first sample of the tickets behind the count. */
   tickets: TopicTicket[];
 }
@@ -227,6 +239,15 @@ const DAY_S = 86400;
  */
 const MIN_BASELINE_RATE = 0.25;
 
+/** App breakdown of a set of tickets, most common first. */
+function countApps(tickets: TopicTicket[]): { app: string; count: number }[] {
+  const freq = new Map<string, number>();
+  for (const t of tickets) freq.set(t.app, (freq.get(t.app) ?? 0) + 1);
+  return [...freq.entries()]
+    .map(([app, count]) => ({ app, count }))
+    .sort((a, b) => b.count - a.count);
+}
+
 /** Tickets that arrived in [fromS, toS). */
 function countIn(tickets: TicketRecord[], fromS: number, toS: number): number {
   let n = 0;
@@ -244,6 +265,7 @@ function ticketsIn(tickets: TicketRecord[], fromS: number, toS: number): TopicTi
       subject: t.subject,
       at: t.at,
       product: t.product,
+      app: t.app,
       channel: t.channel,
       escalated: t.escalated,
     }));
@@ -322,6 +344,7 @@ export function topicTrends(outcomes: OutcomeEvent[], opts: TopicTrendsOptions =
       // ticket, and the multiple alone would flag a single ticket against a
       // zero baseline.
       emerging: recent >= minCount && (multiplier == null || multiplier >= minMultiplier),
+      apps: countApps(tickets),
       tickets: tickets.slice(0, sampleSize),
     });
   }

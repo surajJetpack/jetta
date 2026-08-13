@@ -16,6 +16,7 @@ import {
   Undo2,
 } from "lucide-react";
 import { displayTopic } from "@/lib/topics";
+import { appName } from "@/lib/types";
 import { fmtAgo, fmtDate, fmtDateTime, useNow } from "@/lib/format";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -36,6 +37,7 @@ interface TopicTicket extends Ref {
   subject: string;
   at: number;
   product: string;
+  app: string;
   channel: string;
   escalated: boolean;
 }
@@ -46,6 +48,7 @@ interface Trend {
   multiplier: number | null;
   isNew: boolean;
   kbArticle: string | null;
+  apps: { app: string; count: number }[];
   tickets: TopicTicket[];
 }
 interface QueueItem extends Ref {
@@ -53,6 +56,7 @@ interface QueueItem extends Ref {
   subject: string;
   topic: string | null;
   product: string;
+  app: string;
   at: number;
 }
 interface DraftItem extends Omit<QueueItem, "at"> {
@@ -64,6 +68,7 @@ interface Brief {
   generatedAt: number;
   windowHours: number;
   summary: { arrived: number; answered: number; waiting: number; escalated: number; reopened: number };
+  byApp: { app: string; count: number }[];
   narrative: { headline: string; highlights: string[]; watchouts: string[]; generatedAt: number } | null;
   narrativeDate: string | null;
   trends: {
@@ -248,6 +253,19 @@ export default function TodayBrief() {
                 <Stat label="Reopened">{s.reopened}</Stat>
               </div>
 
+              {brief.byApp.length > 0 && (
+                <div className="space-y-2">
+                  <SectionLabel>Which app</SectionLabel>
+                  <div className="flex flex-wrap gap-1.5">
+                    {brief.byApp.map((a) => (
+                      <StatusChip key={a.app} tone={a.app === "unknown" ? "archived" : "in_review"}>
+                        {appName(a.app)} · {a.count}
+                      </StatusChip>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {brief.narrative && (
                 <div className="rounded-lg border bg-muted/30 p-4">
                   <div className="mb-2 flex items-center gap-2">
@@ -313,6 +331,14 @@ export default function TodayBrief() {
                       }
                       meta={
                         <>
+                          {t.apps
+                            .filter((a) => a.app !== "unknown")
+                            .slice(0, 2)
+                            .map((a) => (
+                              <StatusChip key={a.app} tone="in_review">
+                                {appName(a.app)}
+                              </StatusChip>
+                            ))}
                           <StatusChip tone={chip.tone}>{chip.text}</StatusChip>
                           <StatusChip tone={t.kbArticle ? "published" : "draft"}>
                             {t.kbArticle ? "in KB" : "no KB article"}

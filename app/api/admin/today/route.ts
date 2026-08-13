@@ -122,6 +122,15 @@ export async function GET(req: NextRequest) {
     tickets.filter((t) => t.reopenedAt != null && t.reopenedAt >= windowStart).map((t) => t.ticketId),
   );
 
+  // Volume per specific app for the window. The coarse product field buckets
+  // nine marketplace apps as "jetpackapps", which can't answer "which app is
+  // having a bad morning" — the only version of this question worth asking.
+  const appCounts = new Map<string, number>();
+  for (const t of arrivedTickets) appCounts.set(t.app, (appCounts.get(t.app) ?? 0) + 1);
+  const byApp = [...appCounts.entries()]
+    .map(([app, count]) => ({ app, count }))
+    .sort((a, b) => b.count - a.count);
+
   const pendingDrafts = drafts
     .filter((d) => d.state === "pending")
     .sort((a, b) => a.createdAt - b.createdAt);
@@ -173,6 +182,7 @@ export async function GET(req: NextRequest) {
       /** Current open queue — not a 24h figure; the UI heads the queue card with it. */
       waiting: waiting.size,
     },
+    byApp,
     /** Yesterday's narrative from the daily rollup — written by the 06:10 cron. */
     narrative: yesterday?.insight ?? null,
     narrativeDate: yesterday?.date ?? null,
