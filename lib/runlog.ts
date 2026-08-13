@@ -56,7 +56,13 @@ export async function recordRun(
     dryRun: result.dryRun,
     blockedByAllowlist: result.blockedByAllowlist,
     heldCustomerWrites: result.heldCustomerWrites || undefined,
-    replied: result.toolsUsed.includes("reply_to_ticket"),
+    // JettaChat has no reply tool — the model's final text is the message, so
+    // a non-empty completion is what "replied" means there. Reading the trace
+    // would report every chat as unanswered.
+    replied:
+      ctx.channel === "jettachat"
+        ? result.text.trim().length > 0
+        : result.toolsUsed.includes("reply_to_ticket"),
     resolutionSent: result.resolutionSent,
     escalated: result.toolsUsed.includes("send_escalation"),
     durationMs,
