@@ -1,16 +1,23 @@
 /**
  * The in-app tutorial — one card per console tab, built from the same
  * primitives the real screens use (StepCard, StatusChip, LiveBadge, Alert) so
- * what reviewers read here looks like what they'll click there.
- * Content mirrors docs/support-console-guide.md; this page is canonical.
+ * what people read here looks like what they'll click there.
+ *
+ * This page is canonical; docs/support-console-guide.md is the older prose
+ * version. Keep it honest about the two things people get wrong: Freshdesk
+ * tickets always wait for a human, and live chat does not.
  */
 import {
   BarChart3,
   BookOpen,
+  CreditCard,
+  Flame,
+  GraduationCap,
   Hand,
-  LineChart,
   Mail,
+  MessageSquare,
   Monitor,
+  Sunrise,
   TriangleAlert,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -30,20 +37,83 @@ export default function GuideContent() {
         </CardHeader>
         <CardContent className="space-y-2 text-sm">
           <p>
-            Jetta is our AI support agent. Every incoming Freshdesk ticket flows through it: Jetta
-            reads the ticket, searches the knowledge base, checks the customer&apos;s account and the
-            dev board, and writes a suggested reply.
+            Jetta is our AI support agent. Every incoming Freshdesk ticket flows through it: it reads
+            the ticket, searches the knowledge base, checks the customer&apos;s account and the dev
+            board, works out which app the ticket is about, and writes a suggested reply.
           </p>
           <p>
-            <b>Nothing reaches a customer until a human sends it.</b> The suggested reply is posted
-            as a <b>private note on the Freshdesk ticket</b> (customers never see notes). You work
-            entirely in Freshdesk: copy it into the reply editor, edit freely, and send as yourself.
-            There is no console step and no queue to clear.
+            <b>On Freshdesk, nothing reaches a customer until a human sends it.</b>{" "}
+            Jetta&apos;s
+            suggestion is posted as a <b>private note on the ticket</b> (customers never see notes).
+            You copy it into the reply editor, edit freely, and send as yourself. There is no console
+            step and no queue to clear.
+          </p>
+          <p>
+            <b>Live chat is the exception</b> — there Jetta answers the visitor directly, with no
+            human in front of it. That is why the Chats tab exists: review happens after the fact.
           </p>
           <p className="text-muted-foreground">
             Sessions last 7 days. If you get logged out, sign back in at /login with your personal
-            username — decisions are recorded under your name.
+            username — anything you decide is recorded under your name.
           </p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Sunrise className="size-4 text-primary" /> Today — start your day here
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2.5 text-sm">
+          <p>
+            One screen for the morning read: what came in overnight, what is trending, and what needs
+            a person. Every number counts <b>tickets Jetta handled</b>, not all Freshdesk traffic.
+          </p>
+
+          <StepCard title="Your briefing">
+            <p className="text-sm">
+              A short written read of the numbers on the page, regenerated whenever they change, with
+              one <b>Start here</b> action. It is commentary — the tiles and lists are the source of
+              truth. <b>Rewrite</b> forces a fresh one.
+            </p>
+          </StepCard>
+
+          <StepCard
+            title={
+              <span className="inline-flex items-center gap-1.5">
+                <Flame className="size-4" /> Emerging issues
+              </span>
+            }
+          >
+            <p className="text-sm">
+              Topics running above their normal rate — at least <b>3 tickets in 24h</b> and{" "}
+              <b>3× the daily average</b>{" "}
+              of the previous 14 days, so an ordinary busy day doesn&apos;t
+              cry wolf. Each one shows which app it hit and whether the KB already answers it:{" "}
+              <StatusChip tone="published">in KB</StatusChip> means customers can&apos;t find an
+              answer that exists, <StatusChip tone="draft">no KB article</StatusChip> means it needs
+              writing. Brand-new themes show as{" "}
+              <StatusChip tone="stale">new issue</StatusChip>.
+            </p>
+          </StepCard>
+
+          <StepCard title="Waiting on a human">
+            <p className="text-sm">
+              The only work on this page that is actually yours: escalations Jetta handed to the team,
+              tickets a customer <b>reopened</b>{" "}
+              (Jetta&apos;s answer didn&apos;t land — the highest
+              signal thing here), KB articles awaiting review, billing approvals, and candidate
+              learnings to approve.
+            </p>
+          </StepCard>
+
+          <StepCard title="Worth documenting">
+            <p className="text-sm">
+              The week&apos;s unresolved tickets grouped <b>by theme</b>, worst-covered first, so one
+              article closes a whole group rather than a single ticket.
+            </p>
+          </StepCard>
         </CardContent>
       </Card>
 
@@ -54,62 +124,24 @@ export default function GuideContent() {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-2.5 text-sm">
-          <p className="text-muted-foreground">
-            <b>The everyday flow happens in Freshdesk:</b> Jetta&apos;s suggested reply is in a
-            private note on the ticket. Copy it into the reply editor, edit freely, and send as
-            yourself — Jetta notices your reply, compares it with its suggestion, and records your
-            decision automatically (sent as-is = approved, edited = approved with edits, something
-            completely different = draft unused). No console visit needed.
+          <p>
+            Jetta&apos;s suggested reply sits in a private note on the ticket. Copy it into the reply
+            editor, change whatever you want, and send as yourself. <b>That is the whole workflow.</b>
+          </p>
+          <p>
+            Writing the reply <i>is</i> the feedback. Jetta reads back what you actually sent,
+            compares it with what it suggested, and records the difference on its own — sent as-is,
+            edited, or replaced entirely. You never have to tell it.
           </p>
           <p className="text-muted-foreground">
-            That is the whole workflow — writing the reply <i>is</i> the feedback. Jetta then mines
-            what you actually sent and proposes behaviour changes from the patterns; those wait for
-            a human in <b>Evals</b>, and nothing about how Jetta writes changes until one is
-            approved there.
+            Two things worth knowing. If the customer writes again while a suggestion is waiting, the
+            old one is marked <i>superseded</i> and Jetta writes a fresh one against the new message.
+            And if nobody ever replies to a ticket, its suggestion quietly <i>expires</i> after two
+            weeks rather than piling up — an expired suggestion is not a black mark against anyone.
           </p>
           <p className="text-muted-foreground">
-            The console still keeps every suggestion at <code>/drafts</code> as an audit trail, and
-            the three moves below work there if you ever need them — but the everyday answer is
-            &ldquo;reply in Freshdesk and carry on&rdquo;.
-          </p>
-
-          <StepCard title="1 · Approve & send">
-            <p className="text-sm">
-              The reply is good as-is — it goes to the customer immediately. Watch the chips on the
-              card first: <StatusChip tone="stale">will resolve ticket</StatusChip> means the ticket
-              is closed when you approve; <StatusChip tone="published">schedules 24h follow-up</StatusChip>{" "}
-              means Jetta checks back on the customer tomorrow;{" "}
-              <StatusChip tone="draft">escalated to dev team</StatusChip> means the issue was also
-              posted to engineering.
-            </p>
-          </StepCard>
-
-          <StepCard title="2 · Edit, then approve">
-            <p className="text-sm">
-              The reply is close but not right: fix the text in the box and hit &quot;Approve &amp;
-              send (edited)&quot;. <b>Your edit is the most valuable training signal we have</b> —
-              Jetta compares what it wrote against what you actually sent and learns the difference.
-              Optionally click &quot;Add feedback&quot; to tag <i>why</i> you edited (tone, policy,
-              missing knowledge…).
-            </p>
-          </StepCard>
-
-          <StepCard title="3 · Discard">
-            <p className="text-sm">
-              The reply shouldn&apos;t go out at all. You&apos;ll be asked for at least one reason
-              tag and can add a one-line note saying what should have happened instead —{" "}
-              <b>don&apos;t skip the note when you have 10 seconds</b>, it becomes a candidate rule
-              for Jetta. Discarding sends nothing; reply to the customer manually from Freshdesk
-              afterwards.
-            </p>
-          </StepCard>
-
-          <p className="text-muted-foreground">
-            Good to know: if a customer replies again while a draft waits, the old draft is marked{" "}
-            <i>superseded</i> automatically — only ever act on pending cards. Replying in
-            Freshdesk with your own text? Hit &quot;Save feedback&quot; on the card first (tags +
-            note, no send happens) — it attaches automatically to whatever closes the draft, so
-            Jetta learns <i>why</i> its suggestion wasn&apos;t used, not just that it wasn&apos;t.
+            Every suggestion is kept at <code>/drafts</code> as an audit trail. It is not in the nav
+            because it is not a queue anyone works.
           </p>
         </CardContent>
       </Card>
@@ -117,25 +149,136 @@ export default function GuideContent() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <LineChart className="size-4 text-primary" /> Evals — how Jetta learns
+            <MessageSquare className="size-4 text-primary" /> Chats — where Jetta answers alone
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm">
+          <p>
+            In the website and in-app chat widget, Jetta is the front line: it replies to the visitor
+            live, with <b>nobody reading it first</b>. When it can&apos;t resolve something it raises
+            a Freshdesk ticket, and the conversation rejoins the normal flow.
+          </p>
+          <p>
+            This tab is the compensating control for that. Skim the transcripts — you are reading for
+            wrong facts, a confident answer to something it should have escalated, or a tone we
+            wouldn&apos;t use. Anything you find belongs in the KB (if it&apos;s a fact) or Evals (if
+            it&apos;s a behaviour).
+          </p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <GraduationCap className="size-4 text-primary" /> Evals — how Jetta learns
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-2.5 text-sm">
           <p>
-            Every decision is recorded automatically, wherever you make it: approve as-is = good,
-            edited = partial, discard = bad, plus your tags and notes. From there:
+            This is the loop that changes Jetta&apos;s behaviour, and the one tab that genuinely needs
+            you.
           </p>
-          <StepCard title="Feedback → rules → better replies">
+
+          <StepCard title="1 · Learn from human replies">
             <p className="text-sm">
-              &quot;Distill now&quot; turns accumulated feedback into short candidate rules like{" "}
-              <i>&quot;Don&apos;t offer refunds proactively.&quot;</i> Candidates do nothing until a
-              human approves them here — once approved, the rule is injected into every future reply
-              Jetta writes. A rule that stops being helpful can be <b>retired</b> at any time.
+              Takes recently resolved tickets, replays what Jetta <i>would</i> have written, and
+              compares it against what you actually sent. Every meaningful divergence is recorded.
+              This is the main input now — your ordinary replies are the training data, with no extra
+              work asked of you.
             </p>
           </StepCard>
+
+          <StepCard title="2 · Distill now">
+            <p className="text-sm">
+              Turns accumulated divergences into short candidate rules — things like{" "}
+              <i>&quot;Don&apos;t offer refunds proactively.&quot;</i> Patterns only: a one-off never
+              becomes a rule.
+            </p>
+          </StepCard>
+
+          <StepCard title="3 · Approve or reject">
+            <p className="text-sm">
+              <b>Nothing changes until you approve.</b>{" "}
+              An approved rule is injected into every reply
+              Jetta writes from then on; a rejected one is remembered so it&apos;s never proposed
+              again. Approve narrowly — each rule is permanent instruction until someone{" "}
+              <b>retires</b> it.
+            </p>
+          </StepCard>
+
           <p className="text-muted-foreground">
-            You don&apos;t need to manage this tab day-to-day. Just know your tags and notes end up
-            here — which is why honest reasons matter more than fast clicks.
+            Rule of thumb: product <b>facts</b> belong in the Knowledge Base, <b>behaviour</b>{" "}
+            belongs
+            here. &quot;The Pro plan is $29&quot; is a KB article. &quot;Ask which board before
+            troubleshooting a sync&quot; is a learning.
+          </p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <BookOpen className="size-4 text-primary" /> Knowledge Base — Jetta&apos;s memory for facts
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm">
+          <p>
+            Articles move through <StatusChip tone="draft">draft</StatusChip> →{" "}
+            <StatusChip tone="in_review">in_review</StatusChip> →{" "}
+            <StatusChip tone="published">published</StatusChip> →{" "}
+            <StatusChip tone="archived">archived</StatusChip>.{" "}
+            <b>Only published articles are searchable by Jetta</b> — a fix isn&apos;t live until
+            it&apos;s published.
+          </p>
+          <p>
+            If Jetta keeps getting a product fact wrong, the fix is a KB article. The KB also syncs
+            daily from our websites, so most content maintains itself; what you add by hand is the
+            stuff that only lives in someone&apos;s head.
+          </p>
+          <p className="text-muted-foreground">
+            When Today says a spiking topic is already <StatusChip tone="published">in KB</StatusChip>,
+            the article exists but isn&apos;t reaching people — usually a wording problem, not a
+            missing page.
+          </p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <CreditCard className="size-4 text-primary" /> Billing — approvals Jetta can&apos;t self-serve
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm">
+          <p>
+            When a customer asks for a trial extension or a discount, Jetta doesn&apos;t grant it. It
+            files a request here (and in Slack) with the account, the amount and the ticket, and waits
+            for a person. Requests that look like repeat trial-stretching are flagged for you.
+          </p>
+          <p className="text-muted-foreground">
+            Pending requests expire after 3 days on their own, so an ignored request never quietly
+            grants itself.
+          </p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <BarChart3 className="size-4 text-primary" /> Insights — how we&apos;re doing
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm">
+          <p>
+            The ops view, and the counterpart to Today: yesterday&apos;s rollup with its own AI
+            narrative, volume and cost over time, per-model quality, and knowledge-gap signals. Volume
+            is broken down <b>per app</b> — GetSign, VLOOKUP Auto-Link, TrackMy and the rest — never as
+            one lump, because &quot;Jetpack Apps&quot; spans nine products and tells you nothing about
+            where to look.
+          </p>
+          <p className="text-muted-foreground">
+            The <b>Event log</b> at the bottom records every system event — runs, skips, escalations,
+            logins — and is the first place to look when something behaved oddly.
           </p>
         </CardContent>
       </Card>
@@ -148,55 +291,15 @@ export default function GuideContent() {
         </CardHeader>
         <CardContent className="space-y-2 text-sm">
           <p>
-            The home tab shows system status — which model is answering, whether integrations are{" "}
-            <LiveBadge live /> or <LiveBadge live={false} />, and the reply mode (DRAFT = everything
-            held for approval).
+            System status: which model is answering, whether each integration is <LiveBadge live /> or{" "}
+            <LiveBadge live={false} />, and the reply mode (DRAFT = every Freshdesk reply waits for a
+            human).
           </p>
           <p>
-            The <b>ticket tester</b> re-runs any ticket through Jetta. With <b>Dry run</b> on
-            (default) it&apos;s a safe preview — you see the reply and every tool call Jetta made,
-            but nothing is written anywhere. Use it to understand an odd draft (&quot;why did it say
-            that?&quot;) or to check behavior after a KB fix.
-          </p>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <BookOpen className="size-4 text-primary" /> Knowledge Base — Jetta&apos;s memory for product facts
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2 text-sm">
-          <p>
-            Articles move through a lifecycle: <StatusChip tone="draft">draft</StatusChip> →{" "}
-            <StatusChip tone="in_review">in_review</StatusChip> →{" "}
-            <StatusChip tone="published">published</StatusChip> →{" "}
-            <StatusChip tone="archived">archived</StatusChip>. <b>Only published articles are
-            searchable by Jetta</b> — a fix isn&apos;t live until it&apos;s published.
-          </p>
-          <p>
-            If Jetta keeps getting a product fact wrong, the right fix is usually a KB article (edit
-            or create → review → publish), not a discard note — facts belong in the KB, behavioral
-            rules belong in Evals. The KB also syncs daily from our websites, so most content
-            maintains itself.
-          </p>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <BarChart3 className="size-4 text-primary" /> Insights — how we&apos;re doing
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="text-sm">
-          <p>
-            Outcome counts (handled, drafted, escalated), knowledge-gap signals, and the
-            model-quality table live here. The numbers come from the same decisions you make in
-            Drafts — approval and edit rates per model are how we judge whether the current model is
-            holding up. The <b>Event log</b> at the bottom records every system event — runs, skips,
-            decisions, logins — for audit and analysis.
+            The <b>ticket tester</b> re-runs any ticket through Jetta. With <b>Dry run</b>{" "}
+            on (default) nothing is written anywhere — you just see the reply it would send and every
+            tool call it made. Use it to answer &quot;why did it say that?&quot;, or to check a KB fix
+            actually worked before trusting it.
           </p>
         </CardContent>
       </Card>
@@ -205,17 +308,22 @@ export default function GuideContent() {
         <CardHeader>
           <CardTitle>Ground rules</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-2">
           <Alert variant="destructive">
             <TriangleAlert />
-            <AlertTitle>Never approve on autopilot.</AlertTitle>
+            <AlertTitle>Read before you send. You are the last check.</AlertTitle>
             <AlertDescription>
-              You are the safety net — check facts, links, and account details before sending. If
-              the ticket is closed or the customer was already answered, discard. If something looks
-              broken (wrong customer data, weird model output, stuck queue), ping Suraj rather than
-              working around it.
+              Jetta writes confidently whether or not it is right. Check facts, prices, links and
+              account details before a suggestion goes out under your name — especially anything about
+              money. If a suggestion is wrong, just write your own reply; that disagreement is exactly
+              what the learning loop feeds on.
             </AlertDescription>
           </Alert>
+          <p className="text-sm text-muted-foreground">
+            Never cancel a subscription unless the customer has clearly asked for it. If something
+            looks broken — wrong customer data, a reply about the wrong product, a queue that
+            won&apos;t clear — ping Suraj rather than working around it.
+          </p>
         </CardContent>
       </Card>
     </>
