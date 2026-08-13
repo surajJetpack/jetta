@@ -335,6 +335,31 @@ export async function replaceOutcomes(events: OutcomeEvent[]): Promise<void> {
   memOutcomes.push(...capped);
 }
 
+// ── /today AI briefing cache ───────────────────────────────────────
+// Cached against a fingerprint of the brief rather than on a timer, so one
+// generation serves a whole morning of readers but a spike appearing mid-morning
+// still gets narrated. Stored as an OBJECT, not via kvSet: that helper
+// stringifies, Upstash serializes again, and the read then fails to parse —
+// which silently turned every page view into a fresh LLM call.
+const TODAY_INSIGHT_KEY = "jetta:today-insight";
+const TODAY_INSIGHT_TTL = 6 * 3600;
+let memTodayInsight: { fingerprint: string; insight: unknown } | null = null;
+
+export async function saveTodayInsight(entry: { fingerprint: string; insight: unknown }): Promise<void> {
+  const r = client();
+  if (r) {
+    await r.set(TODAY_INSIGHT_KEY, entry, { ex: TODAY_INSIGHT_TTL });
+    return;
+  }
+  memTodayInsight = entry;
+}
+
+export async function getTodayInsight<T>(): Promise<{ fingerprint: string; insight: T } | null> {
+  const r = client();
+  if (r) return await r.get<{ fingerprint: string; insight: T }>(TODAY_INSIGHT_KEY);
+  return (memTodayInsight as { fingerprint: string; insight: T } | null) ?? null;
+}
+
 // ── Topic taxonomy ─────────────────────────────────────────────────
 // The running vocabulary of ticket themes, scored by how often each has been
 // seen. Fed back into the triage prompt so the model reuses "signing link

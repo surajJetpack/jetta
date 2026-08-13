@@ -9,6 +9,7 @@ import {
   ExternalLink,
   FileText,
   Flame,
+  ArrowRight,
   RotateCw,
   Siren,
   Sparkles,
@@ -17,7 +18,7 @@ import {
 } from "lucide-react";
 import { displayTopic } from "@/lib/topics";
 import { appName } from "@/lib/types";
-import { fmtAgo, fmtDate, fmtDateTime, useNow } from "@/lib/format";
+import { fmtAgo, fmtDateTime, useNow } from "@/lib/format";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertAction, AlertTitle } from "@/components/ui/alert";
@@ -63,6 +64,13 @@ interface DraftItem extends Omit<QueueItem, "at"> {
   id: string;
   createdAt: number;
   ageHours: number;
+}
+interface Insight {
+  headline: string;
+  startHere: string;
+  highlights: string[];
+  generatedAt: number;
+  model: string;
 }
 interface Brief {
   generatedAt: number;
@@ -179,6 +187,9 @@ export default function TodayBrief() {
   const [brief, setBrief] = useState<Brief | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  const [insight, setInsight] = useState<Insight | null>(null);
+  const [insightState, setInsightState] = useState<"loading" | "ready" | "failed">("loading");
+  const [insightStale, setInsightStale] = useState(false);
   const now = useNow();
 
   const load = useCallback(() => {
@@ -195,14 +206,37 @@ export default function TodayBrief() {
       .finally(() => setLoading(false));
   }, []);
 
+  // Fetched separately from the numbers: assembling the brief already takes a
+  // couple of seconds and an LLM call on top would make the page feel stuck.
+  //
+  // State updates live in the promise callbacks, not the function body, so the
+  // mount effect satisfies react-hooks/set-state-in-effect — the initial
+  // "loading" covers the first fetch, same as the other console panels.
+  const loadInsight = useCallback((force = false) => {
+    fetch(`/api/admin/today/insight${force ? "?refresh=1" : ""}`, { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => {
+        setInsight(d.insight ?? null);
+        setInsightStale(!!d.stale);
+        setInsightState(d.insight ? "ready" : "failed");
+      })
+      .catch(() => setInsightState("failed"));
+  }, []);
+
   useEffect(() => {
     load();
-  }, [load]);
+    loadInsight();
+  }, [load, loadInsight]);
 
   const refresh = () => {
     setLoading(true);
     setErr(null);
     void load();
+  };
+
+  const rewriteInsight = () => {
+    setInsightState("loading");
+    void loadInsight(true);
   };
 
   const s = brief?.summary;
@@ -266,33 +300,63 @@ export default function TodayBrief() {
                 </div>
               )}
 
-              {brief.narrative && (
-                <div className="rounded-lg border bg-muted/30 p-4">
-                  <div className="mb-2 flex items-center gap-2">
+              <div className="rounded-lg border bg-muted/30 p-4">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <span className="inline-flex items-center gap-2">
                     <Sparkles className="size-4 text-muted-foreground" aria-hidden />
                     <span className="text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
-                      Yesterday{brief.narrativeDate ? ` · ${fmtDate(brief.narrativeDate)}` : ""}
+                      Your briefing
                     </span>
-                  </div>
-                  <p className="text-sm font-semibold">{brief.narrative.headline}</p>
-                  {brief.narrative.highlights.length > 0 && (
-                    <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
-                      {brief.narrative.highlights.map((h, i) => (
-                        <li key={i}>{h}</li>
-                      ))}
-                    </ul>
-                  )}
-                  {brief.narrative.watchouts.length > 0 && (
-                    <div className="mt-2 flex flex-wrap gap-1.5">
-                      {brief.narrative.watchouts.map((w, i) => (
-                        <StatusChip key={i} tone="draft">
-                          {w}
-                        </StatusChip>
-                      ))}
-                    </div>
-                  )}
+                    {insightStale && <StatusChip tone="draft">stale</StatusChip>}
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={rewriteInsight}
+                    disabled={insightState === "loading"}
+                  >
+                    <RotateCw className={insightState === "loading" ? "animate-spin" : undefined} /> Rewrite
+                  </Button>
                 </div>
-              )}
+
+                {insightState === "loading" && !insight && (
+                  <div className="space-y-2">
+                    <Skeleton className="h-4 w-3/4" />
+                    <Skeleton className="h-4 w-1/2" />
+                    <Skeleton className="h-4 w-2/3" />
+                  </div>
+                )}
+
+                {insightState === "failed" && !insight && (
+                  <p className="text-sm text-muted-foreground">
+                    Couldn&apos;t write the briefing just now — the numbers above are unaffected.
+                  </p>
+                )}
+
+                {insight && (
+                  <div className="space-y-3">
+                    <p className="text-sm font-semibold">{insight.headline}</p>
+                    <div className="flex items-start gap-2 rounded-md border border-primary/30 bg-primary/5 p-2.5">
+                      <ArrowRight className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
+                      <p className="text-sm">
+                        <span className="font-medium">Start here: </span>
+                        {insight.startHere}
+                      </p>
+                    </div>
+                    {insight.highlights.length > 0 && (
+                      <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+                        {insight.highlights.map((h, i) => (
+                          <li key={i}>{h}</li>
+                        ))}
+                      </ul>
+                    )}
+                    <p className="text-[11px] text-muted-foreground">
+                      Written {fmtAgo(Math.floor(insight.generatedAt / 1000), now)} from the numbers on this page.
+                      {brief.narrativeDate ? ` Yesterday's full digest is on Insights.` : ""}
+                    </p>
+                  </div>
+                )}
+              </div>
 
               <p className="text-[11px] text-muted-foreground">
                 Counts tickets Jetta handled — not all Freshdesk traffic. Updated{" "}
