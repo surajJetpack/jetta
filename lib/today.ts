@@ -14,7 +14,8 @@
  * brief means the narrative can never describe different numbers than the
  * ones on screen.
  */
-import { getOutcomes, listReplyDrafts, listMonetApprovals, getDailyRollup } from "./kv";
+import { getOutcomes, listMonetApprovals, getDailyRollup } from "./kv";
+import { listLearnings } from "./evals";
 import { listArticles, countByState, type ArticleState } from "./kb-store";
 import { topicTrends, ticketRecords, type TopicTrend, type TicketRecord } from "./topics";
 import { yesterdayKey } from "./daily-overview";
@@ -121,9 +122,16 @@ export type TodayBrief = Awaited<ReturnType<typeof buildTodayBrief>>;
 
 /** Assemble the whole brief. Read-only; safe to call from any admin route. */
 export async function buildTodayBrief() {
-  const [outcomes, drafts, monet, kbCounts, published, yesterday] = await Promise.all([
+  const [outcomes, candidateLearnings, monet, kbCounts, published, yesterday] = await Promise.all([
     getOutcomes(1000),
-    listReplyDrafts(),
+    // Reply drafts are deliberately absent. The console review queue is not the
+    // workflow: agents read Jetta's suggestion as a Freshdesk private note and
+    // send in their own words, and the learning comes from mining what they
+    // actually wrote (/evals → "Learn from human replies"). Counting drafts here
+    // put work on the board that nobody was ever going to do — 83 of 95 turned
+    // out to be unreviewable. What DOES need a human is a candidate learning:
+    // nothing changes Jetta's behaviour until someone approves one.
+    listLearnings("candidate").catch(() => []),
     listMonetApprovals().catch(() => []),
     countByState().catch(
       () => ({ draft: 0, in_review: 0, published: 0, archived: 0 }) as Record<ArticleState, number>,
@@ -162,17 +170,13 @@ export async function buildTodayBrief() {
     .map(([app, count]) => ({ app, count }))
     .sort((a, b) => b.count - a.count);
 
-  const pendingDrafts = drafts
-    .filter((d) => d.state === "pending")
-    .sort((a, b) => a.createdAt - b.createdAt);
-
-  // The whole open queue, not a 24h slice — a draft that has been sitting for
-  // three days is more of this morning's problem, not less. Union rather than
-  // sum: a ticket can be both escalated and awaiting draft review.
-  const waiting = new Set<string>([
-    ...tickets.filter((t) => t.escalatedAt != null && t.escalatedAt >= nowS - ESCALATION_LOOKBACK_H * HOUR_S).map((t) => t.ticketId),
-    ...pendingDrafts.map((d) => d.ticketId),
-  ]);
+  // The whole open queue, not a 24h slice — an escalation sitting for three
+  // days is more of this morning's problem, not less.
+  const waiting = new Set<string>(
+    tickets
+      .filter((t) => t.escalatedAt != null && t.escalatedAt >= nowS - ESCALATION_LOOKBACK_H * HOUR_S)
+      .map((t) => t.ticketId),
+  );
 
   // ── Emerging issues ──────────────────────────────────────────────
   const trends = topicTrends(outcomes, { nowMs: Date.now(), windowHours: WINDOW_HOURS });
@@ -226,20 +230,14 @@ export async function buildTodayBrief() {
       top: trends.top.map(withCoverage),
     },
     queue: {
-      drafts: {
-        count: pendingDrafts.length,
-        oldestAgeHours: pendingDrafts.length
-          ? Number(((nowS - pendingDrafts[0].createdAt) / HOUR_S).toFixed(1))
-          : null,
-        items: pendingDrafts.slice(0, 8).map((d) => ({
-          id: d.id,
-          ticketId: d.ticketId,
-          subject: d.subject ?? "(no subject)",
-          topic: d.topic ?? null,
-          product: d.product,
-          createdAt: d.createdAt,
-          ageHours: Number(((nowS - d.createdAt) / HOUR_S).toFixed(1)),
-          ...refFor(d.ticketId, d.channel),
+      learnings: {
+        count: candidateLearnings.length,
+        items: candidateLearnings.slice(0, 5).map((l) => ({
+          id: l.id,
+          text: l.text,
+          category: l.category,
+          product: l.product,
+          createdAt: l.createdAt,
         })),
       },
       escalations: { count: escalations.length, items: escalations.slice(0, 8) },

@@ -4,13 +4,18 @@ import { cn } from "@/lib/utils";
 import LogoutButton from "./logout-button";
 import { GuideBanner } from "./guide-banner";
 import { ThemeToggle } from "@/components/jetta/theme-toggle";
-import { PendingDraftsBadge } from "@/components/jetta/pending-drafts-badge";
 import { PendingMonetBadge } from "@/components/jetta/pending-monet-badge";
 
+/**
+ * Drafts is deliberately absent. Agents read Jetta's suggestion as a Freshdesk
+ * private note and reply in their own words — 1 of 242 drafts was ever decided
+ * in the console — and the learning now comes from mining what they actually
+ * sent (/evals → "Learn from human replies"). The page still exists at /drafts
+ * as an archive, and the private note still links to it.
+ */
 const TABS = [
   { href: "/today", label: "Today", id: "today" },
   { href: "/", label: "Console", id: "console" },
-  { href: "/drafts", label: "Drafts", id: "drafts" },
   { href: "/chats", label: "Chats", id: "chats" },
   { href: "/evals", label: "Evals", id: "evals" },
   { href: "/kb", label: "Knowledge Base", id: "kb" },
@@ -63,7 +68,6 @@ export function Nav({ current, user }: { current: string; user: string }) {
               )}
             >
               {t.label}
-              {t.id === "drafts" && <PendingDraftsBadge active={t.id === current} />}
               {t.id === "billing" && <PendingMonetBadge active={t.id === current} />}
             </Link>
           ))}

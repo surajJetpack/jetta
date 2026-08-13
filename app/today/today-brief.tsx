@@ -7,8 +7,8 @@ import {
   CheckCircle2,
   CreditCard,
   ExternalLink,
-  FileText,
   Flame,
+  GraduationCap,
   ArrowRight,
   RotateCw,
   Siren,
@@ -60,10 +60,12 @@ interface QueueItem extends Ref {
   app: string;
   at: number;
 }
-interface DraftItem extends Omit<QueueItem, "at"> {
+interface LearningItem {
   id: string;
+  text: string;
+  category: string;
+  product: string;
   createdAt: number;
-  ageHours: number;
 }
 interface Insight {
   headline: string;
@@ -88,7 +90,7 @@ interface Brief {
     top: Trend[];
   };
   queue: {
-    drafts: { count: number; oldestAgeHours: number | null; items: DraftItem[] };
+    learnings: { count: number; items: LearningItem[] };
     escalations: { count: number; items: QueueItem[] };
     reopened: { count: number; items: QueueItem[] };
     kbReview: number;
@@ -104,15 +106,7 @@ interface Brief {
   }[];
 }
 
-/** A draft sitting longer than this has missed its window to be useful. */
-const STALE_DRAFT_HOURS = 8;
 
-/** "30 days", not "714.1h" — the briefing says days, so the tile must too. */
-function fmtHours(hours: number): string {
-  if (hours < 48) return `${Math.round(hours)}h`;
-  const days = Math.round(hours / 24);
-  return `${days} day${days === 1 ? "" : "s"}`;
-}
 
 function Stat({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -170,7 +164,7 @@ function QueueTile({
   urgent,
 }: {
   href: string;
-  icon: typeof FileText;
+  icon: typeof BookOpen;
   label: string;
   count: number;
   hint?: string;
@@ -484,12 +478,11 @@ export default function TodayBrief() {
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
                   <QueueTile
-                    href="/drafts"
-                    icon={FileText}
-                    label="drafts to review"
-                    count={q.drafts.count}
-                    urgent={(q.drafts.oldestAgeHours ?? 0) >= STALE_DRAFT_HOURS}
-                    hint={q.drafts.oldestAgeHours != null ? `oldest ${fmtHours(q.drafts.oldestAgeHours)}` : undefined}
+                    href="/evals"
+                    icon={GraduationCap}
+                    label="learnings"
+                    count={q.learnings.count}
+                    hint={q.learnings.count ? "approve to apply" : "none proposed"}
                   />
                   <QueueTile href="/kb/review" icon={BookOpen} label="KB to review" count={q.kbReview} />
                   <QueueTile href="/billing" icon={CreditCard} label="billing approvals" count={q.billingApprovals} />
@@ -501,6 +494,26 @@ export default function TodayBrief() {
                     hint="Jetta's answer didn't land"
                   />
                 </div>
+
+                {q.learnings.count > 0 && (
+                  <div className="space-y-2">
+                    <SectionLabel>Candidate learnings — approve to change how Jetta writes</SectionLabel>
+                    {q.learnings.items.map((l) => (
+                      <StepCard
+                        key={l.id}
+                        title={
+                          <span className="inline-flex items-center gap-1.5">
+                            <GraduationCap className="size-4 shrink-0" aria-hidden />
+                            {l.category}
+                          </span>
+                        }
+                        meta={<StatusChip tone="in_review">{l.product}</StatusChip>}
+                      >
+                        <p className="text-xs text-muted-foreground">{l.text}</p>
+                      </StepCard>
+                    ))}
+                  </div>
+                )}
 
                 {q.escalations.count > 0 && (
                   <div className="space-y-2">
@@ -552,7 +565,7 @@ export default function TodayBrief() {
                   </div>
                 )}
 
-                {q.drafts.count === 0 &&
+                {q.learnings.count === 0 &&
                   q.escalations.count === 0 &&
                   q.reopened.count === 0 &&
                   q.kbReview === 0 &&

@@ -34,7 +34,7 @@ export function GuideBanner({ user, current }: { user: string; current: string }
         <Link href="/guide" onClick={dismiss} className="font-semibold underline underline-offset-2">
           Guide
         </Link>{" "}
-        — 3 minutes, everything you need to review drafts.
+        — 3 minutes, how Jetta works and what needs you.
       </span>
       <Button variant="ghost" size="icon-xs" aria-label="Dismiss" onClick={dismiss} className="shrink-0 text-primary">
         <X />

@@ -36,9 +36,9 @@ export default function GuideContent() {
           </p>
           <p>
             <b>Nothing reaches a customer until a human sends it.</b> The suggested reply is posted
-            as a <b>private note on the Freshdesk ticket</b> (customers never see notes) and also
-            lands in the <b>Drafts</b> tab here. Reply straight from Freshdesk or decide in the
-            console — either way your decision is the safety net and how Jetta gets better.
+            as a <b>private note on the Freshdesk ticket</b> (customers never see notes). You work
+            entirely in Freshdesk: copy it into the reply editor, edit freely, and send as yourself.
+            There is no console step and no queue to clear.
           </p>
           <p className="text-muted-foreground">
             Sessions last 7 days. If you get logged out, sign back in at /login with your personal
@@ -50,7 +50,7 @@ export default function GuideContent() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Mail className="size-4 text-primary" /> Drafts — your daily queue
+            <Mail className="size-4 text-primary" /> Replying — it all happens in Freshdesk
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-2.5 text-sm">
@@ -62,8 +62,15 @@ export default function GuideContent() {
             completely different = draft unused). No console visit needed.
           </p>
           <p className="text-muted-foreground">
-            This tab is the fallback and the audit trail: each pending card is one suggested reply.
-            Expand it, open the ticket link (#12345) for context, then make one of three moves:
+            That is the whole workflow — writing the reply <i>is</i> the feedback. Jetta then mines
+            what you actually sent and proposes behaviour changes from the patterns; those wait for
+            a human in <b>Evals</b>, and nothing about how Jetta writes changes until one is
+            approved there.
+          </p>
+          <p className="text-muted-foreground">
+            The console still keeps every suggestion at <code>/drafts</code> as an audit trail, and
+            the three moves below work there if you ever need them — but the everyday answer is
+            &ldquo;reply in Freshdesk and carry on&rdquo;.
           </p>
 
           <StepCard title="1 · Approve & send">
@@ -115,7 +122,7 @@ export default function GuideContent() {
         </CardHeader>
         <CardContent className="space-y-2.5 text-sm">
           <p>
-            Every decision you make in Drafts is recorded automatically: approve as-is = good,
+            Every decision is recorded automatically, wherever you make it: approve as-is = good,
             edited = partial, discard = bad, plus your tags and notes. From there:
           </p>
           <StepCard title="Feedback → rules → better replies">

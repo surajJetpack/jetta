@@ -51,16 +51,9 @@ Rules:
 6a. Compare only against numbers actually present below. If no prior figure is given for something, describe today alone. Never write "up from", "down from", "vs. baseline" or "trending" for a quantity you were not given a prior value for — an invented comparison is worse than no comparison, because it will be believed and acted on.
 6b. Where a list says "N total, K examples", N is the count to report. The examples are illustrations, not the population — never state the number of examples as if it were the total.
 6c. State direction correctly and check it before writing: a smaller number than before is a fall, a larger one is a rise. Getting this backwards ("jumped from 7 to 4") is the single worst thing you can do here, because someone will act on the wrong one.
-7. Draft age matters: a suggestion that has been waiting days has usually gone stale, and the customer has been waiting exactly that long.
+7. Candidate learnings are behaviour changes waiting on a human: nothing about how Jetta writes changes until someone approves one in /evals. If several are queued, say so and say what they are about — that is a decision, not a chore.
 8. "startHere" must be one concrete action, not a summary. If genuinely nothing needs a human, say the queue is clear and say it plainly.
 9. A quiet morning is a fine answer. Do not pad it into drama.`;
-
-/** "3 days" reads; "714 hours" does not, and the model repeats whatever unit it is handed. */
-function humanAge(hours: number): string {
-  if (hours < 48) return `${Math.round(hours)}h`;
-  const days = Math.round(hours / 24);
-  return `${days} day${days === 1 ? "" : "s"}`;
-}
 
 /**
  * Lead with the real total, then the examples. Labelling the sample instead
@@ -111,13 +104,15 @@ function renderBrief(b: TodayBrief, yesterday: DailyRollup | null): string {
     emerging,
     "",
     "WAITING ON A HUMAN (whole open queue, not just 24h):",
-    `  drafts to review: ${q.drafts.count}${
-      q.drafts.oldestAgeHours != null ? ` (oldest has been waiting ${humanAge(q.drafts.oldestAgeHours)})` : ""
-    }`,
     `  escalated to the team, last 72h: ${q.escalations.count}`,
     `  reopened this week: ${q.reopened.count}`,
     `  KB articles awaiting review: ${q.kbReview}`,
     `  billing approvals pending: ${q.billingApprovals}`,
+    q.learnings.count
+      ? `  candidate learnings awaiting approval in /evals: ${q.learnings.count} — ${q.learnings.items
+          .map((l) => `"${l.text}" (${l.category})`)
+          .join("; ")}`
+      : "  candidate learnings awaiting approval: 0",
     q.escalations.items.length
       ? `  escalations ${sample(q.escalations.items, q.escalations.count, 5, (e) => `${e.label} ${e.subject}`)}`
       : "",
@@ -173,7 +168,7 @@ export function briefFingerprint(b: TodayBrief): string {
     s.waiting,
     b.byApp.map((a) => `${a.app}:${a.count}`),
     b.trends.emerging.map((e) => `${e.topic}:${e.recent}:${e.kbArticle ? 1 : 0}`),
-    b.queue.drafts.count,
+    b.queue.learnings.count,
     b.queue.escalations.count,
     b.queue.reopened.count,
     b.queue.kbReview,
