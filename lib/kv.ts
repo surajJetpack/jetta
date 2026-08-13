@@ -264,6 +264,13 @@ export interface OutcomeEvent {
   at: number; // unix seconds
   channel: string;
   product: string;
+  /**
+   * Short triage-written theme ("signing link expired"). Denormalized onto the
+   * event on purpose: the morning brief counts topics across the whole feed, and
+   * a per-ticket lookup would be ~1000 KV reads a page load. Absent on events
+   * recorded before topic labelling shipped, and on stub runs (no triage).
+   */
+  topic?: string;
   model: string;
   toolsUsed: string[];
   replied: boolean;
@@ -297,6 +304,72 @@ export async function getOutcomes(limit = 200): Promise<OutcomeEvent[]> {
     return raw.map((x) => (typeof x === "string" ? (JSON.parse(x) as OutcomeEvent) : x));
   }
   return memOutcomes.slice(0, limit);
+}
+
+/**
+ * Overwrite the whole outcome feed (newest first). Only for backfills that
+ * enrich existing events in place — scripts/backfill-topics.ts. Racy against
+ * live writes by design: a concurrent recordOutcome during the rewrite would
+ * be lost, so run it when traffic is quiet.
+ */
+export async function replaceOutcomes(events: OutcomeEvent[]): Promise<void> {
+  const capped = events.slice(0, 1000);
+  const r = client();
+  if (r) {
+    await r.del(OUTCOMES_KEY);
+    // rpush in order → the list stays newest-first, matching recordOutcome's lpush.
+    for (let i = 0; i < capped.length; i += 100) {
+      const chunk = capped.slice(i, i + 100);
+      if (chunk.length) await r.rpush(OUTCOMES_KEY, ...chunk);
+    }
+    return;
+  }
+  memOutcomes.length = 0;
+  memOutcomes.push(...capped);
+}
+
+// ── Topic taxonomy ─────────────────────────────────────────────────
+// The running vocabulary of ticket themes, scored by how often each has been
+// seen. Fed back into the triage prompt so the model reuses "signing link
+// expired" instead of coining "sign link expiry" — without a shared vocabulary
+// the counts in the morning brief fragment across synonyms and nothing ever
+// looks like a trend.
+const TOPICS_KEY = "jetta:topics";
+const MAX_TOPICS = 200;
+const memTopics = new Map<string, number>();
+
+/** Bump a topic's usage count. Never throws — labelling must not break a run. */
+export async function recordTopicUse(topic: string, by = 1): Promise<void> {
+  const r = client();
+  if (r) {
+    await r.zincrby(TOPICS_KEY, by, topic);
+    return;
+  }
+  memTopics.set(topic, (memTopics.get(topic) ?? 0) + by);
+}
+
+/** The most-used topics, most frequent first — the vocabulary shown to triage. */
+export async function getKnownTopics(limit = 40): Promise<string[]> {
+  const r = client();
+  if (r) return await r.zrange<string[]>(TOPICS_KEY, 0, limit - 1, { rev: true });
+  return [...memTopics.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([t]) => t);
+}
+
+/** Drop all but the top `MAX_TOPICS` entries; called from the daily cron. */
+export async function pruneTopics(): Promise<void> {
+  const r = client();
+  if (r) {
+    await r.zremrangebyrank(TOPICS_KEY, 0, -(MAX_TOPICS + 1));
+    return;
+  }
+  if (memTopics.size > MAX_TOPICS) {
+    const keep = [...memTopics.entries()].sort((a, b) => b[1] - a[1]).slice(0, MAX_TOPICS);
+    memTopics.clear();
+    for (const [t, n] of keep) memTopics.set(t, n);
+  }
 }
 
 // ── KB usage counters ──────────────────────────────────────────────
@@ -483,6 +556,8 @@ export interface RunLog {
   model: string;
   /** Triage complexity rating for the ticket, when triage ran. */
   complexity?: string;
+  /** Short triage-written theme, mirrored onto the outcome for topic trends. */
+  topic?: string;
   dryRun: boolean;
   blockedByAllowlist: boolean;
   /** True when customer-visible writes were held for human approval (draft mode). */
@@ -549,6 +624,8 @@ export interface ReplyDraft {
   subject?: string;
   channel: "freshdesk" | "freshchat";
   product: string;
+  /** Short triage-written theme, carried so approvals keep feeding topic trends. */
+  topic?: string;
   /** The reply body the agent would have sent (last reply_to_ticket call). */
   suggestedReply: string;
   /** The agent also called close_ticket — approving resolves the ticket too. */
@@ -720,6 +797,12 @@ export interface DailyRollup {
     deflectionRate: number | null;
   };
   byProduct: { product: string; count: number }[];
+  /**
+   * Distinct tickets per topic for the day. Persisted so topic history outlives
+   * the capped outcome feed — the raw list holds ~1000 events, this holds ~13
+   * months. Absent on rollups computed before topic labelling shipped.
+   */
+  byTopic?: { topic: string; count: number }[];
   models: ModelTokenStat[];
   gaps: Gap[];
   /** AI narrative; null until generated (rollup can be saved before insight). */

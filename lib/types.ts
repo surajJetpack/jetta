@@ -168,6 +168,8 @@ export interface ConversationContext {
   complexity?: "simple" | "standard";
   /** Intake classification — non-"customer_query" tickets are skipped (no draft). */
   intake?: "customer_query" | "auto_reply" | "marketing" | "spam" | "other";
+  /** Short triage-written theme ("signing link expired"); powers topic trends. */
+  topic?: string;
   /** Token usage of auxiliary LLM calls made for this ticket (triage, rerank). */
   taskUsage?: TaskUsage[];
   /**

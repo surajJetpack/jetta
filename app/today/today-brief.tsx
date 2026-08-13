@@ -1,0 +1,509 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
+import {
+  BookOpen,
+  CheckCircle2,
+  CreditCard,
+  ExternalLink,
+  FileText,
+  Flame,
+  RotateCw,
+  Siren,
+  Sparkles,
+  TriangleAlert,
+  Undo2,
+} from "lucide-react";
+import { displayTopic } from "@/lib/topics";
+import { fmtAgo, fmtDate, fmtDateTime, useNow } from "@/lib/format";
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Alert, AlertAction, AlertTitle } from "@/components/ui/alert";
+import { Skeleton } from "@/components/ui/skeleton";
+import { StepCard } from "@/components/jetta/step-card";
+import { StatusChip } from "@/components/jetta/status-chip";
+import { EmptyState } from "@/components/jetta/empty-state";
+
+/** Every clickable reference the API returns carries its own resolved link. */
+interface Ref {
+  label: string;
+  url: string | null;
+  external: boolean;
+}
+interface TopicTicket extends Ref {
+  ticketId: string;
+  subject: string;
+  at: number;
+  product: string;
+  channel: string;
+  escalated: boolean;
+}
+interface Trend {
+  topic: string;
+  recent: number;
+  baselinePerDay: number | null;
+  multiplier: number | null;
+  isNew: boolean;
+  kbArticle: string | null;
+  tickets: TopicTicket[];
+}
+interface QueueItem extends Ref {
+  ticketId: string;
+  subject: string;
+  topic: string | null;
+  product: string;
+  at: number;
+}
+interface DraftItem extends Omit<QueueItem, "at"> {
+  id: string;
+  createdAt: number;
+  ageHours: number;
+}
+interface Brief {
+  generatedAt: number;
+  windowHours: number;
+  summary: { arrived: number; answered: number; waiting: number; escalated: number; reopened: number };
+  narrative: { headline: string; highlights: string[]; watchouts: string[]; generatedAt: number } | null;
+  narrativeDate: string | null;
+  trends: {
+    partialHistory: boolean;
+    historyDaysCovered: number;
+    baselineDays: number;
+    unlabelled: number;
+    emerging: Trend[];
+    top: Trend[];
+  };
+  queue: {
+    drafts: { count: number; oldestAgeHours: number | null; items: DraftItem[] };
+    escalations: { count: number; items: QueueItem[] };
+    reopened: { count: number; items: QueueItem[] };
+    kbReview: number;
+    billingApprovals: number;
+  };
+  documentNext: (Ref & { ticketId: string; subject: string; reason: string; at: number })[];
+}
+
+/** A draft sitting longer than this has missed its window to be useful. */
+const STALE_DRAFT_HOURS = 8;
+
+function Stat({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-lg border bg-muted/40 p-3">
+      <div className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">{label}</div>
+      <div className="mt-1 flex items-center gap-2 font-mono text-sm font-semibold">{children}</div>
+    </div>
+  );
+}
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return <div className="text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">{children}</div>;
+}
+
+/**
+ * How loud to be about a spike. The label always carries the number — colour
+ * on its own would leave the severity unreadable to anyone who can't separate
+ * the hues, and unreadable in print.
+ */
+function spikeChip(t: Trend) {
+  if (t.isNew) return { tone: "stale" as const, text: "new issue" };
+  if (t.multiplier == null) return { tone: "draft" as const, text: `${t.recent} in 24h` };
+  if (t.multiplier >= 5) return { tone: "stale" as const, text: `${t.multiplier}× normal` };
+  return { tone: "draft" as const, text: `${t.multiplier}× normal` };
+}
+
+/**
+ * A ticket / conversation reference. Not everything is a Freshdesk ticket:
+ * chat conversations have UUIDs, and a Freshchat one has nowhere to link at
+ * all, so it renders as plain text rather than a dead link.
+ */
+function TicketRef({ item }: { item: { label: string; url: string | null; external: boolean } }) {
+  const cls = "inline-flex items-center gap-1 font-mono text-xs";
+  if (!item.url) return <span className={`${cls} text-muted-foreground`}>{item.label}</span>;
+  if (!item.external)
+    return (
+      <Link href={item.url} className={`${cls} text-primary hover:underline`}>
+        {item.label}
+      </Link>
+    );
+  return (
+    <a href={item.url} target="_blank" rel="noreferrer" className={`${cls} text-primary hover:underline`}>
+      {item.label}
+      <ExternalLink className="size-3 shrink-0 opacity-60" aria-hidden />
+    </a>
+  );
+}
+
+function QueueTile({
+  href,
+  icon: Icon,
+  label,
+  count,
+  hint,
+  urgent,
+}: {
+  href: string;
+  icon: typeof FileText;
+  label: string;
+  count: number;
+  hint?: string;
+  urgent?: boolean;
+}) {
+  return (
+    <Link
+      href={href}
+      className="flex items-start gap-3 rounded-lg border bg-muted/40 p-3 transition-colors hover:bg-muted focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+    >
+      <Icon className={`mt-0.5 size-4 shrink-0 ${count ? "text-primary" : "text-muted-foreground"}`} aria-hidden />
+      <div className="min-w-0">
+        <div className="flex items-baseline gap-2">
+          <span className="font-mono text-sm font-semibold">{count}</span>
+          <span className="truncate text-sm">{label}</span>
+        </div>
+        {hint && (
+          <p className={`mt-0.5 text-xs ${urgent ? "font-medium text-red-600 dark:text-red-400" : "text-muted-foreground"}`}>
+            {hint}
+          </p>
+        )}
+      </div>
+    </Link>
+  );
+}
+
+export default function TodayBrief() {
+  const [brief, setBrief] = useState<Brief | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  const now = useNow();
+
+  const load = useCallback(() => {
+    fetch("/api/admin/today", { cache: "no-store" })
+      .then(async (r) => {
+        if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error ?? `HTTP ${r.status}`);
+        return r.json();
+      })
+      .then((d) => {
+        setBrief(d as Brief);
+        setErr(null);
+      })
+      .catch((e) => setErr(e instanceof Error ? e.message : String(e)))
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const refresh = () => {
+    setLoading(true);
+    setErr(null);
+    void load();
+  };
+
+  const s = brief?.summary;
+  const q = brief?.queue;
+  const emerging = brief?.trends.emerging ?? [];
+
+  return (
+    <div className="space-y-5">
+      {err && (
+        <Alert variant="destructive">
+          <TriangleAlert />
+          <AlertTitle>{err}</AlertTitle>
+          <AlertAction>
+            <Button variant="outline" size="sm" onClick={refresh} disabled={loading}>
+              Retry
+            </Button>
+          </AlertAction>
+        </Alert>
+      )}
+
+      {loading && !brief && (
+        <>
+          <Skeleton className="h-48 w-full" />
+          <Skeleton className="h-64 w-full" />
+          <Skeleton className="h-40 w-full" />
+        </>
+      )}
+
+      {brief && s && (
+        <>
+          {/* ── Overnight ───────────────────────────────────────── */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Last {brief.windowHours} hours</CardTitle>
+              <CardAction>
+                <Button variant="ghost" size="sm" onClick={refresh} disabled={loading}>
+                  <RotateCw className={loading ? "animate-spin" : undefined} /> Refresh
+                </Button>
+              </CardAction>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Every tile here is the same 24h window — the open-queue total
+                  lives on the queue card, so the row never mixes timeframes. */}
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                <Stat label="Came in">{s.arrived}</Stat>
+                <Stat label="Jetta answered">{s.answered}</Stat>
+                <Stat label="Escalated">{s.escalated}</Stat>
+                <Stat label="Reopened">{s.reopened}</Stat>
+              </div>
+
+              {brief.narrative && (
+                <div className="rounded-lg border bg-muted/30 p-4">
+                  <div className="mb-2 flex items-center gap-2">
+                    <Sparkles className="size-4 text-muted-foreground" aria-hidden />
+                    <span className="text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
+                      Yesterday{brief.narrativeDate ? ` · ${fmtDate(brief.narrativeDate)}` : ""}
+                    </span>
+                  </div>
+                  <p className="text-sm font-semibold">{brief.narrative.headline}</p>
+                  {brief.narrative.highlights.length > 0 && (
+                    <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+                      {brief.narrative.highlights.map((h, i) => (
+                        <li key={i}>{h}</li>
+                      ))}
+                    </ul>
+                  )}
+                  {brief.narrative.watchouts.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {brief.narrative.watchouts.map((w, i) => (
+                        <StatusChip key={i} tone="draft">
+                          {w}
+                        </StatusChip>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <p className="text-[11px] text-muted-foreground">
+                Counts tickets Jetta handled — not all Freshdesk traffic. Updated{" "}
+                {fmtDateTime(Math.floor(brief.generatedAt / 1000))}.
+              </p>
+            </CardContent>
+          </Card>
+
+          {/* ── Emerging issues ─────────────────────────────────── */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Emerging issues</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {brief.trends.partialHistory && (
+                <Alert>
+                  <TriangleAlert />
+                  <AlertTitle>
+                    Only {brief.trends.historyDaysCovered} days of labelled history — not enough to tell a spike from a
+                    normal Tuesday yet. Showing today&apos;s busiest themes instead.
+                  </AlertTitle>
+                </Alert>
+              )}
+
+              {emerging.length ? (
+                emerging.map((t) => {
+                  const chip = spikeChip(t);
+                  return (
+                    <StepCard
+                      key={t.topic}
+                      title={
+                        <span className="inline-flex items-center gap-1.5">
+                          <Flame className="size-4 shrink-0" aria-hidden />
+                          {displayTopic(t.topic)}
+                        </span>
+                      }
+                      meta={
+                        <>
+                          <StatusChip tone={chip.tone}>{chip.text}</StatusChip>
+                          <StatusChip tone={t.kbArticle ? "published" : "draft"}>
+                            {t.kbArticle ? "in KB" : "no KB article"}
+                          </StatusChip>
+                        </>
+                      }
+                    >
+                      <p className="text-xs text-muted-foreground">
+                        {t.recent} {t.recent === 1 ? "ticket" : "tickets"} in the last {brief.windowHours}h
+                        {t.baselinePerDay != null && (
+                          <> · usually {t.baselinePerDay === 0 ? "none" : `~${t.baselinePerDay}/day`}</>
+                        )}
+                        {t.kbArticle && <> · covered by “{t.kbArticle}”</>}
+                      </p>
+                      <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+                        {t.tickets.map((tk) => (
+                          <TicketRef key={tk.ticketId} item={tk} />
+                        ))}
+                      </div>
+                    </StepCard>
+                  );
+                })
+              ) : (
+                <EmptyState
+                  icon={CheckCircle2}
+                  title="Nothing spiking"
+                  hint={`No topic is running meaningfully above its usual rate in the last ${brief.windowHours} hours.`}
+                />
+              )}
+
+              {brief.trends.top.length > 0 && (
+                <div className="space-y-2 pt-1">
+                  <SectionLabel>Steady themes (last {brief.trends.baselineDays} days)</SectionLabel>
+                  <div className="flex flex-wrap gap-1.5">
+                    {brief.trends.top.map((t) => (
+                      <StatusChip key={t.topic}>
+                        {displayTopic(t.topic)}
+                        {t.baselinePerDay != null && t.baselinePerDay > 0 ? ` · ~${t.baselinePerDay}/day` : ""}
+                      </StatusChip>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {brief.trends.unlabelled > 0 && (
+                <p className="text-[11px] text-muted-foreground">
+                  {brief.trends.unlabelled} ticket{brief.trends.unlabelled === 1 ? "" : "s"} in the window carry no topic
+                  label and aren&apos;t counted above.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* ── The queue ───────────────────────────────────────── */}
+          {q && (
+            <Card>
+              <CardHeader>
+                <CardTitle>
+                  Waiting on a human
+                  <span className="ml-2 font-mono text-sm font-semibold text-muted-foreground">
+                    {s.waiting} {s.waiting === 1 ? "ticket" : "tickets"}
+                  </span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                  <QueueTile
+                    href="/drafts"
+                    icon={FileText}
+                    label="drafts to review"
+                    count={q.drafts.count}
+                    urgent={(q.drafts.oldestAgeHours ?? 0) >= STALE_DRAFT_HOURS}
+                    hint={
+                      q.drafts.oldestAgeHours != null
+                        ? `oldest ${q.drafts.oldestAgeHours}h`
+                        : undefined
+                    }
+                  />
+                  <QueueTile href="/kb/review" icon={BookOpen} label="KB articles to review" count={q.kbReview} />
+                  <QueueTile href="/billing" icon={CreditCard} label="billing approvals" count={q.billingApprovals} />
+                  <QueueTile
+                    href="/analytics"
+                    icon={Undo2}
+                    label="reopened this week"
+                    count={q.reopened.count}
+                    hint="Jetta's answer didn't land"
+                  />
+                </div>
+
+                {q.escalations.count > 0 && (
+                  <div className="space-y-2">
+                    <SectionLabel>Escalated to the team (last 72h)</SectionLabel>
+                    {q.escalations.items.map((e) => (
+                      <StepCard
+                        key={e.ticketId}
+                        title={
+                          <span className="inline-flex items-center gap-1.5">
+                            <Siren className="size-4 shrink-0" aria-hidden />
+                            <TicketRef item={e} />
+                          </span>
+                        }
+                        meta={
+                          <>
+                            {e.topic && <StatusChip>{displayTopic(e.topic)}</StatusChip>}
+                            <span title={new Date(e.at * 1000).toLocaleString()}>{fmtAgo(e.at, now)}</span>
+                          </>
+                        }
+                      >
+                        <p className="text-xs text-muted-foreground">{e.subject}</p>
+                      </StepCard>
+                    ))}
+                  </div>
+                )}
+
+                {q.reopened.count > 0 && (
+                  <div className="space-y-2">
+                    <SectionLabel>Reopened — the customer came back</SectionLabel>
+                    {q.reopened.items.map((r) => (
+                      <StepCard
+                        key={r.ticketId}
+                        title={
+                          <span className="inline-flex items-center gap-1.5">
+                            <Undo2 className="size-4 shrink-0" aria-hidden />
+                            <TicketRef item={r} />
+                          </span>
+                        }
+                        meta={
+                          <>
+                            {r.topic && <StatusChip>{displayTopic(r.topic)}</StatusChip>}
+                            <span title={new Date(r.at * 1000).toLocaleString()}>{fmtAgo(r.at, now)}</span>
+                          </>
+                        }
+                      >
+                        <p className="text-xs text-muted-foreground">{r.subject}</p>
+                      </StepCard>
+                    ))}
+                  </div>
+                )}
+
+                {q.drafts.count === 0 &&
+                  q.escalations.count === 0 &&
+                  q.reopened.count === 0 &&
+                  q.kbReview === 0 &&
+                  q.billingApprovals === 0 && (
+                    <EmptyState
+                      icon={CheckCircle2}
+                      title="Queue's clear"
+                      hint="Nothing is waiting on a human right now."
+                    />
+                  )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* ── Document next ───────────────────────────────────── */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Worth documenting</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {brief.documentNext.length ? (
+                <>
+                  <p className="text-xs text-muted-foreground">
+                    Tickets Jetta couldn&apos;t close herself this week. Each one is a gap in the knowledge base.
+                  </p>
+                  {brief.documentNext.map((g) => (
+                    <StepCard
+                      key={g.ticketId}
+                      title={<TicketRef item={g} />}
+                      meta={
+                        <>
+                          <StatusChip tone={g.reason === "reopened" ? "stale" : "draft"}>{g.reason}</StatusChip>
+                          <span title={new Date(g.at * 1000).toLocaleString()}>{fmtAgo(g.at, now)}</span>
+                        </>
+                      }
+                    >
+                      <p className="text-xs text-muted-foreground">{g.subject}</p>
+                    </StepCard>
+                  ))}
+                </>
+              ) : (
+                <EmptyState
+                  icon={CheckCircle2}
+                  title="No gaps this week"
+                  hint="Jetta closed everything she picked up — nothing escalated or reopened."
+                />
+              )}
+            </CardContent>
+          </Card>
+        </>
+      )}
+    </div>
+  );
+}

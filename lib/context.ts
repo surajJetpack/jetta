@@ -14,6 +14,8 @@ import * as jettachat from "./tools/jettachat";
 import * as chatStore from "./chat-store";
 import * as fastspring from "./tools/fastspring";
 import * as monday from "./tools/monday";
+import { getKnownTopics, recordTopicUse } from "./kv";
+import { normalizeTopic } from "./topics";
 
 // Context-diet caps for the replayed conversation (lib/tools/freshdesk.ts has
 // the equivalent caps for the get_ticket_details tool result).
@@ -95,7 +97,7 @@ export function appProductFromHint(hint: string | null | undefined): AppProduct 
   return null;
 }
 
-const TRIAGE_SYSTEM = `You triage customer support tickets: classify the intake type, attribute them to a product, and rate their complexity.
+const TRIAGE_SYSTEM = `You triage customer support tickets: classify the intake type, attribute them to a product, rate their complexity, and label the theme.
 
 Intake type — is this a real customer who needs a reply, or noise?
 - "customer_query" — an actual person asking a question, reporting a problem, or making a request. This is the DEFAULT: when there is any genuine human message to respond to, choose this even if it is short or vague.
@@ -114,7 +116,28 @@ Pick the single most likely product from the ticket's content and phrasing. Pref
 
 Complexity:
 - "simple" — a single, clearly-stated question likely answerable from documentation: a how-to, a pricing/plan question, a plain factual billing lookup.
-- "standard" — anything else: multiple issues, technical debugging, error reports, angry or escalation-prone tone, refunds needing judgment, or unclear requests. When in doubt, "standard".`;
+- "standard" — anything else: multiple issues, technical debugging, error reports, angry or escalation-prone tone, refunds needing judgment, or unclear requests. When in doubt, "standard".
+
+Topic — a short label for what the ticket is ABOUT, used to spot issues trending across many tickets.
+- 2 to 4 lowercase words naming the specific problem or request: "signing link expired", "invoice vat number", "board column mapping", "trial extension request".
+- Name the theme, not this customer's details: no names, emails, ticket numbers, company names or quoted error strings.
+- Not a severity or sentiment ("urgent", "angry customer") and not a restatement of the product name on its own.
+- Never a label built only from filler words — "general help", "help needed", "technical issue", "customer request" and the like are worthless for spotting trends. Every label must contain at least one word naming a real surface, feature or action.
+- When the subject is vague, read the body for what the customer actually wants. If even the body doesn't say, name the surface it touches ("account access", "billing question") rather than reaching for filler.`;
+
+/**
+ * Append the running vocabulary so the model reuses existing labels. Without
+ * this the same issue arrives as "signing link expired" one day and "sign url
+ * expiry" the next, and the trend maths sees two small topics instead of one
+ * real one.
+ */
+function triageSystem(knownTopics: string[]): string {
+  if (!knownTopics.length) return TRIAGE_SYSTEM;
+  return `${TRIAGE_SYSTEM}
+
+Topics already in use, most common first. If one of these fits the ticket, reuse it EXACTLY rather than inventing a near-synonym. Only coin a new label when none of them describes the ticket:
+${knownTopics.map((t) => `- ${t}`).join("\n")}`;
+}
 
 export type IntakeType = "customer_query" | "auto_reply" | "marketing" | "spam" | "other";
 
@@ -123,6 +146,22 @@ export interface TicketTriage {
   complexity: "simple" | "standard";
   /** Whether this ticket is a genuine customer query worth drafting for. */
   intake: IntakeType;
+  /** Canonical theme label, or undefined when triage failed / produced noise. */
+  topic?: string;
+}
+
+/**
+ * The taxonomy changes slowly and every ticket needs it, so hold it in process
+ * for a few minutes rather than paying a KV round-trip per triage.
+ */
+const TOPIC_CACHE_MS = 10 * 60_000;
+let topicCache: { at: number; topics: string[] } | null = null;
+
+async function knownTopics(): Promise<string[]> {
+  if (topicCache && Date.now() - topicCache.at < TOPIC_CACHE_MS) return topicCache.topics;
+  const topics = await getKnownTopics(40).catch(() => []);
+  topicCache = { at: Date.now(), topics };
+  return topics;
 }
 
 /**
@@ -143,8 +182,9 @@ export async function triageTicket(
         intake: z.enum(["customer_query", "auto_reply", "marketing", "spam", "other"]),
         product: z.enum(["getsign", "jetpackapps", "unknown"]),
         complexity: z.enum(["simple", "standard"]),
+        topic: z.string().describe("2-4 lowercase words naming what the ticket is about"),
       }),
-      system: TRIAGE_SYSTEM,
+      system: triageSystem(await knownTopics()),
       prompt: `Subject: ${subject}\n\n${description.slice(0, 2000)}`,
     });
     usageSink?.push({
@@ -153,7 +193,13 @@ export async function triageTicket(
       inputTokens: usage?.inputTokens ?? 0,
       outputTokens: usage?.outputTokens ?? 0,
     });
-    return object;
+    // Only genuine customer queries feed the taxonomy — letting marketing and
+    // bounce noise coin topics would pollute the vocabulary shown to triage.
+    const topic = normalizeTopic(object.topic) ?? undefined;
+    if (topic && object.intake === "customer_query") {
+      void recordTopicUse(topic).catch(() => {});
+    }
+    return { ...object, topic };
   } catch (e) {
     console.warn("Ticket triage failed, using {unknown, standard, customer_query}:", e);
     return { product: "unknown", complexity: "standard", intake: "customer_query" };
@@ -241,6 +287,7 @@ export async function buildContext(
     appProduct,
     complexity: triage.complexity,
     intake: triage.intake,
+    topic: triage.topic,
     taskUsage,
     chat: chatConv
       ? {

@@ -8,6 +8,7 @@ import { PendingDraftsBadge } from "@/components/jetta/pending-drafts-badge";
 import { PendingMonetBadge } from "@/components/jetta/pending-monet-badge";
 
 const TABS = [
+  { href: "/today", label: "Today", id: "today" },
   { href: "/", label: "Console", id: "console" },
   { href: "/drafts", label: "Drafts", id: "drafts" },
   { href: "/chats", label: "Chats", id: "chats" },

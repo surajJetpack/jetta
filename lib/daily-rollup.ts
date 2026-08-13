@@ -6,6 +6,7 @@
  */
 import { dayKey } from "./series";
 import { gapList, tokenStats } from "./analytics";
+import { topicCounts } from "./topics";
 import type { DailyRollup, OutcomeEvent, RunLog } from "./kv";
 
 /** Volume by product for a day's outcomes, most frequent first. */
@@ -51,6 +52,7 @@ export function computeDailyRollup(
       deflectionRate: total ? Number((1 - escalated / total).toFixed(2)) : null,
     },
     byProduct: byProduct(dayOutcomes),
+    byTopic: topicCounts(dayOutcomes),
     models: tokenStats(dayRuns),
     gaps: gapList(dayOutcomes),
   };

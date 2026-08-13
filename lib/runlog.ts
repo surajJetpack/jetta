@@ -53,6 +53,7 @@ export async function recordRun(
     product: ctx.product,
     model: result.model,
     complexity: ctx.complexity,
+    topic: ctx.topic,
     dryRun: result.dryRun,
     blockedByAllowlist: result.blockedByAllowlist,
     heldCustomerWrites: result.heldCustomerWrites || undefined,

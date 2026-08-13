@@ -50,6 +50,7 @@ export async function createDraftFromRun(
     subject: ctx.ticket.subject,
     channel: ctx.channel === "freshchat" ? "freshchat" : "freshdesk",
     product: ctx.product,
+    topic: ctx.topic,
     suggestedReply: body,
     wantsClose: result.toolsUsed.includes("close_ticket"),
     resolutionSent: result.resolutionSent,

@@ -6,6 +6,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { refreshDailyRollup, yesterdayKey } from "@/lib/daily-overview";
+import { pruneTopics } from "@/lib/kv";
 import { logOpsEvent } from "@/lib/events";
 
 export const runtime = "nodejs";
@@ -27,6 +28,9 @@ export async function GET(req: NextRequest) {
   const date = yesterdayKey();
   try {
     const rollup = await refreshDailyRollup(date);
+    // Cap the topic vocabulary here rather than on the ticket path — one-off
+    // labels from odd tickets age out instead of crowding the triage prompt.
+    await pruneTopics().catch(() => {});
     await logOpsEvent({
       level: "info",
       event: "cron.daily_overview_run",
