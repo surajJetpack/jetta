@@ -13,7 +13,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { listReplyDrafts } from "@/lib/kv";
 import { logOpsEvent } from "@/lib/events";
-import { reconcileTicketDraft, type ReconcileStatus } from "@/lib/reconcile";
+import {
+  reconcileTicketDraft,
+  expireStaleDrafts,
+  RECONCILE_MAX_AGE_DAYS,
+  type ReconcileStatus,
+} from "@/lib/reconcile";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -28,10 +33,13 @@ const MIN_AGE_MINUTES = 15;
 /**
  * Stop polling a draft nobody ever answered. Without this the oldest unanswerable
  * drafts refill MAX_PER_RUN every hour and newer ones are never reached — 3 of
- * the first 12 backfilled drafts had no agent reply at all. They stay pending and
- * age out with the 30-day draft TTL.
+ * the first 12 backfilled drafts had no agent reply at all.
+ *
+ * Past this point the sweep below closes them as "expired" rather than leaving
+ * them pending until the 30-day TTL: they were still being counted as review
+ * work, which put 83 undoable items in a queue of 95.
  */
-const MAX_AGE_DAYS = 14;
+const MAX_AGE_DAYS = RECONCILE_MAX_AGE_DAYS;
 
 function authorized(req: NextRequest): boolean {
   // Fails CLOSED, unlike the older cron routes: a missing secret must not make
@@ -68,17 +76,22 @@ export async function GET(req: NextRequest) {
     await new Promise((res) => setTimeout(res, PACE_MS));
   }
 
+  // Anything past the polling window is closed out, so the review queue only
+  // ever counts drafts a human could actually still act on.
+  const swept = await expireStaleDrafts({ commit: true });
+
   // One summary event per run — the heartbeat that proves this is still working.
   await logOpsEvent({
     level: "info",
     event: "cron.reconcile_run",
     source: "cron",
-    data: { examined: drafts.length, eligible: eligible.length, ...counts, ratings },
+    data: { examined: drafts.length, eligible: eligible.length, expired: swept.expired, ...counts, ratings },
   });
 
   return NextResponse.json({
     examined: drafts.length,
     eligible: eligible.length,
+    expired: swept.expired,
     backlog: eligible.length - drafts.length,
     counts,
     ratings,

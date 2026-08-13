@@ -16,7 +16,7 @@
  * automation rule is configured), the reconcile-drafts cron (poll, which works
  * whether or not it is), and the backfill script.
  */
-import { getPendingReplyDraftForTicket, updateReplyDraft, scheduleFollowUp, recordOutcome } from "./kv";
+import { getPendingReplyDraftForTicket, updateReplyDraft, listReplyDrafts, scheduleFollowUp, recordOutcome } from "./kv";
 import { logOpsEvent } from "./events";
 import { normalizeReplyText, replySimilarity, classifyReplySimilarity } from "./reply-similarity";
 import { config } from "./config";
@@ -24,6 +24,52 @@ import * as freshdesk from "./tools/freshdesk";
 
 /** A follow-up only makes sense for a reply that just went out. */
 const FOLLOW_UP_MAX_REPLY_AGE_HOURS = 48;
+
+/**
+ * How long to keep polling Freshdesk for a human reply before giving up on a
+ * draft. Lives here, not in the cron, because the expiry sweep below has to use
+ * the same number — if they drift, drafts either get expired while still being
+ * polled or linger past the point anyone is looking at them.
+ */
+export const RECONCILE_MAX_AGE_DAYS = 14;
+
+/**
+ * Close out drafts that aged past the reconciliation window.
+ *
+ * These are suggestions for tickets no human ever replied to, so there is no
+ * outcome to read and nothing left to review — a three-week-old suggested reply
+ * is not something anyone is going to send. Until now they sat "pending" until
+ * the 30-day KV TTL removed them, which meant the review queue (and the number
+ * on /today) counted work nobody could actually do.
+ *
+ * Writes NO evaluation on purpose. See the note on ReplyDraft["state"].
+ */
+export async function expireStaleDrafts(
+  opts: { commit?: boolean; maxAgeDays?: number } = {},
+): Promise<{ expired: number; ids: { id: string; ticketId: string; ageDays: number }[] }> {
+  const { commit = false, maxAgeDays = RECONCILE_MAX_AGE_DAYS } = opts;
+  const now = Math.floor(Date.now() / 1000);
+  const stale = (await listReplyDrafts()).filter(
+    (d) => d.state === "pending" && now - d.createdAt > maxAgeDays * 86400,
+  );
+  const ids = stale.map((d) => ({
+    id: d.id,
+    ticketId: d.ticketId,
+    ageDays: Number(((now - d.createdAt) / 86400).toFixed(1)),
+  }));
+  if (!commit || !stale.length) return { expired: 0, ids };
+
+  for (const d of stale) {
+    await updateReplyDraft(d.id, { state: "expired", decidedAt: now, decidedBy: "system" });
+  }
+  await logOpsEvent({
+    level: "info",
+    event: "draft.expired_sweep",
+    source: "cron",
+    data: { count: stale.length, maxAgeDays, oldestDays: ids[ids.length - 1]?.ageDays },
+  });
+  return { expired: stale.length, ids };
+}
 
 export type ReconcileStatus =
   | "no_pending"

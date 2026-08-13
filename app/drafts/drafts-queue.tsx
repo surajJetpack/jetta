@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { CheckCircle2, ExternalLink, Mail, Plus, RotateCcw, Trash2, Undo2 } from "lucide-react";
+import { CheckCircle2, ExternalLink, Mail, Plus, RotateCcw, Trash2, Undo2, Clock } from "lucide-react";
 import { toast } from "sonner";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -27,7 +27,7 @@ interface ReplyDraft {
   resolutionSent: boolean;
   escalated: boolean;
   createdAt: number;
-  state: "pending" | "approved" | "discarded" | "superseded";
+  state: "pending" | "approved" | "discarded" | "superseded" | "expired";
   decidedAt?: number;
   decidedBy?: string;
   editedBody?: string;
@@ -351,6 +351,10 @@ export default function DraftsQueue({
                         <CheckCircle2 className="text-[var(--live)]" />
                       ) : d.state === "discarded" ? (
                         <Trash2 className="text-destructive" />
+                      ) : d.state === "expired" ? (
+                        // Distinct from superseded: nobody ever answered the
+                        // ticket, rather than the customer having replied again.
+                        <Clock className="text-muted-foreground" />
                       ) : (
                         <Undo2 className="text-muted-foreground" />
                       )}

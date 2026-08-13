@@ -672,7 +672,14 @@ export interface ReplyDraft {
   createdAt: number; // unix seconds
   /** Label of the model that generated this draft (provider/model-id). */
   model?: string;
-  state: "pending" | "approved" | "discarded" | "superseded";
+  /**
+   * "expired" = aged past the reconciliation window with no human reply ever
+   * found. Terminal, like discarded, but deliberately NOT the same thing: a
+   * discard is a reviewer's judgement and writes a ReplyEvaluation into the
+   * learning loop, whereas this only means nobody ever answered the ticket.
+   * Recording those as rejections would teach the distiller from silence.
+   */
+  state: "pending" | "approved" | "discarded" | "superseded" | "expired";
   decidedAt?: number;
   /** Console username (or "api"/"dev") that approved or discarded the draft. */
   decidedBy?: string;

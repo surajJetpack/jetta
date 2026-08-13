@@ -70,7 +70,9 @@ function modelStats(drafts: ReplyDraft[], outcomes: OutcomeEvent[]) {
     return b;
   };
   for (const d of drafts) {
-    if (d.state === "superseded") continue; // never reviewed — no quality signal
+    // Neither was ever reviewed, so neither says anything about model quality:
+    // superseded = the customer replied again, expired = nobody ever answered.
+    if (d.state === "superseded" || d.state === "expired") continue;
     const b = bucket(d.model);
     b.drafts++;
     if (d.state === "approved") {
