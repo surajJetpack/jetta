@@ -2,30 +2,24 @@
  * Agent-reply reconciler — the Freshdesk-native half of draft review.
  *
  * A Freshdesk automation rule ("Reply is sent, performed by Agent") POSTs here.
+ * That rule is optional: /api/cron/reconcile-drafts polls for the same outcome,
+ * which is what actually runs today — this endpoint received one request in its
+ * first month because the rule was never created.
  * If the ticket has a pending Jetta draft, the agent's actual sent reply is
  * fetched and diffed against the suggestion: near-identical counts as
  * approve-unedited (good), edited as approve-edited (partial), unrelated as
  * unused (discarded/bad) — so replying straight from the draft note in
  * Freshdesk feeds the /evals learning loop with no console step.
  *
- * Replies authored by Jetta's own FD agent user (FRESHDESK_AGENT_ID) are
- * skipped: console-approved sends fire this same automation, and the console
- * path already records its own decision.
+ * The comparison logic lives in lib/reconcile.ts, shared with the cron and the
+ * backfill script.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { after } from "next/server";
 import { config } from "@/lib/config";
-import {
-  getPendingReplyDraftForTicket,
-  updateReplyDraft,
-  scheduleFollowUp,
-  recordOutcome,
-  markEventSeen,
-} from "@/lib/kv";
-import { recordEvaluation, EVAL_TAGS, type EvalTag } from "@/lib/evals";
+import { markEventSeen } from "@/lib/kv";
 import { logOpsEvent } from "@/lib/events";
-import { normalizeReplyText, replySimilarity, classifyReplySimilarity } from "@/lib/reply-similarity";
-import * as freshdesk from "@/lib/tools/freshdesk";
+import { reconcileTicketDraft } from "@/lib/reconcile";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -69,174 +63,13 @@ export async function POST(req: NextRequest) {
   });
 
   // ACK before the FD fetches so the automation client never times out.
-  after(() => reconcile(ticketId, payload));
+  // Stub passthrough: local tests can supply the "sent" reply in the payload
+  // instead of standing up a live Freshdesk.
+  const stubReply =
+    typeof payload.body === "string"
+      ? { body: payload.body, userId: Number(payload.user_id ?? 0) }
+      : undefined;
+  after(() => reconcileTicketDraft(ticketId, { source: "webhook", stubReply }));
   return NextResponse.json({ status: "accepted", ticketId });
 }
 
-async function reconcile(ticketId: string, payload: Record<string, unknown>): Promise<void> {
-  try {
-    const draft = await getPendingReplyDraftForTicket(ticketId);
-    if (!draft) {
-      await logOpsEvent({ level: "info", event: "draft.reconcile_no_pending", source: "webhook", ticketId });
-      return;
-    }
-    if (draft.channel !== "freshdesk") return;
-
-    // Stub passthrough: local tests can supply the "sent" reply in the payload
-    // instead of standing up a live Freshdesk.
-    const reply =
-      !config.freshdesk.live && typeof payload.body === "string"
-        ? {
-            body: payload.body,
-            userId: Number(payload.user_id ?? 0),
-            createdAt: new Date().toISOString(),
-          }
-        : await freshdesk.getLatestAgentReply(ticketId);
-    if (!reply) {
-      await logOpsEvent({ level: "info", event: "draft.reconcile_no_agent_reply", source: "webhook", ticketId });
-      return;
-    }
-
-    // Loop prevention: console-approved sends are authored by Jetta's own FD
-    // agent user. The no-pending check alone can't catch them — the console
-    // sends BEFORE flipping the draft state.
-    if (config.freshdesk.agentId && String(reply.userId) === config.freshdesk.agentId) {
-      await logOpsEvent({
-        level: "info",
-        event: "draft.reconcile_skipped_self",
-        source: "webhook",
-        ticketId,
-        data: { draftId: draft.id, agentUserId: reply.userId },
-      });
-      return;
-    }
-
-    // Event about a reply older than the draft (automation replay) — ignore.
-    if (Date.parse(reply.createdAt) < draft.createdAt * 1000) {
-      await logOpsEvent({
-        level: "info",
-        event: "draft.reconcile_skipped_stale_reply",
-        source: "webhook",
-        ticketId,
-        data: { draftId: draft.id, replyAt: reply.createdAt },
-      });
-      return;
-    }
-
-    const score = replySimilarity(normalizeReplyText(draft.suggestedReply), normalizeReplyText(reply.body));
-    const rating = classifyReplySimilarity(score);
-    const agentName = (await freshdesk.getAgentName(reply.userId)) ?? `agent-${reply.userId}`;
-    const decidedBy = `${agentName} via freshdesk`;
-    const now = Math.floor(Date.now() / 1000);
-
-    // Final race guard: the console may have decided meanwhile (same
-    // check-then-act tolerance the console route accepts).
-    const current = await getPendingReplyDraftForTicket(ticketId);
-    if (!current || current.id !== draft.id) {
-      await logOpsEvent({ level: "info", event: "draft.reconcile_no_pending", source: "webhook", ticketId });
-      return;
-    }
-
-    // Feedback saved on the card pre-decision (console "Save feedback") rides
-    // along into the evaluation — it's the reviewer's "why" that reconciliation
-    // can't infer on its own.
-    const savedTags = (draft.feedbackTags ?? []).filter((t): t is EvalTag =>
-      (EVAL_TAGS as readonly string[]).includes(t),
-    );
-    const withFeedbackNote = (auto: string) =>
-      [draft.feedbackNote?.trim(), auto].filter(Boolean).join(" · ");
-
-    if (rating === "bad") {
-      await updateReplyDraft(draft.id, { state: "discarded", decidedAt: now, decidedBy });
-      await recordEvaluation({
-        id: draft.id,
-        ticketId: draft.ticketId,
-        subject: draft.subject,
-        channel: draft.channel,
-        product: draft.product,
-        model: draft.model,
-        decidedBy,
-        at: now,
-        action: "discard",
-        rating: "bad",
-        tags: savedTags.length ? savedTags : ["other"],
-        note: withFeedbackNote(
-          `agent sent an unrelated reply (auto-reconciled from Freshdesk, similarity ${score.toFixed(2)})`,
-        ),
-        suggestedReply: draft.suggestedReply,
-        // Keep the human's actual reply — a full rewrite is the highest-signal
-        // case for the distiller to learn from (draft-vs-human diff).
-        finalBody: reply.body,
-        source: "reconcile",
-      }).catch(() => {});
-    } else {
-      const edited = rating === "partial";
-      await updateReplyDraft(draft.id, {
-        state: "approved",
-        decidedAt: now,
-        decidedBy,
-        editedBody: edited ? reply.body : undefined,
-      });
-      await recordEvaluation({
-        id: draft.id,
-        ticketId: draft.ticketId,
-        subject: draft.subject,
-        channel: draft.channel,
-        product: draft.product,
-        model: draft.model,
-        decidedBy,
-        at: now,
-        action: "approve",
-        rating,
-        tags: savedTags,
-        note: withFeedbackNote(`auto-reconciled from Freshdesk (similarity ${score.toFixed(2)})`),
-        suggestedReply: draft.suggestedReply,
-        finalBody: reply.body,
-        source: "reconcile",
-      }).catch(() => {});
-
-      // The human sent the reply themselves — never touch ticket status here.
-      // Follow-up still applies when the run marked a resolution as sent.
-      if (draft.resolutionSent) {
-        await scheduleFollowUp(draft.ticketId, reply.createdAt).catch(() => {});
-      }
-      await recordOutcome({
-        ticketId: draft.ticketId,
-        subject: draft.subject,
-        at: now,
-        channel: draft.channel,
-        product: draft.product,
-        model: draft.model ?? "unknown",
-        toolsUsed: ["reply_to_ticket"],
-        replied: true,
-        resolutionSent: draft.resolutionSent,
-        escalated: false,
-        drafted: true,
-        kind: "handled",
-      }).catch(() => {});
-    }
-
-    await logOpsEvent({
-      level: "info",
-      event: "draft.reconciled",
-      source: "webhook",
-      ticketId,
-      actor: decidedBy,
-      data: {
-        draftId: draft.id,
-        rating,
-        score: Number(score.toFixed(3)),
-        agentUserId: reply.userId,
-        ...(draft.feedbackBy ? { feedbackBy: draft.feedbackBy } : {}),
-      },
-    });
-  } catch (e) {
-    await logOpsEvent({
-      level: "error",
-      event: "draft.reconcile_failed",
-      source: "webhook",
-      ticketId,
-      data: { error: e instanceof Error ? e.message : String(e) },
-    });
-  }
-}

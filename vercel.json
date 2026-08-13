@@ -10,6 +10,10 @@
       "schedule": "0 5 * * *"
     },
     {
+      "path": "/api/cron/reconcile-drafts",
+      "schedule": "15 * * * *"
+    },
+    {
       "path": "/api/cron/daily-overview",
       "schedule": "10 6 * * *"
     }

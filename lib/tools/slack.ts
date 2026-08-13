@@ -22,33 +22,127 @@ async function postMessage(channel: string, text: string, threadTs?: string): Pr
   return json.ts ?? "";
 }
 
+/**
+ * Collapse to one line and cap length so the channel view stays scannable. The
+ * untruncated text always survives in the thread reply, so this never loses
+ * information — it only shortens what a reader sees before expanding.
+ */
+function clamp(s: string, max: number): string {
+  const flat = s.replace(/\s+/g, " ").trim();
+  return flat.length <= max ? flat : `${flat.slice(0, max - 1).trimEnd()}…`;
+}
+
+/** True when `clamp` shortened the text, so the thread must carry it in full. */
+function clamped(s: string, max: number): boolean {
+  return s.replace(/\s+/g, " ").trim().length > max;
+}
+
+const HEADLINE_MAX = 90;
+const QUESTION_MAX = 180;
+const FLAG_MAX = 100;
+
+/** Slack `<url|label>` when we have a real URL, so long hrefs don't eat a line. */
+function link(url: string | undefined, label: string): string {
+  return url && /^https?:\/\//.test(url) ? `<${url}|${label}>` : label;
+}
+
+/** Human-readable app name for message headlines. */
+export function appLabel(app: string): string {
+  const names: Record<string, string> = {
+    vlookup: "VLOOKUP Auto-Link",
+    trackmy: "TrackMy",
+    extract: "Extract AI",
+    jobflows: "JobFlows",
+    smartcolumns: "Smart Columns",
+    jetscan: "JetScan",
+    pivotreports: "Pivot Reports",
+    triggerly: "Triggerly",
+    getsign: "GetSign",
+  };
+  return names[app] ?? "Jetpack Apps";
+}
+
+/**
+ * Turn `alreadyTried` into bullets. The model is asked for one attempt per line;
+ * this also splits semicolon-joined prose so older-style single-sentence answers
+ * still read as a list.
+ */
+function bulletize(text: string): string {
+  let parts = text
+    .split("\n")
+    .map((l) => l.replace(/^\s*[-•*]\s*/, "").trim())
+    .filter(Boolean);
+  if (parts.length === 1 && parts[0].split("; ").length > 1) {
+    parts = parts[0].split("; ").map((p) => p.trim()).filter(Boolean);
+  }
+  return parts.map((p) => `• ${p}`).join("\n");
+}
+
 export interface EscalationInput {
   freshdeskTicketUrl: string;
   userAccountUrl: string;
   /** Dev board item URL, when create_dev_item/add_plus_one ran earlier this turn. Internal channel only. */
   mondayItemUrl?: string;
-  /** One-paragraph summary of the issue. */
+  /** Scannable one-liner naming the failure — the only thing most readers see. */
+  headline: string;
+  /** Which app the escalation concerns, for the headline prefix. */
+  app?: string;
+  /** Short account label for the links line (email or slug), not a URL. */
+  accountLabel?: string;
+  /** Ticket reference for the links line, e.g. "#13842". */
+  ticketRef?: string;
+  /** One-paragraph summary of the issue. Thread reply only. */
   summary: string;
-  /** What Jetta already tried. */
+  /** What Jetta already tried. Thread reply only. */
   alreadyTried: string;
   /** A specific question for the dev team. */
   question: string;
 }
 
-/** Post a fully-formed escalation to #jetta-escalations. */
+/**
+ * Post an escalation to #jetta-escalations as a SHORT parent message plus a
+ * threaded reply holding the full context. Slack collapses the reply to
+ * "1 reply", so the channel stays skimmable and detail is one click away —
+ * and `@Jetta draft kb` still sees everything, since it reads the whole thread.
+ */
 export async function sendEscalation(input: EscalationInput): Promise<{ ts: string }> {
   const channel = config.slack.escalationChannel ?? "#jetta-escalations";
-  const text = [
-    `:rotating_light: *Escalation from Jetta*`,
-    `*Ticket:* ${input.freshdeskTicketUrl}`,
-    `*Account:* ${input.userAccountUrl}`,
-    ...(input.mondayItemUrl ? [`*Dev board item:* ${input.mondayItemUrl}`] : []),
-    "",
-    `*Issue:* ${input.summary}`,
-    `*Already tried:* ${input.alreadyTried}`,
-    `*Question for the team:* ${input.question}`,
+  const prefix = input.app ? `${appLabel(input.app)} · ` : "";
+  const refs = [
+    link(input.freshdeskTicketUrl, input.ticketRef ?? "Ticket"),
+    input.accountLabel,
+    input.mondayItemUrl ? link(input.mondayItemUrl, "Dev item") : undefined,
+  ].filter(Boolean);
+
+  const parent = [
+    `:rotating_light: *${prefix}${clamp(input.headline, HEADLINE_MAX)}*`,
+    refs.join(" · "),
+    `:question: ${clamp(input.question, QUESTION_MAX)}`,
   ].join("\n");
-  const ts = await postMessage(channel, text);
+  const ts = await postMessage(channel, parent);
+
+  const detail = [
+    // Only repeat what the parent had to shorten — otherwise it's pure duplication.
+    ...(clamped(input.question, QUESTION_MAX)
+      ? [`*Question for the team*`, input.question.trim(), ""]
+      : []),
+    `*Issue*`,
+    input.summary.trim(),
+    "",
+    `*Already tried*`,
+    bulletize(input.alreadyTried),
+    "",
+    `*Links*`,
+    `Ticket: ${input.freshdeskTicketUrl}`,
+    `Account: ${input.userAccountUrl}`,
+    ...(input.mondayItemUrl ? [`Dev board item: ${input.mondayItemUrl}`] : []),
+  ].join("\n");
+  // The parent is already posted; a failed detail reply must not report the
+  // whole escalation as failed — the team still has the headline and question.
+  await postMessage(channel, detail, ts).catch((e) =>
+    console.warn("escalation detail reply failed:", e instanceof Error ? e.message : e),
+  );
+
   return { ts };
 }
 
@@ -72,18 +166,36 @@ export interface MonetApprovalRequest {
 export async function requestMonetApproval(req: MonetApprovalRequest): Promise<{ ts: string }> {
   const channel = config.slack.escalationChannel ?? "#jetta-escalations";
   const icon = req.action === "trial" ? ":hourglass_flowing_sand:" : ":money_with_wings:";
-  const text = [
-    `${icon} *Approval needed — ${req.app} ${req.action}*  (ref \`${req.id}\`)`,
-    req.ticketUrl ? `*Ticket:* ${req.ticketUrl}` : `_Requested by Jetta_`,
-    `*Account:* \`${req.accountSlug}\``,
-    `*Action:* ${req.summary}`,
-    ...(req.flagged ? [`:triangular_flag_on_post: *Flagged:* ${req.flagged}`] : []),
+  // The approve/reject commands are the point of this message, so they stay in
+  // the parent. Only the flag rationale and the expiry caveat move to the thread.
+  const parent = [
+    `${icon} *${appLabel(req.app)} ${req.action}* — ${clamp(req.summary, 90)}`,
+    [link(req.ticketUrl, "Ticket"), `\`${req.accountSlug}\``, `ref \`${req.id}\``]
+      .filter(Boolean)
+      .join(" · "),
+    ...(req.flagged
+      ? [`:triangular_flag_on_post: *Flagged* — ${clamp(req.flagged, FLAG_MAX)}`]
+      : []),
+    `Approve: \`@Jetta approve monet ${req.id}\`  ·  Reject: \`@Jetta reject monet ${req.id}\``,
+  ].join("\n");
+  const ts = await postMessage(channel, parent);
+
+  const detail = [
+    // The parent already shows short flags in full; only re-state a long one.
+    ...(req.flagged && clamped(req.flagged, FLAG_MAX)
+      ? [`*Flagged for review*`, req.flagged.trim(), ""]
+      : []),
+    `*Action requested*`,
+    req.summary.trim(),
     "",
-    `*To approve* — reply in this channel:  \`@Jetta approve monet ${req.id}\``,
-    `*To reject* — reply:  \`@Jetta reject monet ${req.id}\``,
+    ...(req.ticketUrl ? [`Ticket: ${req.ticketUrl}`] : [`_Requested by Jetta._`]),
+    `Account: \`${req.accountSlug}\``,
     `_Nothing happens on monday until an admin approves. This request expires in 3 days._`,
   ].join("\n");
-  const ts = await postMessage(channel, text);
+  await postMessage(channel, detail, ts).catch((e) =>
+    console.warn("monet approval detail reply failed:", e instanceof Error ? e.message : e),
+  );
+
   return { ts };
 }
 
@@ -111,11 +223,18 @@ export async function notifyDraftPending(input: {
   );
 }
 
-/** Daily KB-sync summary — posted only when something changed or was flagged. */
-export async function notifyKbSync(lines: string[]): Promise<void> {
+/**
+ * Daily KB-sync summary — posted only when something changed or was flagged.
+ * One-line totals in the channel; the per-site breakdown goes in the thread.
+ */
+export async function notifyKbSync(headline: string, details: string[]): Promise<void> {
   const channel =
     config.slack.draftsChannel ?? config.slack.escalationChannel ?? "#jetta-escalations";
-  await postMessage(channel, [`:books: *KB sync*`, ...lines].join("\n"));
+  const ts = await postMessage(channel, `:books: *KB sync* — ${clamp(headline, 120)}`);
+  if (!details.length) return;
+  await postMessage(channel, details.join("\n"), ts).catch((e) =>
+    console.warn("kb-sync detail reply failed:", e instanceof Error ? e.message : e),
+  );
 }
 
 /** Notify #partnerships when a user mentions an external implementation partner. */

@@ -475,7 +475,7 @@ export async function deleteDraft(id: string): Promise<void> {
 export interface RunLog {
   id: string;
   at: number;
-  source: "webhook" | "console" | "cron";
+  source: "webhook" | "console" | "cron" | "jettachat";
   ticketId: string;
   subject?: string;
   channel: string;
@@ -576,6 +576,19 @@ export interface ReplyDraft {
   feedbackNote?: string;
   feedbackBy?: string;
   feedbackAt?: number;
+
+  /**
+   * Reconciliation result — what the human DID with the suggestion. Factual, and
+   * deliberately separate from whether the suggestion was any good: similarity
+   * measures adoption, not quality. The quality verdict comes from the blind
+   * judge (lib/judge.ts), because the human's reply is not automatically the
+   * better one — the human benchmark had Jetta ahead 25/3/1.
+   */
+  usage?: "used_as_is" | "edited" | "not_used";
+  /** The reply the human actually sent, kept for judging and diffing. */
+  agentReply?: string;
+  /** Text similarity that produced `usage` (0-1). */
+  similarity?: number;
 }
 
 const REPLY_DRAFT_IDS = "jetta:replydrafts:ids";
