@@ -25,7 +25,7 @@ import * as slack from "./slack";
 import { searchPublishedKb } from "../knowledge/dynamic-kb";
 import { vectorEnabled, queryVector, type VectorHit } from "../vector";
 import { rerankHits } from "../rerank";
-import { recordKbHits } from "../kv";
+import { recordKbHits, markEventSeen } from "../kv";
 import { submitMonetApproval } from "../monetization-approvals";
 
 /** Standard trial extension length Jetta grants — fixed policy, not customer-chosen. */
@@ -404,20 +404,47 @@ export function buildTools(
 
     add_plus_one: tool({
       description:
-        "Add a +1 note to an existing Dev board item when another user is affected by the same issue.",
-      inputSchema: z.object({ item_id: z.string() }),
-      execute: async ({ item_id }) => {
+        "Add a +1 note to an existing Dev board item when a DIFFERENT customer reports the same issue. Do NOT call this for the customer whose report created the item — that double-counts one person as two and inflates the apparent impact of the bug. The team prioritises by +1 count, so a wrong +1 is worse than no +1.",
+      inputSchema: z.object({
+        item_id: z.string(),
+        symptom: z
+          .string()
+          .describe(
+            "One line on what THIS customer actually saw, in their terms. The assignee may have no Freshdesk access, so this is all they get — 'bulk-uploaded tracking IDs never update' not 'same issue'.",
+          ),
+      }),
+      execute: async ({ item_id, symptom }) => {
         const boardId =
           ctx.product === "getsign" ? config.monday.boardIds.getsign : config.monday.boardIds.jetpackapps;
         const url = `${config.monday.accountUrl}/boards/${boardId}/pulses/${item_id}`;
         mondayItemUrl = url;
         if (dry) return `[dry-run] would add +1 to Dev board item ${item_id}. INTERNAL item URL (private note only): ${url}`;
-        const r = await monday.addPlusOne(
-          item_id,
-          ticketId ? interactionUrl(ticketId) : "(no ticket)",
-          ctx.product,
-          await customerAttachments(),
-        );
+        if (!ticketId) return "No active ticket — cannot attribute a +1.";
+
+        // Guard 1: is this the ticket that created the item? Jetta's own
+        // search_dev_board surfaces the item its current ticket spawned, and
+        // the model reads that as a match. Observed on item 12757964338: one
+        // ticket +1'd its own item, twice.
+        if (await monday.itemMentionsTicket(item_id, ticketId)) {
+          return `That Dev item already references this same ticket (#${ticketId}) — it is this customer's own report, not a second one. No +1 was added. Do not call add_plus_one again for this item; link it in your private note instead.`;
+        }
+
+        // Guard 2: one +1 per (ticket, item), ever. Without this, every
+        // customer reply on a linked ticket fires another webhook run and
+        // another +1 — the same pair posted twice 62 minutes apart.
+        const fresh = await markEventSeen(`plusone:${ticketId}:${item_id}`, 180 * 86400);
+        if (!fresh) {
+          return `A +1 from this ticket is already recorded on that Dev item. Nothing further was added — mention the link in your private note instead.`;
+        }
+
+        const r = await monday.addPlusOne({
+          itemId: item_id,
+          ticketUrl: interactionUrl(ticketId),
+          product: ctx.product,
+          symptom,
+          accountLabel: requesterEmail ?? ctx.account?.accountId ?? undefined,
+          attachments: await customerAttachments(),
+        });
         return `Added +1 to the Dev board item.${filesNote(r.filesAttached)} INTERNAL item URL — put in the private note ONLY, never the customer reply: ${r.url}`;
       },
     }),

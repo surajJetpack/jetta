@@ -229,29 +229,85 @@ export async function createDevItem(input: CreateDevItemInput): Promise<CreatedD
 }
 
 /**
+ * Does this dev item already reference this ticket?
+ *
+ * The guard against Jetta "+1"-ing an item with the very ticket that created
+ * it. `createDevItem` writes "Freshdesk ticket: <url>" into the item's first
+ * update, and humans filing bugs paste the ticket link the same way — so one
+ * scan of the updates and column text catches both.
+ *
+ * Matches the ticket id only in ticket-shaped contexts (`/tickets/13894`,
+ * `#13894`); a bare number would collide with account ids, order numbers, and
+ * anything else in a bug report. Fails OPEN (returns false) — a monday read
+ * blip should not block a legitimate +1.
+ */
+export async function itemMentionsTicket(itemId: string, ticketId: string): Promise<boolean> {
+  if (!config.monday.live) return false;
+  const data = await gql<{
+    items: { updates: { body: string }[]; column_values: { text: string | null }[] }[];
+  }>(
+    `query ($ids: [ID!]) {
+      items(ids: $ids) { updates(limit: 50) { body } column_values { text } }
+    }`,
+    { ids: [itemId] },
+  ).catch(() => null);
+  if (!data?.items?.[0]) return false;
+
+  const haystack = [
+    ...data.items[0].updates.map((u) => u.body ?? ""),
+    ...data.items[0].column_values.map((c) => c.text ?? ""),
+  ].join("\n");
+  const id = ticketId.replace(/^#/, "");
+  return new RegExp(`(/tickets/|#)${id}\\b`).test(haystack);
+}
+
+export interface PlusOneInput {
+  itemId: string;
+  /** Deep link to the interaction (Freshdesk ticket or chat transcript). */
+  ticketUrl: string;
+  product: Product;
+  /** One line on what this customer actually saw — the +1's whole payload. */
+  symptom: string;
+  /** Who reported it, for a dev who can't open the ticket link. */
+  accountLabel?: string;
+  attachments?: AttachmentFile[];
+}
+
+/**
  * Add a "+1 / me too" note to an existing dev item, with this reporter's own
  * screenshots — a second user's evidence often shows the case the first didn't.
+ *
+ * The body carries the symptom and the account, not just a link: the assignee
+ * on the Dev board may have no Freshdesk access at all, in which case a bare
+ * ticket URL tells them precisely nothing (observed on item 12757964338).
  */
 export async function addPlusOne(
-  itemId: string,
-  ticketUrl: string,
-  product: Product,
-  attachments: AttachmentFile[] = [],
+  input: PlusOneInput,
 ): Promise<{ url: string; filesAttached: string[] }> {
+  const { itemId, ticketUrl, product, symptom, accountLabel, attachments = [] } = input;
   const files = attachments.length ? ` (+${attachments.length} file${attachments.length === 1 ? "" : "s"})` : "";
+  const body = [
+    "+1 — another customer hit this.",
+    `Symptom: ${symptom}`,
+    accountLabel ? `Reported by: ${accountLabel}` : "",
+    `Freshdesk ticket: ${ticketUrl}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
   if (!config.monday.live) {
-    console.log(`[stub] +1 on item ${itemId} from ${ticketUrl}${files}`);
+    console.log(`[stub] +1 on item ${itemId}${files}:\n${body}`);
     return { url: itemUrl(itemId, product), filesAttached: [] };
   }
   if (!config.monday.allowWrites) {
     console.log(
-      `[MONDAY_ALLOW_WRITES=false] would +1 item ${itemId} from ${ticketUrl}${files} — no write made.`,
+      `[MONDAY_ALLOW_WRITES=false] would +1 item ${itemId}${files} — no write made.\n${body}`,
     );
     return { url: itemUrl(itemId, product), filesAttached: [] };
   }
   const update = await gql<{ create_update: { id: string } }>(
     `mutation ($item: ID!, $body: String!) { create_update(item_id: $item, body: $body) { id } }`,
-    { item: itemId, body: `+1 — another user affected. Freshdesk ticket: ${ticketUrl}` },
+    { item: itemId, body },
   );
   const filesAttached = await attachFilesToUpdate(update.create_update.id, attachments);
   return { url: itemUrl(itemId, product), filesAttached };
