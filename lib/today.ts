@@ -16,8 +16,7 @@
  */
 import { getOutcomes, listReplyDrafts, listMonetApprovals, getDailyRollup } from "./kv";
 import { listArticles, countByState, type ArticleState } from "./kb-store";
-import { topicTrends, ticketRecords, type TopicTrend } from "./topics";
-import { gapList } from "./analytics";
+import { topicTrends, ticketRecords, type TopicTrend, type TicketRecord } from "./topics";
 import { yesterdayKey } from "./daily-overview";
 import { config } from "./config";
 
@@ -84,6 +83,40 @@ function kbCoverage(topic: string, articles: { title: string; keywords: string[]
   return best?.title ?? null;
 }
 
+/** Group the week's unresolved tickets by theme, worst-covered first. */
+function documentNext(
+  tickets: TicketRecord[],
+  sinceS: number,
+  published: { title: string; keywords: string[] }[],
+  ref: typeof refFor,
+) {
+  const groups = new Map<string, TicketRecord[]>();
+  for (const t of tickets) {
+    const failedAt = Math.max(t.escalatedAt ?? 0, t.reopenedAt ?? 0);
+    if (!failedAt || failedAt < sinceS) continue;
+    const key = t.topic ?? "unlabelled";
+    const list = groups.get(key);
+    if (list) list.push(t);
+    else groups.set(key, [t]);
+  }
+  return [...groups.entries()]
+    .map(([topic, ts]) => ({
+      topic,
+      count: ts.length,
+      reopened: ts.filter((t) => t.reopened).length,
+      kbArticle: topic === "unlabelled" ? null : kbCoverage(topic, published),
+      apps: [...new Set(ts.map((t) => t.app).filter((a) => a !== "unknown"))],
+      tickets: ts
+        .sort((a, b) => b.at - a.at)
+        .slice(0, 5)
+        .map((t) => ({ ticketId: t.ticketId, subject: t.subject, ...ref(t.ticketId, t.channel) })),
+    }))
+    // Uncovered themes first, then the ones that recur most: an article on a
+    // theme that hit five tickets is worth more than one on a singleton.
+    .sort((a, b) => Number(!!a.kbArticle) - Number(!!b.kbArticle) || b.count - a.count)
+    .slice(0, 8);
+}
+
 export type TodayBrief = Awaited<ReturnType<typeof buildTodayBrief>>;
 
 /** Assemble the whole brief. Read-only; safe to call from any admin route. */
@@ -108,7 +141,6 @@ export async function buildTodayBrief() {
   // drafts writes today-stamped outcomes for month-old tickets, so an
   // event-level count reports them as this morning's arrivals.
   const tickets = ticketRecords(outcomes);
-  const channelOf = new Map(tickets.map((t) => [t.ticketId, t.channel]));
   const arrivedTickets = tickets.filter((t) => t.at >= windowStart);
   const answered = arrivedTickets.filter((t) => t.replied).length;
   // Escalations and reopens are events rather than arrivals: an old ticket
@@ -217,12 +249,12 @@ export async function buildTodayBrief() {
       kbReview: (kbCounts.draft ?? 0) + (kbCounts.in_review ?? 0),
       billingApprovals: monet.length,
     },
-    // Tickets Jetta couldn't close herself, last 7 days — the documentation
-    // backlog, already de-duped by ticket. gapList builds Freshdesk URLs for
-    // everything (it predates chat channels and Insights renders it as-is), so
-    // re-derive the link here against the channel we know.
-    documentNext: gapList(outcomes.filter((o) => o.at >= nowS - REOPEN_LOOKBACK_H * HOUR_S))
-      .slice(0, 8)
-      .map((g) => ({ ...g, ...refFor(g.ticketId, channelOf.get(g.ticketId) ?? "freshdesk") })),
+    // The documentation backlog, grouped by THEME rather than listed by ticket.
+    //
+    // Per-ticket it was a verbatim copy of the escalations list above — gaps
+    // are escalations, so the page repeated itself for a full screen. What a
+    // writer actually needs is which theme keeps coming back and whether the
+    // KB already answers it; one article closes the whole group.
+    documentNext: documentNext(tickets, nowS - REOPEN_LOOKBACK_H * HOUR_S, published, refFor),
   };
 }

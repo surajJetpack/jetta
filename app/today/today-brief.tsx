@@ -94,11 +94,25 @@ interface Brief {
     kbReview: number;
     billingApprovals: number;
   };
-  documentNext: (Ref & { ticketId: string; subject: string; reason: string; at: number })[];
+  documentNext: {
+    topic: string;
+    count: number;
+    reopened: number;
+    kbArticle: string | null;
+    apps: string[];
+    tickets: (Ref & { ticketId: string; subject: string })[];
+  }[];
 }
 
 /** A draft sitting longer than this has missed its window to be useful. */
 const STALE_DRAFT_HOURS = 8;
+
+/** "30 days", not "714.1h" — the briefing says days, so the tile must too. */
+function fmtHours(hours: number): string {
+  if (hours < 48) return `${Math.round(hours)}h`;
+  const days = Math.round(hours / 24);
+  return `${days} day${days === 1 ? "" : "s"}`;
+}
 
 function Stat({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -475,13 +489,9 @@ export default function TodayBrief() {
                     label="drafts to review"
                     count={q.drafts.count}
                     urgent={(q.drafts.oldestAgeHours ?? 0) >= STALE_DRAFT_HOURS}
-                    hint={
-                      q.drafts.oldestAgeHours != null
-                        ? `oldest ${q.drafts.oldestAgeHours}h`
-                        : undefined
-                    }
+                    hint={q.drafts.oldestAgeHours != null ? `oldest ${fmtHours(q.drafts.oldestAgeHours)}` : undefined}
                   />
-                  <QueueTile href="/kb/review" icon={BookOpen} label="KB articles to review" count={q.kbReview} />
+                  <QueueTile href="/kb/review" icon={BookOpen} label="KB to review" count={q.kbReview} />
                   <QueueTile href="/billing" icon={CreditCard} label="billing approvals" count={q.billingApprovals} />
                   <QueueTile
                     href="/analytics"
@@ -566,20 +576,41 @@ export default function TodayBrief() {
               {brief.documentNext.length ? (
                 <>
                   <p className="text-xs text-muted-foreground">
-                    Tickets Jetta couldn&apos;t close herself this week. Each one is a gap in the knowledge base.
+                    Themes Jetta couldn&apos;t close herself this week, grouped so one article closes the whole
+                    group. Uncovered themes first.
                   </p>
                   {brief.documentNext.map((g) => (
                     <StepCard
-                      key={g.ticketId}
-                      title={<TicketRef item={g} />}
+                      key={g.topic}
+                      title={
+                        <span className="inline-flex items-center gap-1.5">
+                          <BookOpen className="size-4 shrink-0" aria-hidden />
+                          {g.topic === "unlabelled" ? "Unlabelled" : displayTopic(g.topic)}
+                        </span>
+                      }
                       meta={
                         <>
-                          <StatusChip tone={g.reason === "reopened" ? "stale" : "draft"}>{g.reason}</StatusChip>
-                          <span title={new Date(g.at * 1000).toLocaleString()}>{fmtAgo(g.at, now)}</span>
+                          {g.apps.slice(0, 2).map((a) => (
+                            <StatusChip key={a} tone="in_review">
+                              {appName(a)}
+                            </StatusChip>
+                          ))}
+                          <StatusChip tone={g.kbArticle ? "published" : "stale"}>
+                            {g.kbArticle ? "in KB" : "nothing written"}
+                          </StatusChip>
                         </>
                       }
                     >
-                      <p className="text-xs text-muted-foreground">{g.subject}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {g.count} {g.count === 1 ? "ticket" : "tickets"}
+                        {g.reopened > 0 && `, ${g.reopened} reopened`}
+                        {g.kbArticle && <> · covered by “{g.kbArticle}”</>}
+                      </p>
+                      <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+                        {g.tickets.map((t) => (
+                          <TicketRef key={t.ticketId} item={t} />
+                        ))}
+                      </div>
                     </StepCard>
                   ))}
                 </>
