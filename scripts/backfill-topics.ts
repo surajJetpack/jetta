@@ -14,6 +14,12 @@
  *   npx tsx --env-file=.env.local scripts/backfill-topics.ts
  *   npx tsx --env-file=.env.local scripts/backfill-topics.ts --commit
  *   npx tsx --env-file=.env.local scripts/backfill-topics.ts --batch 40
+ *
+ * --relabel-apps re-derives the app for EVERY ticket rather than only filling
+ * blanks. Needed after an attribution fix: the first app pass ran with an
+ * over-broad GetSign pattern and without the rule that legal paperwork is not
+ * a product ticket, so its output skews GetSign. Topics are never touched by
+ * this — only the app field is rewritten.
  */
 import { generateObject } from "ai";
 import { z } from "zod";
@@ -24,6 +30,7 @@ import { inferAppProduct } from "../lib/context";
 import { appName } from "../lib/types";
 
 const commit = process.argv.includes("--commit");
+const relabelApps = process.argv.includes("--relabel-apps");
 const batchArg = process.argv.indexOf("--batch");
 const BATCH = batchArg === -1 ? 25 : Math.max(1, Number(process.argv[batchArg + 1]));
 
@@ -96,7 +103,9 @@ async function main() {
   // Same ticket, many outcomes (drafted → approved → reopened): label the
   // ticket once and stamp every one of its events, so a backfilled ticket
   // counts the same way a live one does.
-  const needing = outcomes.filter((o) => (!o.topic || !o.app) && (o.subject ?? "").trim().length > 2);
+  const needing = outcomes.filter(
+    (o) => (relabelApps || !o.topic || !o.app) && (o.subject ?? "").trim().length > 2,
+  );
   const bySubject = new Map<string, { subject: string; product: string; events: OutcomeEvent[] }>();
   for (const o of needing) {
     const key = o.ticketId;
@@ -109,7 +118,7 @@ async function main() {
   console.log(`outcomes in feed:   ${outcomes.length}`);
   console.log(`have topic:         ${outcomes.filter((o) => o.topic).length}`);
   console.log(`have app:           ${outcomes.filter((o) => o.app).length}`);
-  console.log(`needing work:       ${tickets.length} tickets (${needing.length} events)`);
+  console.log(`needing work:       ${tickets.length} tickets (${needing.length} events)${relabelApps ? " — RELABELLING ALL APPS" : ""}`);
   console.log(`skipped (no subject): ${outcomes.filter((o) => !o.topic && !(o.subject ?? "").trim()).length}`);
   if (!tickets.length) {
     console.log("\nnothing to do.");
@@ -123,6 +132,7 @@ async function main() {
   for (const t of await getKnownTopics(40).catch(() => [])) taxonomy.set(t, 1);
 
   const appDist = new Map<string, number>();
+  const appChanges: string[] = [];
   let labelled = 0;
   for (let i = 0; i < tickets.length; i += BATCH) {
     const slice = tickets.slice(i, i + BATCH);
@@ -142,14 +152,29 @@ async function main() {
       // never stored the hint, so history only has keywords then the model.
       const app = pick(inferAppProduct(t.subject), label.app);
       for (const ev of t.events) {
+        // Topics are only ever filled, never overwritten — a re-run must not
+        // churn labels the trend baselines are already built on.
         if (!ev.topic && label.topic) ev.topic = label.topic;
-        if (!ev.app) ev.app = app;
+        if (relabelApps || !ev.app) {
+          if (relabelApps && ev.app && ev.app !== app) {
+            appChanges.push(`${appName(ev.app)} → ${appName(app)}  ${t.subject.slice(0, 56)}`);
+          }
+          ev.app = app;
+        }
       }
       if (label.topic) taxonomy.set(label.topic, (taxonomy.get(label.topic) ?? 0) + 1);
       appDist.set(app, (appDist.get(app) ?? 0) + 1);
       labelled++;
     }
     process.stdout.write(`  ${Math.min(i + BATCH, tickets.length)}/${tickets.length} tickets labelled\n`);
+  }
+
+  if (relabelApps) {
+    // De-dupe: one ticket has several events, all rewritten identically.
+    const unique = [...new Set(appChanges)];
+    console.log(`\napp attribution CHANGED for ${unique.length} tickets:`);
+    for (const c of unique.slice(0, 40)) console.log(`  ${c}`);
+    if (unique.length > 40) console.log(`  … and ${unique.length - 40} more`);
   }
 
   console.log("\napp attribution:");

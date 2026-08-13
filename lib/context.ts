@@ -41,7 +41,12 @@ function clip(text: string, max: number): string {
  * attributed to nothing — measured at 71% unresolved across 190 real tickets.
  */
 const APP_PATTERNS = {
-  getsign: /get\s*-?\s*sign|e-?\s?sign|signature|mapping/,
+  // "e-sign" needs a leading word boundary: without it the pattern matches the
+  // "e" + "sign" inside DESIGN, redesign, designer and resign, quietly filing
+  // any ticket about design work under GetSign. Bare "mapping" is gone for the
+  // same reason — column and field mapping are VLOOKUP and Extract concepts at
+  // least as often as they are GetSign ones, so it goes to triage to decide.
+  getsign: /get\s*-?\s*sign|\be-?\s?sign|signature|signatory|\bsigner/,
   trackmy: /track\s*-?\s*my|courier|parcel|shipment tracking|tracking number/,
   vlookup: /v\s*-?\s*lookup/,
   extract: /extract\s*-?\s*ai|\bextract\b/,
@@ -142,7 +147,7 @@ App — WHICH app, specifically. "jetpackapps" is a portfolio of separate apps, 
 - "jetscan" — JetScan HR: resume/CV scanning and parsing.
 - "pivotreports" — Pivot Reports Pro: pivot tables, cross-tab reporting, report widgets.
 - "triggerly" — Triggerly: QR codes, and automations triggered by scanning them.
-- "unknown" — only when the ticket really gives nothing to go on: a pure billing, invoice, VAT or account question with no app in sight, or an empty/unintelligible ticket.
+- "unknown" — only when the ticket really gives nothing to go on: a pure billing, invoice, VAT or account question with no app in sight, or an empty/unintelligible ticket. Also "unknown" for legal, compliance and procurement paperwork addressed to us as a company — DPAs, MSAs, security questionnaires, W-9s, vendor forms. A customer asking us to sign a contract is NOT a GetSign ticket: "signed" there means countersigned by us, not the e-signature product. Only choose "getsign" when the ticket is about USING GetSign.
 Choose "unknown" over guessing. A wrong app is worse than no app, because it lands in another app's trend line.
 
 Complexity:
