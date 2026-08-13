@@ -158,26 +158,41 @@ export function buildTools(
       },
     }),
 
-    reply_to_ticket: tool({
-      description: isChat
-        ? "Send a chat message to the customer. Keep it short and conversational; plain text (no headings), links as bare URLs. This is the customer-visible response."
-        : "Post a reply to the current ticket as the Jetta agent. Accepts markdown. This is the customer-visible response.",
-      inputSchema: z.object({ body: z.string().describe("The reply, in markdown.") }),
-      execute: async ({ body }) => {
-        if (!ticketId) return "No active ticket to reply to.";
-        if (dry) return `[dry-run] would post reply:\n${body}`;
-        // Draft mode: report success so downstream behavior (private note,
-        // resolution logging) matches autonomous mode; the webhook turns the
-        // trace into a ReplyDraft for human approval.
-        if (held) return isChat ? "Chat message sent to the customer." : "Reply posted to the ticket.";
-        if (isChat) {
-          await chatClient.replyToConversation(ticketId, body);
-          return "Chat message sent to the customer.";
-        }
-        await freshdesk.replyToTicket(ticketId, body);
-        return "Reply posted to the ticket.";
-      },
-    }),
+    // On JettaChat the model's final text IS the customer-visible message, so
+    // there is no reply tool to forget to call. Everywhere else the reply has
+    // to be an explicit API call (a Freshdesk ticket reply, a Freshchat
+    // message), so the tool is the only way to send one.
+    //
+    // This asymmetry is deliberate. Requiring a tool call on our own transport
+    // bought nothing and cost delivery: chat-tuned models answer in prose and
+    // repeatedly ended turns having researched the answer, logged a note
+    // claiming they had sent it, and sent nothing. Prompt hardening did not
+    // move glm-5.2. Removing the tool removes the failure mode instead of
+    // catching it.
+    ...(isOwnChat
+      ? {}
+      : {
+          reply_to_ticket: tool({
+            description: isChat
+              ? "Send a chat message to the customer. Keep it short and conversational; plain text (no headings), links as bare URLs. This is the customer-visible response."
+              : "Post a reply to the current ticket as the Jetta agent. Accepts markdown. This is the customer-visible response.",
+            inputSchema: z.object({ body: z.string().describe("The reply, in markdown.") }),
+            execute: async ({ body }) => {
+              if (!ticketId) return "No active ticket to reply to.";
+              if (dry) return `[dry-run] would post reply:\n${body}`;
+              // Draft mode: report success so downstream behavior (private note,
+              // resolution logging) matches autonomous mode; the webhook turns the
+              // trace into a ReplyDraft for human approval.
+              if (held) return isChat ? "Chat message sent to the customer." : "Reply posted to the ticket.";
+              if (isChat) {
+                await chatClient.replyToConversation(ticketId, body);
+                return "Chat message sent to the customer.";
+              }
+              await freshdesk.replyToTicket(ticketId, body);
+              return "Reply posted to the ticket.";
+            },
+          }),
+        }),
 
     add_private_note: tool({
       description: isChat

@@ -281,10 +281,6 @@ rules override any ticket-flavored rule above where they conflict)
   there is no scheduled follow-up on chat. If something needs offline work,
   tell the customer the team will email them (confirm their email address if
   you don't have it) and escalate.
-- The "Replying and logging" rules above still apply IN FULL on chat: every
-  turn that addresses the customer MUST include exactly one reply_to_ticket
-  call — on this channel it sends the chat message. Text you produce without
-  calling reply_to_ticket is NEVER shown to the customer.
 - add_private_note is an internal log entry only — the customer never sees it;
   still use it to log resolution_sent after delivering a fix.
 - close_ticket resolves the chat. Call it once the customer confirms the fix
@@ -293,6 +289,10 @@ rules override any ticket-flavored rule above where they conflict)
 
 /** Freshchat only: Jetta is the backline, picking up after the front-line bot. */
 const FRESHCHAT_RULES = `
+- The "Replying and logging" rules above still apply IN FULL on chat: every
+  turn that addresses the customer MUST include exactly one reply_to_ticket
+  call — on this channel it sends the chat message. Text you produce without
+  calling reply_to_ticket is NEVER shown to the customer.
 - You were handed this chat by the front-line bot. The transcript may include
   bot messages — read them; do not repeat steps the bot already gave, and do
   not blame or mention "the bot" to the customer.
@@ -311,13 +311,16 @@ const FRESHCHAT_RULES = `
  *    is never true; the only path to a human is a Freshdesk ticket.
  */
 const JETTACHAT_RULES = `
-- THE ONE RULE THAT MATTERS MOST: the customer sees NOTHING except the text you
-  pass to reply_to_ticket. Not your final message, not your private note. If you
-  finish a turn without calling reply_to_ticket, the customer sat and watched a
-  typing indicator and received silence. Never end a turn having only logged a
-  note about answering — logging that you answered is not answering. If you
-  catch yourself about to write "I've sent you..." or "All set", stop: that
-  means you have NOT sent it, because sending is reply_to_ticket.
+- HOW REPLYING WORKS HERE — this REPLACES the "Replying and logging" rules
+  above. There is no reply_to_ticket tool on this channel. Your final message,
+  the text you write when you have finished using tools, IS what the customer
+  receives. Write it as the message itself, addressed to them, in second person.
+- Because of that, never describe what you are about to say instead of saying
+  it. "I've sent you the answer", "Let me get that for you", "All set" — these
+  are wrong, because there is no separate send step. Just write the answer.
+- Your tools are for research and internal actions only: look things up, log a
+  note, file a dev item, open a ticket. None of them talk to the customer. After
+  using them, write the message.
 - You are the FIRST responder here, not a backline. No bot spoke before you and
   no human is watching this conversation — what you send reaches the customer
   immediately, with no review step. Write accordingly.

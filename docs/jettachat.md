@@ -34,6 +34,15 @@ alongside `freshdesk` and `freshchat`, and the conversation is adapted into the
 existing `Ticket` shape so context assembly, tools, RAG, and analytics all work
 as-is.
 
+**One deliberate divergence:** this channel has no `reply_to_ticket` tool. The
+model's final text *is* the customer-visible message, delivered by
+`lib/chat-run.ts`. Elsewhere a reply must be an explicit API call, so the tool
+is the only way to send one; on our own transport it bought nothing and cost
+delivery — chat-tuned models answer in prose, and glm-5.2 repeatedly researched
+an answer, logged a note claiming it had sent it, and sent nothing. Two rounds
+of prompt hardening didn't move it. Removing the tool removes the failure mode
+rather than catching it.
+
 ## What's different from the ticket channel
 
 | | Freshdesk | JettaChat |
@@ -43,6 +52,7 @@ as-is.
 | Follow-up cron | yes | no (the ticket carries it) |
 | Ticket allowlist | enforced | bypassed (`JETTACHAT_LIVE` is the gate) |
 | Model tier | auto (complexity-routed) | pinned to standard |
+| Sending | `reply_to_ticket` tool call | **the model's final text** (no reply tool) |
 
 Because nothing is reviewed pre-send, the prompt's grounding rule is **absolute**
 on this channel: no retrieved article containing the answer ⇒ no answer, ask a
@@ -98,8 +108,8 @@ discount tools stop having to ask the customer for their monday URL.
   actually reading daily at first.
 - **Ops events:** `chat.turn_superseded`, `chat.no_reply_sent`,
   `chat.rate_limited`, `chat.failed` in the `jetta:events` stream.
-  `chat.no_reply_sent` is the one to watch — it means the loop ended without
-  calling `reply_to_ticket` and the fallback had to cover.
+  `chat.no_reply_sent` is the one to watch — the loop ended with empty text and
+  the apology fallback had to cover.
 
 ## Known gaps
 

@@ -17,12 +17,10 @@
  *      indicator that stops. Every exit path either sends something or opens
  *      a ticket — see `deliverFallback`.
  */
-import { generateText, type ModelMessage } from "ai";
 import { config } from "./config";
-import { getModel } from "./llm";
 import { buildContext, buildMessages } from "./context";
 import { buildSystemPrompt } from "./system-prompt";
-import { runAgentLoop, type AgentResult } from "./agent";
+import { runAgentLoop } from "./agent";
 import { recordRun } from "./runlog";
 import { recordOutcome } from "./kv";
 import { logOpsEvent } from "./events";
@@ -32,67 +30,9 @@ import { toChatText } from "./tools/jettachat";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
- * Recover a turn where the model researched the answer but never called
- * reply_to_ticket — it logged a note saying it had answered and ended with
- * narration ("All set! I've sent you the answer…").
- *
- * Do NOT send `result.text` in that situation: when the model skips the reply
- * tool, its final text is a report *about* the reply, addressed to whoever is
- * reading the trace. Delivering it tells the customer an answer was sent when
- * nothing was — worse than saying nothing.
- *
- * So re-ask for the message alone, with no tools available (nothing to skip
- * this time) and the KB results from the failed turn pasted in, so the good
- * retrieval isn't thrown away. Returns null if the repair is unusable.
- */
-async function repairMissingReply(
-  system: string,
-  messages: ModelMessage[],
-  result: AgentResult,
-): Promise<string | null> {
-  // The tool loop's KB hits live in the trace, not in `messages` — without
-  // them a tool-less repair call would have nothing to ground on.
-  const retrieved = result.trace
-    .filter((t) => t.tool === "search_knowledge_base")
-    .map((t) => t.result)
-    .join("\n\n")
-    .slice(0, 12_000);
-
-  try {
-    const repair = await generateText({
-      model: getModel("standard"),
-      system,
-      messages: [
-        ...messages,
-        {
-          role: "user",
-          content: [
-            "[system] Your turn ended WITHOUT calling reply_to_ticket, so the customer has",
-            "received nothing at all. Write the message to send them right now.",
-            "",
-            "Output ONLY the message itself — the actual answer, not a description of it and",
-            "not a note about what you did. Plain conversational text, no headings, links as",
-            "bare URLs. If the articles below don't answer the question, ask the one",
-            "clarifying question you need, or offer to pass it to the team by email.",
-            "",
-            retrieved ? `Knowledge base results from your search:\n${retrieved}` : "(no KB results)",
-          ].join("\n"),
-        },
-      ],
-    });
-    const text = repair.text.trim();
-    return text.length > 0 ? text : null;
-  } catch (e) {
-    console.warn("Chat reply repair failed:", e);
-    return null;
-  }
-}
-
-/**
  * What the visitor sees when the run couldn't produce a reply — a crash, a
- * model timeout, or a loop that ended without calling reply_to_ticket. Better
- * than silence, and it asks for the one thing that lets a human recover the
- * conversation. Deliberately not a ticket: we may have no email yet, and
+ * model timeout, or a loop that ended with empty text. Better than silence, and
+ * it asks for the one thing that lets a human recover the conversation. Deliberately not a ticket: we may have no email yet, and
  * opening one without an address strands the customer either way.
  */
 const FALLBACK_TEXT =
@@ -150,32 +90,25 @@ export async function runChatTurn(conversationId: string, messageId: string): Pr
     const result = await runAgentLoop(system, messages, ctx);
     await recordRun("jettachat", ctx, result, Date.now() - started);
 
-    const replied = result.toolsUsed.includes("reply_to_ticket");
     const ticketed = result.toolsUsed.includes("create_support_ticket");
 
-    // Safety net: the loop finished without sending anything. The model
-    // sometimes ends a turn with plain text instead of a tool call, and on
-    // this channel that text goes nowhere.
-    if (!replied) {
+    // Delivery. On this channel the agent has no reply tool — its final text
+    // is the message, so sending it is our job rather than the model's. An
+    // empty final text is the only way a turn can now produce nothing, and
+    // that means the loop genuinely failed rather than forgot.
+    const text = result.text.trim();
+    const replied = text.length > 0;
+    if (replied) {
+      await store.appendMessage(conversationId, "agent", toChatText(text));
+    } else {
       await logOpsEvent({
         level: "warn",
         event: "chat.no_reply_sent",
         source: "jettachat",
         ticketId: conversationId,
-        data: { toolsUsed: result.toolsUsed, text: result.text.slice(0, 500) },
+        data: { toolsUsed: result.toolsUsed },
       });
-      const repaired = await repairMissingReply(system, messages, result);
-      if (repaired) {
-        await store.appendMessage(conversationId, "agent", toChatText(repaired));
-        await logOpsEvent({
-          level: "info",
-          event: "chat.reply_repaired",
-          source: "jettachat",
-          ticketId: conversationId,
-        });
-      } else {
-        await deliverFallback(conversationId);
-      }
+      await deliverFallback(conversationId);
     }
 
     await recordOutcome({
