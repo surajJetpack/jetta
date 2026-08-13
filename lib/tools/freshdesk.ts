@@ -147,6 +147,8 @@ type FDConversation = {
   private: boolean;
   incoming: boolean;
   from_email?: string;
+  /** FD agent who authored the reply — identifies Jetta's own sends. */
+  user_id?: number;
   created_at: string;
   attachments?: FDAttachment[];
 };
@@ -643,6 +645,94 @@ export async function updateSolutionArticle(
   };
 }
 
+/**
+ * AppProduct → this account's cf_product dropdown label. Freshdesk rejects a
+ * value that isn't in the dropdown, so anything unmapped is simply omitted.
+ *
+ * Labels transcribed from the FD ticket form (see lib/context.ts); they have
+ * not been round-tripped through a live create, which is why createTicket
+ * retries without the field rather than trusting them.
+ */
+const CF_PRODUCT_LABELS: Record<string, string> = {
+  vlookup: "VLOOKUP Auto-link",
+  extract: "Extract",
+  trackmy: "TrackMy",
+  getsign: "GetSign",
+  jetscan: "JetScan HR",
+  triggerly: "Triggerly",
+  pivotreports: "Pivot Reports Pro",
+  jobflows: "Jobflows",
+  smartcolumns: "Smart Columns",
+};
+
+export function cfProductLabel(app: string | null | undefined): string | undefined {
+  return app ? CF_PRODUCT_LABELS[app] : undefined;
+}
+
+export interface NewTicket {
+  subject: string;
+  /** Ticket body — plain text; converted to HTML here. */
+  description: string;
+  email: string;
+  name?: string;
+  /** AppProduct slug; mapped to the cf_product dropdown label when known. */
+  productHint?: string | null;
+  /** Freshdesk source id. 7 = chat, which is what a JettaChat hand-off is. */
+  source?: number;
+}
+
+export interface CreatedTicket {
+  id: string;
+  url: string;
+}
+
+/**
+ * Open a new ticket. Used by the JettaChat hand-off: when Jetta can't resolve a
+ * chat, the conversation becomes a Freshdesk ticket carrying the transcript —
+ * the same destination an unanswered chat reaches today, just with the context
+ * already attached.
+ *
+ * Status 2 ("open") and the chat source keep these visibly distinct from email
+ * intake in Freshdesk views.
+ */
+export async function createTicket(t: NewTicket): Promise<CreatedTicket> {
+  if (!config.freshdesk.live) {
+    const id = `stub-${Date.now()}`;
+    console.log(`[stub] create_ticket for ${t.email}: "${t.subject}"\n${t.description}`);
+    return { id, url: `https://stub.freshdesk.local/a/tickets/${id}` };
+  }
+  const base = {
+    subject: t.subject,
+    description: textToFdHtml(t.description),
+    email: t.email,
+    name: t.name,
+    status: 2,
+    priority: 1,
+    source: t.source ?? 7,
+  };
+  const cfProduct = cfProductLabel(t.productHint);
+
+  const post = (body: Record<string, unknown>) =>
+    fd<{ id: number }>("/tickets", { method: "POST", body: JSON.stringify(body) });
+
+  let created: { id: number };
+  try {
+    created = await post(cfProduct ? { ...base, custom_fields: { cf_product: cfProduct } } : base);
+  } catch (e) {
+    // Attribution is a nicety; the hand-off is not. If cf_product is rejected
+    // (label drift on the dropdown), open the ticket without it rather than
+    // dropping a customer who was told their question would reach the team.
+    if (!cfProduct) throw e;
+    console.warn(`createTicket: cf_product "${cfProduct}" rejected, retrying without it:`, e);
+    created = await post(base);
+  }
+
+  return {
+    id: String(created.id),
+    url: `https://${config.freshdesk.domain}/a/tickets/${created.id}`,
+  };
+}
+
 export async function replyToTicket(ticketId: string, body: string): Promise<void> {
   if (!config.freshdesk.live) {
     console.log(`[stub] reply_to_ticket #${ticketId}:\n${body}`);
@@ -674,28 +764,37 @@ export interface LatestAgentReply {
 }
 
 /** Newest outgoing (non-private) agent reply on a ticket, for draft reconciliation. */
-export async function getLatestAgentReply(ticketId: string): Promise<LatestAgentReply | null> {
+/**
+ * The FIRST public agent reply sent at or after `sinceIso` — the reply that
+ * answers a given draft.
+ *
+ * Not "the latest reply": when reconciling a draft that is hours or weeks old
+ * (the cron and the backfill both do), the newest reply on the thread may belong
+ * to a completely different exchange, which would score as unrelated and record
+ * a false "ignored" verdict.
+ *
+ * Uses fetchConversations, so it sees the whole thread. The previous
+ * `?include=conversations` version only ever saw the OLDEST 10 conversations, so
+ * on any long ticket it returned an early reply and called it the latest.
+ */
+export async function getAgentReplyAfter(
+  ticketId: string,
+  sinceIso: string,
+): Promise<LatestAgentReply | null> {
   if (!config.freshdesk.live) {
     return { body: "Stub agent reply body.", userId: 42, createdAt: new Date().toISOString() };
   }
-  type FDConversation = {
-    body_text?: string;
-    body?: string;
-    private: boolean;
-    incoming: boolean;
-    user_id: number;
-    created_at: string;
-  };
-  const ticket = await fd<{ conversations?: FDConversation[] }>(`/tickets/${ticketId}?include=conversations`);
-  const replies = (ticket.conversations ?? [])
-    .filter((c) => !c.incoming && !c.private)
-    .sort((a, b) => a.created_at.localeCompare(b.created_at));
-  const last = replies.pop();
-  if (!last) return null;
+
+  const conversations = await fetchConversations(ticketId);
+  const reply = conversations
+    .filter((c) => !c.incoming && !c.private && c.created_at >= sinceIso)
+    .sort((a, b) => a.created_at.localeCompare(b.created_at))[0];
+  if (!reply) return null;
+
   return {
-    body: last.body_text ?? stripHtml(last.body ?? ""),
-    userId: last.user_id,
-    createdAt: last.created_at,
+    body: reply.body_text ?? stripHtml(reply.body ?? ""),
+    userId: reply.user_id ?? 0,
+    createdAt: reply.created_at,
   };
 }
 

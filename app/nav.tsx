@@ -10,6 +10,7 @@ import { PendingMonetBadge } from "@/components/jetta/pending-monet-badge";
 const TABS = [
   { href: "/", label: "Console", id: "console" },
   { href: "/drafts", label: "Drafts", id: "drafts" },
+  { href: "/chats", label: "Chats", id: "chats" },
   { href: "/evals", label: "Evals", id: "evals" },
   { href: "/kb", label: "Knowledge Base", id: "kb" },
   { href: "/analytics", label: "Insights", id: "insights" },

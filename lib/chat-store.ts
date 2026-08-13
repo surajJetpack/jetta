@@ -1,0 +1,245 @@
+/**
+ * JettaChat conversation store.
+ *
+ * Every other channel Jetta works has a vendor holding the conversation —
+ * Freshdesk holds tickets, Freshchat holds chats. JettaChat has no vendor, so
+ * this module *is* the system of record: the widget writes visitor turns here,
+ * the agent writes its replies here, and the SSE stream reads from here.
+ *
+ * Storage: Upstash Redis under `jetta:chat:`, with the same single-process
+ * in-memory fallback as kv.ts / kb-store.ts so credential-less STUB runs work.
+ *
+ * Two non-obvious pieces live here rather than in the routes:
+ *
+ *   1. **Conversation tokens.** The widget is unauthenticated by nature — an
+ *      anonymous visitor on a marketing page has nothing to sign in with. The
+ *      conversation id alone therefore cannot be the key to the transcript, or
+ *      anyone could read another visitor's chat by guessing one. Every session
+ *      gets an HMAC token bound to its id; the read/write routes require it.
+ *
+ *   2. **Turn tracking.** `pendingTurn` records the newest visitor message id
+ *      so a debounced run can ask "am I still the latest?" before spending an
+ *      agent loop, and `runActive` drives the typing indicator. Both are short
+ *      TTL keys — they describe an in-flight moment, not durable state.
+ */
+import crypto from "node:crypto";
+import { Redis } from "@upstash/redis";
+import { config } from "./config";
+import type { ChatConversation, ChatMessage, ChatSurface, ChatVisitor } from "./types";
+
+let redis: Redis | null = null;
+function client(): Redis | null {
+  if (config.kv.url && config.kv.token) {
+    redis ??= new Redis({ url: config.kv.url, token: config.kv.token });
+    return redis;
+  }
+  return null;
+}
+
+// In-memory fallback (single-process only, mirrors kv.ts).
+const memChats = new Map<string, ChatConversation>();
+const memFlags = new Map<string, { value: string; expiresAt: number }>();
+
+const convKey = (id: string) => `jetta:chat:${id}`;
+const CHAT_INDEX = "jetta:chats";
+const runKey = (id: string) => `jetta:chat:run:${id}`;
+const turnKey = (id: string) => `jetta:chat:turn:${id}`;
+
+/** Conversations are kept for the retention window, refreshed on each write. */
+const ttlSeconds = () => Math.max(1, config.jettachat.retentionDays) * 86400;
+
+const nowIso = () => new Date().toISOString();
+
+// ── Conversation tokens ────────────────────────────────────────────
+
+/**
+ * HMAC of the conversation id. Not a session cookie and deliberately not
+ * expiring: a visitor who reloads the page mid-chat must be able to resume,
+ * and the token's only claim is "whoever created this conversation" — the
+ * transcript expires with the conversation itself.
+ */
+export function signToken(conversationId: string): string {
+  const secret = config.jettachat.secret;
+  if (!secret) throw new Error("JETTACHAT_SECRET is not set — refusing to issue a conversation token.");
+  return crypto.createHmac("sha256", secret).update(conversationId).digest("base64url");
+}
+
+/** Constant-time token check. Returns false rather than throwing on bad input. */
+export function verifyToken(conversationId: string, token: string | null | undefined): boolean {
+  if (!token || !config.jettachat.secret) return false;
+  let expected: string;
+  try {
+    expected = signToken(conversationId);
+  } catch {
+    return false;
+  }
+  const a = Buffer.from(token);
+  const b = Buffer.from(expected);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+// ── Conversations ──────────────────────────────────────────────────
+
+export interface NewConversation {
+  surface: ChatSurface;
+  visitor: ChatVisitor;
+  pageUrl?: string;
+}
+
+export async function createConversation(init: NewConversation): Promise<ChatConversation> {
+  const at = nowIso();
+  const conv: ChatConversation = {
+    id: crypto.randomUUID(),
+    createdAt: at,
+    lastActivityAt: at,
+    status: "open",
+    surface: init.surface,
+    pageUrl: init.pageUrl,
+    visitor: init.visitor,
+    messages: [],
+  };
+  await save(conv);
+  return conv;
+}
+
+export async function getConversation(id: string): Promise<ChatConversation | null> {
+  const r = client();
+  if (r) return await r.get<ChatConversation>(convKey(id));
+  return memChats.get(id) ?? null;
+}
+
+/** Persist and re-index. Every write refreshes the retention TTL. */
+async function save(conv: ChatConversation): Promise<void> {
+  const r = client();
+  if (r) {
+    await r.set(convKey(conv.id), conv, { ex: ttlSeconds() });
+    await r.zadd(CHAT_INDEX, { score: Date.parse(conv.lastActivityAt), member: conv.id });
+    return;
+  }
+  memChats.set(conv.id, conv);
+}
+
+/**
+ * Append a turn. Returns the stored message, or null if the conversation is
+ * gone (expired mid-session) — callers surface that as a dead session rather
+ * than silently dropping the visitor's message.
+ */
+export async function appendMessage(
+  conversationId: string,
+  author: ChatMessage["author"],
+  text: string,
+): Promise<ChatMessage | null> {
+  const conv = await getConversation(conversationId);
+  if (!conv) return null;
+  const msg: ChatMessage = {
+    id: crypto.randomUUID(),
+    author,
+    text,
+    createdAt: nowIso(),
+  };
+  conv.messages.push(msg);
+  conv.lastActivityAt = msg.createdAt;
+  await save(conv);
+  return msg;
+}
+
+/** Patch conversation-level fields (status, ticket link, learned identity). */
+export async function updateConversation(
+  conversationId: string,
+  patch: Partial<Pick<ChatConversation, "status" | "ticketId">> & { visitor?: Partial<ChatVisitor> },
+): Promise<ChatConversation | null> {
+  const conv = await getConversation(conversationId);
+  if (!conv) return null;
+  if (patch.status) conv.status = patch.status;
+  if (patch.ticketId) conv.ticketId = patch.ticketId;
+  if (patch.visitor) conv.visitor = { ...conv.visitor, ...patch.visitor };
+  conv.lastActivityAt = nowIso();
+  await save(conv);
+  return conv;
+}
+
+/** Newest-first conversation list for the console. */
+export async function listConversations(limit = 100): Promise<ChatConversation[]> {
+  const r = client();
+  if (r) {
+    const ids = await r.zrange<string[]>(CHAT_INDEX, 0, limit - 1, { rev: true });
+    if (!ids.length) return [];
+    const raw = await Promise.all(ids.map((id) => r.get<ChatConversation>(convKey(id))));
+    // Conversations expire before the index entry does; prune as we read.
+    const live: ChatConversation[] = [];
+    for (let i = 0; i < ids.length; i++) {
+      if (raw[i]) live.push(raw[i]!);
+      else await r.zrem(CHAT_INDEX, ids[i]);
+    }
+    return live;
+  }
+  return [...memChats.values()].sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt)).slice(0, limit);
+}
+
+// ── Short-lived run state (typing indicator + debounce) ────────────
+
+async function setFlag(key: string, value: string, ttl: number): Promise<void> {
+  const r = client();
+  if (r) {
+    await r.set(key, value, { ex: ttl });
+    return;
+  }
+  memFlags.set(key, { value, expiresAt: Date.now() + ttl * 1000 });
+}
+
+async function getFlag(key: string): Promise<string | null> {
+  const r = client();
+  if (r) return await r.get<string>(key);
+  const hit = memFlags.get(key);
+  if (!hit) return null;
+  if (hit.expiresAt < Date.now()) {
+    memFlags.delete(key);
+    return null;
+  }
+  return hit.value;
+}
+
+async function delFlag(key: string): Promise<void> {
+  const r = client();
+  if (r) {
+    await r.del(key);
+    return;
+  }
+  memFlags.delete(key);
+}
+
+/**
+ * Record the newest visitor message id for this conversation. A debounced run
+ * compares against this before starting: if a newer message arrived during the
+ * wait, this run is stale and the later one will cover the whole thought.
+ */
+export async function setPendingTurn(conversationId: string, messageId: string): Promise<void> {
+  await setFlag(turnKey(conversationId), messageId, 300);
+}
+
+export async function isLatestTurn(conversationId: string, messageId: string): Promise<boolean> {
+  return (await getFlag(turnKey(conversationId))) === messageId;
+}
+
+/**
+ * Typing indicator. TTL'd well above a normal run so a crashed run can't leave
+ * the widget showing "Jetta is typing" forever.
+ */
+export async function markRunActive(conversationId: string): Promise<void> {
+  await setFlag(runKey(conversationId), "1", 180);
+}
+
+export async function clearRunActive(conversationId: string): Promise<void> {
+  await delFlag(runKey(conversationId));
+}
+
+export async function isRunActive(conversationId: string): Promise<boolean> {
+  return (await getFlag(runKey(conversationId))) === "1";
+}
+
+/** Plain-text transcript, used for the Freshdesk hand-off and the console. */
+export function transcriptText(conv: ChatConversation): string {
+  return conv.messages
+    .map((m) => `[${m.createdAt}] ${m.author === "visitor" ? "Customer" : "Jetta"}: ${m.text}`)
+    .join("\n\n");
+}

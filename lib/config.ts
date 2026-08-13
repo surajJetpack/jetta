@@ -157,6 +157,40 @@ export const config = {
     debounceSeconds: Number(env("FRESHCHAT_DEBOUNCE_SECONDS") ?? "8"),
   },
 
+  /**
+   * JettaChat — the first-party chat widget. Unlike every other integration
+   * here there is no vendor: conversations live in our own Redis and Jetta is
+   * the front line, so the "live" flag gates whether the public endpoints
+   * accept traffic at all rather than whether an API client is stubbed.
+   */
+  jettachat: {
+    live: liveFor("JETTACHAT_LIVE"),
+    /**
+     * HMAC key for conversation tokens. The widget is unauthenticated, so the
+     * token is the only thing stopping someone reading another visitor's
+     * transcript by guessing an id. Without it the channel refuses to serve.
+     */
+    secret: env("JETTACHAT_SECRET"),
+    /**
+     * Origins allowed to embed the widget and call the public API
+     * (the WordPress site, monday's app iframe host). Empty = same-origin only.
+     */
+    allowedOrigins: (env("JETTACHAT_ALLOWED_ORIGINS") ?? "")
+      .split(",")
+      .map((s) => s.trim().replace(/\/$/, ""))
+      .filter(Boolean),
+    /**
+     * Multi-message debounce: visitors send "hi" / "I have a problem" / the
+     * actual question as three messages. Wait this long after the newest one
+     * before running, so Jetta answers the whole thought.
+     */
+    debounceSeconds: Number(env("JETTACHAT_DEBOUNCE_SECONDS") ?? "5"),
+    /** Max visitor messages per IP per hour — abuse backstop on a public endpoint. */
+    rateLimitPerHour: Number(env("JETTACHAT_RATE_LIMIT_PER_HOUR") ?? "60"),
+    /** How long transcripts are retained before Redis expires them. */
+    retentionDays: Number(env("JETTACHAT_RETENTION_DAYS") ?? "90"),
+  },
+
   fastspring: {
     live: liveFor("FASTSPRING_LIVE"),
     // Each monday.com app bills through its own separate FastSpring store —
@@ -247,6 +281,13 @@ export const config = {
   webhook: {
     secret: env("WEBHOOK_SECRET"),
   },
+
+  /**
+   * Jetta's own public base URL, no trailing slash. Needed wherever we hand a
+   * link to something outside the request (a Slack escalation pointing at a
+   * chat transcript). Falls back to the Vercel-provided production host.
+   */
+  appUrl: (env("JETTA_APP_URL") ?? (env("VERCEL_PROJECT_PRODUCTION_URL") ? `https://${env("VERCEL_PROJECT_PRODUCTION_URL")}` : "")).replace(/\/$/, ""),
 
   /** API-header secret for /api/admin/* programmatic callers (x-admin-secret). */
   adminSecret: env("ADMIN_SECRET"),

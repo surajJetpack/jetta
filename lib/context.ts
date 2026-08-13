@@ -5,11 +5,13 @@
  */
 import { generateObject, type ModelMessage } from "ai";
 import { z } from "zod";
-import type { AppProduct, ConversationContext, Product, TaskUsage, Ticket } from "./types";
+import type { AppProduct, ConversationContext, Product, RunChannel, TaskUsage, Ticket } from "./types";
 import { config } from "./config";
 import { getModel, modelLabel } from "./llm";
 import * as freshdesk from "./tools/freshdesk";
 import * as freshchat from "./tools/freshchat";
+import * as jettachat from "./tools/jettachat";
+import * as chatStore from "./chat-store";
 import * as fastspring from "./tools/fastspring";
 import * as monday from "./tools/monday";
 
@@ -170,16 +172,34 @@ export async function classifyProduct(subject: string, description: string): Pro
  */
 export async function buildContext(
   ticketId: string,
-  channel: "freshdesk" | "freshchat" = "freshdesk",
+  channel: RunChannel = "freshdesk",
 ): Promise<ConversationContext> {
+  // JettaChat carries visitor identity no other channel has (the monday
+  // account the widget is embedded in), so read the conversation itself and
+  // derive the ticket from it, rather than adapting and losing the extras.
+  const chatConv = channel === "jettachat" ? await chatStore.getConversation(ticketId) : null;
+  if (channel === "jettachat" && !chatConv) {
+    throw new Error(`JettaChat conversation ${ticketId} not found (expired?)`);
+  }
+
   const ticket =
     channel === "freshchat"
       ? await freshchat.getConversationAsTicket(ticketId)
-      : await freshdesk.getTicketDetails(ticketId);
+      : chatConv
+        ? jettachat.conversationToTicket(chatConv)
+        : await freshdesk.getTicketDetails(ticketId);
   // Triage runs for every live ticket (keyed to the channel's live flag, not
   // global STUB_MODE, so staged rollouts work) — in parallel with the account
   // and dev-item lookups so its latency hides behind them.
-  const contentIsLive = channel === "freshchat" ? config.freshchat.live : config.freshdesk.live;
+  //
+  // JettaChat has no stub path: the conversation is genuinely ours and every
+  // message in it came from a real visitor, so its content is always "live".
+  const contentIsLive =
+    channel === "freshchat"
+      ? config.freshchat.live
+      : channel === "jettachat"
+        ? true
+        : config.freshdesk.live;
   const taskUsage: TaskUsage[] = [];
 
   // Dev board search needs a product (to pick which board to query) before the
@@ -222,6 +242,13 @@ export async function buildContext(
     complexity: triage.complexity,
     intake: triage.intake,
     taskUsage,
+    chat: chatConv
+      ? {
+          surface: chatConv.surface,
+          mondayAccountSlug: chatConv.visitor.mondayAccountSlug,
+          pageUrl: chatConv.pageUrl,
+        }
+      : undefined,
   };
 }
 
@@ -232,19 +259,18 @@ export async function buildContext(
  * first turn. Subsequent public replies are mapped to user/assistant turns;
  * private notes are dropped (they are internal and would confuse the model).
  */
-export function buildMessages(
-  ticket: Ticket,
-  channel: "freshdesk" | "freshchat" = "freshdesk",
-): ModelMessage[] {
-  const messages: ModelMessage[] = [
-    {
-      role: "user",
-      content:
-        channel === "freshchat"
-          ? `[Live chat — handed off to you by the front-line bot]\n\n${clip(ticket.description, OPENING_CHARS)}`
-          : `[New ticket]\nSubject: ${ticket.subject}\n\n${clip(ticket.description, OPENING_CHARS)}`,
-    },
-  ];
+export function buildMessages(ticket: Ticket, channel: RunChannel = "freshdesk"): ModelMessage[] {
+  const opening = clip(ticket.description, OPENING_CHARS);
+  const openingContent =
+    channel === "freshchat"
+      ? `[Live chat — handed off to you by the front-line bot]\n\n${opening}`
+      : channel === "jettachat"
+        ? // No hand-off preamble — on this channel Jetta *is* the front line,
+          // so there is no prior bot transcript to read or work around.
+          `[Live chat — you are the first responder]\n\n${opening}`
+        : `[New ticket]\nSubject: ${ticket.subject}\n\n${opening}`;
+
+  const messages: ModelMessage[] = [{ role: "user", content: openingContent }];
 
   // Context diet: long threads dominate token spend (the history is re-sent on
   // every tool-loop step). Replay only the newest exchanges; the model can

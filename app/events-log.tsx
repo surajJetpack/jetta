@@ -24,7 +24,7 @@ interface OpsEvent {
 }
 
 const LEVEL_TONE: Record<OpsEvent["level"], ChipTone> = { info: "published", warn: "draft", error: "stale" };
-const SOURCES = ["webhook", "freshchat", "console", "cron", "slack", "auth", "app"];
+const SOURCES = ["webhook", "freshchat", "jettachat", "console", "cron", "slack", "auth", "app"];
 
 function LevelIcon({ level }: { level: OpsEvent["level"] }) {
   if (level === "error") return <OctagonX className="size-4 shrink-0 text-destructive" aria-hidden />;

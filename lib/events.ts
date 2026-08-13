@@ -23,7 +23,7 @@ export interface OpsEvent {
   level: EventLevel;
   /** Dot-namespaced machine name, e.g. "webhook.skipped_product_filter". */
   event: string;
-  source: "webhook" | "freshchat" | "console" | "cron" | "slack" | "auth" | "app";
+  source: "webhook" | "freshchat" | "jettachat" | "console" | "cron" | "slack" | "auth" | "app";
   ticketId?: string;
   /** Console username / "api" / "dev" where a human (or key) acted. */
   actor?: string;

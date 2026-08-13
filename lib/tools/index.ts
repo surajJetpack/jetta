@@ -16,6 +16,8 @@ import type { ConversationContext } from "../types";
 import { config } from "../config";
 import * as freshdesk from "./freshdesk";
 import * as freshchat from "./freshchat";
+import * as jettachat from "./jettachat";
+import * as chatStoreForTools from "../chat-store";
 import * as fastspring from "./fastspring";
 import * as monday from "./monday";
 import * as mondayMonetization from "./monday-monetization";
@@ -63,11 +65,17 @@ export function buildTools(
   const requesterEmail = ctx.ticket?.requesterEmail ?? undefined;
   const dry = opts.dryRun === true;
   const held = opts.holdCustomerWrites === true;
-  const isChat = ctx.channel === "freshchat";
+  // Two chat channels now: Freshchat (vendor-hosted, Jetta as backline) and
+  // JettaChat (first-party widget, Jetta as front line). They differ in where
+  // the conversation lives, not in how Jetta should behave — so `isChat` gates
+  // the conversational tool descriptions and `chatClient` picks the backend.
+  const isOwnChat = ctx.channel === "jettachat";
+  const isChat = ctx.channel === "freshchat" || isOwnChat;
+  const chatClient = isOwnChat ? jettachat : freshchat;
   // Escalations/dev items should deep-link to the actual interaction — the
-  // Freshchat console for chats, the Freshdesk ticket otherwise.
+  // relevant chat console for chats, the Freshdesk ticket otherwise.
   const interactionUrl = (id: string) =>
-    isChat ? freshchat.conversationUrl(id) : ticketUrl(id);
+    isChat ? chatClient.conversationUrl(id) : ticketUrl(id);
   // Set by create_dev_item/add_plus_one so send_escalation can attach the Dev
   // board item link automatically, the same way ticket/account URLs are.
   let mondayItemUrl: string | undefined;
@@ -104,7 +112,7 @@ export function buildTools(
         if (!ticketId) return "No active ticket in this context.";
         return JSON.stringify(
           isChat
-            ? await freshchat.getConversationAsTicket(ticketId)
+            ? await chatClient.getConversationAsTicket(ticketId)
             : await freshdesk.getTicketDetails(ticketId),
         );
       },
@@ -163,7 +171,7 @@ export function buildTools(
         // trace into a ReplyDraft for human approval.
         if (held) return isChat ? "Chat message sent to the customer." : "Reply posted to the ticket.";
         if (isChat) {
-          await freshchat.replyToConversation(ticketId, body);
+          await chatClient.replyToConversation(ticketId, body);
           return "Chat message sent to the customer.";
         }
         await freshdesk.replyToTicket(ticketId, body);
@@ -210,13 +218,78 @@ export function buildTools(
         if (dry) return `[dry-run] would mark the ${isChat ? "conversation" : "ticket"} resolved.`;
         if (held) return isChat ? "Conversation marked resolved." : "Ticket marked resolved.";
         if (isChat) {
-          await freshchat.resolveConversation(ticketId);
+          await chatClient.resolveConversation(ticketId);
           return "Conversation marked resolved.";
         }
         await freshdesk.closeTicket(ticketId);
         return "Ticket marked resolved.";
       },
     }),
+
+    // ── JettaChat hand-off ──
+    // Only on our own widget. Freshchat has a staffed console to hand to (in
+    // principle); JettaChat has nothing behind it, so a ticket is the only
+    // route to a human and Jetta needs an explicit tool for it.
+    ...(isOwnChat
+      ? {
+          create_support_ticket: tool({
+            description:
+              "Open a Freshdesk ticket so the team can pick this up by email, and tell the customer you have done it. This is the ONLY way to reach a human from this chat — nobody is watching the widget. Use it when the knowledge base has no answer, the request needs account changes you cannot make, the customer is upset or wants a refund, or they ask for a human. REQUIRES the customer's email address: ask for it first if you don't have it. The full chat transcript is attached automatically — summarize, don't re-type it.",
+            inputSchema: z.object({
+              email: z
+                .string()
+                .describe("The customer's email address, as they gave it in the chat."),
+              subject: z
+                .string()
+                .describe("Short ticket subject naming the actual problem, no 'chat' prefix."),
+              summary: z
+                .string()
+                .describe(
+                  "What the customer needs and what you already established or ruled out, in a short paragraph for the agent picking this up.",
+                ),
+            }),
+            execute: async ({ email, subject, summary }) => {
+              if (!ticketId) return "No active conversation to escalate.";
+              // Basic shape check only — a typo'd address is better than none,
+              // but a sentence in the email field would create a broken ticket.
+              if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+                return "That doesn't look like a valid email address. Ask the customer to confirm it, then call this again.";
+              }
+              if (dry) return `[dry-run] would open a Freshdesk ticket for ${email}: "${subject}".`;
+
+              const conv = await chatStoreForTools.getConversation(ticketId);
+              if (!conv) return "This conversation has expired — no ticket was created.";
+              // Transcript comes from the store, never from the model: the
+              // agent picking this up must see what was actually said.
+              const body = [
+                summary.trim(),
+                "",
+                "— Chat transcript —",
+                chatStoreForTools.transcriptText(conv),
+                "",
+                `Chat surface: ${conv.surface}${conv.pageUrl ? ` (${conv.pageUrl})` : ""}`,
+                conv.visitor.mondayAccountSlug ? `monday account: ${conv.visitor.mondayAccountSlug}` : "",
+              ]
+                .filter(Boolean)
+                .join("\n");
+
+              const created = await freshdesk.createTicket({
+                subject,
+                description: body,
+                email: email.trim(),
+                name: conv.visitor.name,
+                productHint: ctx.appProduct,
+              });
+              await chatStoreForTools.updateConversation(ticketId, {
+                status: "ticketed",
+                ticketId: created.id,
+                visitor: { email: email.trim() },
+              });
+              return `Ticket #${created.id} created for ${email.trim()}. Tell the customer their question has gone to the team and they'll get a reply by email — do NOT give them the ticket number or this URL. INTERNAL: ${created.url}`;
+            },
+          }),
+        }
+      : {}),
 
     // ── FastSpring ──
     // When billing isn't connected (FASTSPRING_LIVE unset), every billing tool
@@ -381,20 +454,43 @@ export function buildTools(
     // ── Slack ──
     send_escalation: tool({
       description:
-        "Post an escalation to the dev team's Slack channel. Provide a one-paragraph summary, what you already tried, and a specific question (the ticket and account URLs, plus the Dev board item link if one was created/linked this turn, are attached automatically).",
+        "Post an escalation to the dev team's Slack channel. The channel message is deliberately SHORT — only your headline and question appear there; the summary and already_tried go in a thread reply the team expands. Ticket and account links, plus the Dev board item if one was created/linked this turn, are attached automatically.",
       inputSchema: z.object({
-        summary: z.string(),
-        already_tried: z.string(),
-        question: z.string(),
+        headline: z
+          .string()
+          .describe(
+            "Scannable one-liner, max 80 chars, naming the actual failure. No ticket number, no app name (both are added automatically), no 'user reports that' preamble. e.g. 'Signed docs stop syncing to monday for one account'.",
+          ),
+        summary: z
+          .string()
+          .describe(
+            "One full paragraph of context: what happens, when it started, scope (one account or many), and anything you ruled out. Thread-only, so be complete rather than terse.",
+          ),
+        already_tried: z
+          .string()
+          .describe(
+            "What you already tried, ONE ATTEMPT PER LINE, each a short phrase with its result. e.g. 'Verified board/column mapping — correct'. Include KB gaps.",
+          ),
+        question: z
+          .string()
+          .describe(
+            "One specific, answerable question for the team, max ~150 chars — the single thing you need from them to move forward.",
+          ),
       }),
-      execute: async ({ summary, already_tried, question }) => {
+      execute: async ({ headline, summary, already_tried, question }) => {
         if (dry) {
-          return `[dry-run] would escalate to Slack:\nSummary: ${summary}\nTried: ${already_tried}\nQuestion: ${question}${mondayItemUrl ? `\nDev board item: ${mondayItemUrl}` : ""}`;
+          return `[dry-run] would escalate to Slack:\nHeadline: ${headline}\nQuestion: ${question}\n-- thread reply --\nSummary: ${summary}\nTried: ${already_tried}${mondayItemUrl ? `\nDev board item: ${mondayItemUrl}` : ""}`;
         }
         const r = await slack.sendEscalation({
           freshdeskTicketUrl: ticketId ? interactionUrl(ticketId) : "(no ticket)",
           userAccountUrl: accountUrl(ctx),
           mondayItemUrl,
+          headline,
+          app: ctx.appProduct,
+          // Short human label for the channel line — accountUrl() is a long
+          // FastSpring href and is absent entirely for monday-billed customers.
+          accountLabel: requesterEmail ?? ctx.account?.accountId ?? undefined,
+          ticketRef: ticketId ? `#${ticketId}` : undefined,
           summary,
           alreadyTried: already_tried,
           question,

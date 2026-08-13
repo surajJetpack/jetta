@@ -50,10 +50,22 @@ export interface AgentResult {
   model: string;
 }
 
-/** Live writes allowed only when the allowlist is empty (no restriction) or the ticket is on it. */
-function liveWritesAllowed(ticketId: string | undefined): boolean {
+/**
+ * Live writes allowed only when the allowlist is empty (no restriction) or the
+ * ticket is on it.
+ *
+ * JettaChat is exempt. The allowlist exists to stop Jetta writing to arbitrary
+ * pre-existing Freshdesk tickets during a staged rollout — but a JettaChat
+ * conversation has a freshly-minted UUID that could never be listed in
+ * advance, so applying it would force every chat to dry-run and leave real
+ * visitors talking to a wall. That channel's rollout gate is JETTACHAT_LIVE
+ * (plus the embed-origin allowlist), which stops traffic at the door instead.
+ */
+function liveWritesAllowed(ctx: ConversationContext): boolean {
+  if (ctx.channel === "jettachat") return true;
   const list = config.ticketAllowlist;
   if (list.length === 0) return true;
+  const ticketId = ctx.ticket?.id;
   return !!ticketId && list.includes(ticketId);
 }
 
@@ -95,7 +107,7 @@ export async function runAgentLoop(
   // is allowlisted. Dry-run requests pass through unchanged. Held runs (draft
   // mode) are never forced dry — customer writes are already held, and internal
   // actions are meant to run live for every ticket.
-  const allowed = liveWritesAllowed(ctx.ticket?.id);
+  const allowed = liveWritesAllowed(ctx);
   const hold = opts.holdCustomerWrites === true;
   const blockedByAllowlist = !opts.dryRun && !hold && !allowed;
   const dryRun = opts.dryRun === true || (!allowed && !hold);

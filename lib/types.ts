@@ -103,7 +103,57 @@ export interface DevBoardItem {
 }
 
 /** Where the current interaction originated. */
-export type Channel = "freshdesk" | "freshchat" | "slack";
+export type Channel = "freshdesk" | "freshchat" | "slack" | "jettachat";
+
+/**
+ * Channels the agent pipeline can actually run a turn on — `Channel` minus
+ * "slack", which is a notification target rather than a conversation Jetta
+ * holds. Used for the ticket-fetch and reply dispatch.
+ */
+export type RunChannel = "freshdesk" | "freshchat" | "jettachat";
+
+/** Surface a JettaChat widget session was opened from. */
+export type ChatSurface = "wordpress" | "monday" | "unknown";
+
+/** One turn in a JettaChat conversation. */
+export interface ChatMessage {
+  id: string;
+  /** "visitor" is the customer; "agent" is Jetta (or a human replying later). */
+  author: "visitor" | "agent";
+  text: string;
+  createdAt: string;
+}
+
+/**
+ * Identity the embedding page handed us. On monday this comes from the app
+ * SDK and is trustworthy enough to drive account lookups; on WordPress it is
+ * whatever the visitor typed, so treat it as a hint only.
+ */
+export interface ChatVisitor {
+  name?: string;
+  email?: string;
+  /** monday account slug, when the widget runs inside a monday app view. */
+  mondayAccountSlug?: string;
+  mondayAccountId?: string;
+  mondayUserId?: string;
+  /** Which app the view is embedded in — a direct AppProduct signal. */
+  app?: AppProduct;
+}
+
+/** A JettaChat conversation, stored in Redis and adapted into `Ticket`. */
+export interface ChatConversation {
+  id: string;
+  createdAt: string;
+  lastActivityAt: string;
+  status: "open" | "resolved" | "ticketed";
+  surface: ChatSurface;
+  /** Page the widget was opened on — useful context and abuse triage. */
+  pageUrl?: string;
+  visitor: ChatVisitor;
+  messages: ChatMessage[];
+  /** Freshdesk ticket opened as the escalation path, once one exists. */
+  ticketId?: string;
+}
 
 /** Assembled context handed to the Claude loop for a single turn. */
 export interface ConversationContext {
@@ -120,6 +170,17 @@ export interface ConversationContext {
   intake?: "customer_query" | "auto_reply" | "marketing" | "spam" | "other";
   /** Token usage of auxiliary LLM calls made for this ticket (triage, rerank). */
   taskUsage?: TaskUsage[];
+  /**
+   * JettaChat only — identity the embedding page supplied. Worth carrying
+   * separately from `ticket` because the monday account slug is something no
+   * other channel knows up front: on Freshdesk the trial/discount tools have
+   * to ask the customer for their monday URL, and here we already have it.
+   */
+  chat?: {
+    surface: ChatSurface;
+    mondayAccountSlug?: string;
+    pageUrl?: string;
+  };
 }
 
 /** Token usage of one LLM task, for the per-ticket cost breakdown. */
