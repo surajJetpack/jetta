@@ -137,6 +137,26 @@ export type RunChannel = "freshdesk" | "freshchat" | "jettachat";
 /** Surface a JettaChat widget session was opened from. */
 export type ChatSurface = "wordpress" | "monday" | "unknown";
 
+/**
+ * A file a visitor sent in a chat.
+ *
+ * `pathname` is a private blob key, never a URL — reads go through
+ * /api/chat/file so the conversation token or a console session is checked
+ * every time. `description` is what the vision pass saw, and it is stored
+ * rather than recomputed so the record of what Jetta was told she saw survives
+ * a model change.
+ */
+export interface ChatAttachment {
+  id: string;
+  name: string;
+  contentType: string;
+  size: number;
+  pathname: string;
+  width?: number;
+  height?: number;
+  description?: string;
+}
+
 /** One turn in a JettaChat conversation. */
 export interface ChatMessage {
   id: string;
@@ -156,6 +176,8 @@ export interface ChatMessage {
   /** A system line ("X joined the chat") rather than something someone typed. */
   system?: boolean;
   text: string;
+  /** Files sent with this message. Visitor-side only today. */
+  attachments?: ChatAttachment[];
   createdAt: string;
 }
 

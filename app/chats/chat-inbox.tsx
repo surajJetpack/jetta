@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { Bot, ExternalLink, Hand, Search, Send, Undo2, UserRound } from "lucide-react";
+import { Bot, ExternalLink, Hand, Paperclip, Search, Send, Undo2, UserRound } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,6 +13,15 @@ import { EmptyState } from "@/components/jetta/empty-state";
 import { RelativeTime } from "@/components/jetta/relative-time";
 import { usePolling } from "@/lib/use-polling";
 
+interface Attachment {
+  id: string;
+  name: string;
+  contentType: string;
+  size: number;
+  pathname: string;
+  /** What the vision pass read out of the image, for our eyes only. */
+  description?: string;
+}
 interface Msg {
   id: string;
   author: "visitor" | "agent";
@@ -20,7 +29,17 @@ interface Msg {
   authorName?: string;
   system?: boolean;
   text: string;
+  attachments?: Attachment[];
   createdAt: string;
+}
+
+/**
+ * Attachments are private blobs behind an authorization check. The console
+ * hits the same route the widget does, but authenticates with its session
+ * cookie instead of a conversation token — so no token in the URL here.
+ */
+function consoleFileUrl(pathname: string): string {
+  return `/api/chat/file/${pathname.replace(/^chat\//, "")}`;
 }
 interface Conv {
   id: string;
@@ -332,6 +351,33 @@ export default function ChatInbox({ initial }: { initial: Conv[] }) {
                         <p className="mb-0.5 flex items-center gap-1 text-[10px] tracking-wide text-muted-foreground uppercase">
                           <Icon className="size-3" aria-hidden />
                           {human ? `${m.authorName ?? "Team"} · human` : "Jetta"}
+                        </p>
+                      )}
+                      {m.attachments?.map((a) => (
+                        <a
+                          key={a.id}
+                          href={consoleFileUrl(a.pathname)}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="mb-1.5 block overflow-hidden rounded-md border bg-background"
+                          title={`${a.name}${a.description ? ` — ${a.description}` : ""}`}
+                        >
+                          {a.contentType.startsWith("image/") ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={consoleFileUrl(a.pathname)} alt={a.name} className="max-h-64 w-full object-contain" />
+                          ) : (
+                            <span className="flex items-center gap-1.5 px-2.5 py-2 text-xs">
+                              <Paperclip className="size-3.5" /> {a.name}
+                            </span>
+                          )}
+                        </a>
+                      ))}
+                      {/* What Jetta was told the image showed. Shown to us and
+                          never to the visitor: it is the only way to tell a
+                          wrong answer from a wrong reading of the screenshot. */}
+                      {m.attachments?.some((a) => a.description) && (
+                        <p className="mb-1.5 border-l-2 border-muted-foreground/30 pl-2 text-[11px] text-muted-foreground italic">
+                          Jetta saw: {m.attachments.map((a) => a.description).filter(Boolean).join(" ")}
                         </p>
                       )}
                       {m.text}

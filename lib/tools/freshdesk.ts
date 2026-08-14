@@ -679,11 +679,57 @@ export interface NewTicket {
   productHint?: string | null;
   /** Freshdesk source id. 7 = chat, which is what a JettaChat hand-off is. */
   source?: number;
+  /**
+   * Files to attach — the visitor's chat screenshots. Sent as multipart, which
+   * is the only way Freshdesk accepts them on ticket creation.
+   */
+  attachments?: AttachmentFile[];
 }
 
 export interface CreatedTicket {
   id: string;
   url: string;
+}
+
+/**
+ * Create a ticket with files attached.
+ *
+ * Freshdesk takes attachments only as multipart, and its multipart parser is
+ * not the JSON one: nested objects have to be flattened into bracket keys
+ * (`custom_fields[cf_product]`) and there is no Content-Type header to set —
+ * fetch must write the boundary itself.
+ */
+async function postTicketMultipart(
+  body: Record<string, unknown>,
+  files: AttachmentFile[],
+): Promise<{ id: number }> {
+  const form = new FormData();
+  for (const [key, value] of Object.entries(body)) {
+    if (value == null) continue;
+    if (typeof value === "object") {
+      for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+        if (v != null) form.append(`${key}[${k}]`, String(v));
+      }
+    } else {
+      form.append(key, String(value));
+    }
+  }
+  for (const f of files) {
+    form.append("attachments[]", new Blob([f.data], { type: f.contentType }), f.name);
+  }
+
+  const token = Buffer.from(`${config.freshdesk.apiKey}:X`).toString("base64");
+  const res = await fetch(fdUrl("/tickets"), {
+    method: "POST",
+    // Authorization only: adding Content-Type here would override the boundary
+    // fetch generates and Freshdesk would reject the body as malformed.
+    headers: { Authorization: `Basic ${token}` },
+    body: form,
+  });
+  if (!res.ok) {
+    throw new Error(`Freshdesk POST /tickets (multipart) failed: ${res.status} ${await res.text()}`);
+  }
+  return (await res.json()) as { id: number };
 }
 
 /**
@@ -712,8 +758,12 @@ export async function createTicket(t: NewTicket): Promise<CreatedTicket> {
   };
   const cfProduct = cfProductLabel(t.productHint);
 
+  const files = (t.attachments ?? []).slice(0, MAX_FORWARD_FILES);
+
   const post = (body: Record<string, unknown>) =>
-    fd<{ id: number }>("/tickets", { method: "POST", body: JSON.stringify(body) });
+    files.length
+      ? postTicketMultipart(body, files)
+      : fd<{ id: number }>("/tickets", { method: "POST", body: JSON.stringify(body) });
 
   let created: { id: number };
   try {

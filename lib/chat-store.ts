@@ -26,7 +26,8 @@ import crypto from "node:crypto";
 import { Redis } from "@upstash/redis";
 import { config } from "./config";
 import { getChatSettings } from "./chat-settings";
-import type { ChatConversation, ChatMessage, ChatSurface, ChatVisitor } from "./types";
+import { textWithAttachments } from "./chat-files";
+import type { ChatAttachment, ChatConversation, ChatMessage, ChatSurface, ChatVisitor } from "./types";
 
 let redis: Redis | null = null;
 function client(): Redis | null {
@@ -133,7 +134,7 @@ export async function appendMessage(
   conversationId: string,
   author: ChatMessage["author"],
   text: string,
-  meta: Pick<ChatMessage, "via" | "authorName" | "system"> = {},
+  meta: Pick<ChatMessage, "via" | "authorName" | "system" | "attachments"> = {},
 ): Promise<ChatMessage | null> {
   const conv = await getConversation(conversationId);
   if (!conv) return null;
@@ -145,6 +146,7 @@ export async function appendMessage(
     ...(author === "agent" ? { via: meta.via ?? "jetta" } : {}),
     ...(meta.authorName ? { authorName: meta.authorName } : {}),
     ...(meta.system ? { system: true } : {}),
+    ...(meta.attachments?.length ? { attachments: meta.attachments } : {}),
     text,
     createdAt: nowIso(),
   };
@@ -255,9 +257,24 @@ export async function isRunActive(conversationId: string): Promise<boolean> {
   return (await getFlag(runKey(conversationId))) === "1";
 }
 
-/** Plain-text transcript, used for the Freshdesk hand-off and the console. */
+/**
+ * Plain-text transcript, used for the Freshdesk hand-off and the console.
+ *
+ * Attachments appear as their description, not just a filename: the agent
+ * picking this ticket up gets the files themselves, but the transcript has to
+ * read correctly on its own — "here's the error" followed by nothing is not a
+ * hand-off.
+ */
 export function transcriptText(conv: ChatConversation): string {
   return conv.messages
-    .map((m) => `[${m.createdAt}] ${m.author === "visitor" ? "Customer" : "Jetta"}: ${m.text}`)
+    .map((m) => {
+      const who = m.author === "visitor" ? "Customer" : (m.via === "human" ? (m.authorName ?? "Support") : "Jetta");
+      return `[${m.createdAt}] ${who}: ${textWithAttachments(m.text, m.attachments)}`;
+    })
     .join("\n\n");
+}
+
+/** Every stored file across a conversation, oldest first. */
+export function conversationAttachments(conv: ChatConversation): ChatAttachment[] {
+  return conv.messages.flatMap((m) => m.attachments ?? []);
 }

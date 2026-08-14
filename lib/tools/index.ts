@@ -18,6 +18,7 @@ import * as freshdesk from "./freshdesk";
 import * as freshchat from "./freshchat";
 import * as jettachat from "./jettachat";
 import * as chatStoreForTools from "../chat-store";
+import * as chatFiles from "../chat-files";
 import * as fastspring from "./fastspring";
 import * as monday from "./monday";
 import * as mondayMonetization from "./monday-monetization";
@@ -332,12 +333,19 @@ export function buildTools(
                 .filter(Boolean)
                 .join("\n");
 
+              // The visitor's screenshots go WITH the ticket. Without this the
+              // agent who picks it up reads "here's the error" and a
+              // description of a screenshot they cannot open — the evidence
+              // would stop at the chat and the customer would be asked to send
+              // it a second time.
+              const files = await chatFiles.collectForHandoff(conv);
               const created = await freshdesk.createTicket({
                 subject,
                 description: body,
                 email: email.trim(),
                 name: conv.visitor.name,
                 productHint: ctx.appProduct,
+                attachments: files,
               });
               await chatStoreForTools.updateConversation(ticketId, {
                 status: "ticketed",

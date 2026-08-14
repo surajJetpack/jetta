@@ -12,6 +12,7 @@
 import { config } from "../config";
 import * as store from "../chat-store";
 import { toChatText } from "./freshchat";
+import { textWithAttachments } from "../chat-files";
 import type { ChatConversation, Ticket, TicketReply } from "../types";
 
 /** Re-exported so callers have one import for the chat text flattening. */
@@ -32,8 +33,18 @@ export { toChatText };
  */
 export function conversationToTicket(conv: ChatConversation): Ticket {
   const visitorTurns = conv.messages.filter((m) => m.author === "visitor");
-  const opening = visitorTurns[0]?.text ?? "";
-  const openingLine = opening.split("\n")[0] ?? "";
+  // Attachments are folded into the message text as their description. That is
+  // how they reach the model at all: the answering tier is not assumed to be
+  // multimodal, so the image was turned into words at upload time and travels
+  // as part of the turn that carried it.
+  const opening = visitorTurns[0]
+    ? textWithAttachments(visitorTurns[0].text, visitorTurns[0].attachments)
+    : "";
+  // Subject comes from what the visitor TYPED. A chat that opens with a bare
+  // screenshot would otherwise be titled with the vision pass's description,
+  // which reads as a sentence about a dialog box rather than a support request.
+  const typedLine = (visitorTurns.find((m) => m.text.trim())?.text ?? "").split("\n")[0] ?? "";
+  const openingLine = typedLine.trim() || (visitorTurns[0]?.attachments?.length ? "Screenshot from a chat" : "");
   const subject = `[Chat] ${openingLine.slice(0, 80)}${openingLine.length > 80 ? "…" : ""}`;
 
   const firstVisitorId = visitorTurns[0]?.id;
@@ -42,7 +53,7 @@ export function conversationToTicket(conv: ChatConversation): Ticket {
     .map((m) => ({
       author: m.author === "visitor" ? ("customer" as const) : ("agent" as const),
       authorEmail: m.author === "visitor" ? (conv.visitor.email ?? null) : null,
-      body: m.text,
+      body: textWithAttachments(m.text, m.attachments),
       createdAt: m.createdAt,
       isPrivate: false,
     }))
