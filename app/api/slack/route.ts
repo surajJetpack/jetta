@@ -13,7 +13,7 @@
  * Admin-gated commands (extend / discount / cancel) require the Slack user to be
  * in ADMIN_SLACK_USER_IDS. Rejected attempts are logged.
  */
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import crypto from "node:crypto";
 import { config } from "@/lib/config";
 import { kvSet, kvGet, kvDel, markEventSeen } from "@/lib/kv";
@@ -41,6 +41,9 @@ async function logSlackEvent(
 }
 
 export const runtime = "nodejs";
+// An answer takes 10-50s while Slack's patience is 3s, so the reply is sent
+// after the ack — which only survives because `after` keeps the function alive.
+export const maxDuration = 300;
 
 function verifySlackSignature(raw: string, req: NextRequest): boolean {
   const secret = config.slack.signingSecret;
@@ -455,16 +458,22 @@ export async function POST(req: NextRequest) {
       // longer than the 3s window — without this a retry answers twice.
       const eventId = String(body.event_id ?? `${channel}:${event.ts ?? ""}`);
       if (text && (await markEventSeen(`slackdm:${eventId}`, 3600))) {
-        handleDirectMessage(text, userId, channel, threadTs).catch(async (err) => {
-          console.error("Slack DM failed:", err);
-          await logOpsEvent({
-            level: "error",
-            event: "slack.dm_failed",
-            source: "slack",
-            actor: userId,
-            data: { error: err instanceof Error ? err.message : String(err) },
-          });
-        });
+        // `after` rather than a bare promise: work started before the response
+        // is returned has no guarantee of finishing once the function suspends,
+        // so a dropped answer would look exactly like Jetta ignoring you. The
+        // Freshdesk webhook has always done it this way.
+        after(() =>
+          handleDirectMessage(text, userId, channel, threadTs).catch(async (err) => {
+            console.error("Slack DM failed:", err);
+            await logOpsEvent({
+              level: "error",
+              event: "slack.dm_failed",
+              source: "slack",
+              actor: userId,
+              data: { error: err instanceof Error ? err.message : String(err) },
+            });
+          }),
+        );
       }
       return NextResponse.json({ ok: true });
     }
@@ -474,17 +483,19 @@ export async function POST(req: NextRequest) {
       const userId = String(event.user ?? "");
       const channel = String(event.channel ?? "");
       const threadTs = String(event.thread_ts ?? event.ts ?? "");
-      // Handle async so we can ack Slack within 3s.
-      handleCommand(cmd, userId, channel, threadTs).catch(async (err) => {
-        console.error("Slack command failed:", err);
-        await logOpsEvent({
-          level: "error",
-          event: "slack.command_failed",
-          source: "slack",
-          actor: userId,
-          data: { cmd: cmd.slice(0, 120), error: err instanceof Error ? err.message : String(err) },
-        });
-      });
+      // Ack Slack within 3s, then keep working under `after`.
+      after(() =>
+        handleCommand(cmd, userId, channel, threadTs).catch(async (err) => {
+          console.error("Slack command failed:", err);
+          await logOpsEvent({
+            level: "error",
+            event: "slack.command_failed",
+            source: "slack",
+            actor: userId,
+            data: { cmd: cmd.slice(0, 120), error: err instanceof Error ? err.message : String(err) },
+          });
+        }),
+      );
     }
     return NextResponse.json({ ok: true });
   }
