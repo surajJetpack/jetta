@@ -382,6 +382,15 @@ export async function POST(req: NextRequest) {
   const raw = await req.text();
 
   if (!verifySlackSignature(raw, req)) {
+    // Logged, not just rejected: a stale signing secret and Slack never calling
+    // at all are indistinguishable when the reject is silent, and that cost an
+    // evening of guessing once already.
+    await logOpsEvent({
+      level: "warn",
+      event: "slack.bad_signature",
+      source: "slack",
+      data: { hasSecret: !!config.slack.signingSecret, bytes: raw.length },
+    });
     return NextResponse.json({ error: "bad signature" }, { status: 401 });
   }
 
@@ -399,6 +408,23 @@ export async function POST(req: NextRequest) {
 
   if (body.type === "event_callback") {
     const event = body.event as Record<string, unknown> | undefined;
+
+    // Every inbound event, before any matching. Without this an event that
+    // arrives but matches no branch below leaves no trace, which reads exactly
+    // like Slack not delivering it — and sends you hunting in the wrong place.
+    await logOpsEvent({
+      level: "info",
+      event: "slack.event_received",
+      source: "slack",
+      actor: String(event?.user ?? ""),
+      data: {
+        eventType: String(event?.type ?? "?"),
+        channelType: String(event?.channel_type ?? ""),
+        subtype: String(event?.subtype ?? ""),
+        isBot: !!event?.bot_id,
+        hasText: !!String(event?.text ?? "").trim(),
+      },
+    });
 
     // Someone opened Jetta's panel / DM: greet with what she can be asked.
     // Without this the panel is an empty box and nobody knows the 9 commands
