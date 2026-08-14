@@ -28,6 +28,7 @@ import { appName } from "./types";
 import * as freshdesk from "./tools/freshdesk";
 import * as fastspring from "./tools/fastspring";
 import * as monday from "./tools/monday";
+import { linkifyMondayIds, devItemIdsIn } from "./tools/slack";
 
 const MAX_STEPS = 8;
 /** Keep tool results small: the whole transcript is re-sent on every step. */
@@ -239,6 +240,37 @@ export function tierForMessage(text: string): "light" | "standard" {
   return SMALL_TALK.test(stripped) ? "light" : "standard";
 }
 
+/**
+ * Make the monday ids in an answer clickable.
+ *
+ * Her tools hand her real URLs, so items she quotes from them arrive linked
+ * already — what stays bare are the ids she repeats out of a ticket body, like
+ * "source board 5850411194". Those belong to the CUSTOMER's account, which is
+ * resolved from the answer's own text; a dev item id is looked up rather than
+ * guessed, since a DM could be about either board. Anything unresolvable stays
+ * plain, which is the correct outcome — a link into the wrong workspace reads
+ * as authoritative and is worse than the number it replaced.
+ */
+async function linkifyAnswer(text: string, evidence: string): Promise<string> {
+  const ids = devItemIdsIn(text);
+  const boards = ids.length ? await monday.resolveItemBoards(ids).catch(() => new Map()) : new Map();
+
+  // The customer's monday account is usually in the ticket she just read rather
+  // than in the sentence she wrote, so the tool results count as evidence too.
+  // Requiring EXACTLY ONE distinct account is what keeps that safe: a
+  // conversation covering two customers has no single right answer, and a board
+  // id sent to the wrong workspace is worse than the bare number.
+  const ourSlug = /https?:\/\/([a-z0-9-]+)\.monday\.com/i.exec(config.monday.accountUrl)?.[1]?.toLowerCase();
+  const slugs = new Set(
+    [...`${text}\n${evidence}`.matchAll(/https?:\/\/([a-z0-9-]+)\.monday\.com/gi)]
+      .map((m) => m[1].toLowerCase())
+      .filter((slug) => slug !== ourSlug && slug !== "www"),
+  );
+  const accountUrl = slugs.size === 1 ? `https://${[...slugs][0]}.monday.com` : undefined;
+
+  return linkifyMondayIds(text, { devBoardId: (id: string) => boards.get(id), accountUrl });
+}
+
 export interface SlackAnswer {
   text: string;
   toolsUsed: string[];
@@ -266,7 +298,19 @@ export async function answerInSlack(messages: ModelMessage[]): Promise<SlackAnsw
   });
 
   const toolsUsed = result.steps.flatMap((s) => s.toolCalls?.map((c) => c.toolName) ?? []);
-  const text = toSlackMrkdwn(result.text.trim());
+  // What her tools actually returned — the ticket body that names the customer's
+  // monday account lives here, not in the answer.
+  const evidence = result.steps
+    .flatMap((st) => st.toolResults ?? [])
+    .map((r) => {
+      try {
+        return typeof r.output === "string" ? r.output : JSON.stringify(r.output);
+      } catch {
+        return "";
+      }
+    })
+    .join("\n");
+  const text = await linkifyAnswer(toSlackMrkdwn(result.text.trim()), evidence);
   return {
     // A tool-only final step can leave the text empty; say something rather
     // than posting a blank message into the thread.

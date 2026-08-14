@@ -261,6 +261,28 @@ export async function itemMentionsTicket(itemId: string, ticketId: string): Prom
   return new RegExp(`(/tickets/|#)${id}\\b`).test(haystack);
 }
 
+/**
+ * Which board each item lives on, in one query.
+ *
+ * A DM carries no product context, so a dev-item id mentioned in prose could
+ * belong to either board — and guessing produces a confident link into the
+ * wrong board, which is worse than leaving the number as text. One lookup
+ * removes the guess.
+ */
+export async function resolveItemBoards(itemIds: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const ids = [...new Set(itemIds)].filter(Boolean);
+  if (!ids.length || !config.monday.live) return out;
+  const data = await gql<{ items: { id: string; board: { id: string } | null }[] }>(
+    `query ($ids: [ID!]) { items(ids: $ids) { id board { id } } }`,
+    { ids },
+  ).catch(() => null);
+  for (const item of data?.items ?? []) {
+    if (item.board?.id) out.set(item.id, item.board.id);
+  }
+  return out;
+}
+
 export interface DevItemUpdate {
   at: string;
   author: string;

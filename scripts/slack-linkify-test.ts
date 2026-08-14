@@ -10,7 +10,7 @@
  * against the wrong monday account is worse than the plain number, because it
  * looks authoritative and lands the reader in someone else's workspace.
  */
-import { linkifyMondayIds } from "../lib/tools/slack";
+import { linkifyMondayIds, devItemIdsIn } from "../lib/tools/slack";
 
 const DEV_BOARD = "2978633042";
 const OURS = "https://jetpackteam.monday.com";
@@ -108,6 +108,24 @@ check(
   '"Target board is <id>" — a connecting word must not block the link',
   linkifyMondayIds(`Account ${CUSTOMER}. Target board is 9787413360.`, { devBoardId: DEV_BOARD }),
   `Account ${CUSTOMER}. Target board is <${CUSTOMER}/boards/9787413360|9787413360>.`,
+);
+
+console.log("\n── per-item board lookup (Slack DMs, where the product is unknown) ──");
+check(
+  "an item on the GetSign board links to the GetSign board, not the default",
+  linkifyMondayIds("see dev board item 999888777", { devBoardId: (id) => (id === "999888777" ? "3713478000" : undefined) }),
+  `see dev board item <${OURS}/boards/3713478000/pulses/999888777|999888777>`,
+);
+check(
+  "an id the lookup could not place stays plain rather than guessing a board",
+  linkifyMondayIds("see dev board item 111222333", { devBoardId: () => undefined }),
+  "see dev board item 111222333",
+);
+check(
+  "devItemIdsIn finds every id needing a lookup",
+  // Order is irrelevant — the result feeds a map lookup, not a list anyone reads.
+  JSON.stringify(devItemIdsIn('dev board item 11735712226 and Dev board item "T" (12757964338)').sort()),
+  JSON.stringify(["11735712226", "12757964338"].sort()),
 );
 
 console.log("\n── things that must be left exactly as they are ──");

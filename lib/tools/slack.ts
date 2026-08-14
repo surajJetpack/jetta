@@ -66,9 +66,35 @@ function link(url: string | undefined, label: string): string {
  * Ids already inside a Slack `<url|label>` are skipped — the split below keeps
  * existing links intact rather than linking their innards a second time.
  */
+// The two shapes a dev item is written in, kept as sources so every use builds
+// a fresh regex — a shared /g regex carries lastIndex between calls and starts
+// skipping matches. The TITLED form requires the id in brackets: without that
+// anchor its unquoted-title branch is greedy and swallows a preceding id.
+const DEV_ITEM_KEYWORD = String.raw`\b(dev(?:elopment)?[\s-]?board\s+item|dev\s+item)\b`;
+const DEV_ITEM_SRC = `${DEV_ITEM_KEYWORD}([\\s:#]*)(\\d{6,})\\b`;
+const DEV_ITEM_TITLED_SRC = `${DEV_ITEM_KEYWORD}([\\s:#]*(?:"[^"\\n]{0,90}"|[^()\\n.]{0,60})\\s*)\\((\\d{6,})\\)`;
+
+/** Bare dev-item ids in prose, for callers that must resolve their boards first. */
+export function devItemIdsIn(text: string): string[] {
+  const ids = [
+    ...[...text.matchAll(new RegExp(DEV_ITEM_TITLED_SRC, "gi"))].map((m) => m[3]),
+    ...[...text.matchAll(new RegExp(DEV_ITEM_SRC, "gi"))].map((m) => m[3]),
+  ];
+  return [...new Set(ids)];
+}
+
 export function linkifyMondayIds(
   text: string,
-  opts: { devBoardId?: string; accountUrl?: string } = {},
+  opts: {
+    /**
+     * The dev board an item id belongs to. A plain string when the caller knows
+     * it (an escalation knows its product); a lookup when it does not (a Slack
+     * DM can mention an item from either board) — returning undefined for an
+     * id leaves that number as plain text rather than linking it to a guess.
+     */
+    devBoardId?: string | ((itemId: string) => string | undefined);
+    accountUrl?: string;
+  } = {},
 ): string {
   const base = config.monday.accountUrl;
   // The customer's monday account, taken from the escalation itself. Ours is
@@ -86,24 +112,26 @@ export function linkifyMondayIds(
       .filter((slug) => slug !== ourSlug && slug !== "www");
   const customerSlug = slugsIn(opts.accountUrl ?? "")[0] ?? slugsIn(text)[0];
 
-  // "dev board item 123" / "dev item 123", directly.
-  const DEV_ITEM = /\b(dev(?:elopment)?[\s-]?board\s+item|dev\s+item)\b([\s:#]*)(\d{6,})\b/gi;
-  // The forms the model actually favours, with the item's title in between:
+  // "dev board item 123" directly, and the titled forms the model favours:
   //   dev board item "TrackMy not updating after bulk update" (12757964338)
   //   dev board item: VLookUp Template not working (11735712226)
-  // The id must be parenthesised here — without that anchor an unquoted title
-  // could run on into a following clause and swallow an unrelated number.
-  const DEV_ITEM_TITLED =
-    /\b(dev(?:elopment)?[\s-]?board\s+item|dev\s+item)\b([\s:#]*(?:"[^"\n]{0,90}"|[^()\n.]{0,60})\s*)\((\d{6,})\)/gi;
+  const DEV_ITEM = new RegExp(DEV_ITEM_SRC, "gi");
+  const DEV_ITEM_TITLED = new RegExp(DEV_ITEM_TITLED_SRC, "gi");
   // "board 5850411194", "source/target/test board 5850411194", "board (5850411194)".
   // The separator is captured rather than assumed, so the author's own spacing
   // and brackets survive the rewrite.
   const BOARD = /\b((?:source|target|test|shared|connected)?\s*board)\b(\s*(?:is|id)?[\s:#]*\(?)(\d{6,})\b/gi;
 
+  const boardFor = (itemId: string): string | undefined =>
+    typeof opts.devBoardId === "function" ? opts.devBoardId(itemId) : opts.devBoardId;
+
   const linkOutside = (segment: string): string => {
     let out = segment;
     if (opts.devBoardId) {
-      const devLink = (id: string) => `<${base}/boards/${opts.devBoardId}/pulses/${id}|${id}>`;
+      const devLink = (id: string) => {
+        const board = boardFor(id);
+        return board ? `<${base}/boards/${board}/pulses/${id}|${id}>` : id;
+      };
       out = out.replace(DEV_ITEM_TITLED, (m, kw: string, mid: string, id: string) =>
         // "dev item helped, board 5850411194" must not read as an item id — if
         // the words in between mention a board, this is a different subject.
@@ -114,7 +142,7 @@ export function linkifyMondayIds(
     if (customerSlug) {
       out = out.replace(BOARD, (_m, kw: string, sep: string, id: string) => {
         // Our own dev board id in prose is ours, not theirs.
-        const slug = id === opts.devBoardId ? ourSlug : customerSlug;
+        const slug = id === boardFor(id) || id === opts.devBoardId ? ourSlug : customerSlug;
         return `${kw}${sep}<https://${slug}.monday.com/boards/${id}|${id}>`;
       });
     }
