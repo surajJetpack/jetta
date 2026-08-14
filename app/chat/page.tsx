@@ -81,6 +81,7 @@ interface UiConfig {
   accentColor: string;
   avatarUrl?: string;
   requireIdentity: boolean;
+  autoOpenSeconds: number;
   attachmentsEnabled: boolean;
   maxAttachmentMb: number;
 }
@@ -91,6 +92,7 @@ const DEFAULT_UI: UiConfig = {
   placeholder: "Type your message…",
   accentColor: "#171717",
   requireIdentity: true,
+  autoOpenSeconds: 0,
   attachmentsEnabled: true,
   maxAttachmentMb: 10,
 };
@@ -225,6 +227,24 @@ export default function ChatWidgetPage() {
       .catch(() => DEFAULT_UI);
     void configRef.current.then(setUi);
   }, []);
+
+  /**
+   * Ask the embedding page to open the panel.
+   *
+   * The iframe is the one that knows the settings — it already fetches them to
+   * render — so the timer lives here and the parent is simply told. That keeps
+   * the loader from having to fetch config on every page view of a marketing
+   * site just to learn one number.
+   *
+   * The parent decides whether to actually open: it is the only side that
+   * knows whether the visitor already has the panel open, has closed it, or
+   * has been interrupted recently. This is a request, not a command.
+   */
+  useEffect(() => {
+    if (!ui.autoOpenSeconds) return;
+    const t = setTimeout(() => post("jettachat:autoopen"), ui.autoOpenSeconds * 1000);
+    return () => clearTimeout(t);
+  }, [ui.autoOpenSeconds, post]);
 
   useEffect(() => {
     let settled = false;
