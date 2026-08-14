@@ -25,6 +25,7 @@
 import crypto from "node:crypto";
 import { Redis } from "@upstash/redis";
 import { config } from "./config";
+import { getChatSettings } from "./chat-settings";
 import type { ChatConversation, ChatMessage, ChatSurface, ChatVisitor } from "./types";
 
 let redis: Redis | null = null;
@@ -45,8 +46,12 @@ const CHAT_INDEX = "jetta:chats";
 const runKey = (id: string) => `jetta:chat:run:${id}`;
 const turnKey = (id: string) => `jetta:chat:turn:${id}`;
 
-/** Conversations are kept for the retention window, refreshed on each write. */
-const ttlSeconds = () => Math.max(1, config.jettachat.retentionDays) * 86400;
+/**
+ * Conversations are kept for the retention window, refreshed on each write.
+ * Async because retention is console-configurable: a change should apply to the
+ * next write rather than waiting for a deploy.
+ */
+const ttlSeconds = async () => Math.max(1, (await getChatSettings()).retentionDays) * 86400;
 
 const nowIso = () => new Date().toISOString();
 
@@ -112,7 +117,7 @@ export async function getConversation(id: string): Promise<ChatConversation | nu
 async function save(conv: ChatConversation): Promise<void> {
   const r = client();
   if (r) {
-    await r.set(convKey(conv.id), conv, { ex: ttlSeconds() });
+    await r.set(convKey(conv.id), conv, { ex: await ttlSeconds() });
     await r.zadd(CHAT_INDEX, { score: Date.parse(conv.lastActivityAt), member: conv.id });
     return;
   }

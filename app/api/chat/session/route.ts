@@ -12,6 +12,7 @@
 import { NextRequest } from "next/server";
 import { channelUnavailable, chatJson, preflight } from "@/lib/chat-http";
 import * as store from "@/lib/chat-store";
+import { getChatSettings } from "@/lib/chat-settings";
 import type { AppProduct, ChatSurface } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -19,18 +20,18 @@ export const runtime = "nodejs";
 const SURFACES: ChatSurface[] = ["wordpress", "monday", "unknown"];
 
 export async function OPTIONS(req: NextRequest) {
-  return preflight(req);
+  return await preflight(req);
 }
 
 export async function POST(req: NextRequest) {
-  const blocked = channelUnavailable(req);
+  const blocked = await channelUnavailable(req);
   if (blocked) return blocked;
 
   let body: Record<string, unknown>;
   try {
     body = (await req.json()) as Record<string, unknown>;
   } catch {
-    return chatJson(req, { error: "invalid JSON" }, { status: 400 });
+    return await chatJson(req, { error: "invalid JSON" }, { status: 400 });
   }
 
   // ── Resume ──
@@ -38,13 +39,13 @@ export async function POST(req: NextRequest) {
   if (existingId) {
     const token = typeof body.token === "string" ? body.token : null;
     if (!store.verifyToken(existingId, token)) {
-      return chatJson(req, { error: "invalid token" }, { status: 403 });
+      return await chatJson(req, { error: "invalid token" }, { status: 403 });
     }
     const conv = await store.getConversation(existingId);
     // Expired or pruned — tell the widget to start over rather than 404ing it
     // into an error state the visitor can't clear.
-    if (!conv) return chatJson(req, { expired: true }, { status: 410 });
-    return chatJson(req, {
+    if (!conv) return await chatJson(req, { expired: true }, { status: 410 });
+    return await chatJson(req, {
       conversationId: conv.id,
       token,
       status: conv.status,
@@ -71,8 +72,9 @@ export async function POST(req: NextRequest) {
   // always follow up, and the account lookups have something to key on.
   const name = str("name")?.trim().slice(0, 120);
   const email = str("email")?.trim().slice(0, 200);
-  if (!name || !email || !/^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(email)) {
-    return chatJson(
+  const { requireIdentity } = await getChatSettings();
+  if (requireIdentity && (!name || !email || !/^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(email))) {
+    return await chatJson(
       req,
       { error: "name_and_email_required", message: "Please give your name and email to start the chat." },
       { status: 400 },
@@ -92,7 +94,7 @@ export async function POST(req: NextRequest) {
     },
   });
 
-  return chatJson(req, {
+  return await chatJson(req, {
     conversationId: conv.id,
     token: store.signToken(conv.id),
     status: conv.status,

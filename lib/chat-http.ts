@@ -14,13 +14,21 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { config } from "./config";
+import { getChatSettings } from "./chat-settings";
 import { rateCount } from "./kv";
 
-/** Resolve the CORS headers for a request, or {} when the origin isn't allowed. */
-export function corsHeaders(req: NextRequest): Record<string, string> {
+/**
+ * Resolve the CORS headers for a request, or {} when the origin isn't allowed.
+ *
+ * Async because the allowlist is now console-editable and lives in the settings
+ * store. Reading it per request is cheap (a 30s cache) and the alternative — a
+ * synchronous snapshot — would serve the wrong allowlist on a cold start, which
+ * shows up as a widget that intermittently fails to load on a customer's site.
+ */
+export async function corsHeaders(req: NextRequest): Promise<Record<string, string>> {
   const origin = req.headers.get("origin")?.replace(/\/$/, "");
   if (!origin) return {};
-  const allowed = config.jettachat.allowedOrigins;
+  const allowed = (await getChatSettings()).allowedOrigins;
   // Empty allowlist = same-origin only (the /chat page itself), which is the
   // safe default: a fresh deploy can't be embedded anywhere until configured.
   if (!allowed.includes(origin)) return {};
@@ -34,16 +42,16 @@ export function corsHeaders(req: NextRequest): Record<string, string> {
 }
 
 /** Preflight handler shared by every chat route. */
-export function preflight(req: NextRequest): NextResponse {
-  return new NextResponse(null, { status: 204, headers: corsHeaders(req) });
+export async function preflight(req: NextRequest): Promise<NextResponse> {
+  return new NextResponse(null, { status: 204, headers: await corsHeaders(req) });
 }
 
-export function chatJson(
+export async function chatJson(
   req: NextRequest,
   body: unknown,
   init: { status?: number } = {},
-): NextResponse {
-  return NextResponse.json(body, { status: init.status ?? 200, headers: corsHeaders(req) });
+): Promise<NextResponse> {
+  return NextResponse.json(body, { status: init.status ?? 200, headers: await corsHeaders(req) });
 }
 
 /**
@@ -59,7 +67,7 @@ export function clientIp(req: NextRequest): string {
 /** True when this IP is over its hourly message budget. */
 export async function overRateLimit(req: NextRequest): Promise<boolean> {
   const n = await rateCount(`jetta:chat:rate:${clientIp(req)}`, 3600);
-  return n > config.jettachat.rateLimitPerHour;
+  return n > (await getChatSettings()).rateLimitPerHour;
 }
 
 /**
@@ -70,8 +78,12 @@ export async function overRateLimit(req: NextRequest): Promise<boolean> {
  * ids — without it, transcripts would be readable by anyone who can guess a
  * UUID, and failing loudly on a misconfigured deploy is the safer outcome.
  */
-export function channelUnavailable(req: NextRequest): NextResponse | null {
-  if (!config.jettachat.live) {
+export async function channelUnavailable(req: NextRequest): Promise<NextResponse | null> {
+  // Two switches, and they are not equivalent: JETTACHAT_LIVE is the env-level
+  // master, `enabled` is the console's soft switch. The console can turn the
+  // channel OFF but never on, so a mistake there can't expose a half-configured
+  // deploy to the internet.
+  if (!config.jettachat.live || !(await getChatSettings()).enabled) {
     return chatJson(req, { error: "chat is not enabled" }, { status: 503 });
   }
   if (!config.jettachat.secret) {

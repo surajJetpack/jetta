@@ -17,7 +17,7 @@
  *      indicator that stops. Every exit path either sends something or opens
  *      a ticket — see `deliverFallback`.
  */
-import { config } from "./config";
+import { getChatSettings } from "./chat-settings";
 import { buildContext, buildMessages } from "./context";
 import { buildSystemPrompt } from "./system-prompt";
 import { runAgentLoop } from "./agent";
@@ -39,13 +39,6 @@ const FALLBACK_TEXT =
   "Sorry — something went wrong on my end and I couldn't get you an answer just now. " +
   "If you leave your email address here, I'll get this to our team and they'll reply to you directly.";
 
-/**
- * How long a visitor waits for a human before Jetta takes the conversation
- * back. Short on purpose: the team rarely watches chat, and a visitor staring
- * at silence will leave long before anyone notices a Slack ping.
- */
-const HANDOFF_TIMEOUT_MS = 3 * 60_000;
-
 async function deliverFallback(conversationId: string): Promise<void> {
   await store.appendMessage(conversationId, "agent", FALLBACK_TEXT);
 }
@@ -58,7 +51,8 @@ export async function runChatTurn(conversationId: string, messageId: string): Pr
   try {
     // 1. Debounce. If a newer message lands while we wait, that message's own
     //    run will cover the full thought and this one exits without spending.
-    await sleep(Math.max(0, config.jettachat.debounceSeconds) * 1000);
+    const settings = await getChatSettings();
+    await sleep(Math.max(0, settings.debounceSeconds) * 1000);
     if (!(await store.isLatestTurn(conversationId, messageId))) {
       await logOpsEvent({
         level: "info",
@@ -80,7 +74,7 @@ export async function runChatTurn(conversationId: string, messageId: string): Pr
     if (current?.status === "human") return;
     if (current?.status === "waiting_human") {
       const waited = Date.now() - (current.humanRequestedAt ?? 0);
-      if (waited < HANDOFF_TIMEOUT_MS) return;
+      if (waited < settings.handoffTimeoutMinutes * 60_000) return;
       await store.updateConversation(conversationId, { status: "open" });
       await store.appendMessage(
         conversationId,

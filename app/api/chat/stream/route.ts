@@ -25,7 +25,7 @@ const POLL_MS = 1500;
 const STREAM_LIFETIME_MS = 120_000;
 
 export async function GET(req: NextRequest) {
-  const blocked = channelUnavailable(req);
+  const blocked = await channelUnavailable(req);
   if (blocked) return blocked;
 
   const url = new URL(req.url);
@@ -36,8 +36,12 @@ export async function GET(req: NextRequest) {
   const after = url.searchParams.get("after");
 
   if (!conversationId || !store.verifyToken(conversationId, token)) {
-    return new Response("forbidden", { status: 403, headers: corsHeaders(req) });
+    return new Response("forbidden", { status: 403, headers: await corsHeaders(req) });
   }
+
+  // Resolved before the stream starts: the response headers are built once the
+  // body is constructed, and awaiting inside that object literal is not an option.
+  const cors = await corsHeaders(req);
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
@@ -123,7 +127,7 @@ export async function GET(req: NextRequest) {
 
   return new Response(stream, {
     headers: {
-      ...corsHeaders(req),
+      ...cors,
       "Content-Type": "text/event-stream; charset=utf-8",
       "Cache-Control": "no-cache, no-transform",
       Connection: "keep-alive",

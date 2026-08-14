@@ -29,6 +29,28 @@ interface InitPayload {
 /** How long to wait for the embedding page before assuming we're standalone. */
 const INIT_TIMEOUT_MS = 500;
 
+/**
+ * What the widget shows before the console's settings arrive — and what it
+ * falls back to if that request fails. Module-level so the session callback can
+ * reference it without taking a dependency on component state.
+ */
+interface UiConfig {
+  title: string;
+  subtitle: string;
+  greeting: string;
+  placeholder: string;
+  accentColor: string;
+  requireIdentity: boolean;
+}
+const DEFAULT_UI: UiConfig = {
+  title: "Jetta",
+  subtitle: "Jetpack Apps support",
+  greeting: "Hi! Ask me anything about your apps, your account, or a problem you're hitting.",
+  placeholder: "Type your message…",
+  accentColor: "#171717",
+  requireIdentity: true,
+};
+
 export default function ChatWidgetPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [session, setSession] = useState<Session | null>(null);
@@ -41,6 +63,15 @@ export default function ChatWidgetPage() {
   // the embedding app supplies both from its SDK and this never renders.
   const [identityGate, setIdentityGate] = useState<InitPayload | null>(null);
   const [nameInput, setNameInput] = useState("");
+  // Copy and colour come from the console, so changing "Jetpack Apps support"
+  // no longer needs a deploy. Defaults match the shipped settings so the widget
+  // renders sensibly even if this request fails.
+  const [ui, setUi] = useState(DEFAULT_UI);
+  // Held as a promise, not just state: openSession has to KNOW whether to ask
+  // for identity, and it can run before a state update has landed. Awaiting the
+  // same promise means the answer is never guessed — and a failed fetch resolves
+  // to the defaults rather than hanging the widget.
+  const configRef = useRef<Promise<UiConfig> | null>(null);
   const [emailInput, setEmailInput] = useState("");
 
   const parentOrigin = useRef<string>("*");
@@ -59,7 +90,12 @@ export default function ChatWidgetPage() {
       // existing session skips this — they gave it when the session was made.
       // The server enforces the same rule; this only saves a round trip and
       // gives the visitor a form instead of an error.
-      if (!init.session && !(init.visitor?.name?.trim() && init.visitor?.email?.trim())) {
+      const cfg = await (configRef.current ?? Promise.resolve(DEFAULT_UI));
+      if (
+        cfg.requireIdentity &&
+        !init.session &&
+        !(init.visitor?.name?.trim() && init.visitor?.email?.trim())
+      ) {
         setIdentityGate(init);
         return;
       }
@@ -114,6 +150,14 @@ export default function ChatWidgetPage() {
     },
     [post],
   );
+
+  useEffect(() => {
+    configRef.current ??= fetch("/api/chat/config")
+      .then((r) => r.json())
+      .then((c: Partial<UiConfig>) => ({ ...DEFAULT_UI, ...c }))
+      .catch(() => DEFAULT_UI);
+    void configRef.current.then(setUi);
+  }, []);
 
   useEffect(() => {
     let settled = false;
@@ -226,8 +270,8 @@ export default function ChatWidgetPage() {
     <div className="flex h-dvh flex-col bg-white text-neutral-900">
       <header className="flex items-center justify-between border-b border-neutral-200 px-4 py-3">
         <div>
-          <p className="text-sm font-semibold">Jetta</p>
-          <p className="text-xs text-neutral-500">Jetpack Apps support</p>
+          <p className="text-sm font-semibold">{ui.title}</p>
+          <p className="text-xs text-neutral-500">{ui.subtitle}</p>
         </div>
         <button
           onClick={() => post("jettachat:close")}
@@ -281,7 +325,8 @@ export default function ChatWidgetPage() {
           {error && <p className="text-xs text-red-600">{error}</p>}
           <button
             type="submit"
-            className="w-full rounded-lg bg-neutral-900 px-3 py-2 text-sm font-medium text-white transition hover:bg-neutral-700"
+            style={{ backgroundColor: ui.accentColor }}
+            className="w-full rounded-lg px-3 py-2 text-sm font-medium text-white transition hover:opacity-90"
           >
             Start chatting
           </button>
@@ -291,7 +336,7 @@ export default function ChatWidgetPage() {
       <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
         {messages.length === 0 && !error && (
           <p className="text-sm text-neutral-500">
-            Hi! Ask me anything about your apps, your account, or a problem you&apos;re hitting.
+            {ui.greeting}
           </p>
         )}
 
@@ -352,7 +397,7 @@ export default function ChatWidgetPage() {
                 void send();
               }
             }}
-            placeholder={session ? "Type your message…" : "Connecting…"}
+            placeholder={session ? ui.placeholder : "Connecting…"}
             className="max-h-32 flex-1 resize-none rounded-xl border border-neutral-300 px-3 py-2 text-sm outline-none placeholder:text-neutral-400 focus:border-neutral-500 disabled:bg-neutral-50"
           />
           <button

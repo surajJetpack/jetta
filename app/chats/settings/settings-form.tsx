@@ -1,0 +1,292 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import { RotateCw, TriangleAlert, Save } from "lucide-react";
+import { toast } from "sonner";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
+import { Skeleton } from "@/components/ui/skeleton";
+import { StatusChip } from "@/components/jetta/status-chip";
+
+interface Settings {
+  title: string;
+  subtitle: string;
+  greeting: string;
+  placeholder: string;
+  accentColor: string;
+  launcherLabel: string;
+  launcherPosition: "left" | "right";
+  requireIdentity: boolean;
+  enabled: boolean;
+  allowedOrigins: string[];
+  debounceSeconds: number;
+  rateLimitPerHour: number;
+  retentionDays: number;
+  handoffEnabled: boolean;
+  handoffTimeoutMinutes: number;
+  handoffChannel?: string;
+  updatedAt?: number;
+  updatedBy?: string;
+}
+interface Payload {
+  settings: Settings;
+  env: { live: boolean; hasSecret: boolean; envOrigins: string[] };
+}
+
+function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-1.5">
+      <Label className="text-xs">{label}</Label>
+      {children}
+      {hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}
+    </div>
+  );
+}
+
+export default function ChatSettingsForm() {
+  const [data, setData] = useState<Payload | null>(null);
+  const [form, setForm] = useState<Settings | null>(null);
+  const [originsText, setOriginsText] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const load = useCallback(() => {
+    fetch("/api/admin/chat-settings", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d: Payload) => {
+        setData(d);
+        setForm(d.settings);
+        setOriginsText((d.settings.allowedOrigins ?? []).join("\n"));
+        setErr(null);
+      })
+      .catch((e) => setErr(e instanceof Error ? e.message : String(e)));
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const set = <K extends keyof Settings>(k: K, v: Settings[K]) =>
+    setForm((f) => (f ? { ...f, [k]: v } : f));
+
+  const save = () => {
+    if (!form) return;
+    setSaving(true);
+    fetch("/api/admin/chat-settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...form,
+        allowedOrigins: originsText.split("\n").map((s) => s.trim()).filter(Boolean),
+      }),
+    })
+      .then(async (r) => {
+        if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error ?? `HTTP ${r.status}`);
+        return r.json();
+      })
+      .then((d: { settings: Settings }) => {
+        setForm(d.settings);
+        setOriginsText(d.settings.allowedOrigins.join("\n"));
+        // Values are normalised and clamped server-side, so showing what was
+        // actually stored matters — a retention of 99999 comes back as 3650.
+        toast.success("Saved. Live within 30 seconds.");
+      })
+      .catch((e) => toast.error(e instanceof Error ? e.message : String(e)))
+      .finally(() => setSaving(false));
+  };
+
+  if (err) {
+    return (
+      <Alert variant="destructive">
+        <TriangleAlert />
+        <AlertTitle>{err}</AlertTitle>
+      </Alert>
+    );
+  }
+  if (!form || !data) return <Skeleton className="h-96 w-full" />;
+
+  return (
+    <div className="space-y-5">
+      {!data.env.live && (
+        <Alert variant="destructive">
+          <TriangleAlert />
+          <AlertTitle>The chat is switched off at the environment level</AlertTitle>
+          <AlertDescription>
+            <code>JETTACHAT_LIVE</code> is not true, so nothing here will serve visitors. That switch
+            lives outside the console on purpose — this page can turn the chat off, never on.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Behaviour</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-3 sm:col-span-2">
+            <label className="flex items-start gap-2.5">
+              <Checkbox checked={form.enabled} onCheckedChange={(v) => set("enabled", !!v)} />
+              <span className="text-sm">
+                Chat is on
+                <span className="block text-[11px] text-muted-foreground">
+                  Turning this off stops new conversations immediately. Existing ones stop being served too.
+                </span>
+              </span>
+            </label>
+            <label className="flex items-start gap-2.5">
+              <Checkbox checked={form.requireIdentity} onCheckedChange={(v) => set("requireIdentity", !!v)} />
+              <span className="text-sm">
+                Ask for name and email before the chat starts
+                <span className="block text-[11px] text-muted-foreground">
+                  Inside the monday app the SDK supplies both, so the form never appears there.
+                </span>
+              </span>
+            </label>
+            <label className="flex items-start gap-2.5">
+              <Checkbox checked={form.handoffEnabled} onCheckedChange={(v) => set("handoffEnabled", !!v)} />
+              <span className="text-sm">
+                Let Jetta hand a live chat to a person
+                <span className="block text-[11px] text-muted-foreground">
+                  She pings Slack and goes silent. If nobody joins in time she takes it back and offers a ticket.
+                </span>
+              </span>
+            </label>
+          </div>
+
+          <Field label="Wait before replying (seconds)" hint="Lets a visitor finish a three-message thought before Jetta answers.">
+            <Input
+              type="number"
+              value={form.debounceSeconds}
+              onChange={(e) => set("debounceSeconds", Number(e.target.value))}
+            />
+          </Field>
+          <Field label="Give up waiting for a person after (minutes)" hint="Then Jetta apologises and carries on herself.">
+            <Input
+              type="number"
+              value={form.handoffTimeoutMinutes}
+              onChange={(e) => set("handoffTimeoutMinutes", Number(e.target.value))}
+            />
+          </Field>
+          <Field label="Slack channel for handoff pings" hint="Blank uses the escalation channel.">
+            <Input
+              value={form.handoffChannel ?? ""}
+              placeholder="#jetta-chat"
+              onChange={(e) => set("handoffChannel", e.target.value)}
+            />
+          </Field>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>What the visitor sees</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-4 sm:grid-cols-2">
+          <Field label="Title">
+            <Input value={form.title} onChange={(e) => set("title", e.target.value)} />
+          </Field>
+          <Field label="Subtitle">
+            <Input value={form.subtitle} onChange={(e) => set("subtitle", e.target.value)} />
+          </Field>
+          <div className="sm:col-span-2">
+            <Field label="Opening message" hint="Shown before the visitor has said anything.">
+              <Textarea rows={2} value={form.greeting} onChange={(e) => set("greeting", e.target.value)} />
+            </Field>
+          </div>
+          <Field label="Input placeholder">
+            <Input value={form.placeholder} onChange={(e) => set("placeholder", e.target.value)} />
+          </Field>
+          <Field label="Launcher label">
+            <Input value={form.launcherLabel} onChange={(e) => set("launcherLabel", e.target.value)} />
+          </Field>
+          <Field label="Accent colour" hint="Hex, e.g. #2563eb. Anything else is ignored.">
+            <div className="flex items-center gap-2">
+              <Input value={form.accentColor} onChange={(e) => set("accentColor", e.target.value)} />
+              <span
+                className="size-8 shrink-0 rounded-md border"
+                style={{ backgroundColor: /^#[0-9a-f]{6}$/i.test(form.accentColor) ? form.accentColor : undefined }}
+              />
+            </div>
+          </Field>
+          <Field label="Launcher position">
+            <div className="flex gap-2">
+              {(["left", "right"] as const).map((p) => (
+                <Button
+                  key={p}
+                  type="button"
+                  size="sm"
+                  variant={form.launcherPosition === p ? "default" : "outline"}
+                  onClick={() => set("launcherPosition", p)}
+                >
+                  {p}
+                </Button>
+              ))}
+            </div>
+          </Field>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>
+            Access &amp; limits <StatusChip tone="stale">changes here are security-relevant</StatusChip>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <Field
+            label="Sites allowed to embed the chat"
+            hint="One origin per line, scheme included. Empty means the chat can only run on this domain — nothing else can embed it. Every change is recorded in the event log with your name."
+          >
+            <Textarea
+              rows={4}
+              value={originsText}
+              placeholder={"https://jetpackapps.io\nhttps://getsign.io"}
+              onChange={(e) => setOriginsText(e.target.value)}
+              className="font-mono text-xs"
+            />
+          </Field>
+          {data.env.envOrigins.length > 0 && (
+            <p className="text-[11px] text-muted-foreground">
+              Environment default: <code>{data.env.envOrigins.join(", ")}</code> — used until you save a list here.
+            </p>
+          )}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Messages per visitor per hour" hint="Abuse backstop on a public endpoint.">
+              <Input
+                type="number"
+                value={form.rateLimitPerHour}
+                onChange={(e) => set("rateLimitPerHour", Number(e.target.value))}
+              />
+            </Field>
+            <Field label="Keep transcripts for (days)" hint="After this, conversations expire and cannot be recovered.">
+              <Input
+                type="number"
+                value={form.retentionDays}
+                onChange={(e) => set("retentionDays", Number(e.target.value))}
+              />
+            </Field>
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="flex items-center gap-3">
+        <Button onClick={save} disabled={saving}>
+          <Save /> {saving ? "Saving…" : "Save settings"}
+        </Button>
+        <Button variant="ghost" onClick={load} disabled={saving}>
+          <RotateCw /> Discard changes
+        </Button>
+        {form.updatedAt && (
+          <span className="text-[11px] text-muted-foreground">
+            Last changed by {form.updatedBy} · {new Date(form.updatedAt).toLocaleString()}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}

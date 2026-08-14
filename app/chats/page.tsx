@@ -28,6 +28,15 @@ export default async function ChatsPage() {
     <div className="mx-auto max-w-4xl space-y-5 px-5 pt-8 pb-20">
       <Nav current="chats" user={user} />
 
+      <div className="flex flex-wrap gap-3">
+        <Link href="/chats/settings" className="text-xs text-primary hover:underline">
+          Chat settings
+        </Link>
+        <Link href="/chats/install" className="text-xs text-primary hover:underline">
+          Installation instructions
+        </Link>
+      </div>
+
       <div className="flex items-baseline justify-between">
         <h2 className="text-sm font-semibold">Chat conversations</h2>
         <p className="text-xs text-muted-foreground">

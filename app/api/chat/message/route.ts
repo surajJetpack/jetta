@@ -25,18 +25,18 @@ export const runtime = "nodejs";
 export const maxDuration = 300;
 
 export async function OPTIONS(req: NextRequest) {
-  return preflight(req);
+  return await preflight(req);
 }
 
 export async function POST(req: NextRequest) {
-  const blocked = channelUnavailable(req);
+  const blocked = await channelUnavailable(req);
   if (blocked) return blocked;
 
   let body: Record<string, unknown>;
   try {
     body = (await req.json()) as Record<string, unknown>;
   } catch {
-    return chatJson(req, { error: "invalid JSON" }, { status: 400 });
+    return await chatJson(req, { error: "invalid JSON" }, { status: 400 });
   }
 
   const conversationId = typeof body.conversationId === "string" ? body.conversationId : null;
@@ -44,11 +44,11 @@ export async function POST(req: NextRequest) {
   const text = typeof body.text === "string" ? body.text.trim() : "";
 
   if (!conversationId || !store.verifyToken(conversationId, token)) {
-    return chatJson(req, { error: "invalid token" }, { status: 403 });
+    return await chatJson(req, { error: "invalid token" }, { status: 403 });
   }
-  if (!text) return chatJson(req, { error: "empty message" }, { status: 400 });
+  if (!text) return await chatJson(req, { error: "empty message" }, { status: 400 });
   if (text.length > MAX_MESSAGE_CHARS) {
-    return chatJson(req, { error: "message too long" }, { status: 413 });
+    return await chatJson(req, { error: "message too long" }, { status: 413 });
   }
   if (await overRateLimit(req)) {
     await logOpsEvent({
@@ -57,11 +57,11 @@ export async function POST(req: NextRequest) {
       source: "jettachat",
       ticketId: conversationId,
     });
-    return chatJson(req, { error: "too many messages, please slow down" }, { status: 429 });
+    return await chatJson(req, { error: "too many messages, please slow down" }, { status: 429 });
   }
 
   const stored = await store.appendMessage(conversationId, "visitor", text);
-  if (!stored) return chatJson(req, { expired: true }, { status: 410 });
+  if (!stored) return await chatJson(req, { expired: true }, { status: 410 });
 
   // Mark this as the newest turn. The debounced run checks it before spending
   // an agent loop, so a burst of messages costs exactly one run.
@@ -71,9 +71,9 @@ export async function POST(req: NextRequest) {
   // was told the team would email them, so don't restart the bot on top of it.
   const conv = await store.getConversation(conversationId);
   if (conv?.status === "ticketed") {
-    return chatJson(req, { accepted: true, ticketed: true, message: stored });
+    return await chatJson(req, { accepted: true, ticketed: true, message: stored });
   }
 
   after(() => runChatTurn(conversationId, stored.id));
-  return chatJson(req, { accepted: true, message: stored });
+  return await chatJson(req, { accepted: true, message: stored });
 }
