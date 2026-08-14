@@ -54,7 +54,7 @@ These are the ONLY commands that exist. Quote them exactly — a command you inv
 If none of them fits what is being asked, say the action has to be done by hand rather than guessing at a command. Never say you have done something you have not done.
 
 How to answer:
-1. Look things up before answering. You have tools for tickets, the knowledge base, customer accounts, the dev board, and your own run history — use them rather than answering from memory.
+1. Look things up before answering. You have tools for tickets, the knowledge base, customer accounts, the dev board (including the comments engineering has left on an item), and your own run history — use them rather than answering from memory.
 2. Be brief. Slack, not email. Lead with the answer; add detail only if it changes what they do next.
 3. Cite what you used: ticket numbers, article titles, dev item ids. A colleague will want to check you.
 4. Name the specific app — GetSign, VLOOKUP Auto-Link, TrackMy — never "Jetpack Apps", which spans nine products and says nothing about where to look.
@@ -135,6 +135,33 @@ function assistantTools(): ToolSet {
       }),
       execute: async ({ symptom, product }) =>
         JSON.stringify(await monday.searchDevBoard(symptom, product).catch(() => [])),
+    }),
+
+    read_dev_item_comments: tool({
+      description:
+        "Read the comments and replies on a monday dev board item — what engineering has actually said about it, newest first. Use for 'what did the devs say', 'any update on that item', or checking whether an escalation has moved. Take the item id from search_dev_board or from a link like /pulses/12790471510.",
+      inputSchema: z.object({ item_id: z.string().describe("The dev board item id, digits only.") }),
+      execute: async ({ item_id }) => {
+        const item = await monday.getItemUpdates(item_id, 15).catch(() => null);
+        if (!item) return `No dev board item ${item_id} found (or monday is unavailable).`;
+        if (!item.updates.length) {
+          return JSON.stringify({
+            item: item.name,
+            url: item.url,
+            note: "The item exists but has no comments yet — nobody has posted an update on it.",
+          });
+        }
+        return JSON.stringify({
+          item: item.name,
+          url: item.url,
+          updates: item.updates.map((u) => ({
+            at: u.at,
+            author: u.author,
+            text: u.text.slice(0, BODY_CHARS),
+            replies: u.replies.map((r) => ({ at: r.at, author: r.author, text: r.text.slice(0, 600) })),
+          })),
+        });
+      },
     }),
 
     my_history_on_ticket: tool({
@@ -255,5 +282,5 @@ export const SUGGESTED_PROMPTS = [
   { title: "Summarise a ticket", message: "Summarise ticket #13955 and tell me what's blocking it" },
   { title: "What's been happening?", message: "What have the last 10 tickets been about?" },
   { title: "Check the knowledge base", message: "What does the KB say about VLOOKUP authorization errors?" },
-  { title: "Why did you escalate?", message: "Why did you escalate ticket #13955?" },
+  { title: "What did the devs say?", message: "What have engineering said on the dev item for ticket #13955?" },
 ];

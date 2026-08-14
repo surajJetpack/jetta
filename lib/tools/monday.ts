@@ -261,6 +261,94 @@ export async function itemMentionsTicket(itemId: string, ticketId: string): Prom
   return new RegExp(`(/tickets/|#)${id}\\b`).test(haystack);
 }
 
+export interface DevItemUpdate {
+  at: string;
+  author: string;
+  text: string;
+  replies: { at: string; author: string; text: string }[];
+}
+
+/**
+ * Read what engineering actually said on a dev item — the updates thread, with
+ * replies, newest first.
+ *
+ * Deliberately NOT offered to the ticket agent, only to the Slack assistant.
+ * These are internal engineering notes ("this is a race in the webhook
+ * registration, punting to next sprint") and the ticket agent's whole job is
+ * writing to customers; one careless paraphrase and a customer is reading our
+ * sprint planning. A colleague in Slack has every right to see it.
+ *
+ * The board is read off the item rather than assumed, so an id from either
+ * dev board resolves to a correct link.
+ */
+export async function getItemUpdates(
+  itemId: string,
+  limit = 20,
+): Promise<{ id: string; name: string; url: string; updates: DevItemUpdate[] } | null> {
+  if (!config.monday.live) {
+    return {
+      id: itemId,
+      name: "[stub] VLookUp Template not working",
+      url: itemUrl(itemId, "jetpackapps"),
+      updates: [
+        {
+          at: new Date().toISOString(),
+          author: "Dev (stub)",
+          text: "Reproduced locally — webhook registration races the recipe save. Fix queued.",
+          replies: [],
+        },
+      ],
+    };
+  }
+  const data = await gql<{
+    items: {
+      id: string;
+      name: string;
+      board: { id: string } | null;
+      updates: {
+        created_at: string;
+        text_body: string | null;
+        creator: { name: string } | null;
+        replies: { created_at: string; text_body: string | null; creator: { name: string } | null }[];
+      }[];
+    }[];
+  }>(
+    `query ($ids: [ID!], $limit: Int!) {
+      items(ids: $ids) {
+        id
+        name
+        board { id }
+        updates(limit: $limit) {
+          created_at
+          text_body
+          creator { name }
+          replies { created_at text_body creator { name } }
+        }
+      }
+    }`,
+    { ids: [itemId], limit },
+  ).catch(() => null);
+
+  const item = data?.items?.[0];
+  if (!item) return null;
+  const clean = (t: string | null) => (t ?? "").replace(/\s+\n/g, "\n").trim();
+  return {
+    id: item.id,
+    name: item.name,
+    url: `${config.monday.accountUrl}/boards/${item.board?.id ?? ""}/pulses/${item.id}`,
+    updates: (item.updates ?? [])
+      .filter((u) => clean(u.text_body))
+      .map((u) => ({
+        at: u.created_at,
+        author: u.creator?.name ?? "unknown",
+        text: clean(u.text_body),
+        replies: (u.replies ?? [])
+          .filter((r) => clean(r.text_body))
+          .map((r) => ({ at: r.created_at, author: r.creator?.name ?? "unknown", text: clean(r.text_body) })),
+      })),
+  };
+}
+
 export interface PlusOneInput {
   itemId: string;
   /** Deep link to the interaction (Freshdesk ticket or chat transcript). */
