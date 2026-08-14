@@ -8,7 +8,7 @@
 import { cookies } from "next/headers";
 import crypto from "node:crypto";
 import { config } from "./config";
-import { roleOf, type Role } from "./roles";
+import { roleOf, effectiveRole, VIEW_AS_COOKIE, type Role } from "./roles";
 
 export const SESSION_COOKIE = "jetta_session";
 export const SESSION_TTL_S = 7 * 24 * 3600;
@@ -82,15 +82,29 @@ export function verifySession(token: string | undefined | null): string | null {
  * with adminActor) — with ADMIN_SECRET set but no CONSOLE_USERS, the console
  * fails closed and the login endpoint explains what to configure.
  */
-export async function gate(): Promise<{ locked: boolean; user: string; role: Role; isAdmin: boolean }> {
-  const decide = (user: string, locked: boolean) => ({
-    locked,
-    user,
-    role: roleOf(user),
-    isAdmin: roleOf(user) === "admin",
-  });
+export async function gate(): Promise<{
+  locked: boolean;
+  user: string;
+  role: Role;
+  isAdmin: boolean;
+  /** True when an admin is previewing the console as a general user. */
+  viewingAsGeneral: boolean;
+}> {
+  const jar = await cookies();
+  const viewAs = jar.get(VIEW_AS_COOKIE)?.value;
+  const decide = (user: string, locked: boolean) => {
+    const role = effectiveRole(user, viewAs);
+    return {
+      locked,
+      user,
+      role,
+      isAdmin: role === "admin",
+      viewingAsGeneral: roleOf(user) === "admin" && role === "general",
+    };
+  };
   if (!config.consoleUsers && !config.adminSecret) return decide("dev", false);
-  const token = (await cookies()).get(SESSION_COOKIE)?.value;
-  const user = verifySession(token);
-  return user ? decide(user, false) : { locked: true, user: "", role: "general", isAdmin: false };
+  const user = verifySession(jar.get(SESSION_COOKIE)?.value);
+  return user
+    ? decide(user, false)
+    : { locked: true, user: "", role: "general", isAdmin: false, viewingAsGeneral: false };
 }

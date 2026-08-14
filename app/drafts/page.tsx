@@ -7,11 +7,11 @@ import { config } from "@/lib/config";
 export const dynamic = "force-dynamic";
 
 export default async function DraftsPage() {
-  const { locked, user, isAdmin } = await gate();
+  const { locked, user, isAdmin, viewingAsGeneral } = await gate();
   if (locked) redirect("/login?next=%2Fdrafts");
   return (
     <div className="mx-auto max-w-4xl space-y-5 px-5 pt-8 pb-20">
-      <Nav current="drafts" user={user} isAdmin={isAdmin} />
+      <Nav current="drafts" user={user} isAdmin={isAdmin} canViewAs={isAdmin || viewingAsGeneral} viewingAsGeneral={viewingAsGeneral} />
       <DraftsQueue
         replyMode={config.replyMode}
         freshdeskDomain={config.freshdesk.domain ?? "jetpackapps.freshdesk.com"}

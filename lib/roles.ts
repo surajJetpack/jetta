@@ -38,6 +38,26 @@ export function isAdmin(username: string | null | undefined): boolean {
 }
 
 /**
+ * "View as general" — an admin checking what their colleagues actually see.
+ *
+ * A real downgrade, not a UI trick: the API honours it too, so a preview that
+ * hides a button also refuses the request behind it. A preview where the
+ * buttons vanish but the endpoints still work would teach an admin the wrong
+ * thing about their own permissions model.
+ *
+ * It can only ever REDUCE privilege, so the cookie is not a credential and a
+ * general user setting it by hand achieves nothing. The console shows a loud
+ * banner while it is on, because an admin who forgets will read their own
+ * restrictions as a bug.
+ */
+export const VIEW_AS_COOKIE = "jetta_view_as";
+
+export function effectiveRole(username: string | null | undefined, viewAs?: string | null): Role {
+  const actual = roleOf(username);
+  return actual === "admin" && viewAs === "general" ? "general" : actual;
+}
+
+/**
  * Gate an API route. Returns a response to send back, or null to continue.
  * 403 rather than 404: the caller is a known colleague, and pretending the
  * route does not exist would send them hunting for a bug instead of asking
@@ -46,7 +66,17 @@ export function isAdmin(username: string | null | undefined): boolean {
 export function requireAdmin(req: NextRequest): NextResponse | null {
   const actor = adminActor(req);
   if (!actor) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  if (!isAdmin(actor)) {
+  const viewAs = req.cookies.get(VIEW_AS_COOKIE)?.value;
+  if (effectiveRole(actor, viewAs) !== "admin") {
+    if (viewAs === "general" && isAdmin(actor)) {
+      return NextResponse.json(
+        {
+          error: "viewing_as_general",
+          message: "You're previewing the console as a general user. Switch back to admin to do this.",
+        },
+        { status: 403 },
+      );
+    }
     return NextResponse.json(
       { error: "admin_only", message: "This needs an admin account. Ask Suraj." },
       { status: 403 },

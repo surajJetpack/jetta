@@ -6,6 +6,7 @@ import { GuideBanner } from "./guide-banner";
 import { ThemeToggle } from "@/components/jetta/theme-toggle";
 import { PendingMonetBadge } from "@/components/jetta/pending-monet-badge";
 import { ChatWaitingBadge } from "@/components/jetta/chat-waiting-badge";
+import { ViewAsSwitch } from "@/components/jetta/view-as-switch";
 
 /**
  * Drafts is deliberately absent. Agents read Jetta's suggestion as a Freshdesk
@@ -33,11 +34,16 @@ export function Nav({
   current,
   user,
   isAdmin = true,
+  canViewAs = false,
+  viewingAsGeneral = false,
 }: {
   current: string;
   user: string;
   /** Defaults to admin so a page that forgets to pass it fails visible, not silent. */
   isAdmin?: boolean;
+  /** True for a real admin — the only person offered the preview switch. */
+  canViewAs?: boolean;
+  viewingAsGeneral?: boolean;
 }) {
   const tabs = TABS.filter((t) => isAdmin || !ADMIN_ONLY_TABS.has(t.id));
   return (
@@ -62,6 +68,7 @@ export function Nav({
         </div>
         <div className="flex shrink-0 items-center gap-1">
           {user !== "dev" && <span className="hidden text-xs text-muted-foreground sm:inline">{user}</span>}
+          {canViewAs && <ViewAsSwitch viewingAsGeneral={viewingAsGeneral} />}
           <ThemeToggle />
           {user !== "dev" && <LogoutButton />}
         </div>
@@ -88,6 +95,13 @@ export function Nav({
           ))}
         </div>
       </nav>
+
+      {viewingAsGeneral && (
+        <p className="mt-3 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs">
+          You are viewing the console as a <b>general user</b>. Admin actions are hidden and will be
+          refused, exactly as they are for your colleagues.
+        </p>
+      )}
 
       <GuideBanner user={user} current={current} />
     </>
