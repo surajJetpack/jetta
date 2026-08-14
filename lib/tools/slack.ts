@@ -356,6 +356,56 @@ export async function notifyPartnerManager(
 }
 
 /** Reply in a Slack thread (used by the admin command interface). */
+/**
+ * Assistant-thread helpers. These only apply to Jetta's agent panel / DM
+ * threads; every one is best-effort cosmetics, so a failure must never stop
+ * the actual answer from being posted.
+ */
+export async function setAssistantStatus(channel: string, threadTs: string, status: string): Promise<void> {
+  await fetch("https://slack.com/api/assistant.threads.setStatus", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${config.slack.botToken}`,
+      "Content-Type": "application/json; charset=utf-8",
+    },
+    body: JSON.stringify({ channel_id: channel, thread_ts: threadTs, status }),
+  }).catch(() => {});
+}
+
+export async function setAssistantSuggestedPrompts(
+  channel: string,
+  threadTs: string,
+  prompts: { title: string; message: string }[],
+  title?: string,
+): Promise<void> {
+  await fetch("https://slack.com/api/assistant.threads.setSuggestedPrompts", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${config.slack.botToken}`,
+      "Content-Type": "application/json; charset=utf-8",
+    },
+    body: JSON.stringify({ channel_id: channel, thread_ts: threadTs, prompts, title }),
+  }).catch(() => {});
+}
+
+/** Read a DM's recent messages (no thread) — the plain-DM equivalent of readThread. */
+export async function readIm(channel: string, limit = 12): Promise<ThreadMessage[]> {
+  const res = await fetch(
+    `https://slack.com/api/conversations.history?channel=${encodeURIComponent(channel)}&limit=${limit}`,
+    { headers: { Authorization: `Bearer ${config.slack.botToken}` } },
+  );
+  const json = (await res.json()) as {
+    ok: boolean;
+    error?: string;
+    messages?: { text?: string; bot_id?: string; user?: string; ts?: string }[];
+  };
+  if (!json.ok) throw new Error(`Slack conversations.history failed: ${json.error}`);
+  // Oldest first, matching readThread.
+  return (json.messages ?? [])
+    .reverse()
+    .map((m) => ({ text: m.text ?? "", isBot: !!m.bot_id, user: m.user ?? "" }));
+}
+
 export async function replyInThread(
   channel: string,
   threadTs: string,

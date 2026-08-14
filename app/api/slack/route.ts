@@ -16,7 +16,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "node:crypto";
 import { config } from "@/lib/config";
-import { kvSet, kvGet, kvDel } from "@/lib/kv";
+import { kvSet, kvGet, kvDel, markEventSeen } from "@/lib/kv";
 import { resolveMonetApproval } from "@/lib/monetization-approvals";
 import { getArticle, createArticle, updateArticle, transitionState } from "@/lib/kb-store";
 import * as freshdesk from "@/lib/tools/freshdesk";
@@ -24,6 +24,9 @@ import * as fastspring from "@/lib/tools/fastspring";
 import * as mondayMonetization from "@/lib/tools/monday-monetization";
 import type { AppProduct } from "@/lib/types";
 import { replyInThread, readThread } from "@/lib/tools/slack";
+import * as slack from "@/lib/tools/slack";
+import { answerInSlack, SUGGESTED_PROMPTS } from "@/lib/slack-assistant";
+import type { ModelMessage } from "ai";
 import { draftKbArticle } from "@/lib/knowledge-loop";
 import { logOpsEvent } from "@/lib/events";
 
@@ -329,6 +332,52 @@ async function handleCommand(
   );
 }
 
+/**
+ * Answer a DM. Slack re-delivers an event if we don't ack within 3s and an
+ * answer takes far longer than that, so the caller acks immediately and this
+ * runs detached — the reply arrives in the thread when it is ready.
+ */
+async function handleDirectMessage(
+  text: string,
+  userId: string,
+  channel: string,
+  threadTs?: string,
+): Promise<void> {
+  // The panel shows a status line while she works; a plain DM has nowhere to
+  // put one, so it is skipped rather than faked.
+  if (threadTs) await slack.setAssistantStatus(channel, threadTs, "Looking that up…");
+
+  // History so follow-ups work ("and what about the other one?"). Her own past
+  // replies come back as assistant turns so she can see what she already said.
+  const prior = threadTs
+    ? await slack.readThread(channel, threadTs).catch(() => [])
+    : await slack.readIm(channel, 12).catch(() => []);
+  const messages: ModelMessage[] = prior
+    .filter((m) => m.text.trim())
+    .map((m) => ({ role: m.isBot ? ("assistant" as const) : ("user" as const), content: m.text }));
+  // conversations.history includes the message that triggered this, but a
+  // thread read can race it — append when it is missing so the turn is never
+  // answered without its own question.
+  if (messages[messages.length - 1]?.content !== text) {
+    messages.push({ role: "user", content: text });
+  }
+
+  const answer = await answerInSlack(messages);
+  await slack.replyInThread(channel, threadTs ?? "", answer.text).catch(async () => {
+    // A plain DM has no thread to reply into; post to the conversation itself.
+    await slack.replyInThread(channel, "", answer.text);
+  });
+  if (threadTs) await slack.setAssistantStatus(channel, threadTs, "");
+
+  await logOpsEvent({
+    level: "info",
+    event: "slack.dm_answered",
+    source: "slack",
+    actor: userId,
+    data: { chars: answer.text.length, tools: answer.toolsUsed, model: answer.model },
+  });
+}
+
 export async function POST(req: NextRequest) {
   const raw = await req.text();
 
@@ -348,9 +397,52 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ challenge: body.challenge });
   }
 
-  // Event callback (app_mention).
   if (body.type === "event_callback") {
     const event = body.event as Record<string, unknown> | undefined;
+
+    // Someone opened Jetta's panel / DM: greet with what she can be asked.
+    // Without this the panel is an empty box and nobody knows the 9 commands
+    // exist — which is how it has been in the escalation channel all along.
+    if (event?.type === "assistant_thread_started") {
+      const thread = event.assistant_thread as Record<string, unknown> | undefined;
+      const channel = String(thread?.channel_id ?? "");
+      const threadTs = String(thread?.thread_ts ?? "");
+      if (channel && threadTs) {
+        void slack
+          .setAssistantSuggestedPrompts(channel, threadTs, SUGGESTED_PROMPTS, "Ask Jetta about a ticket")
+          .catch(() => {});
+      }
+      return NextResponse.json({ ok: true });
+    }
+
+    // A direct message — the agent panel and a plain DM both arrive here.
+    // Deliberately NOT routed through parseCommand: the privileged commands
+    // (discounts, cancellations, trials) are gated on being typed in a channel
+    // where colleagues can see them, and a DM has no such witness. Jetta answers
+    // questions here and points at the channel for anything that acts.
+    if (event?.type === "message" && event.channel_type === "im" && !event.bot_id && !event.subtype) {
+      const text = String(event.text ?? "").trim();
+      const userId = String(event.user ?? "");
+      const channel = String(event.channel ?? "");
+      const threadTs = event.thread_ts ? String(event.thread_ts) : undefined;
+      // Slack re-delivers an event if the ack is slow, and an answer takes far
+      // longer than the 3s window — without this a retry answers twice.
+      const eventId = String(body.event_id ?? `${channel}:${event.ts ?? ""}`);
+      if (text && (await markEventSeen(`slackdm:${eventId}`, 3600))) {
+        handleDirectMessage(text, userId, channel, threadTs).catch(async (err) => {
+          console.error("Slack DM failed:", err);
+          await logOpsEvent({
+            level: "error",
+            event: "slack.dm_failed",
+            source: "slack",
+            actor: userId,
+            data: { error: err instanceof Error ? err.message : String(err) },
+          });
+        });
+      }
+      return NextResponse.json({ ok: true });
+    }
+
     if (event?.type === "app_mention" && !event.bot_id) {
       const cmd = parseCommand(String(event.text ?? ""));
       const userId = String(event.user ?? "");
