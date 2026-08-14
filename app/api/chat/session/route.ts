@@ -64,12 +64,27 @@ export async function POST(req: NextRequest) {
   const v = (body.visitor ?? {}) as Record<string, unknown>;
   const str = (k: string) => (typeof v[k] === "string" && v[k] ? (v[k] as string) : undefined);
 
+  // Name and email are required to start a chat. Enforced here as well as in
+  // the widget, because the widget is public JavaScript and its form can be
+  // skipped by anyone posting straight to this route. Identity up front is
+  // what makes the rest work: a ticket can always be raised, a human can
+  // always follow up, and the account lookups have something to key on.
+  const name = str("name")?.trim().slice(0, 120);
+  const email = str("email")?.trim().slice(0, 200);
+  if (!name || !email || !/^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(email)) {
+    return chatJson(
+      req,
+      { error: "name_and_email_required", message: "Please give your name and email to start the chat." },
+      { status: 400 },
+    );
+  }
+
   const conv = await store.createConversation({
     surface,
     pageUrl: typeof body.pageUrl === "string" ? body.pageUrl.slice(0, 500) : undefined,
     visitor: {
-      name: str("name")?.slice(0, 120),
-      email: str("email")?.slice(0, 200),
+      name,
+      email,
       mondayAccountSlug: str("mondayAccountSlug")?.slice(0, 120),
       mondayAccountId: str("mondayAccountId")?.slice(0, 60),
       mondayUserId: str("mondayUserId")?.slice(0, 60),

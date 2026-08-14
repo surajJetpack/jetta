@@ -39,6 +39,13 @@ const FALLBACK_TEXT =
   "Sorry — something went wrong on my end and I couldn't get you an answer just now. " +
   "If you leave your email address here, I'll get this to our team and they'll reply to you directly.";
 
+/**
+ * How long a visitor waits for a human before Jetta takes the conversation
+ * back. Short on purpose: the team rarely watches chat, and a visitor staring
+ * at silence will leave long before anyone notices a Slack ping.
+ */
+const HANDOFF_TIMEOUT_MS = 3 * 60_000;
+
 async function deliverFallback(conversationId: string): Promise<void> {
   await store.appendMessage(conversationId, "agent", FALLBACK_TEXT);
 }
@@ -60,6 +67,33 @@ export async function runChatTurn(conversationId: string, messageId: string): Pr
         ticketId: conversationId,
       });
       return;
+    }
+
+    // 2. Stand down if a person owns this conversation.
+    //
+    // Two voices answering one visitor is the failure that makes handoff feel
+    // broken, so Jetta goes completely silent from the moment a human is asked
+    // for — not just once one arrives. The exception is nobody arriving: after
+    // HANDOFF_TIMEOUT_MS the conversation reverts to her so the visitor gets an
+    // answer and a ticket instead of a silence that never ends.
+    const current = await store.getConversation(conversationId);
+    if (current?.status === "human") return;
+    if (current?.status === "waiting_human") {
+      const waited = Date.now() - (current.humanRequestedAt ?? 0);
+      if (waited < HANDOFF_TIMEOUT_MS) return;
+      await store.updateConversation(conversationId, { status: "open" });
+      await store.appendMessage(
+        conversationId,
+        "agent",
+        "Sorry — nobody's free right now. Let me take this so you're not left waiting.",
+      );
+      await logOpsEvent({
+        level: "info",
+        event: "chat.handoff_timed_out",
+        source: "jettachat",
+        ticketId: conversationId,
+        data: { waitedMs: waited },
+      });
     }
 
     await store.markRunActive(conversationId);

@@ -185,6 +185,8 @@ export const config = {
      * before running, so Jetta answers the whole thought.
      */
     debounceSeconds: Number(env("JETTACHAT_DEBOUNCE_SECONDS") ?? "5"),
+    /** Console base URL used in the "a visitor wants a human" Slack ping. */
+    consoleUrl: env("JETTA_CONSOLE_URL") ?? env("CONSOLE_URL") ?? "https://jettajetpack.vercel.app",
     /** Max visitor messages per IP per hour — abuse backstop on a public endpoint. */
     rateLimitPerHour: Number(env("JETTACHAT_RATE_LIMIT_PER_HOUR") ?? "60"),
     /** How long transcripts are retained before Redis expires them. */
@@ -267,6 +269,12 @@ export const config = {
     live: liveFor("SLACK_LIVE"),
     botToken: env("SLACK_BOT_TOKEN"),
     escalationChannel: env("SLACK_ESCALATION_CHANNEL"),
+    /**
+     * Where "a visitor wants a human" goes. Separate from escalations on
+     * purpose: that channel is async dev work, this is someone waiting in a
+     * live chat. Unset falls back to the escalation channel.
+     */
+    chatChannel: env("SLACK_CHAT_CHANNEL"),
     /** Dedicated channel for "draft pending review" pings. Unset = no draft pings
      * (they're noise on #escalations; drafts are reviewable in FD + /drafts). */
     draftsChannel: env("JETTA_DRAFTS_SLACK_CHANNEL"),

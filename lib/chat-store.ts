@@ -146,11 +146,18 @@ export async function appendMessage(
 /** Patch conversation-level fields (status, ticket link, learned identity). */
 export async function updateConversation(
   conversationId: string,
-  patch: Partial<Pick<ChatConversation, "status" | "ticketId">> & { visitor?: Partial<ChatVisitor> },
+  patch: Partial<Pick<ChatConversation, "status" | "ticketId" | "humanRequestedAt" | "humanAgent">> & {
+    visitor?: Partial<ChatVisitor>;
+  },
 ): Promise<ChatConversation | null> {
   const conv = await getConversation(conversationId);
   if (!conv) return null;
   if (patch.status) conv.status = patch.status;
+  // `in` rather than an undefined check: handing a conversation back passes
+  // humanAgent: undefined to CLEAR it, and an undefined check would silently
+  // keep the previous person's name on a conversation they had left.
+  if ("humanRequestedAt" in patch) conv.humanRequestedAt = patch.humanRequestedAt;
+  if ("humanAgent" in patch) conv.humanAgent = patch.humanAgent;
   if (patch.ticketId) conv.ticketId = patch.ticketId;
   if (patch.visitor) conv.visitor = { ...conv.visitor, ...patch.visitor };
   conv.lastActivityAt = nowIso();

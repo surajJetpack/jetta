@@ -22,6 +22,7 @@ import * as fastspring from "./fastspring";
 import * as monday from "./monday";
 import * as mondayMonetization from "./monday-monetization";
 import * as slack from "./slack";
+import * as events from "../events";
 import { searchPublishedKb } from "../knowledge/dynamic-kb";
 import { vectorEnabled, queryVector, type VectorHit } from "../vector";
 import { rerankHits } from "../rerank";
@@ -247,9 +248,52 @@ export function buildTools(
     // route to a human and Jetta needs an explicit tool for it.
     ...(isOwnChat
       ? {
+          request_human: tool({
+            description:
+              "Ask a member of the team to join this chat, right now. Use ONLY when the customer explicitly asks for a person, or is angry enough that a human should take over. It pings the team in Slack and you then go SILENT — do not send anything further, they are taking over. Nobody may be free: if no one joins within a few minutes the conversation comes back to you automatically, so do not promise the customer a person will definitely appear. For anything that can be answered by email later, use create_support_ticket instead.",
+            inputSchema: z.object({
+              reason: z
+                .string()
+                .describe("One line for the team: why this needs a person, not a ticket."),
+            }),
+            execute: async ({ reason }) => {
+              if (!ticketId) return "No active conversation.";
+              if (dry) return `[dry-run] would ask the team to join chat ${ticketId}.`;
+              const conv = await chatStoreForTools.getConversation(ticketId);
+              if (!conv) return "This conversation no longer exists.";
+              if (conv.status === "human" || conv.status === "waiting_human") {
+                return "The team has already been asked to join — say nothing further and wait.";
+              }
+              await chatStoreForTools.updateConversation(ticketId, {
+                status: "waiting_human",
+                humanRequestedAt: Date.now(),
+              });
+              const last = [...conv.messages].reverse().find((m) => m.author === "visitor");
+              await slack
+                .notifyChatHandoff({
+                  conversationId: ticketId,
+                  visitor: [conv.visitor.name, conv.visitor.email].filter(Boolean).join(" · ") || "unknown visitor",
+                  reason,
+                  lastMessage: last?.text ?? "(no message)",
+                  consoleUrl: config.jettachat.consoleUrl,
+                })
+                .catch((e) =>
+                  console.warn(`chat handoff ping failed for ${ticketId}:`, e instanceof Error ? e.message : e),
+                );
+              await events.logOpsEvent({
+                level: "info",
+                event: "chat.human_requested",
+                source: "jettachat",
+                ticketId,
+                data: { reason: reason.slice(0, 200) },
+              });
+              return "The team has been pinged. Tell the customer you are getting someone, then STOP — send nothing else.";
+            },
+          }),
+
           create_support_ticket: tool({
             description:
-              "Open a Freshdesk ticket so the team can pick this up by email, and tell the customer you have done it. This is the ONLY way to reach a human from this chat — nobody is watching the widget. Use it when the knowledge base has no answer, the request needs account changes you cannot make, the customer is upset or wants a refund, or they ask for a human. REQUIRES the customer's email address: ask for it first if you don't have it. The full chat transcript is attached automatically — summarize, don't re-type it.",
+              "Open a Freshdesk ticket so the team can pick this up by email, and tell the customer you have done it. Use this for anything that needs a reply LATER — it is the right choice unless the customer specifically wants someone now (for that, use request_human). Use it when the knowledge base has no answer, the request needs account changes you cannot make, the customer is upset or wants a refund, or they ask for a human. REQUIRES the customer's email address: ask for it first if you don't have it. The full chat transcript is attached automatically — summarize, don't re-type it.",
             inputSchema: z.object({
               email: z
                 .string()

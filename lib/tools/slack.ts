@@ -359,6 +359,31 @@ export async function notifyDraftPending(input: {
  * Daily KB-sync summary — posted only when something changed or was flagged.
  * One-line totals in the channel; the per-site breakdown goes in the thread.
  */
+/**
+ * A visitor is waiting for a person, right now.
+ *
+ * Posted to the chat channel rather than the escalation channel: escalations
+ * are async dev work someone reads when they get to it, and this is a human
+ * standing at the counter. Falls back to the escalation channel if no separate
+ * one is configured — a ping in the wrong room beats no ping.
+ */
+export async function notifyChatHandoff(input: {
+  conversationId: string;
+  visitor: string;
+  reason: string;
+  lastMessage: string;
+  consoleUrl: string;
+}): Promise<void> {
+  const channel = config.slack.chatChannel ?? config.slack.escalationChannel ?? "#jetta-escalations";
+  const text = [
+    `:wave: *A visitor is asking for a person* — ${input.visitor}`,
+    `> ${clamp(input.lastMessage, 200)}`,
+    `Why: ${clamp(input.reason, 140)}`,
+    `<${input.consoleUrl}/chats/${input.conversationId}|Open the conversation> — Jetta has gone quiet and is waiting for you.`,
+  ].join("\n");
+  await postMessage(channel, text);
+}
+
 export async function notifyKbSync(headline: string, details: string[]): Promise<void> {
   const channel =
     config.slack.draftsChannel ?? config.slack.escalationChannel ?? "#jetta-escalations";

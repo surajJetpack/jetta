@@ -37,6 +37,11 @@ export default function ChatWidgetPage() {
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // An init we are holding until the visitor tells us who they are. On monday
+  // the embedding app supplies both from its SDK and this never renders.
+  const [identityGate, setIdentityGate] = useState<InitPayload | null>(null);
+  const [nameInput, setNameInput] = useState("");
+  const [emailInput, setEmailInput] = useState("");
 
   const parentOrigin = useRef<string>("*");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -50,6 +55,16 @@ export default function ChatWidgetPage() {
   // ── Session bootstrap ────────────────────────────────────────────
   const openSession = useCallback(
     async (init: InitPayload) => {
+      // Name and email are required before a conversation exists. Resuming an
+      // existing session skips this — they gave it when the session was made.
+      // The server enforces the same rule; this only saves a round trip and
+      // gives the visitor a form instead of an error.
+      if (!init.session && !(init.visitor?.name?.trim() && init.visitor?.email?.trim())) {
+        setIdentityGate(init);
+        return;
+      }
+      setIdentityGate(null);
+
       // Two attempts at most: a stored session that outlived its transcript
       // (410) is dropped and retried as a fresh one, so the visitor never sees
       // an error they have no way to clear.
@@ -225,6 +240,54 @@ export default function ChatWidgetPage() {
         </button>
       </header>
 
+      {identityGate && !session ? (
+        <form
+          className="flex flex-1 flex-col justify-center gap-3 px-5"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const name = nameInput.trim();
+            const email = emailInput.trim();
+            if (!name || !/^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(email)) {
+              setError("Please enter your name and a valid email address.");
+              return;
+            }
+            setError(null);
+            void openSession({
+              ...identityGate,
+              visitor: { ...(identityGate.visitor ?? {}), name, email },
+            });
+          }}
+        >
+          <div>
+            <p className="text-sm font-semibold">Before we start</p>
+            <p className="mt-1 text-xs text-neutral-500">
+              So we can pick this up by email if we need to.
+            </p>
+          </div>
+          <input
+            autoFocus
+            value={nameInput}
+            onChange={(e) => setNameInput(e.target.value)}
+            placeholder="Your name"
+            className="w-full min-w-0 rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-neutral-900"
+          />
+          <input
+            type="email"
+            value={emailInput}
+            onChange={(e) => setEmailInput(e.target.value)}
+            placeholder="you@company.com"
+            className="w-full min-w-0 rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-neutral-900"
+          />
+          {error && <p className="text-xs text-red-600">{error}</p>}
+          <button
+            type="submit"
+            className="w-full rounded-lg bg-neutral-900 px-3 py-2 text-sm font-medium text-white transition hover:bg-neutral-700"
+          >
+            Start chatting
+          </button>
+        </form>
+      ) : (
+      <>
       <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
         {messages.length === 0 && !error && (
           <p className="text-sm text-neutral-500">
@@ -304,6 +367,8 @@ export default function ChatWidgetPage() {
           </button>
         </div>
       </div>
+      </>
+      )}
     </div>
   );
 }

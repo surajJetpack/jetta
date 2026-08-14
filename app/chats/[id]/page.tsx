@@ -2,6 +2,7 @@ import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
 import { gate } from "@/lib/console-auth";
 import { Nav } from "../../nav";
+import LiveReply from "./live-reply";
 import { getConversation } from "@/lib/chat-store";
 import { getRunLogsByTicket } from "@/lib/kv";
 import { config } from "@/lib/config";
@@ -38,6 +39,8 @@ export default async function ChatDetailPage({
       <Link href="/chats" className="text-xs text-muted-foreground hover:underline">
         ← All chats
       </Link>
+
+      <LiveReply conversationId={conv.id} status={conv.status} humanAgent={conv.humanAgent} />
 
       <Card className="gap-3 p-4">
         <div className="flex flex-wrap items-center gap-2">

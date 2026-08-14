@@ -152,6 +152,7 @@ export interface ChatMessage {
  * whatever the visitor typed, so treat it as a hint only.
  */
 export interface ChatVisitor {
+  /** Required to start a chat — see the pre-chat gate in the session route. */
   name?: string;
   email?: string;
   /** monday account slug, when the widget runs inside a monday app view. */
@@ -167,7 +168,19 @@ export interface ChatConversation {
   id: string;
   createdAt: string;
   lastActivityAt: string;
-  status: "open" | "resolved" | "ticketed";
+  /**
+   * open          — Jetta is answering
+   * waiting_human — a person has been asked for; Jetta is silent, a timer will
+   *                 fall back to a ticket if nobody arrives
+   * human         — a person is in the conversation; Jetta stays silent
+   * resolved      — done
+   * ticketed      — handed to Freshdesk for an email reply
+   */
+  status: "open" | "waiting_human" | "human" | "resolved" | "ticketed";
+  /** Unix ms a human was requested — drives the "nobody came" fallback. */
+  humanRequestedAt?: number;
+  /** Console username of whoever took the conversation. */
+  humanAgent?: string;
   surface: ChatSurface;
   /** Page the widget was opened on — useful context and abuse triage. */
   pageUrl?: string;
