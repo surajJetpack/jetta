@@ -16,6 +16,7 @@ import {
   preflight,
 } from "@/lib/chat-http";
 import { runChatTurn } from "@/lib/chat-run";
+import { claimPending, MAX_FILES_PER_MESSAGE } from "@/lib/chat-files";
 import { logOpsEvent } from "@/lib/events";
 import * as store from "@/lib/chat-store";
 
@@ -42,11 +43,18 @@ export async function POST(req: NextRequest) {
   const conversationId = typeof body.conversationId === "string" ? body.conversationId : null;
   const token = typeof body.token === "string" ? body.token : null;
   const text = typeof body.text === "string" ? body.text.trim() : "";
+  const uploadIds = Array.isArray(body.uploadIds)
+    ? body.uploadIds.filter((v): v is string => typeof v === "string").slice(0, MAX_FILES_PER_MESSAGE)
+    : [];
 
   if (!conversationId || !store.verifyToken(conversationId, token)) {
     return await chatJson(req, { error: "invalid token" }, { status: 403 });
   }
-  if (!text) return await chatJson(req, { error: "empty message" }, { status: 400 });
+  // A screenshot with no caption is a complete message — people send the
+  // picture and expect it to be understood.
+  if (!text && !uploadIds.length) {
+    return await chatJson(req, { error: "empty message" }, { status: 400 });
+  }
   if (text.length > MAX_MESSAGE_CHARS) {
     return await chatJson(req, { error: "message too long" }, { status: 413 });
   }
@@ -60,7 +68,17 @@ export async function POST(req: NextRequest) {
     return await chatJson(req, { error: "too many messages, please slow down" }, { status: 429 });
   }
 
-  const stored = await store.appendMessage(conversationId, "visitor", text);
+  // Attachments are rehydrated from the server-side record the upload route
+  // parked, never from the request body: the vision description is prompt text
+  // the model trusts, so the visitor never gets to write it.
+  const attachments = uploadIds.length ? await claimPending(conversationId, uploadIds) : [];
+  if (uploadIds.length && !attachments.length && !text) {
+    // Every file expired or was already claimed, and there is nothing else to
+    // send — better to say so than to post an empty turn.
+    return await chatJson(req, { error: "that upload expired — try attaching it again" }, { status: 410 });
+  }
+
+  const stored = await store.appendMessage(conversationId, "visitor", text, { attachments });
   if (!stored) return await chatJson(req, { expired: true }, { status: 410 });
 
   // Mark this as the newest turn. The debounced run checks it before spending

@@ -53,6 +53,14 @@ export interface ChatSettings {
   avatarUrl?: string;
   /** Ask for name and email before the first message. */
   requireIdentity: boolean;
+  /**
+   * Whether visitors may attach files. Public because the widget has to know
+   * whether to show the paperclip — and a button that uploads into a disabled
+   * endpoint is worse than no button.
+   */
+  attachmentsEnabled: boolean;
+  /** Largest single file, in MB. Public for the same reason: reject before uploading. */
+  maxAttachmentMb: number;
 
   // ── private: server-side only ──
   /** Soft kill switch. ANDed with JETTACHAT_LIVE — can disable, never enable. */
@@ -85,6 +93,8 @@ const PUBLIC_FIELDS = [
   "launcherPosition",
   "avatarUrl",
   "requireIdentity",
+  "attachmentsEnabled",
+  "maxAttachmentMb",
 ] as const;
 
 export type PublicChatSettings = Pick<ChatSettings, (typeof PUBLIC_FIELDS)[number]>;
@@ -139,6 +149,8 @@ export function defaultSettings(): ChatSettings {
     launcherPosition: "right",
     avatarUrl: undefined,
     requireIdentity: true,
+    attachmentsEnabled: true,
+    maxAttachmentMb: config.jettachat.maxAttachmentMb,
 
     enabled: true,
     allowedOrigins: config.jettachat.allowedOrigins,
@@ -203,6 +215,10 @@ export async function saveChatSettings(
   next.rateLimitPerHour = clamp(Number(next.rateLimitPerHour), 1, 10_000, current.rateLimitPerHour);
   next.retentionDays = clamp(Number(next.retentionDays), 1, 3650, current.retentionDays);
   next.handoffTimeoutMinutes = clamp(Number(next.handoffTimeoutMinutes), 1, 120, current.handoffTimeoutMinutes);
+  // 25 MB ceiling: Freshdesk refuses attachments above 20 MB, so anything
+  // larger would upload fine and then fail silently at the hand-off — the one
+  // moment the file was needed.
+  next.maxAttachmentMb = clamp(Number(next.maxAttachmentMb), 1, 25, current.maxAttachmentMb);
   if (!HEX.test(next.accentColor)) next.accentColor = current.accentColor;
   if (next.launcherPosition !== "left" && next.launcherPosition !== "right") {
     next.launcherPosition = current.launcherPosition;

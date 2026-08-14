@@ -14,6 +14,45 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChatMessage, ChatSurface, ChatVisitor } from "@/lib/types";
 
+/** A file the visitor has attached but not yet sent. */
+interface StagedFile {
+  /** Local key while uploading; replaced by the server's upload id on success. */
+  key: string;
+  name: string;
+  size: number;
+  contentType: string;
+  /** Object URL for the local preview — shown before the file finishes uploading. */
+  previewUrl?: string;
+  uploadId?: string;
+  error?: string;
+}
+
+const MAX_STAGED = 4;
+
+/** Object URL for an image preview, remembered so it can be revoked later. */
+function stagePreview(file: File, sink: { current: string[] }): string | undefined {
+  if (!file.type.startsWith("image/")) return undefined;
+  const url = URL.createObjectURL(file);
+  sink.current.push(url);
+  return url;
+}
+
+/** Bytes → "1.2 MB", for the staged-file rows. */
+function humanSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function FileIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <path d="M14 2v6h6" />
+    </svg>
+  );
+}
+
 interface Session {
   conversationId: string;
   token: string;
@@ -42,6 +81,8 @@ interface UiConfig {
   accentColor: string;
   avatarUrl?: string;
   requireIdentity: boolean;
+  attachmentsEnabled: boolean;
+  maxAttachmentMb: number;
 }
 const DEFAULT_UI: UiConfig = {
   title: "Jetta",
@@ -50,6 +91,8 @@ const DEFAULT_UI: UiConfig = {
   placeholder: "Type your message…",
   accentColor: "#171717",
   requireIdentity: true,
+  attachmentsEnabled: true,
+  maxAttachmentMb: 10,
 };
 
 export default function ChatWidgetPage() {
@@ -58,6 +101,8 @@ export default function ChatWidgetPage() {
   const [typing, setTyping] = useState(false);
   const [ticketed, setTicketed] = useState(false);
   const [input, setInput] = useState("");
+  const [staged, setStaged] = useState<StagedFile[]>([]);
+  const [dragging, setDragging] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // An init we are holding until the visitor tells us who they are. On monday
@@ -78,6 +123,24 @@ export default function ChatWidgetPage() {
   const parentOrigin = useRef<string>("*");
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  // Depth counter, not a boolean: dragenter/dragleave fire for every child
+  // element crossed, so a plain flag flickers the overlay off mid-drag.
+  const dragDepth = useRef(0);
+  const createdUrls = useRef<string[]>([]);
+
+  /**
+   * Attachments are private: the file route wants proof, and an <img> cannot
+   * send a header, so the conversation token rides in the query string — the
+   * same arrangement the SSE stream already uses.
+   */
+  const fileUrl = useCallback(
+    (pathname: string) => {
+      const rest = pathname.replace(/^chat\//, "");
+      return `/api/chat/file/${rest}?token=${encodeURIComponent(session?.token ?? "")}`;
+    },
+    [session],
+  );
 
   const post = useCallback((type: string, payload: Record<string, unknown> = {}) => {
     if (window.parent === window) return;
@@ -230,20 +293,144 @@ export default function ChatWidgetPage() {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, typing]);
 
+  // ── Attachments ──────────────────────────────────────────────────
+  /**
+   * Upload one file and stage it. The file is stored server-side immediately
+   * and parked against the conversation; sending the message claims it. That
+   * ordering is what lets someone paste a screenshot, keep typing, and have
+   * both arrive as a single turn.
+   */
+  const uploadFile = useCallback(
+    async (file: File, key: string) => {
+      if (!session) return;
+      try {
+        const body = new FormData();
+        body.append("conversationId", session.conversationId);
+        body.append("token", session.token);
+        body.append("file", file);
+        const res = await fetch("/api/chat/upload", { method: "POST", body });
+        const data = (await res.json().catch(() => ({}))) as {
+          upload?: { id: string };
+          error?: string;
+        };
+        if (!res.ok || !data.upload) {
+          setStaged((prev) =>
+            prev.map((s) =>
+              s.key === key ? { ...s, error: data.error ?? "Upload failed." } : s,
+            ),
+          );
+          return;
+        }
+        setStaged((prev) =>
+          prev.map((s) => (s.key === key ? { ...s, uploadId: data.upload!.id } : s)),
+        );
+      } catch (e) {
+        console.error("JettaChat upload error:", e);
+        setStaged((prev) =>
+          prev.map((s) => (s.key === key ? { ...s, error: "Upload failed." } : s)),
+        );
+      }
+    },
+    [session],
+  );
+
+  const addFiles = useCallback(
+    (files: FileList | File[]) => {
+      if (!ui.attachmentsEnabled || !session) return;
+      const list = Array.from(files);
+      setStaged((prev) => {
+        const room = MAX_STAGED - prev.length;
+        if (room <= 0) {
+          setError(`You can attach up to ${MAX_STAGED} files at a time.`);
+          return prev;
+        }
+        const next = [...prev];
+        for (const file of list.slice(0, room)) {
+          const key = `${file.name}-${file.size}-${Math.random().toString(36).slice(2)}`;
+          // Size is checked here as well as on the server so an oversized file
+          // fails instantly instead of after a slow upload.
+          if (file.size > ui.maxAttachmentMb * 1024 * 1024) {
+            next.push({
+              key,
+              name: file.name,
+              size: file.size,
+              contentType: file.type,
+              error: `Too large (max ${ui.maxAttachmentMb} MB)`,
+            });
+            continue;
+          }
+          next.push({
+            key,
+            name: file.name,
+            size: file.size,
+            contentType: file.type,
+            previewUrl: stagePreview(file, createdUrls),
+          });
+          void uploadFile(file, key);
+        }
+        return next;
+      });
+      setError(null);
+    },
+    [session, ui.attachmentsEnabled, ui.maxAttachmentMb, uploadFile],
+  );
+
+  const removeStaged = (key: string) => {
+    setStaged((prev) => {
+      const hit = prev.find((s) => s.key === key);
+      if (hit?.previewUrl) URL.revokeObjectURL(hit.previewUrl);
+      return prev.filter((s) => s.key !== key);
+    });
+  };
+
+  // Pasting is how a screenshot actually arrives — Cmd+Shift+4 then Cmd+V,
+  // with no file on disk to browse for. Bound to the whole widget rather than
+  // the textarea so it works wherever the caret happens to be.
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      const files = Array.from(e.clipboardData?.files ?? []);
+      if (!files.length) return;
+      e.preventDefault();
+      addFiles(files);
+    };
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, [addFiles]);
+
+  // Object URLs leak until revoked, and an unmount cleanup that closes over
+  // `staged` would only ever see the first render's copy (empty). A ref
+  // accumulates every URL created, so unmount can free all of them.
+  useEffect(() => {
+    const urls = createdUrls.current;
+    return () => urls.forEach((u) => URL.revokeObjectURL(u));
+  }, []);
+
   // ── Sending ──────────────────────────────────────────────────────
+  // Uploads still in flight block the send: the message would otherwise arrive
+  // without the screenshot it is about, and Jetta would answer the sentence
+  // alone.
+  const uploading = staged.some((s) => !s.uploadId && !s.error);
+  const readyIds = staged.filter((s) => s.uploadId).map((s) => s.uploadId!);
+
   const send = async () => {
     const text = input.trim();
-    if (!text || !session || sending) return;
+    if ((!text && !readyIds.length) || !session || sending || uploading) return;
     setSending(true);
     setInput("");
+    const sentStaged = staged;
+    setStaged([]);
     try {
       const res = await fetch("/api/chat/message", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ...session, text }),
+        body: JSON.stringify({ ...session, text, uploadIds: readyIds }),
       });
       if (res.status === 429) {
         setError("You're sending messages very quickly — give it a moment.");
+        // Rate limiting happens before the server claims the uploads, so the
+        // ids are still good — hand the whole message back for one retry.
+        setInput(text);
+        setStaged(sentStaged);
       } else if (!res.ok) {
         throw new Error(`send failed: ${res.status}`);
       } else {
@@ -256,11 +443,16 @@ export default function ChatWidgetPage() {
             prev.some((m) => m.id === data.message!.id) ? prev : [...prev, data.message!],
           );
         }
+        // The stored message carries its own URLs now; the local previews can go.
+        sentStaged.forEach((f) => f.previewUrl && URL.revokeObjectURL(f.previewUrl));
       }
     } catch (e) {
       console.error("JettaChat send error:", e);
       setError("That message didn't send. Try again?");
       setInput(text);
+      // Put the attachments back with the text, so one retry re-sends the
+      // whole message rather than the words without the screenshot.
+      setStaged(sentStaged);
     } finally {
       setSending(false);
       inputRef.current?.focus();
@@ -268,7 +460,35 @@ export default function ChatWidgetPage() {
   };
 
   return (
-    <div className="flex h-dvh flex-col bg-white text-neutral-900">
+    <div
+      className="relative flex h-dvh flex-col bg-white text-neutral-900"
+      onDragEnter={(e) => {
+        if (!ui.attachmentsEnabled || !session) return;
+        e.preventDefault();
+        dragDepth.current += 1;
+        setDragging(true);
+      }}
+      onDragOver={(e) => {
+        if (!ui.attachmentsEnabled || !session) return;
+        e.preventDefault();
+      }}
+      onDragLeave={() => {
+        dragDepth.current = Math.max(0, dragDepth.current - 1);
+        if (dragDepth.current === 0) setDragging(false);
+      }}
+      onDrop={(e) => {
+        if (!ui.attachmentsEnabled || !session) return;
+        e.preventDefault();
+        dragDepth.current = 0;
+        setDragging(false);
+        if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files);
+      }}
+    >
+      {dragging && (
+        <div className="pointer-events-none absolute inset-2 z-10 flex items-center justify-center rounded-xl border-2 border-dashed border-neutral-400 bg-white/85 text-sm font-medium text-neutral-600">
+          Drop to attach
+        </div>
+      )}
       <header className="flex items-center justify-between border-b border-neutral-200 px-4 py-3">
         <div className="flex items-center gap-2.5">
           {ui.avatarUrl && (
@@ -386,16 +606,45 @@ export default function ChatWidgetPage() {
                 {m.author === "agent" && (
                   <p className="mb-0.5 text-[11px] text-neutral-500">{who}</p>
                 )}
-                <div
-                  className={[
-                    "whitespace-pre-wrap rounded-2xl px-3.5 py-2 text-sm leading-relaxed",
-                    m.author === "visitor"
-                      ? "rounded-br-sm bg-neutral-900 text-white"
-                      : "rounded-bl-sm bg-neutral-100 text-neutral-900",
-                  ].join(" ")}
-                >
-                  {m.text}
-                </div>
+                {m.attachments?.map((a) => {
+                  const href = fileUrl(a.pathname);
+                  const isImage = a.contentType.startsWith("image/");
+                  return (
+                    <a
+                      key={a.id}
+                      href={href}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="mb-1 block overflow-hidden rounded-2xl border border-neutral-200"
+                      title={a.name}
+                    >
+                      {isImage ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={href}
+                          alt={a.name}
+                          className="max-h-56 w-full bg-neutral-50 object-contain"
+                        />
+                      ) : (
+                        <span className="flex items-center gap-2 bg-neutral-50 px-3 py-2 text-xs text-neutral-700">
+                          <FileIcon /> {a.name}
+                        </span>
+                      )}
+                    </a>
+                  );
+                })}
+                {m.text && (
+                  <div
+                    className={[
+                      "whitespace-pre-wrap rounded-2xl px-3.5 py-2 text-sm leading-relaxed",
+                      m.author === "visitor"
+                        ? "rounded-br-sm bg-neutral-900 text-white"
+                        : "rounded-bl-sm bg-neutral-100 text-neutral-900",
+                    ].join(" ")}
+                  >
+                    {m.text}
+                  </div>
+                )}
               </div>
             </div>
           );
@@ -425,7 +674,69 @@ export default function ChatWidgetPage() {
       </div>
 
       <div className="border-t border-neutral-200 p-3">
+        {staged.length > 0 && (
+          <div className="mb-2 flex flex-wrap gap-2">
+            {staged.map((f) => (
+              <div
+                key={f.key}
+                className={[
+                  "relative flex items-center gap-2 rounded-lg border px-2 py-1.5 text-[11px]",
+                  f.error ? "border-red-200 bg-red-50 text-red-700" : "border-neutral-200 bg-neutral-50",
+                ].join(" ")}
+              >
+                {f.previewUrl && !f.error ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={f.previewUrl} alt="" className="size-8 rounded object-cover" />
+                ) : (
+                  <FileIcon />
+                )}
+                <span className="max-w-28 truncate">{f.name}</span>
+                <span className={f.error ? "" : "text-neutral-400"}>
+                  {f.error ?? (f.uploadId ? humanSize(f.size) : "uploading…")}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => removeStaged(f.key)}
+                  aria-label={`Remove ${f.name}`}
+                  className="ml-0.5 text-neutral-400 transition hover:text-neutral-700"
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                    <path d="M18 6 6 18M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
         <div className="flex items-end gap-2">
+          {ui.attachmentsEnabled && (
+            <>
+              <input
+                ref={fileRef}
+                type="file"
+                multiple
+                accept="image/png,image/jpeg,image/gif,image/webp,application/pdf"
+                className="hidden"
+                onChange={(e) => {
+                  if (e.target.files) addFiles(e.target.files);
+                  // Reset so picking the same file twice in a row still fires.
+                  e.target.value = "";
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                disabled={!session || sending || staged.length >= MAX_STAGED}
+                aria-label="Attach a file"
+                title="Attach a screenshot or PDF"
+                className="rounded-xl p-2.5 text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-800 disabled:opacity-40"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+                </svg>
+              </button>
+            </>
+          )}
           <textarea
             ref={inputRef}
             rows={1}
@@ -445,7 +756,7 @@ export default function ChatWidgetPage() {
           />
           <button
             onClick={() => void send()}
-            disabled={!input.trim() || !session || sending}
+            disabled={(!input.trim() && !readyIds.length) || !session || sending || uploading}
             aria-label="Send message"
             className="rounded-xl bg-neutral-900 px-3 py-2.5 text-white transition hover:bg-neutral-700 disabled:opacity-40"
           >

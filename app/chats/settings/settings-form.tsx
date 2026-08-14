@@ -23,6 +23,8 @@ interface Settings {
   launcherPosition: "left" | "right";
   avatarUrl?: string;
   requireIdentity: boolean;
+  attachmentsEnabled: boolean;
+  maxAttachmentMb: number;
   enabled: boolean;
   allowedOrigins: string[];
   debounceSeconds: number;
@@ -149,6 +151,19 @@ export default function ChatSettingsForm() {
               </span>
             </label>
             <label className="flex items-start gap-2.5">
+              <Checkbox
+                checked={form.attachmentsEnabled}
+                onCheckedChange={(v) => set("attachmentsEnabled", !!v)}
+              />
+              <span className="text-sm">
+                Let visitors attach screenshots and PDFs
+                <span className="block text-[11px] text-muted-foreground">
+                  Images are read by a vision model so Jetta can answer about them, and they ride onto
+                  the Freshdesk ticket if the chat is escalated.
+                </span>
+              </span>
+            </label>
+            <label className="flex items-start gap-2.5">
               <Checkbox checked={form.handoffEnabled} onCheckedChange={(v) => set("handoffEnabled", !!v)} />
               <span className="text-sm">
                 Let Jetta hand a live chat to a person
@@ -171,6 +186,17 @@ export default function ChatSettingsForm() {
               type="number"
               value={form.handoffTimeoutMinutes}
               onChange={(e) => set("handoffTimeoutMinutes", Number(e.target.value))}
+            />
+          </Field>
+          <Field
+            label="Largest attachment (MB)"
+            hint="Capped at 25 — Freshdesk refuses anything larger when a chat becomes a ticket."
+          >
+            <Input
+              type="number"
+              value={form.maxAttachmentMb}
+              disabled={!form.attachmentsEnabled}
+              onChange={(e) => set("maxAttachmentMb", Number(e.target.value))}
             />
           </Field>
           <Field label="Slack channel for handoff pings" hint="Blank uses the escalation channel.">

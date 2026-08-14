@@ -191,6 +191,17 @@ export const config = {
     rateLimitPerHour: Number(env("JETTACHAT_RATE_LIMIT_PER_HOUR") ?? "60"),
     /** How long transcripts are retained before Redis expires them. */
     retentionDays: Number(env("JETTACHAT_RETENTION_DAYS") ?? "90"),
+    /** Largest file a visitor may attach, in MB. */
+    maxAttachmentMb: Number(env("JETTACHAT_MAX_ATTACHMENT_MB") ?? "10"),
+  },
+
+  blob: {
+    /**
+     * Vercel Blob, where visitor attachments live. Injected by the linked blob
+     * store; absent locally until `vercel env pull`, in which case uploads are
+     * refused with a message rather than crashing the chat.
+     */
+    token: env("BLOB_READ_WRITE_TOKEN"),
   },
 
   fastspring: {

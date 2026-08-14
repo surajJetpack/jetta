@@ -7,6 +7,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { refreshDailyRollup, yesterdayKey } from "@/lib/daily-overview";
 import { pruneTopics } from "@/lib/kv";
+import { pruneExpiredFiles } from "@/lib/chat-files";
+import { getChatSettings } from "@/lib/chat-settings";
 import { logOpsEvent } from "@/lib/events";
 
 export const runtime = "nodejs";
@@ -31,12 +33,20 @@ export async function GET(req: NextRequest) {
     // Cap the topic vocabulary here rather than on the ticket path — one-off
     // labels from odd tickets age out instead of crowding the triage prompt.
     await pruneTopics().catch(() => {});
+    // Chat attachments have no TTL of their own — blob storage would keep
+    // customer screenshots forever otherwise, well past the retention window
+    // the transcripts obey.
+    const pruned = await pruneExpiredFiles((await getChatSettings()).retentionDays).catch((e) => {
+      console.warn("attachment prune failed:", e instanceof Error ? e.message : e);
+      return { deleted: 0 };
+    });
     await logOpsEvent({
       level: "info",
       event: "cron.daily_overview_run",
       source: "cron",
       data: {
         date,
+        attachmentsPruned: pruned.deleted,
         tickets: rollup.outcomes.total,
         escalated: rollup.outcomes.escalated,
         insightGenerated: !!rollup.insight,
