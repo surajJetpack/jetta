@@ -10,9 +10,9 @@
  * token, rate limit), plus the file checks in lib/chat-files.ts.
  */
 import { NextRequest } from "next/server";
-import { channelUnavailable, chatJson, overRateLimit, preflight } from "@/lib/chat-http";
+import { channelUnavailable, chatJson, overUploadLimit, preflight } from "@/lib/chat-http";
 import { getChatSettings } from "@/lib/chat-settings";
-import { storeUpload } from "@/lib/chat-files";
+import { claimConversationSlot, storeUpload } from "@/lib/chat-files";
 import { logOpsEvent } from "@/lib/events";
 import * as store from "@/lib/chat-store";
 
@@ -52,10 +52,10 @@ export async function POST(req: NextRequest) {
   const conv = await store.getConversation(conversationId);
   if (!conv) return await chatJson(req, { expired: true }, { status: 410 });
 
-  // Uploads count against the same per-IP budget as messages. A file is more
-  // expensive than a message, so it is deliberately not given its own
-  // allowance on top.
-  if (await overRateLimit(req)) {
+  // Uploads have their own hourly budget, well below the message limit: each
+  // one costs storage for the retention window plus a vision call, and this
+  // endpoint is open to anyone on the internet.
+  if (await overUploadLimit(req)) {
     await logOpsEvent({
       level: "warn",
       event: "chat.rate_limited",
@@ -63,7 +63,30 @@ export async function POST(req: NextRequest) {
       ticketId: conversationId,
       data: { on: "upload" },
     });
-    return await chatJson(req, { error: "too many uploads, please slow down" }, { status: 429 });
+    return await chatJson(
+      req,
+      { error: "That's a lot of files in one go — give it a few minutes." },
+      { status: 429 },
+    );
+  }
+
+  // ...and a lifetime cap per conversation, so one session cannot spend the
+  // hourly allowance over and over.
+  if (!(await claimConversationSlot(conversationId, settings.uploadsPerConversation, settings.retentionDays))) {
+    await logOpsEvent({
+      level: "warn",
+      event: "chat.upload_cap_reached",
+      source: "jettachat",
+      ticketId: conversationId,
+      data: { limit: settings.uploadsPerConversation },
+    });
+    return await chatJson(
+      req,
+      {
+        error: `That's the file limit for one conversation (${settings.uploadsPerConversation}). Describe the rest and I'll help from there.`,
+      },
+      { status: 429 },
+    );
   }
 
   const file = form.get("file");

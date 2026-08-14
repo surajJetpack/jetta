@@ -128,6 +128,9 @@ export default function ChatWidgetPage() {
   // element crossed, so a plain flag flickers the overlay off mid-drag.
   const dragDepth = useRef(0);
   const createdUrls = useRef<string[]>([]);
+  // Mirrors `staged` so addFiles can read the current list without doing its
+  // work inside a state updater. Kept in sync on every render below.
+  const stagedRef = useRef<StagedFile[]>([]);
 
   /**
    * Attachments are private: the file route wants proof, and an <img> cannot
@@ -334,53 +337,67 @@ export default function ChatWidgetPage() {
     [session],
   );
 
+  /**
+   * Stage files and start uploading them.
+   *
+   * Everything here happens OUTSIDE the state updater on purpose. Starting an
+   * upload (and minting an object URL) from inside `setStaged(prev => …)` made
+   * every attachment upload twice: React re-invokes updater functions to catch
+   * impure ones, so the side effect ran twice for one click. Two blobs, two
+   * vision calls, two bills, for one screenshot.
+   *
+   * `stagedRef` mirrors the state so the room calculation can happen out here
+   * and still be correct when two batches arrive in the same tick.
+   */
   const addFiles = useCallback(
     (files: FileList | File[]) => {
       if (!ui.attachmentsEnabled || !session) return;
-      const list = Array.from(files);
-      setStaged((prev) => {
-        const room = MAX_STAGED - prev.length;
-        if (room <= 0) {
-          setError(`You can attach up to ${MAX_STAGED} files at a time.`);
-          return prev;
-        }
-        const next = [...prev];
-        for (const file of list.slice(0, room)) {
-          const key = `${file.name}-${file.size}-${Math.random().toString(36).slice(2)}`;
-          // Size is checked here as well as on the server so an oversized file
-          // fails instantly instead of after a slow upload.
-          if (file.size > ui.maxAttachmentMb * 1024 * 1024) {
-            next.push({
-              key,
-              name: file.name,
-              size: file.size,
-              contentType: file.type,
-              error: `Too large (max ${ui.maxAttachmentMb} MB)`,
-            });
-            continue;
-          }
-          next.push({
+
+      const room = MAX_STAGED - stagedRef.current.length;
+      if (room <= 0) {
+        setError(`You can attach up to ${MAX_STAGED} files at a time.`);
+        return;
+      }
+
+      const added: StagedFile[] = [];
+      const toUpload: { file: File; key: string }[] = [];
+      for (const file of Array.from(files).slice(0, room)) {
+        const key = `${file.name}-${file.size}-${Math.random().toString(36).slice(2)}`;
+        // Size is checked here as well as on the server so an oversized file
+        // fails instantly instead of after a slow upload.
+        if (file.size > ui.maxAttachmentMb * 1024 * 1024) {
+          added.push({
             key,
             name: file.name,
             size: file.size,
             contentType: file.type,
-            previewUrl: stagePreview(file, createdUrls),
+            error: `Too large (max ${ui.maxAttachmentMb} MB)`,
           });
-          void uploadFile(file, key);
+          continue;
         }
-        return next;
-      });
+        added.push({
+          key,
+          name: file.name,
+          size: file.size,
+          contentType: file.type,
+          previewUrl: stagePreview(file, createdUrls),
+        });
+        toUpload.push({ file, key });
+      }
+
+      stagedRef.current = [...stagedRef.current, ...added];
+      setStaged(stagedRef.current);
       setError(null);
+      for (const { file, key } of toUpload) void uploadFile(file, key);
     },
     [session, ui.attachmentsEnabled, ui.maxAttachmentMb, uploadFile],
   );
 
   const removeStaged = (key: string) => {
-    setStaged((prev) => {
-      const hit = prev.find((s) => s.key === key);
-      if (hit?.previewUrl) URL.revokeObjectURL(hit.previewUrl);
-      return prev.filter((s) => s.key !== key);
-    });
+    const hit = stagedRef.current.find((s) => s.key === key);
+    if (hit?.previewUrl) URL.revokeObjectURL(hit.previewUrl);
+    stagedRef.current = stagedRef.current.filter((s) => s.key !== key);
+    setStaged(stagedRef.current);
   };
 
   // Pasting is how a screenshot actually arrives — Cmd+Shift+4 then Cmd+V,
@@ -404,6 +421,11 @@ export default function ChatWidgetPage() {
     const urls = createdUrls.current;
     return () => urls.forEach((u) => URL.revokeObjectURL(u));
   }, []);
+
+  // One place keeping the mirror true, whichever path changed the list.
+  useEffect(() => {
+    stagedRef.current = staged;
+  }, [staged]);
 
   // ── Sending ──────────────────────────────────────────────────────
   // Uploads still in flight block the send: the message would otherwise arrive

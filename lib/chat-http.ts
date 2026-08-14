@@ -71,6 +71,22 @@ export async function overRateLimit(req: NextRequest): Promise<boolean> {
 }
 
 /**
+ * Uploads get their own, much smaller hourly budget.
+ *
+ * A message costs a Redis write. An upload costs a blob write, storage for the
+ * retention window, and a vision call — every one of them, before any human is
+ * involved. Sharing the message allowance meant one IP could spend sixty of
+ * those an hour, and the LLM bill was the larger half of that.
+ *
+ * A person sends one or two screenshots. The gap between that and the limit is
+ * the point: it should never be reached by real use.
+ */
+export async function overUploadLimit(req: NextRequest): Promise<boolean> {
+  const n = await rateCount(`jetta:chat:uploadrate:${clientIp(req)}`, 3600);
+  return n > (await getChatSettings()).uploadsPerHour;
+}
+
+/**
  * Guard every chat route: the channel must be switched on and a token secret
  * must exist. Returns a response to send back, or null to continue.
  *

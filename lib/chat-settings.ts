@@ -70,6 +70,14 @@ export interface ChatSettings {
   /** Wait this long after the newest message so a three-part thought gets one answer. */
   debounceSeconds: number;
   rateLimitPerHour: number;
+  /**
+   * Hourly upload budget per IP — separate from, and far below, the message
+   * limit. Each upload costs storage plus a vision call, so this is the knob
+   * that bounds what an anonymous endpoint can spend.
+   */
+  uploadsPerHour: number;
+  /** Total files one conversation may ever upload, sent or abandoned. */
+  uploadsPerConversation: number;
   retentionDays: number;
   /** Whether Jetta may hand a live conversation to a person at all. */
   handoffEnabled: boolean;
@@ -156,6 +164,8 @@ export function defaultSettings(): ChatSettings {
     allowedOrigins: config.jettachat.allowedOrigins,
     debounceSeconds: config.jettachat.debounceSeconds,
     rateLimitPerHour: config.jettachat.rateLimitPerHour,
+    uploadsPerHour: config.jettachat.uploadsPerHour,
+    uploadsPerConversation: config.jettachat.uploadsPerConversation,
     retentionDays: config.jettachat.retentionDays,
     handoffEnabled: true,
     handoffTimeoutMinutes: 3,
@@ -213,6 +223,11 @@ export async function saveChatSettings(
 
   next.debounceSeconds = clamp(Number(next.debounceSeconds), 0, 60, current.debounceSeconds);
   next.rateLimitPerHour = clamp(Number(next.rateLimitPerHour), 1, 10_000, current.rateLimitPerHour);
+  // Ceilings kept deliberately low. These are the two numbers standing between
+  // a public endpoint and an unbounded storage-plus-LLM bill, and there is no
+  // legitimate reason to raise either into the hundreds.
+  next.uploadsPerHour = clamp(Number(next.uploadsPerHour), 1, 200, current.uploadsPerHour);
+  next.uploadsPerConversation = clamp(Number(next.uploadsPerConversation), 1, 100, current.uploadsPerConversation);
   next.retentionDays = clamp(Number(next.retentionDays), 1, 3650, current.retentionDays);
   next.handoffTimeoutMinutes = clamp(Number(next.handoffTimeoutMinutes), 1, 120, current.handoffTimeoutMinutes);
   // 25 MB ceiling: Freshdesk refuses attachments above 20 MB, so anything
