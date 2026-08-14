@@ -75,11 +75,16 @@ export function linkifyMondayIds(
   // excluded: "jetpackteam.monday.com" appearing in the text says nothing about
   // where the customer's boards live.
   const ourSlug = /https?:\/\/([a-z0-9-]+)\.monday\.com/i.exec(base)?.[1]?.toLowerCase();
-  const candidates = [...text.matchAll(/https?:\/\/([a-z0-9-]+)\.monday\.com/gi)]
-    .map((m) => m[1].toLowerCase())
-    .filter((slug) => slug !== ourSlug && slug !== "www");
-  const explicit = /https?:\/\/([a-z0-9-]+)\.monday\.com/i.exec(opts.accountUrl ?? "")?.[1];
-  const customerSlug = explicit?.toLowerCase() ?? candidates[0];
+  // OUR account must be filtered out of BOTH sources, not just the message
+  // body. An escalation usually links its dev item first, so taking the first
+  // monday URL unfiltered picked jetpackteam and then pointed the customer's
+  // board id at our own workspace — the precise wrong-account link this whole
+  // function exists to avoid.
+  const slugsIn = (s: string) =>
+    [...s.matchAll(/https?:\/\/([a-z0-9-]+)\.monday\.com/gi)]
+      .map((m) => m[1].toLowerCase())
+      .filter((slug) => slug !== ourSlug && slug !== "www");
+  const customerSlug = slugsIn(opts.accountUrl ?? "")[0] ?? slugsIn(text)[0];
 
   // "dev board item 123" / "dev item 123", directly.
   const DEV_ITEM = /\b(dev(?:elopment)?[\s-]?board\s+item|dev\s+item)\b([\s:#]*)(\d{6,})\b/gi;

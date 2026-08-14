@@ -108,8 +108,28 @@ async function main() {
     threads = [];
     for (const ts of files) {
       try {
-        const r = await slack<{ messages: Msg[] }>("conversations.replies", { channel: channelId, ts });
-        threads.push(r.messages);
+        let messages: Msg[];
+        try {
+          const r = await slack<{ messages: Msg[] }>("conversations.replies", { channel: channelId, ts });
+          messages = r.messages;
+        } catch (e) {
+          // Escalations posted before the parent+thread split have no replies,
+          // and conversations.replies rejects a ts that isn't part of a thread.
+          if (!(e instanceof Error) || !e.message.includes("invalid_arguments")) throw e;
+          const r = await slack<{ messages: Msg[] }>("conversations.history", {
+            channel: channelId,
+            latest: ts,
+            oldest: ts,
+            inclusive: true,
+            limit: 1,
+          });
+          messages = r.messages;
+        }
+        if (!messages.length) {
+          console.log(`\n${ts}: no message found — skipping`);
+          continue;
+        }
+        threads.push(messages);
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         if (msg.includes("missing_scope")) {

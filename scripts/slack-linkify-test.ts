@@ -81,6 +81,17 @@ check(
   "webhooks are not being created on the source board 5850411194",
 );
 check(
+  "our dev item appearing FIRST does not hijack the customer's board link",
+  // Regression: escalations lead with the dev item, so the first monday URL in
+  // the text is ours. Taking it unfiltered sent the customer's board id to our
+  // own workspace.
+  linkifyMondayIds(
+    `*Dev board item:* <${OURS}/boards/${DEV_BOARD}/pulses/12790471510>\nwebhooks not created on the source board (5850411194). Account is <http://churchstexas.monday.com|churchstexas.monday.com>`,
+    { devBoardId: DEV_BOARD, accountUrl: `<${OURS}/boards/${DEV_BOARD}/pulses/12790471510> <http://churchstexas.monday.com|churchstexas.monday.com>` },
+  ),
+  `*Dev board item:* <${OURS}/boards/${DEV_BOARD}/pulses/12790471510>\nwebhooks not created on the source board (<${CUSTOMER}/boards/5850411194|5850411194>). Account is <http://churchstexas.monday.com|churchstexas.monday.com>`,
+);
+check(
   "our own account in the text is not mistaken for the customer's",
   linkifyMondayIds(`Dev item at ${OURS}/boards/${DEV_BOARD}/pulses/1 — check source board 5850411194`, {
     devBoardId: DEV_BOARD,
