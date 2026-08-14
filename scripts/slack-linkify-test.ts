@@ -93,6 +93,12 @@ check(
   `Account ${CUSTOMER}. Filed on board <${OURS}/boards/${DEV_BOARD}|${DEV_BOARD}>.`,
 );
 
+check(
+  '"Target board is <id>" — a connecting word must not block the link',
+  linkifyMondayIds(`Account ${CUSTOMER}. Target board is 9787413360.`, { devBoardId: DEV_BOARD }),
+  `Account ${CUSTOMER}. Target board is <${CUSTOMER}/boards/9787413360|9787413360>.`,
+);
+
 console.log("\n── things that must be left exactly as they are ──");
 check(
   "an existing Slack link is not linked a second time",

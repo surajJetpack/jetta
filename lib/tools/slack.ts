@@ -93,7 +93,7 @@ export function linkifyMondayIds(
   // "board 5850411194", "source/target/test board 5850411194", "board (5850411194)".
   // The separator is captured rather than assumed, so the author's own spacing
   // and brackets survive the rewrite.
-  const BOARD = /\b((?:source|target|test|shared|connected)?\s*board)\b([\s:#]*(?:id[\s:#]*)?\(?)(\d{6,})\b/gi;
+  const BOARD = /\b((?:source|target|test|shared|connected)?\s*board)\b(\s*(?:is|id)?[\s:#]*\(?)(\d{6,})\b/gi;
 
   const linkOutside = (segment: string): string => {
     let out = segment;
