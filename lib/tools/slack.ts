@@ -71,8 +71,8 @@ function link(url: string | undefined, label: string): string {
 // skipping matches. The TITLED form requires the id in brackets: without that
 // anchor its unquoted-title branch is greedy and swallows a preceding id.
 const DEV_ITEM_KEYWORD = String.raw`\b(dev(?:elopment)?[\s-]?board\s+item|dev\s+item)\b`;
-const DEV_ITEM_SRC = `${DEV_ITEM_KEYWORD}([\\s:#]*)(\\d{6,})\\b`;
-const DEV_ITEM_TITLED_SRC = `${DEV_ITEM_KEYWORD}([\\s:#]*(?:"[^"\\n]{0,90}"|[^()\\n.]{0,60})\\s*)\\((\\d{6,})\\)`;
+const DEV_ITEM_SRC = `${DEV_ITEM_KEYWORD}([\\s:#*_~]*)(\\d{6,})\\b`;
+const DEV_ITEM_TITLED_SRC = `${DEV_ITEM_KEYWORD}([\\s:#*_~]*(?:"[^"\\n]{0,90}"|[^()\\n.]{0,60})\\s*)\\((\\d{6,})\\)`;
 
 /** Bare dev-item ids in prose, for callers that must resolve their boards first. */
 export function devItemIdsIn(text: string): string[] {
@@ -120,7 +120,10 @@ export function linkifyMondayIds(
   // "board 5850411194", "source/target/test board 5850411194", "board (5850411194)".
   // The separator is captured rather than assumed, so the author's own spacing
   // and brackets survive the rewrite.
-  const BOARD = /\b((?:source|target|test|shared|connected)?\s*board)\b(\s*(?:is|id)?[\s:#]*\(?)(\d{6,})\b/gi;
+  // The separator allows Slack's own formatting characters: she writes
+  // "*Source board:* 5850411194", and an asterisk sitting between the label and
+  // the number was quietly defeating every match in real answers.
+  const BOARD = /\b((?:source|target|test|shared|connected)?\s*board)\b(\s*(?:is|id)?[\s:#*_~]*\(?)(\d{6,})\b/gi;
 
   const boardFor = (itemId: string): string | undefined =>
     typeof opts.devBoardId === "function" ? opts.devBoardId(itemId) : opts.devBoardId;

@@ -110,6 +110,21 @@ check(
   `Account ${CUSTOMER}. Target board is <${CUSTOMER}/boards/9787413360|9787413360>.`,
 );
 
+check(
+  "Slack bold markers between the label and the id do not block the match",
+  // Verbatim from a real DM answer, where this silently linked nothing.
+  linkifyMondayIds(
+    `*Source board:* 5850411194\n*Account:* <http://churchstexas.monday.com|churchstexas.monday.com>`,
+    { devBoardId: DEV_BOARD },
+  ),
+  `*Source board:* <${CUSTOMER}/boards/5850411194|5850411194>\n*Account:* <http://churchstexas.monday.com|churchstexas.monday.com>`,
+);
+check(
+  "…and for dev items too",
+  linkifyMondayIds("*Dev item:* 12790471510", { devBoardId: DEV_BOARD }),
+  `*Dev item:* <${OURS}/boards/${DEV_BOARD}/pulses/12790471510|12790471510>`,
+);
+
 console.log("\n── per-item board lookup (Slack DMs, where the product is unknown) ──");
 check(
   "an item on the GetSign board links to the GetSign board, not the default",
