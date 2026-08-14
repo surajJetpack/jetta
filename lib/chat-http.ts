@@ -14,7 +14,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { config } from "./config";
-import { getChatSettings } from "./chat-settings";
+import { getChatSettings, originAllowed } from "./chat-settings";
 import { rateCount } from "./kv";
 
 /**
@@ -31,7 +31,7 @@ export async function corsHeaders(req: NextRequest): Promise<Record<string, stri
   const allowed = (await getChatSettings()).allowedOrigins;
   // Empty allowlist = same-origin only (the /chat page itself), which is the
   // safe default: a fresh deploy can't be embedded anywhere until configured.
-  if (!allowed.includes(origin)) return {};
+  if (!originAllowed(origin, allowed)) return {};
   return {
     "Access-Control-Allow-Origin": origin,
     "Access-Control-Allow-Methods": "GET,POST,OPTIONS",

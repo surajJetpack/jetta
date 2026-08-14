@@ -81,6 +81,40 @@ const PUBLIC_FIELDS = [
 
 export type PublicChatSettings = Pick<ChatSettings, (typeof PUBLIC_FIELDS)[number]>;
 
+/**
+ * Does this origin match an allowlist entry?
+ *
+ * Exact match, plus one wildcard form: `https://*.monday.com` matches any
+ * single-level subdomain. monday app views are served from hosts we do not
+ * control the naming of, so without this the only workable answer is listing
+ * them one by one and discovering each miss as a silently broken widget.
+ *
+ * Deliberately narrow: the wildcard must be the leading label and at least two
+ * labels must follow, so `https://*.com` can never be entered as a rule that
+ * lets the whole internet embed the chat.
+ */
+export function originAllowed(origin: string, allowed: string[]): boolean {
+  if (allowed.includes(origin)) return true;
+  let host: string;
+  let scheme: string;
+  try {
+    const u = new URL(origin);
+    host = u.hostname.toLowerCase();
+    scheme = u.protocol;
+  } catch {
+    return false;
+  }
+  return allowed.some((entry) => {
+    const m = /^(https?:)\/\/\*\.(.+)$/i.exec(entry.trim());
+    if (!m) return false;
+    const [, entryScheme, base] = m;
+    if (entryScheme.toLowerCase() !== scheme) return false;
+    const suffix = base.toLowerCase();
+    if (suffix.split(".").length < 2) return false; // never "*.com"
+    return host.endsWith(`.${suffix}`) && host.length > suffix.length + 1;
+  });
+}
+
 export function publicSettings(s: ChatSettings): PublicChatSettings {
   return Object.fromEntries(PUBLIC_FIELDS.map((k) => [k, s[k]])) as PublicChatSettings;
 }
@@ -168,6 +202,9 @@ export async function saveChatSettings(
         .map((o) => String(o).trim())
         .filter(Boolean)
         .map((o) => {
+          // Wildcard entries are kept verbatim: URL() does not round-trip a "*"
+          // hostname, and normalising it would quietly destroy the rule.
+          if (/^https?:\/\/\*\./i.test(o)) return o.replace(/\/$/, "").toLowerCase();
           try {
             return new URL(o).origin;
           } catch {
