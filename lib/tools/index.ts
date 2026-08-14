@@ -414,8 +414,7 @@ export function buildTools(
           ),
       }),
       execute: async ({ item_id, symptom }) => {
-        const boardId =
-          ctx.product === "getsign" ? config.monday.boardIds.getsign : config.monday.boardIds.jetpackapps;
+        const boardId = monday.boardIdFor(ctx.product);
         const url = `${config.monday.accountUrl}/boards/${boardId}/pulses/${item_id}`;
         mondayItemUrl = url;
         if (dry) return `[dry-run] would add +1 to Dev board item ${item_id}. INTERNAL item URL (private note only): ${url}`;
@@ -529,6 +528,8 @@ export function buildTools(
           mondayItemUrl,
           headline,
           app: ctx.appProduct,
+          // Lets item ids the model wrote in prose resolve to the right board.
+          devBoardId: monday.boardIdFor(ctx.product),
           // Short human label for the channel line — accountUrl() is a long
           // FastSpring href and is absent entirely for monday-billed customers.
           accountLabel: requesterEmail ?? ctx.account?.accountId ?? undefined,

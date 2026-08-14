@@ -46,6 +46,83 @@ function link(url: string | undefined, label: string): string {
   return url && /^https?:\/\//.test(url) ? `<${url}|${label}>` : label;
 }
 
+/**
+ * Turn monday ids the model wrote as prose into clickable links.
+ *
+ * The structured links (ticket, account, dev item) were always linked — but the
+ * model also refers to boards and items inside its own sentences, and those
+ * arrived as bare digits nobody could click: "…failure on source board
+ * 5850411194…", "…same root cause as dev board item 11735712226…". A reader had
+ * to copy the number and go hunting.
+ *
+ * Two different things get linked, and they resolve against different accounts:
+ *   - OUR dev board items → `devBoardId`, which the caller knows from the ticket's
+ *     product.
+ *   - the CUSTOMER's boards → their own monday account, which we only link when a
+ *     monday URL for it appears in the same escalation. A board link pointed at
+ *     the wrong account is worse than plain text, so absent that evidence the id
+ *     is left exactly as written.
+ *
+ * Ids already inside a Slack `<url|label>` are skipped — the split below keeps
+ * existing links intact rather than linking their innards a second time.
+ */
+export function linkifyMondayIds(
+  text: string,
+  opts: { devBoardId?: string; accountUrl?: string } = {},
+): string {
+  const base = config.monday.accountUrl;
+  // The customer's monday account, taken from the escalation itself. Ours is
+  // excluded: "jetpackteam.monday.com" appearing in the text says nothing about
+  // where the customer's boards live.
+  const ourSlug = /https?:\/\/([a-z0-9-]+)\.monday\.com/i.exec(base)?.[1]?.toLowerCase();
+  const candidates = [...text.matchAll(/https?:\/\/([a-z0-9-]+)\.monday\.com/gi)]
+    .map((m) => m[1].toLowerCase())
+    .filter((slug) => slug !== ourSlug && slug !== "www");
+  const explicit = /https?:\/\/([a-z0-9-]+)\.monday\.com/i.exec(opts.accountUrl ?? "")?.[1];
+  const customerSlug = explicit?.toLowerCase() ?? candidates[0];
+
+  // "dev board item 123" / "dev item 123", directly.
+  const DEV_ITEM = /\b(dev(?:elopment)?[\s-]?board\s+item|dev\s+item)\b([\s:#]*)(\d{6,})\b/gi;
+  // The forms the model actually favours, with the item's title in between:
+  //   dev board item "TrackMy not updating after bulk update" (12757964338)
+  //   dev board item: VLookUp Template not working (11735712226)
+  // The id must be parenthesised here — without that anchor an unquoted title
+  // could run on into a following clause and swallow an unrelated number.
+  const DEV_ITEM_TITLED =
+    /\b(dev(?:elopment)?[\s-]?board\s+item|dev\s+item)\b([\s:#]*(?:"[^"\n]{0,90}"|[^()\n.]{0,60})\s*)\((\d{6,})\)/gi;
+  // "board 5850411194", "source/target/test board 5850411194", "board (5850411194)".
+  // The separator is captured rather than assumed, so the author's own spacing
+  // and brackets survive the rewrite.
+  const BOARD = /\b((?:source|target|test|shared|connected)?\s*board)\b([\s:#]*(?:id[\s:#]*)?\(?)(\d{6,})\b/gi;
+
+  const linkOutside = (segment: string): string => {
+    let out = segment;
+    if (opts.devBoardId) {
+      const devLink = (id: string) => `<${base}/boards/${opts.devBoardId}/pulses/${id}|${id}>`;
+      out = out.replace(DEV_ITEM_TITLED, (m, kw: string, mid: string, id: string) =>
+        // "dev item helped, board 5850411194" must not read as an item id — if
+        // the words in between mention a board, this is a different subject.
+        /\bboards?\b/i.test(mid) ? m : `${kw}${mid}(${devLink(id)})`,
+      );
+      out = out.replace(DEV_ITEM, (_m, kw: string, mid: string, id: string) => `${kw}${mid}${devLink(id)}`);
+    }
+    if (customerSlug) {
+      out = out.replace(BOARD, (_m, kw: string, sep: string, id: string) => {
+        // Our own dev board id in prose is ours, not theirs.
+        const slug = id === opts.devBoardId ? ourSlug : customerSlug;
+        return `${kw}${sep}<https://${slug}.monday.com/boards/${id}|${id}>`;
+      });
+    }
+    return out;
+  };
+
+  // Preserve anything already inside <…>: Slack links, mailto:, channel refs.
+  return text
+    .split(/(<[^<>]*>)/g)
+    .map((part) => (part.startsWith("<") && part.endsWith(">") ? part : linkOutside(part)))
+    .join("");
+}
+
 /** Human-readable app name for message headlines. */
 export function appLabel(app: string): string {
   const names: Record<string, string> = {
@@ -87,6 +164,8 @@ export interface EscalationInput {
   headline: string;
   /** Which app the escalation concerns, for the headline prefix. */
   app?: string;
+  /** Our dev board for this product — lets prose item ids become links. */
+  devBoardId?: string;
   /** Short account label for the links line (email or slug), not a URL. */
   accountLabel?: string;
   /** Ticket reference for the links line, e.g. "#13842". */
@@ -107,6 +186,20 @@ export interface EscalationInput {
  */
 export async function sendEscalation(input: EscalationInput): Promise<{ ts: string }> {
   const channel = config.slack.escalationChannel ?? "#jetta-escalations";
+  // Model-authored prose only. The structured refs below are already links, and
+  // the customer's account is resolved across the whole escalation rather than
+  // per field, so a board id in the question still links when the account URL
+  // only appears in the summary.
+  const linkify = (t: string) =>
+    linkifyMondayIds(t, {
+      devBoardId: input.devBoardId,
+      accountUrl: [input.userAccountUrl, input.summary, input.alreadyTried, input.question]
+        .filter(Boolean)
+        .join("\n"),
+    });
+  const question = linkify(input.question);
+  const summary = linkify(input.summary);
+  const alreadyTried = linkify(input.alreadyTried);
   const prefix = input.app ? `${appLabel(input.app)} · ` : "";
   const refs = [
     link(input.freshdeskTicketUrl, input.ticketRef ?? "Ticket"),
@@ -115,22 +208,25 @@ export async function sendEscalation(input: EscalationInput): Promise<{ ts: stri
   ].filter(Boolean);
 
   const parent = [
-    `:rotating_light: *${prefix}${clamp(input.headline, HEADLINE_MAX)}*`,
+    // clamp() would cut mid-link and leave broken markup in the channel, so the
+    // headline is shortened before linking and the question falls back to its
+    // plain form whenever it needs truncating (the thread carries it in full).
+    `:rotating_light: *${prefix}${linkify(clamp(input.headline, HEADLINE_MAX))}*`,
     refs.join(" · "),
-    `:question: ${clamp(input.question, QUESTION_MAX)}`,
+    `:question: ${clamped(input.question, QUESTION_MAX) ? clamp(input.question, QUESTION_MAX) : question}`,
   ].join("\n");
   const ts = await postMessage(channel, parent);
 
   const detail = [
     // Only repeat what the parent had to shorten — otherwise it's pure duplication.
     ...(clamped(input.question, QUESTION_MAX)
-      ? [`*Question for the team*`, input.question.trim(), ""]
+      ? [`*Question for the team*`, question.trim(), ""]
       : []),
     `*Issue*`,
-    input.summary.trim(),
+    summary.trim(),
     "",
     `*Already tried*`,
-    bulletize(input.alreadyTried),
+    bulletize(alreadyTried),
     "",
     `*Links*`,
     `Ticket: ${input.freshdeskTicketUrl}`,

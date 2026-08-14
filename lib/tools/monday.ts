@@ -14,7 +14,7 @@ const GRAPHQL = "https://api.monday.com/v2";
 const FILE_UPLOAD = "https://api.monday.com/v2/file";
 
 /** "unknown"-product tickets fall back to the general jetpackapps board. */
-function boardIdFor(product: Product): string | undefined {
+export function boardIdFor(product: Product): string | undefined {
   return product === "getsign" ? config.monday.boardIds.getsign : config.monday.boardIds.jetpackapps;
 }
 
