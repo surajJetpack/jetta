@@ -551,12 +551,29 @@ export default function ChatWidgetPage() {
             });
           }}
         >
-          <div>
-            <p className="text-sm font-semibold">Before we start</p>
-            <p className="mt-1 text-xs text-neutral-500">
-              So we can pick this up by email if we need to.
-            </p>
+          {/*
+            The greeting belongs HERE, not only in the message list.
+            It was previously rendered behind this gate, so the one screen a
+            first-time visitor actually reads — the form — said nothing about
+            who Jetta is or what she can help with, while the welcome sat on a
+            screen you only reach by filling the form in.
+          */}
+          <p className="text-sm leading-relaxed text-neutral-700">{ui.greeting}</p>
+
+          <div className="flex items-center gap-2" aria-hidden>
+            <span className="h-px flex-1 bg-neutral-200" />
+            <span className="text-[11px] font-medium text-neutral-400">Before we start</span>
+            <span className="h-px flex-1 bg-neutral-200" />
           </div>
+
+          {/*
+            Framed as the visitor's insurance rather than our convenience —
+            "so we can pick this up by email if we need to" describes our
+            process, which is not a reason for them to hand over an address.
+          */}
+          <p className="text-xs text-neutral-500">
+            Leave your name and email so we can still reach you if the chat gets cut off.
+          </p>
           <input
             autoFocus
             value={nameInput}
@@ -579,14 +596,43 @@ export default function ChatWidgetPage() {
           >
             Start chatting
           </button>
+          {/*
+            A promise, so it is measured rather than written: across the chats
+            in the store the slowest first reply was 55s and the median 14s.
+            "Instantly" would have been a lie by a factor of ten.
+          */}
+          <p className="text-center text-[11px] text-neutral-400">
+            Typically answers in under a minute
+            {ui.attachmentsEnabled ? " · screenshots welcome" : ""}
+          </p>
         </form>
       ) : (
       <>
       <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
+        {/*
+            The greeting again, but as a message rather than a paragraph.
+
+            Suppressing it after the gate had shown it left the pane entirely blank,
+            which reads as broken; repeating it as flat grey text read as a
+            glitch. Dressed as Jetta's opening line — avatar, bubble — it is
+            neither: the visitor read it as intro copy on the form, and now she
+            says it. That is also how it behaves for visitors who skip the gate.
+        */}
         {messages.length === 0 && !error && (
-          <p className="text-sm text-neutral-500">
-            {ui.greeting}
-          </p>
+          <div className="flex items-end justify-start gap-2">
+            {ui.avatarUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={ui.avatarUrl} alt="" className="mb-0.5 size-6 shrink-0 rounded-full object-cover" />
+            ) : (
+              <span className="mb-0.5 size-6 shrink-0 rounded-full bg-neutral-200" aria-hidden />
+            )}
+            <div className="max-w-[85%]">
+              <p className="mb-0.5 text-[11px] text-neutral-500">{ui.title}</p>
+              <div className="rounded-2xl rounded-bl-sm bg-neutral-100 px-3.5 py-2 text-sm leading-relaxed text-neutral-900">
+                {ui.greeting}
+              </div>
+            </div>
+          </div>
         )}
 
         {messages.map((m) => {
