@@ -184,10 +184,39 @@ function assistantTools(): ToolSet {
   };
 }
 
+/**
+ * Pure pleasantries — the whole message, not merely containing one. Anchored on
+ * purpose: "thanks, can you also check 13955?" opens with an acknowledgement but
+ * is real work, and must not be answered by the cheap path.
+ */
+const SMALL_TALK =
+  /^(?:hi|hii+|hey+|hello+|yo|hiya|howdy|good (?:morning|afternoon|evening)|morning|afternoon|evening|thanks?|thank you|thx|ta|cheers|ok|okay|k|got it|understood|cool|nice|great|perfect|awesome|lovely|sounds good|no worries|np|bye|goodbye|see ya|later|gm|gn)\b[\s!.,?…\-–—]*$/iu;
+
+/**
+ * Which model answers. Small talk needs no lookup and no reasoning, so paying
+ * standard-tier latency for it is what made a plain "hello" take 56 seconds —
+ * the one complaint the DM surface actually drew on day one.
+ *
+ * Everything else stays on standard: this is a colleague asking about live
+ * customer tickets, and a cheap wrong answer costs far more than the tokens
+ * saved. When in doubt it must return "standard".
+ */
+export function tierForMessage(text: string): "light" | "standard" {
+  const t = text.trim().replace(/<@[^>]+>/g, "").trim();
+  if (!t) return "light";
+  // Strip emoji before matching rather than trying to enumerate them in the
+  // pattern: people wave ("Hey 👋") and react ("👍") far more than they
+  // punctuate, and an emoji-only message is an acknowledgement too.
+  const stripped = t.replace(/[\p{Extended_Pictographic}\uFE0F\u200D]/gu, "").trim();
+  if (!stripped) return "light";
+  return SMALL_TALK.test(stripped) ? "light" : "standard";
+}
+
 export interface SlackAnswer {
   text: string;
   toolsUsed: string[];
   model: string;
+  tier: "light" | "standard";
 }
 
 /**
@@ -195,12 +224,18 @@ export interface SlackAnswer {
  * already mapped to user/assistant roles.
  */
 export async function answerInSlack(messages: ModelMessage[]): Promise<SlackAnswer> {
+  // Classified on the latest user turn — each message is judged on its own, so
+  // a "thanks" at the end of a long investigation is still cheap.
+  const lastUser = [...messages].reverse().find((m) => m.role === "user");
+  const tier = tierForMessage(typeof lastUser?.content === "string" ? lastUser.content : "");
   const result = await generateText({
-    model: getModel("standard"),
+    model: getModel(tier),
     system: `${SYSTEM}\n\nThe Freshdesk domain is ${config.freshdesk.domain ?? "jetpackwork.freshdesk.com"}; link tickets as <https://${config.freshdesk.domain ?? "jetpackwork.freshdesk.com"}/a/tickets/ID|#ID>.`,
     messages,
-    tools: assistantTools(),
-    stopWhen: (s) => s.steps.length >= MAX_STEPS,
+    // No tools on the cheap path: small talk has nothing to look up, and
+    // withholding them removes any chance of it wandering into a lookup that
+    // would cost more than the tier saved.
+    ...(tier === "standard" ? { tools: assistantTools(), stopWhen: (s: { steps: unknown[] }) => s.steps.length >= MAX_STEPS } : {}),
   });
 
   const toolsUsed = result.steps.flatMap((s) => s.toolCalls?.map((c) => c.toolName) ?? []);
@@ -210,7 +245,8 @@ export async function answerInSlack(messages: ModelMessage[]): Promise<SlackAnsw
     // than posting a blank message into the thread.
     text: text || "I looked but couldn't put an answer together — try rephrasing, or ask me for the ticket directly.",
     toolsUsed,
-    model: modelLabel("standard"),
+    model: modelLabel(tier),
+    tier,
   };
 }
 

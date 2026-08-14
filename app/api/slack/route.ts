@@ -374,7 +374,7 @@ async function handleDirectMessage(
     event: "slack.dm_answered",
     source: "slack",
     actor: userId,
-    data: { chars: answer.text.length, tools: answer.toolsUsed, model: answer.model },
+    data: { chars: answer.text.length, tools: answer.toolsUsed, model: answer.model, tier: answer.tier },
   });
 }
 
