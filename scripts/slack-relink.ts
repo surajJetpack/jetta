@@ -1,14 +1,18 @@
 /**
  * Re-link monday ids in escalations Jetta already posted.
  *
- *   npx tsx --env-file=.env.local scripts/slack-relink.ts <threads.json> --channel C0… [--commit]
+ *   npx tsx --env-file=.env.local scripts/slack-relink.ts <ts> [<ts> …] [--commit]
+ *   npx tsx --env-file=.env.local scripts/slack-relink.ts <threads.json> [--commit]
  *
  * DRY RUN BY DEFAULT — prints a before/after diff and writes nothing.
  *
- * The message text is supplied in a file rather than fetched: Jetta's bot token
- * carries chat:write but not groups:history, so she can edit her own posts in a
- * private channel without being able to read them back. Capture the originals
- * with a client that can read, as:
+ * Given message timestamps it reads the threads itself, which needs
+ * groups:history on Jetta's bot token (chat:write alone lets her edit her own
+ * posts in a private channel without being able to read them back). Without
+ * that scope it says so and stops.
+ *
+ * The file form is the fallback for exactly that case: capture the originals
+ * with a client that can read, as
  *   [ [ {"ts": "…", "text": "…"}, …thread… ], …more threads… ]
  *
  * Edits in place via chat.update rather than delete-and-repost: the thread
@@ -30,7 +34,10 @@ import { config } from "../lib/config";
 const args = process.argv.slice(2);
 const commit = args.includes("--commit");
 const flagIndex = args.indexOf("--channel");
-const files = args.filter((a, i) => !a.startsWith("--") && i !== flagIndex + 1);
+// Guard the -1: without the flag, `flagIndex + 1` is 0 and would silently
+// swallow the first positional argument.
+const channelValueIdx = flagIndex >= 0 ? flagIndex + 1 : -1;
+const files = args.filter((a, i) => !a.startsWith("--") && i !== channelValueIdx);
 
 const CHANNEL = config.slack.escalationChannel ?? "#jetta-escalations";
 
@@ -68,8 +75,7 @@ function show(label: string, before: string, after: string) {
 
 async function main() {
   if (!config.slack.botToken) throw new Error("SLACK_BOT_TOKEN not set");
-  if (files.length !== 1) throw new Error("pass exactly one threads.json path");
-  const threads = JSON.parse(readFileSync(files[0], "utf8")) as Msg[][];
+  if (!files.length) throw new Error("pass message timestamps, or one threads.json path");
 
   // chat.update needs a channel id. Accept one directly (--channel C…, or a
   // config value that is already an id) and only fall back to a name lookup,
@@ -91,6 +97,32 @@ async function main() {
 
   const devBoardId = boardIdFor("jetpackapps");
   console.log(`channel ${CHANNEL} (${channelId}) · dev board ${devBoardId} · ${commit ? "COMMIT" : "DRY RUN"}`);
+
+  // Timestamps → read the threads ourselves. A .json path → use the text in it.
+  const fromFile = files.length === 1 && files[0].endsWith(".json");
+  let threads: Msg[][];
+  if (fromFile) {
+    threads = JSON.parse(readFileSync(files[0], "utf8")) as Msg[][];
+    console.log(`reading ${threads.length} thread(s) from ${files[0]}`);
+  } else {
+    threads = [];
+    for (const ts of files) {
+      try {
+        const r = await slack<{ messages: Msg[] }>("conversations.replies", { channel: channelId, ts });
+        threads.push(r.messages);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (msg.includes("missing_scope")) {
+          throw new Error(
+            "Jetta's token cannot read this channel — add the groups:history bot scope at " +
+              "api.slack.com/apps → OAuth & Permissions, then reinstall the app. " +
+              "Until then, capture the text elsewhere and pass a threads.json instead.",
+          );
+        }
+        throw e;
+      }
+    }
+  }
 
   let edited = 0;
   for (const thread of threads) {
