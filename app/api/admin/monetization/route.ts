@@ -11,6 +11,7 @@
  * still bounded by MONDAY_MONETIZATION_ALLOW_WRITES.
  */
 import { NextRequest, NextResponse } from "next/server";
+import { requireAdmin } from "@/lib/roles";
 import { adminAuthorized, adminActor } from "@/lib/auth";
 import { listMonetApprovals } from "@/lib/kv";
 import { resolveMonetApproval } from "@/lib/monetization-approvals";
@@ -29,6 +30,9 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  // Admin-only: this grants a trial extension or a discount — it spends money.
+  const denied = requireAdmin(req);
+  if (denied) return denied;
   if (!adminAuthorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const actor = adminActor(req) ?? "console";
   const { id, action } = (await req.json().catch(() => ({}))) as { id?: string; action?: string };

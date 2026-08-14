@@ -28,7 +28,7 @@ const ENDPOINTS = [
 ] as const;
 
 export default async function Home() {
-  const { locked, user } = await gate();
+  const { locked, user, isAdmin } = await gate();
   if (locked) redirect("/login?next=%2F");
 
   const integrations: { name: string; live: boolean; note?: string }[] = [
@@ -41,7 +41,7 @@ export default async function Home() {
 
   return (
     <div className="mx-auto max-w-4xl space-y-5 px-5 pt-8 pb-20">
-      <Nav current="console" user={user} />
+      <Nav current="console" user={user} isAdmin={isAdmin} />
 
       <Card>
         <CardHeader>

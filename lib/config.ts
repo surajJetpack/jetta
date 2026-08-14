@@ -305,6 +305,15 @@ export const config = {
    * contain colons). Unset = dev-open console, matching the old unset-secret rule.
    */
   consoleUsers: env("CONSOLE_USERS"),
+  /**
+   * Console usernames with admin rights. Everyone else in CONSOLE_USERS is a
+   * general user. Deliberately an env var and not a console setting: a role
+   * system that a non-admin can edit is not a role system.
+   */
+  consoleAdmins: (env("CONSOLE_ADMINS") ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean),
 
   /** HMAC key for session cookies; falls back to ADMIN_SECRET. */
   sessionSecret: env("SESSION_SECRET") ?? env("ADMIN_SECRET"),

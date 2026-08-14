@@ -19,23 +19,25 @@ export const dynamic = "force-dynamic";
  * genuinely easy to skim — that is the whole job of this page.
  */
 export default async function ChatsPage() {
-  const { locked, user } = await gate();
+  const { locked, user, isAdmin } = await gate();
   if (locked) redirect("/login?next=%2Fchats");
 
   const conversations = await listConversations(100);
 
   return (
     <div className="mx-auto max-w-4xl space-y-5 px-5 pt-8 pb-20">
-      <Nav current="chats" user={user} />
+      <Nav current="chats" user={user} isAdmin={isAdmin} />
 
-      <div className="flex flex-wrap gap-3">
-        <Link href="/chats/settings" className="text-xs text-primary hover:underline">
-          Chat settings
-        </Link>
-        <Link href="/chats/install" className="text-xs text-primary hover:underline">
-          Installation instructions
-        </Link>
-      </div>
+      {isAdmin && (
+        <div className="flex flex-wrap gap-3">
+          <Link href="/chats/settings" className="text-xs text-primary hover:underline">
+            Chat settings
+          </Link>
+          <Link href="/chats/install" className="text-xs text-primary hover:underline">
+            Installation instructions
+          </Link>
+        </div>
+      )}
 
       <div className="flex items-baseline justify-between">
         <h2 className="text-sm font-semibold">Chat conversations</h2>

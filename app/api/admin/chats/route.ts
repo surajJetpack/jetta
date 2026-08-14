@@ -18,6 +18,34 @@ import { logOpsEvent } from "@/lib/events";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+/**
+ * Read side for the console.
+ *   ?id=…    one conversation, polled while someone has it open
+ *   ?waiting=1  how many visitors are waiting for a person, for the nav badge
+ *
+ * Polled rather than streamed: the visitor-facing SSE route exists because a
+ * widget must feel instant, while a colleague reading a transcript is served
+ * fine by a few seconds' delay — and polling costs nothing to keep alive
+ * across a serverless boundary.
+ */
+export async function GET(req: NextRequest) {
+  if (!adminAuthorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const id = req.nextUrl.searchParams.get("id");
+  if (id) {
+    const conv = await store.getConversation(id);
+    if (!conv) return NextResponse.json({ error: "not found" }, { status: 404 });
+    return NextResponse.json({ conversation: conv });
+  }
+  if (req.nextUrl.searchParams.get("waiting")) {
+    const convs = await store.listConversations(100);
+    return NextResponse.json({
+      waiting: convs.filter((c) => c.status === "waiting_human").length,
+      live: convs.filter((c) => c.status === "human").length,
+    });
+  }
+  return NextResponse.json({ conversations: await store.listConversations(100) });
+}
+
 export async function POST(req: NextRequest) {
   if (!adminAuthorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const actor = adminActor(req) ?? "console";

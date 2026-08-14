@@ -7,6 +7,7 @@
  * wearing the same clothes as a colour picker.
  */
 import { NextRequest, NextResponse } from "next/server";
+import { requireAdmin } from "@/lib/roles";
 import { adminActor, adminAuthorized } from "@/lib/auth";
 import { getChatSettings, saveChatSettings, defaultSettings, type ChatSettings } from "@/lib/chat-settings";
 import { config } from "@/lib/config";
@@ -30,6 +31,10 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  // Admin-only: the allowed-origins list decides which sites may embed the
+  // chat, which is a security control rather than a preference.
+  const denied = requireAdmin(req);
+  if (denied) return denied;
   if (!adminAuthorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const actor = adminActor(req) ?? "console";
   const patch = (await req.json().catch(() => null)) as Partial<ChatSettings> | null;

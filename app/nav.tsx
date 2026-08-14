@@ -5,6 +5,7 @@ import LogoutButton from "./logout-button";
 import { GuideBanner } from "./guide-banner";
 import { ThemeToggle } from "@/components/jetta/theme-toggle";
 import { PendingMonetBadge } from "@/components/jetta/pending-monet-badge";
+import { ChatWaitingBadge } from "@/components/jetta/chat-waiting-badge";
 
 /**
  * Drafts is deliberately absent. Agents read Jetta's suggestion as a Freshdesk
@@ -13,6 +14,9 @@ import { PendingMonetBadge } from "@/components/jetta/pending-monet-badge";
  * sent (/evals → "Learn from human replies"). The page still exists at /drafts
  * as an archive, and the private note still links to it.
  */
+/** Tabs whose whole purpose is an admin-only action. Hidden, not disabled. */
+const ADMIN_ONLY_TABS = new Set(["billing"]);
+
 const TABS = [
   { href: "/today", label: "Today", id: "today" },
   { href: "/", label: "Console", id: "console" },
@@ -25,7 +29,17 @@ const TABS = [
 ];
 
 /** Shared header + tab bar. Auth rides the session cookie — no key in links. */
-export function Nav({ current, user }: { current: string; user: string }) {
+export function Nav({
+  current,
+  user,
+  isAdmin = true,
+}: {
+  current: string;
+  user: string;
+  /** Defaults to admin so a page that forgets to pass it fails visible, not silent. */
+  isAdmin?: boolean;
+}) {
+  const tabs = TABS.filter((t) => isAdmin || !ADMIN_ONLY_TABS.has(t.id));
   return (
     <>
       <header className="mb-5 flex items-center justify-between gap-3">
@@ -55,7 +69,7 @@ export function Nav({ current, user }: { current: string; user: string }) {
 
       <nav className="-mx-5 overflow-x-auto px-5 pb-0.5 [scrollbar-width:none]" aria-label="Sections">
         <div className="inline-flex gap-1 rounded-lg border bg-card p-1 shadow-sm">
-          {TABS.map((t) => (
+          {tabs.map((t) => (
             <Link
               key={t.id}
               href={t.href}
@@ -68,6 +82,7 @@ export function Nav({ current, user }: { current: string; user: string }) {
               )}
             >
               {t.label}
+              {t.id === "chats" && <ChatWaitingBadge active={t.id === current} />}
               {t.id === "billing" && <PendingMonetBadge active={t.id === current} />}
             </Link>
           ))}

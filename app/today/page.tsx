@@ -11,11 +11,11 @@ export const dynamic = "force-dynamic";
  * view — cost, tokens and model quality deliberately don't appear here.
  */
 export default async function TodayPage() {
-  const { locked, user } = await gate();
+  const { locked, user, isAdmin } = await gate();
   if (locked) redirect("/login?next=%2Ftoday");
   return (
     <div className="mx-auto max-w-4xl space-y-5 px-5 pt-8 pb-20">
-      <Nav current="today" user={user} />
+      <Nav current="today" user={user} isAdmin={isAdmin} />
       <TodayBrief />
     </div>
   );

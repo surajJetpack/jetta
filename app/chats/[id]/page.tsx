@@ -3,6 +3,7 @@ import Link from "next/link";
 import { gate } from "@/lib/console-auth";
 import { Nav } from "../../nav";
 import LiveReply from "./live-reply";
+import LiveTranscript from "./live-transcript";
 import { getConversation } from "@/lib/chat-store";
 import { getRunLogsByTicket } from "@/lib/kv";
 import { config } from "@/lib/config";
@@ -24,7 +25,7 @@ export default async function ChatDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const { locked, user } = await gate();
+  const { locked, user, isAdmin } = await gate();
   if (locked) redirect(`/login?next=${encodeURIComponent(`/chats/${id}`)}`);
 
   const conv = await getConversation(id);
@@ -34,7 +35,7 @@ export default async function ChatDetailPage({
 
   return (
     <div className="mx-auto max-w-4xl space-y-5 px-5 pt-8 pb-20">
-      <Nav current="chats" user={user} />
+      <Nav current="chats" user={user} isAdmin={isAdmin} />
 
       <Link href="/chats" className="text-xs text-muted-foreground hover:underline">
         ← All chats
@@ -94,36 +95,7 @@ export default async function ChatDetailPage({
         </dl>
       </Card>
 
-      <section className="space-y-2">
-        <h2 className="text-sm font-semibold">Transcript</h2>
-        {conv.messages.map((m) => (
-          <div key={m.id} className={m.author === "visitor" ? "flex justify-start" : "flex justify-end"}>
-            <div
-              className={
-                m.author === "visitor"
-                  ? "max-w-[80%] rounded-lg rounded-bl-sm bg-muted px-3 py-2 text-sm whitespace-pre-wrap"
-                  : m.via === "human"
-                    ? "max-w-[80%] rounded-lg rounded-br-sm border border-primary/40 bg-primary/5 px-3 py-2 text-sm whitespace-pre-wrap"
-                    : "max-w-[80%] rounded-lg rounded-br-sm bg-primary/10 px-3 py-2 text-sm whitespace-pre-wrap"
-              }
-            >
-              <p className="mb-0.5 text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
-                {/* Which of us said it. Reviewing Jetta's answers is impossible
-                    if a colleague's reply is labelled with her name — and every
-                    message predating handoff was hers, so undefined reads as Jetta. */}
-                {m.author === "visitor"
-                  ? "Customer"
-                  : m.via === "human"
-                    ? `${m.authorName ?? "Team"} (human)`
-                    : "Jetta"}{" "}
-                ·{" "}
-                <RelativeTime at={Math.floor(Date.parse(m.createdAt) / 1000)} />
-              </p>
-              {m.text}
-            </div>
-          </div>
-        ))}
-      </section>
+      <LiveTranscript conversationId={conv.id} initial={conv.messages} />
 
       <section className="space-y-2">
         <h2 className="text-sm font-semibold">Agent runs ({runs.length})</h2>

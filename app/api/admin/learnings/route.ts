@@ -12,6 +12,7 @@
  * replaces. Only approved learnings are injected into replies.
  */
 import { NextRequest, NextResponse } from "next/server";
+import { requireAdmin } from "@/lib/roles";
 import { adminAuthorized, adminActor } from "@/lib/auth";
 import {
   EVAL_TAGS,
@@ -67,6 +68,10 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  // Admin-only: approving a learning injects it into every reply Jetta writes
+  // from then on. That reach is the whole reason for the gate.
+  const denied = requireAdmin(req);
+  if (denied) return denied;
   if (!adminAuthorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const { id, action, text, category, product } = (await req.json().catch(() => ({}))) as {
     id?: string;
