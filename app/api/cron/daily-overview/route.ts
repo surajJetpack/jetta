@@ -28,18 +28,24 @@ export async function GET(req: NextRequest) {
   }
 
   const date = yesterdayKey();
+
+  // Retention runs FIRST and outside the try, deliberately.
+  //
+  // Chat attachments have no TTL of their own — blob storage would keep
+  // customer screenshots forever, well past the window the transcripts obey.
+  // Hanging that off the rollup meant a deletion promise depended on an LLM
+  // call succeeding: one bad narrative and nothing was pruned that day, with
+  // no signal except storage quietly climbing.
+  const pruned = await pruneExpiredFiles((await getChatSettings()).retentionDays).catch((e) => {
+    console.warn("attachment prune failed:", e instanceof Error ? e.message : e);
+    return { deleted: 0 };
+  });
+
   try {
     const rollup = await refreshDailyRollup(date);
     // Cap the topic vocabulary here rather than on the ticket path — one-off
     // labels from odd tickets age out instead of crowding the triage prompt.
     await pruneTopics().catch(() => {});
-    // Chat attachments have no TTL of their own — blob storage would keep
-    // customer screenshots forever otherwise, well past the retention window
-    // the transcripts obey.
-    const pruned = await pruneExpiredFiles((await getChatSettings()).retentionDays).catch((e) => {
-      console.warn("attachment prune failed:", e instanceof Error ? e.message : e);
-      return { deleted: 0 };
-    });
     await logOpsEvent({
       level: "info",
       event: "cron.daily_overview_run",
@@ -55,7 +61,14 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ status: "ok", date, rollup });
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e);
-    await logOpsEvent({ level: "error", event: "cron.daily_overview_failed", source: "cron", data: { date, error } });
+    await logOpsEvent({
+      level: "error",
+      event: "cron.daily_overview_failed",
+      source: "cron",
+      // Reported on the failure path too, so a run that lost its narrative
+      // still shows that retention was honoured.
+      data: { date, error, attachmentsPruned: pruned.deleted },
+    });
     return NextResponse.json({ status: "error", date, error }, { status: 500 });
   }
 }

@@ -34,6 +34,7 @@ import { put, get, del, list } from "@vercel/blob";
 import { generateText } from "ai";
 import { Redis } from "@upstash/redis";
 import { config } from "./config";
+import { rateCount } from "./kv";
 import { getModel } from "./llm";
 import { imageDimensions } from "./image-dims";
 import { logOpsEvent } from "./events";
@@ -159,6 +160,34 @@ export async function claimPending(
     }
   }
   return out;
+}
+
+/**
+ * Claim one slot of a conversation's lifetime upload allowance.
+ *
+ * Counted here rather than from the conversation's stored attachments,
+ * because a file that was uploaded and never sent costs exactly as much as one
+ * that was — the blob is written, the storage is paid for, the vision call is
+ * spent — and it appears in no message. Counting only sent files would leave
+ * an unbounded hole: upload forever, send nothing.
+ *
+ * Incremented before the work is done, so concurrent uploads cannot race past
+ * the cap. A rejected attempt still consumes its slot, which is the correct
+ * behaviour for a limit whose purpose is to bound spend.
+ *
+ * The counter lives as long as a conversation could: expiring it sooner would
+ * hand back the whole allowance to anyone patient enough to wait.
+ */
+export async function claimConversationSlot(
+  conversationId: string,
+  limit: number,
+  retentionDays: number,
+): Promise<boolean> {
+  const used = await rateCount(
+    `jetta:chat:uploads:${conversationId}`,
+    Math.max(1, retentionDays) * 86400,
+  );
+  return used <= limit;
 }
 
 // ── Upload ─────────────────────────────────────────────────────────

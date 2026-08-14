@@ -193,6 +193,10 @@ export const config = {
     retentionDays: Number(env("JETTACHAT_RETENTION_DAYS") ?? "90"),
     /** Largest file a visitor may attach, in MB. */
     maxAttachmentMb: Number(env("JETTACHAT_MAX_ATTACHMENT_MB") ?? "10"),
+    /** Uploads per IP per hour — its own budget, far below the message limit. */
+    uploadsPerHour: Number(env("JETTACHAT_UPLOADS_PER_HOUR") ?? "10"),
+    /** Total uploads one conversation may make, including ones never sent. */
+    uploadsPerConversation: Number(env("JETTACHAT_UPLOADS_PER_CONVERSATION") ?? "10"),
   },
 
   blob: {

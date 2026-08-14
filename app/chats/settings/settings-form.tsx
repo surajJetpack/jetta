@@ -25,6 +25,8 @@ interface Settings {
   requireIdentity: boolean;
   attachmentsEnabled: boolean;
   maxAttachmentMb: number;
+  uploadsPerHour: number;
+  uploadsPerConversation: number;
   enabled: boolean;
   allowedOrigins: string[];
   debounceSeconds: number;
@@ -197,6 +199,28 @@ export default function ChatSettingsForm() {
               value={form.maxAttachmentMb}
               disabled={!form.attachmentsEnabled}
               onChange={(e) => set("maxAttachmentMb", Number(e.target.value))}
+            />
+          </Field>
+          <Field
+            label="Uploads per visitor per hour"
+            hint="Every upload costs storage plus a vision call on a public endpoint. Real people send one or two."
+          >
+            <Input
+              type="number"
+              value={form.uploadsPerHour}
+              disabled={!form.attachmentsEnabled}
+              onChange={(e) => set("uploadsPerHour", Number(e.target.value))}
+            />
+          </Field>
+          <Field
+            label="Files per conversation (lifetime)"
+            hint="Counts files that were uploaded and never sent, since those cost the same."
+          >
+            <Input
+              type="number"
+              value={form.uploadsPerConversation}
+              disabled={!form.attachmentsEnabled}
+              onChange={(e) => set("uploadsPerConversation", Number(e.target.value))}
             />
           </Field>
           <Field label="Slack channel for handoff pings" hint="Blank uses the escalation channel.">
