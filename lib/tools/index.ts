@@ -378,6 +378,30 @@ export function buildTools(
       execute: async ({ symptom }) => JSON.stringify(await monday.searchDevBoard(symptom, ctx.product)),
     }),
 
+    read_dev_item_comments: tool({
+      description:
+        "Read the comments engineering has left on a Dev board item. Call this BEFORE add_plus_one on an existing item — it may already be fixed, or a dev may have asked for information you can collect from the customer now. STRICTLY INTERNAL: these are engineers talking to each other. Never quote them, never name an engineer, and never repeat a version, date or sprint from them to the customer.",
+      inputSchema: z.object({ item_id: z.string().describe("Dev board item id, digits only.") }),
+      execute: async ({ item_id }) => {
+        const item = await monday.getItemUpdates(item_id, 10).catch(() => null);
+        if (!item) return `No Dev board item ${item_id} found.`;
+        if (!item.updates.length) {
+          return `Dev item "${item.name}" exists but has no comments yet — nobody has posted an update. Do not tell the customer anything about progress.`;
+        }
+        return JSON.stringify({
+          item: item.name,
+          updates: item.updates.map((u) => ({
+            at: u.at,
+            author: u.author,
+            text: u.text.slice(0, 1200),
+            replies: u.replies.map((r) => ({ author: r.author, text: r.text.slice(0, 500) })),
+          })),
+          reminder:
+            "INTERNAL engineering notes. Use them to decide what to do and what to ask. Do not quote, name anyone, or promise a timeline.",
+        });
+      },
+    }),
+
     create_dev_item: tool({
       description:
         "Create a new Dev board item with full context. Only after search_dev_board finds no existing master item.",
