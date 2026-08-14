@@ -54,6 +54,15 @@ export interface ChatSettings {
   /** Ask for name and email before the first message. */
   requireIdentity: boolean;
   /**
+   * Open the chat by itself this many seconds after the page loads. 0 is off.
+   *
+   * Public because the widget decides locally — the alternative is the loader
+   * fetching settings on every page view of a marketing site, and the config
+   * response carries the avatar, so that is a ~120 kB request per page view to
+   * answer one number.
+   */
+  autoOpenSeconds: number;
+  /**
    * Whether visitors may attach files. Public because the widget has to know
    * whether to show the paperclip — and a button that uploads into a disabled
    * endpoint is worse than no button.
@@ -101,6 +110,7 @@ const PUBLIC_FIELDS = [
   "launcherPosition",
   "avatarUrl",
   "requireIdentity",
+  "autoOpenSeconds",
   "attachmentsEnabled",
   "maxAttachmentMb",
 ] as const;
@@ -157,6 +167,10 @@ export function defaultSettings(): ChatSettings {
     launcherPosition: "right",
     avatarUrl: undefined,
     requireIdentity: true,
+    // Off by default. A chat window that opens itself is an interruption, and
+    // it should be a decision someone made rather than something that arrived
+    // with a deploy.
+    autoOpenSeconds: 0,
     attachmentsEnabled: true,
     maxAttachmentMb: config.jettachat.maxAttachmentMb,
 
@@ -226,6 +240,9 @@ export async function saveChatSettings(
   // Ceilings kept deliberately low. These are the two numbers standing between
   // a public endpoint and an unbounded storage-plus-LLM bill, and there is no
   // legitimate reason to raise either into the hundreds.
+  // Floor of 0 (off). No ceiling worth arguing about — 5 minutes in, nobody is
+  // still reading the page.
+  next.autoOpenSeconds = clamp(Number(next.autoOpenSeconds), 0, 300, current.autoOpenSeconds);
   next.uploadsPerHour = clamp(Number(next.uploadsPerHour), 1, 200, current.uploadsPerHour);
   next.uploadsPerConversation = clamp(Number(next.uploadsPerConversation), 1, 100, current.uploadsPerConversation);
   next.retentionDays = clamp(Number(next.retentionDays), 1, 3650, current.retentionDays);

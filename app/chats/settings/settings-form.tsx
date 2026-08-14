@@ -23,6 +23,7 @@ interface Settings {
   launcherPosition: "left" | "right";
   avatarUrl?: string;
   requireIdentity: boolean;
+  autoOpenSeconds: number;
   attachmentsEnabled: boolean;
   maxAttachmentMb: number;
   uploadsPerHour: number;
@@ -176,6 +177,16 @@ export default function ChatSettingsForm() {
             </label>
           </div>
 
+          <Field
+            label="Open the chat by itself after (seconds)"
+            hint="0 is off. Once per visitor per day, never after they close it, never on phones."
+          >
+            <Input
+              type="number"
+              value={form.autoOpenSeconds}
+              onChange={(e) => set("autoOpenSeconds", Number(e.target.value))}
+            />
+          </Field>
           <Field label="Wait before replying (seconds)" hint="Lets a visitor finish a three-message thought before Jetta answers.">
             <Input
               type="number"

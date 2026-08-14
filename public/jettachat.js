@@ -41,6 +41,38 @@
   var surface = config.surface || data.surface || "wordpress";
   var visitor = config.visitor || {};
   var STORAGE_KEY = "jettachat.session";
+  var AUTO_OPEN_KEY = "jettachat.autoopened";
+
+  /**
+   * Don't interrupt the same person twice in a day.
+   *
+   * A chat that opens itself is already pushing its luck; one that does it on
+   * every page of a site the visitor is browsing is an advert. The stamp lives
+   * on the PARENT page, not in the iframe, for the same reason the session
+   * does — third-party storage inside the frame is partitioned or blocked, so
+   * an iframe-side memory would forget on every page and nag on every page.
+   */
+  var AUTO_OPEN_EVERY_MS = 24 * 60 * 60 * 1000;
+
+  function autoOpenedRecently() {
+    try {
+      var last = Number(localStorage.getItem(AUTO_OPEN_KEY) || 0);
+      return last > 0 && Date.now() - last < AUTO_OPEN_EVERY_MS;
+    } catch {
+      // Storage blocked (private mode). Treat as "already interrupted" — the
+      // safe failure is not opening, because we would have no way to remember
+      // that we did and would do it again on the next page.
+      return true;
+    }
+  }
+
+  function rememberAutoOpen() {
+    try {
+      localStorage.setItem(AUTO_OPEN_KEY, String(Date.now()));
+    } catch {
+      // Nothing to do; the check above already fails closed.
+    }
+  }
 
   function readSession() {
     try {
@@ -63,6 +95,10 @@
   // ── UI ───────────────────────────────────────────────────────────
   var open = false;
   var unread = 0;
+  // Set the moment the visitor closes the panel themselves. Someone who has
+  // just dismissed the chat has answered the question; re-opening on a timer
+  // would be arguing with them.
+  var dismissed = false;
 
   var root = document.createElement("div");
   root.setAttribute("data-jettachat", "");
@@ -145,6 +181,7 @@
   }
 
   launcher.addEventListener("click", function () {
+    if (open) dismissed = true;
     setOpen(!open);
   });
 
@@ -173,7 +210,19 @@
         renderBadge();
       }
     } else if (msg.type === "jettachat:close") {
+      dismissed = true;
       setOpen(false);
+    } else if (msg.type === "jettachat:autoopen") {
+      // The frame asked; the parent decides. Every one of these is a reason
+      // not to interrupt someone.
+      if (open) return; // already reading it
+      if (dismissed) return; // they closed it — that was an answer
+      if (autoOpenedRecently()) return; // not twice in a day
+      // Not on phones. The panel is most of a small screen, so opening it
+      // unasked hides the page the visitor came for.
+      if (window.innerWidth < 640) return;
+      rememberAutoOpen();
+      setOpen(true);
     }
   });
 
