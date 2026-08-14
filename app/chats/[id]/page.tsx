@@ -102,11 +102,21 @@ export default async function ChatDetailPage({
               className={
                 m.author === "visitor"
                   ? "max-w-[80%] rounded-lg rounded-bl-sm bg-muted px-3 py-2 text-sm whitespace-pre-wrap"
-                  : "max-w-[80%] rounded-lg rounded-br-sm bg-primary/10 px-3 py-2 text-sm whitespace-pre-wrap"
+                  : m.via === "human"
+                    ? "max-w-[80%] rounded-lg rounded-br-sm border border-primary/40 bg-primary/5 px-3 py-2 text-sm whitespace-pre-wrap"
+                    : "max-w-[80%] rounded-lg rounded-br-sm bg-primary/10 px-3 py-2 text-sm whitespace-pre-wrap"
               }
             >
               <p className="mb-0.5 text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
-                {m.author === "visitor" ? "Customer" : "Jetta"} ·{" "}
+                {/* Which of us said it. Reviewing Jetta's answers is impossible
+                    if a colleague's reply is labelled with her name — and every
+                    message predating handoff was hers, so undefined reads as Jetta. */}
+                {m.author === "visitor"
+                  ? "Customer"
+                  : m.via === "human"
+                    ? `${m.authorName ?? "Team"} (human)`
+                    : "Jetta"}{" "}
+                ·{" "}
                 <RelativeTime at={Math.floor(Date.parse(m.createdAt) / 1000)} />
               </p>
               {m.text}

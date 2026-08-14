@@ -140,8 +140,21 @@ export type ChatSurface = "wordpress" | "monday" | "unknown";
 /** One turn in a JettaChat conversation. */
 export interface ChatMessage {
   id: string;
-  /** "visitor" is the customer; "agent" is Jetta (or a human replying later). */
+  /** "visitor" is the customer; "agent" is our side of the conversation. */
   author: "visitor" | "agent";
+  /**
+   * Which of us wrote it. Absent on messages written before handoff existed,
+   * which were all Jetta — so undefined reads as "jetta" everywhere.
+   *
+   * The visitor is told: being handed to a person and not knowing it happened
+   * is worse than not being handed over at all, and a reviewer reading a
+   * transcript cannot judge Jetta's answers without knowing which were hers.
+   */
+  via?: "jetta" | "human";
+  /** Display name for a human's message — the console user who sent it. */
+  authorName?: string;
+  /** A system line ("X joined the chat") rather than something someone typed. */
+  system?: boolean;
   text: string;
   createdAt: string;
 }

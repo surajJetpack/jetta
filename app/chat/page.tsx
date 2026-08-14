@@ -40,6 +40,7 @@ interface UiConfig {
   greeting: string;
   placeholder: string;
   accentColor: string;
+  avatarUrl?: string;
   requireIdentity: boolean;
 }
 const DEFAULT_UI: UiConfig = {
@@ -269,9 +270,15 @@ export default function ChatWidgetPage() {
   return (
     <div className="flex h-dvh flex-col bg-white text-neutral-900">
       <header className="flex items-center justify-between border-b border-neutral-200 px-4 py-3">
-        <div>
-          <p className="text-sm font-semibold">{ui.title}</p>
-          <p className="text-xs text-neutral-500">{ui.subtitle}</p>
+        <div className="flex items-center gap-2.5">
+          {ui.avatarUrl && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={ui.avatarUrl} alt="" className="size-8 shrink-0 rounded-full object-cover" />
+          )}
+          <div>
+            <p className="text-sm font-semibold">{ui.title}</p>
+            <p className="text-xs text-neutral-500">{ui.subtitle}</p>
+          </div>
         </div>
         <button
           onClick={() => post("jettachat:close")}
@@ -340,23 +347,59 @@ export default function ChatWidgetPage() {
           </p>
         )}
 
-        {messages.map((m) => (
-          <div
-            key={m.id}
-            className={m.author === "visitor" ? "flex justify-end" : "flex justify-start"}
-          >
+        {messages.map((m) => {
+          const human = m.via === "human";
+          const who = human ? (m.authorName ?? "Support") : ui.title;
+          // A system line ("X joined the chat") is neither side talking, so it
+          // is centred and quiet rather than dressed as a message.
+          if (m.system) {
+            return (
+              <p key={m.id} className="py-1 text-center text-[11px] text-neutral-400">
+                {m.text}
+              </p>
+            );
+          }
+          return (
             <div
-              className={[
-                "max-w-[85%] whitespace-pre-wrap rounded-2xl px-3.5 py-2 text-sm leading-relaxed",
-                m.author === "visitor"
-                  ? "rounded-br-sm bg-neutral-900 text-white"
-                  : "rounded-bl-sm bg-neutral-100 text-neutral-900",
-              ].join(" ")}
+              key={m.id}
+              className={m.author === "visitor" ? "flex justify-end" : "flex items-end gap-2 justify-start"}
             >
-              {m.text}
+              {m.author === "agent" &&
+                (human ? (
+                  // A person gets initials in the accent colour, not the bot's
+                  // face — the visitor should be able to see at a glance that
+                  // someone real is now typing.
+                  <span
+                    className="mb-0.5 flex size-6 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold text-white"
+                    style={{ backgroundColor: ui.accentColor }}
+                    aria-hidden
+                  >
+                    {who.slice(0, 2).toUpperCase()}
+                  </span>
+                ) : ui.avatarUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={ui.avatarUrl} alt="" className="mb-0.5 size-6 shrink-0 rounded-full object-cover" />
+                ) : (
+                  <span className="mb-0.5 size-6 shrink-0 rounded-full bg-neutral-200" aria-hidden />
+                ))}
+              <div className="max-w-[85%]">
+                {m.author === "agent" && (
+                  <p className="mb-0.5 text-[11px] text-neutral-500">{who}</p>
+                )}
+                <div
+                  className={[
+                    "whitespace-pre-wrap rounded-2xl px-3.5 py-2 text-sm leading-relaxed",
+                    m.author === "visitor"
+                      ? "rounded-br-sm bg-neutral-900 text-white"
+                      : "rounded-bl-sm bg-neutral-100 text-neutral-900",
+                  ].join(" ")}
+                >
+                  {m.text}
+                </div>
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
 
         {typing && (
           <div className="flex justify-start">

@@ -44,6 +44,13 @@ export interface ChatSettings {
   accentColor: string;
   launcherLabel: string;
   launcherPosition: "left" | "right";
+  /**
+   * Bot avatar, as a data URI. Stored inline rather than in blob storage: an
+   * avatar is a few kB, this document is already read on every chat request,
+   * and it avoids standing up a bucket for one image. Capped on save so it
+   * cannot grow into something that belongs in a CDN.
+   */
+  avatarUrl?: string;
   /** Ask for name and email before the first message. */
   requireIdentity: boolean;
 
@@ -76,6 +83,7 @@ const PUBLIC_FIELDS = [
   "accentColor",
   "launcherLabel",
   "launcherPosition",
+  "avatarUrl",
   "requireIdentity",
 ] as const;
 
@@ -129,6 +137,7 @@ export function defaultSettings(): ChatSettings {
     accentColor: "#171717",
     launcherLabel: "Chat with us",
     launcherPosition: "right",
+    avatarUrl: undefined,
     requireIdentity: true,
 
     enabled: true,
@@ -169,6 +178,8 @@ export function clearSettingsCache(): void {
 }
 
 const HEX = /^#[0-9a-f]{6}$/i;
+/** ~100 kB of base64. A 96px avatar is a few kB; this is a ceiling, not a target. */
+const AVATAR_MAX_CHARS = 140_000;
 
 /**
  * Validate and persist a patch. Returns the merged result.
@@ -216,6 +227,16 @@ export async function saveChatSettings(
   ];
   for (const k of ["title", "subtitle", "greeting", "placeholder", "launcherLabel"] as const) {
     next[k] = String(next[k] ?? "").slice(0, 400);
+  }
+
+  // Avatar: an inline image or nothing. A remote URL is refused rather than
+  // stored, because the widget renders on customer sites and a third-party
+  // image request from there is both a privacy leak and someone else's uptime.
+  const avatar = next.avatarUrl?.trim();
+  if (!avatar) {
+    next.avatarUrl = undefined;
+  } else if (!/^data:image\/(png|jpeg|webp|gif|svg\+xml);base64,/i.test(avatar) || avatar.length > AVATAR_MAX_CHARS) {
+    next.avatarUrl = current.avatarUrl;
   }
 
   next.updatedAt = Date.now();

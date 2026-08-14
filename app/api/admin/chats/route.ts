@@ -39,7 +39,11 @@ export async function POST(req: NextRequest) {
     // visitor is told a person arrived, because a silent change of voice
     // mid-conversation is disorienting.
     await store.updateConversation(conversationId, { status: "human", humanAgent: actor });
-    await store.appendMessage(conversationId, "agent", `${actor} has joined the chat.`);
+    await store.appendMessage(conversationId, "agent", `${actor} has joined the chat.`, {
+      via: "human",
+      authorName: actor,
+      system: true,
+    });
     await logOpsEvent({
       level: "info",
       event: "chat.human_joined",
@@ -60,7 +64,7 @@ export async function POST(req: NextRequest) {
     if (conv.status !== "human") {
       await store.updateConversation(conversationId, { status: "human", humanAgent: actor });
     }
-    await store.appendMessage(conversationId, "agent", body);
+    await store.appendMessage(conversationId, "agent", body, { via: "human", authorName: actor });
     await logOpsEvent({
       level: "info",
       event: "chat.human_replied",

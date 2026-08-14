@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { RotateCw, TriangleAlert, Save } from "lucide-react";
+import { RotateCw, TriangleAlert, Save, Image as ImageIcon } from "lucide-react";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -21,6 +21,7 @@ interface Settings {
   accentColor: string;
   launcherLabel: string;
   launcherPosition: "left" | "right";
+  avatarUrl?: string;
   requireIdentity: boolean;
   enabled: boolean;
   allowedOrigins: string[];
@@ -213,6 +214,49 @@ export default function ChatSettingsForm() {
               />
             </div>
           </Field>
+          <div className="sm:col-span-2">
+            <Field
+              label="Chat avatar"
+              hint="Shown in the header and beside Jetta's messages. A square PNG or WebP around 96px. Stored with the settings, so keep it small — under 100 kB."
+            >
+              <div className="flex items-center gap-3">
+                <span className="flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-full border bg-muted">
+                  {form.avatarUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={form.avatarUrl} alt="" className="size-full object-cover" />
+                  ) : (
+                    <ImageIcon className="size-5 text-muted-foreground" />
+                  )}
+                </span>
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
+                  className="text-xs file:mr-3 file:rounded-md file:border file:bg-background file:px-3 file:py-1.5 file:text-xs"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    // 100 kB before base64, which inflates by about a third —
+                    // the server refuses anything over its own ceiling anyway,
+                    // and failing here says why instead of silently reverting.
+                    if (file.size > 100_000) {
+                      toast.error("That image is over 100 kB — resize it and try again.");
+                      e.target.value = "";
+                      return;
+                    }
+                    const reader = new FileReader();
+                    reader.onload = () => set("avatarUrl", String(reader.result));
+                    reader.readAsDataURL(file);
+                  }}
+                />
+                {form.avatarUrl && (
+                  <Button size="sm" variant="ghost" onClick={() => set("avatarUrl", undefined)}>
+                    Remove
+                  </Button>
+                )}
+              </div>
+            </Field>
+          </div>
+
           <Field label="Launcher position">
             <div className="flex gap-2">
               {(["left", "right"] as const).map((p) => (

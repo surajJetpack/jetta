@@ -133,12 +133,18 @@ export async function appendMessage(
   conversationId: string,
   author: ChatMessage["author"],
   text: string,
+  meta: Pick<ChatMessage, "via" | "authorName" | "system"> = {},
 ): Promise<ChatMessage | null> {
   const conv = await getConversation(conversationId);
   if (!conv) return null;
   const msg: ChatMessage = {
     id: crypto.randomUUID(),
     author,
+    // Agent messages default to Jetta: she wrote every one that predates
+    // handoff, and a human's are always tagged explicitly at the call site.
+    ...(author === "agent" ? { via: meta.via ?? "jetta" } : {}),
+    ...(meta.authorName ? { authorName: meta.authorName } : {}),
+    ...(meta.system ? { system: true } : {}),
     text,
     createdAt: nowIso(),
   };
