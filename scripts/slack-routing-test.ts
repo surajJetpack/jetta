@@ -11,6 +11,12 @@
 // Stubbed on purpose: postMessage logs the channel instead of sending, which
 // is exactly what this asserts on. SLACK_LIVE stays unset — setting it would
 // make these checks post into the real workspace.
+// Marks this file a module. Without it, `tsc --noEmit` treats every script with
+// no top-level import as one shared global scope, and the `check` helper each
+// test script defines collides with the next one's — three errors that had
+// nothing to do with this file's own correctness.
+export {};
+
 process.env.STUB_MODE = "true";
 delete process.env.SLACK_LIVE;
 process.env.SLACK_ESCALATION_CHANNEL = "#jetta-escalations";
