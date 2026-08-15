@@ -5,6 +5,7 @@
  * same numbers from one source of truth.
  */
 import { config } from "./config";
+import { freshdeskTicketUrl } from "./tools/freshdesk";
 import type { OutcomeEvent, RunLog } from "./kv";
 
 /**
@@ -90,7 +91,7 @@ export function gapList(outcomes: OutcomeEvent[]): Gap[] {
       subject: o.subject ?? "(no subject)",
       reason: o.kind === "reopened" ? "reopened" : "escalated",
       at: o.at,
-      url: `https://${config.freshdesk.domain ?? "jetpackwork.freshdesk.com"}/a/tickets/${o.ticketId}`,
+      url: freshdeskTicketUrl(o.ticketId),
     });
   }
   return out;

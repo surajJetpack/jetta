@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { freshdeskDomain } from "@/lib/tools/freshdesk";
 import Link from "next/link";
 import { Suspense } from "react";
 import { gate } from "@/lib/console-auth";
@@ -47,7 +48,7 @@ export default async function ChatsPage() {
 
       {/* useSearchParams needs a boundary; the list is already rendered above it. */}
       <Suspense fallback={null}>
-        <ChatInbox initial={conversations} />
+        <ChatInbox initial={conversations} freshdeskDomain={freshdeskDomain()} />
       </Suspense>
     </div>
   );

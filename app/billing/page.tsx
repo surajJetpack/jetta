@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { freshdeskDomain } from "@/lib/tools/freshdesk";
 import { gate } from "@/lib/console-auth";
 import { config } from "@/lib/config";
 import { Nav } from "../nav";
@@ -17,7 +18,7 @@ export default async function BillingPage() {
     <div className="mx-auto max-w-4xl space-y-5 px-5 pt-8 pb-20">
       <Nav current="billing" user={user} isAdmin={isAdmin} canViewAs={isAdmin || viewingAsGeneral} viewingAsGeneral={viewingAsGeneral} />
       <TrialsDiscountsQueue
-        freshdeskDomain={config.freshdesk.domain ?? "jetpackapps.freshdesk.com"}
+        freshdeskDomain={freshdeskDomain()}
         writesEnabled={config.monday.monetization.allowWrites}
       />
     </div>

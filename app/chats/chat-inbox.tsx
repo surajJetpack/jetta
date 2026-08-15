@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import Link from "next/link";
 import { Bot, ExternalLink, Hand, Paperclip, Search, Send, Undo2, UserRound } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -82,7 +81,13 @@ type Filter = "needs_human" | "all" | "open" | "ticketed";
  * Selection lives in the URL (?c=…) so a conversation stays linkable — the
  * Slack handoff ping points at one, and it must survive a refresh.
  */
-export default function ChatInbox({ initial }: { initial: Conv[] }) {
+export default function ChatInbox({
+  initial,
+  freshdeskDomain,
+}: {
+  initial: Conv[];
+  freshdeskDomain: string;
+}) {
   const router = useRouter();
   const params = useSearchParams();
   const selectedId = params.get("c");
@@ -266,6 +271,12 @@ export default function ChatInbox({ initial }: { initial: Conv[] }) {
                   </p>
                   <div className="mt-1 flex flex-wrap items-center gap-1">
                     <StatusChip tone={TONES[c.status]}>{LABELS[c.status]}</StatusChip>
+                    {/* Which ticket this became. Without it the Ticketed
+                        filter is a list of chats with no way to tell them
+                        apart from the ticket you are holding. */}
+                    {c.ticketId && (
+                      <span className="text-[10px] tabular-nums text-muted-foreground">#{c.ticketId}</span>
+                    )}
                     {c.humanAgent && <span className="text-[10px] text-muted-foreground">{c.humanAgent}</span>}
                   </div>
                 </button>
@@ -311,12 +322,19 @@ export default function ChatInbox({ initial }: { initial: Conv[] }) {
               <div className="ml-auto flex shrink-0 items-center gap-1.5">
                 <StatusChip tone={TONES[detail.status]}>{LABELS[detail.status]}</StatusChip>
                 {detail.ticketId && (
-                  <Link
-                    href={`/chats/${detail.id}`}
+                  // Freshdesk, not here. This used to link to /chats/<this
+                  // conversation> — the page you were already on — while
+                  // wearing an external-link icon, so the one control that
+                  // should cross between the two systems went nowhere.
+                  <a
+                    href={`https://${freshdeskDomain}/a/tickets/${detail.ticketId}`}
+                    target="_blank"
+                    rel="noreferrer"
                     className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline"
+                    title="Open this ticket in Freshdesk"
                   >
                     ticket #{detail.ticketId} <ExternalLink className="size-3" />
-                  </Link>
+                  </a>
                 )}
               </div>
             </header>

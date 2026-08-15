@@ -48,9 +48,7 @@ export interface ToolOptions {
   holdCustomerWrites?: boolean;
 }
 
-function ticketUrl(ticketId: string): string {
-  return `https://${config.freshdesk.domain ?? "jetpackapps.freshdesk.com"}/a/tickets/${ticketId}`;
-}
+const ticketUrl = freshdesk.freshdeskTicketUrl;
 
 function accountUrl(ctx: ConversationContext): string {
   return ctx.account?.accountId
@@ -321,15 +319,13 @@ export function buildTools(
               if (!conv) return "This conversation has expired — no ticket was created.";
               // Transcript comes from the store, never from the model: the
               // agent picking this up must see what was actually said.
-              const body = [
-                summary.trim(),
-                "",
-                "— Chat transcript —",
-                chatStoreForTools.transcriptText(conv),
-                "",
-                `Chat surface: ${conv.surface}${conv.pageUrl ? ` (${conv.pageUrl})` : ""}`,
-                conv.visitor.mondayAccountSlug ? `monday account: ${conv.visitor.mondayAccountSlug}` : "",
-              ]
+              //
+              // The DESCRIPTION is customer-visible — Freshdesk shows it in the
+              // portal and quotes it in the notification email — so it holds
+              // only the problem and the customer's own words. Where the chat
+              // came from, and the link back to it, are internal and go in a
+              // private note below.
+              const body = [summary.trim(), "", "— Chat transcript —", chatStoreForTools.transcriptText(conv)]
                 .filter(Boolean)
                 .join("\n");
 
@@ -352,6 +348,28 @@ export function buildTools(
                 ticketId: created.id,
                 visitor: { email: email.trim() },
               });
+
+              // Internal breadcrumbs, agent-only. Chiefly the link back: a
+              // transcript tells you what was said, but not what the visitor
+              // did next, and the screenshots read very differently in place.
+              // Best-effort — the ticket is the promise we made the customer,
+              // and a missing note must never undo one that already exists.
+              const noteLines = [
+                "Opened by Jetta from a live chat.",
+                `Conversation: ${jettachat.conversationUrl(ticketId)}`,
+                `Surface: ${conv.surface}${conv.pageUrl ? ` — ${conv.pageUrl}` : ""}`,
+                conv.visitor.mondayAccountSlug ? `monday account: ${conv.visitor.mondayAccountSlug}` : "",
+                files.length ? `Files attached: ${files.map((f) => f.name).join(", ")}` : "",
+              ].filter(Boolean);
+              await freshdesk
+                .addPrivateNote(created.id, noteLines.join("\n"))
+                .catch((e) =>
+                  console.warn(
+                    `create_support_ticket: private note failed on #${created.id}:`,
+                    e instanceof Error ? e.message : e,
+                  ),
+                );
+
               return `Ticket #${created.id} created for ${email.trim()}. Tell the customer their question has gone to the team and they'll get a reply by email — do NOT give them the ticket number or this URL. INTERNAL: ${created.url}`;
             },
           }),
