@@ -125,6 +125,14 @@ export const config = {
   },
 
   freshdesk: {
+    /**
+     * Freshdesk "Products" are on for this account, which makes product_id a
+     * REQUIRED field on ticket creation — without it every POST /tickets is
+     * rejected with "product_id: It should be a/an Positive Integer". Unset is
+     * still correct for accounts that don't use Products; the field is simply
+     * omitted then.
+     */
+    productId: env("FRESHDESK_PRODUCT_ID"),
     apiKey: env("FRESHDESK_API_KEY"),
     domain: env("FRESHDESK_DOMAIN"),
     live: liveFor("FRESHDESK_LIVE"),
