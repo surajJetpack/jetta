@@ -15,12 +15,15 @@ import { config, type ModelTier } from "./config";
 import { getModel, modelLabel } from "./llm";
 import type { ConversationContext } from "./types";
 import { buildTools, type AgentSignals } from "./tools";
+import { logOpsEvent } from "./events";
 
 /** One executed tool call, for display/auditing. */
 export interface TraceEntry {
   tool: string;
   input: unknown;
   result: string;
+  /** The tool threw. `result` carries the error message. */
+  failed?: boolean;
 }
 
 export interface AgentResult {
@@ -128,9 +131,36 @@ export async function runAgentLoop(
     },
   });
 
+  const traceTicketId = ctx.ticket?.id;
   const trace: TraceEntry[] = [];
   for (const step of result.steps) {
+    // Tool failures live in `content` as tool-error parts, NOT in toolResults.
+    // Reading only toolResults recorded a thrown tool as result: "" — which is
+    // how a create_support_ticket that had never once succeeded in production
+    // stayed invisible for as long as it did. The only evidence anything was
+    // wrong was Jetta apologising to the customer.
+    const errors = new Map<string, unknown>();
+    for (const part of step.content as { type?: string; toolCallId?: string; error?: unknown }[]) {
+      if (part?.type === "tool-error" && part.toolCallId) errors.set(part.toolCallId, part.error);
+    }
+
     for (const call of step.toolCalls) {
+      const failure = errors.get(call.toolCallId);
+      if (failure !== undefined) {
+        const message = failure instanceof Error ? failure.message : String(failure);
+        trace.push({ tool: call.toolName, input: call.input, result: `ERROR: ${message}`, failed: true });
+        // Loud, because a broken tool is an outage of one of Jetta's hands and
+        // nothing else in the system will say so.
+        console.error(`Tool ${call.toolName} failed:`, message);
+        void logOpsEvent({
+          level: "error",
+          event: "tool.failed",
+          source: ctx.channel === "freshdesk" ? "webhook" : ctx.channel,
+          ticketId: traceTicketId,
+          data: { tool: call.toolName, error: message.slice(0, 600) },
+        }).catch(() => {});
+        continue;
+      }
       const match = step.toolResults.find((r) => r.toolCallId === call.toolCallId);
       const output = match ? (match as { output?: unknown }).output : undefined;
       trace.push({

@@ -755,6 +755,11 @@ export async function createTicket(t: NewTicket): Promise<CreatedTicket> {
     status: 2,
     priority: 1,
     source: t.source ?? 7,
+    // Required when the account has Freshdesk Products enabled, which this one
+    // does. Its absence is what made every chat hand-off fail: Freshdesk
+    // rejected the ticket outright, the customer was told there was "a
+    // technical issue", and nothing recorded why.
+    ...(config.freshdesk.productId ? { product_id: Number(config.freshdesk.productId) } : {}),
   };
   const cfProduct = cfProductLabel(t.productHint);
 
@@ -772,7 +777,13 @@ export async function createTicket(t: NewTicket): Promise<CreatedTicket> {
     // Attribution is a nicety; the hand-off is not. If cf_product is rejected
     // (label drift on the dropdown), open the ticket without it rather than
     // dropping a customer who was told their question would reach the team.
-    if (!cfProduct) throw e;
+    //
+    // But ONLY for that error. This used to retry on any 400, which meant a
+    // missing product_id was reported as "cf_product rejected" and then failed
+    // again for the real reason — the fallback hid the diagnosis for as long
+    // as the feature was broken.
+    const message = e instanceof Error ? e.message : String(e);
+    if (!cfProduct || !/cf_product/i.test(message)) throw e;
     console.warn(`createTicket: cf_product "${cfProduct}" rejected, retrying without it:`, e);
     created = await post(base);
   }
