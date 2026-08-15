@@ -242,10 +242,12 @@ export function buildTools(
     }),
 
     // ── JettaChat hand-off ──
-    // Only on our own widget. Freshchat has a staffed console to hand to (in
-    // principle); JettaChat has nothing behind it, so a ticket is the only
-    // route to a human and Jetta needs an explicit tool for it.
-    ...(isOwnChat
+    // Only on our own widget, and only when the console says a person can
+    // actually be fetched. `handoffEnabled` was a setting nothing read: the
+    // checkbox said "let Jetta hand a live chat to a person" and turning it
+    // off changed nothing, which is the same class of bug as a hidden button
+    // that still works.
+    ...(isOwnChat && ctx.chat?.handoffEnabled !== false
       ? {
           request_human: tool({
             description:
@@ -290,6 +292,11 @@ export function buildTools(
             },
           }),
 
+        }
+      : {}),
+
+    ...(isOwnChat
+      ? {
           create_support_ticket: tool({
             description:
               "Open a Freshdesk ticket so the team can pick this up by email, and tell the customer you have done it. Use this for anything that needs a reply LATER — it is the right choice unless the customer specifically wants someone now (for that, use request_human). Use it when the knowledge base has no answer, the request needs account changes you cannot make, the customer is upset or wants a refund, or they ask for a human. REQUIRES the customer's email address: ask for it first if you don't have it. The full chat transcript is attached automatically — summarize, don't re-type it.",

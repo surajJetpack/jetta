@@ -12,6 +12,7 @@ import * as freshdesk from "./tools/freshdesk";
 import * as freshchat from "./tools/freshchat";
 import * as jettachat from "./tools/jettachat";
 import * as chatStore from "./chat-store";
+import { getChatSettings } from "./chat-settings";
 import * as fastspring from "./tools/fastspring";
 import * as monday from "./tools/monday";
 import { getKnownTopics, recordTopicUse } from "./kv";
@@ -353,6 +354,7 @@ export async function buildContext(
           surface: chatConv.surface,
           mondayAccountSlug: chatConv.visitor.mondayAccountSlug,
           pageUrl: chatConv.pageUrl,
+          handoffEnabled: (await getChatSettings()).handoffEnabled,
         }
       : undefined,
   };
