@@ -263,6 +263,13 @@ export interface ConversationContext {
     surface: ChatSurface;
     mondayAccountSlug?: string;
     pageUrl?: string;
+    /**
+     * Whether a person can actually be fetched into this conversation. Drives
+     * BOTH the tool list and the prompt, so Jetta can never offer something
+     * the console has switched off — or, as before, be told nobody is
+     * listening while holding a tool that pings a channel someone watches.
+     */
+    handoffEnabled: boolean;
   };
 }
 

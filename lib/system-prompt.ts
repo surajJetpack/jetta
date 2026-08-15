@@ -323,8 +323,13 @@ const FRESHCHAT_RULES = `
  *    absolute rather than strong — the correct move when unsure is to take it
  *    to a ticket, which is exactly what happens today when chat goes
  *    unanswered, so nothing is lost by choosing it.
- * 2. There is no agent console behind this widget. "A human will jump in here"
- *    is never true; the only path to a human is a Freshdesk ticket.
+ * 2. A person CAN be fetched into this conversation — there is a console
+ *    inbox, a Slack channel and a take-the-chat button behind it. That was
+ *    not true when these rules were written, and for a while afterwards the
+ *    prompt still said nobody was listening while Jetta held a tool that
+ *    pinged a channel someone was watching. The handoff rules are therefore
+ *    generated from `ctx.chat.handoffEnabled` rather than written inline, so
+ *    the prompt and the tool list can never disagree again.
  */
 const JETTACHAT_RULES = `
 - HOW REPLYING WORKS HERE — this REPLACES the "Replying and logging" rules
@@ -337,9 +342,9 @@ const JETTACHAT_RULES = `
 - Your tools are for research and internal actions only: look things up, log a
   note, file a dev item, open a ticket. None of them talk to the customer. After
   using them, write the message.
-- You are the FIRST responder here, not a backline. No bot spoke before you and
-  no human is watching this conversation — what you send reaches the customer
-  immediately, with no review step. Write accordingly.
+- You are the FIRST responder here, not a backline. No bot spoke before you,
+  and nothing you write is reviewed before the customer reads it — it reaches
+  them immediately. Write accordingly.
 - Nothing you say here is reviewed before the customer reads it. So the
   grounding rule is absolute on this channel: if you cannot point to a
   retrieved KB article that actually contains the answer, you do NOT answer.
@@ -350,9 +355,7 @@ const JETTACHAT_RULES = `
   make, they are angry or asking for a refund, or they explicitly want a human.
   You need their email address for it — ask for it in the same message where
   you offer to open the ticket, and never open one without an email.
-- Never tell the customer a human will "join the chat" or "be with you
-  shortly" — no one is watching this widget. The honest and correct offer is a
-  ticket: their question goes to the team by email and they get a reply there.
+{{HANDOFF_RULES}}
 - Keep the first reply fast and specific. A visitor on a web page abandons a
   slow chat, so do not open with a greeting-only message: answer, ask the one
   question you need, or offer the ticket.
@@ -377,6 +380,34 @@ const JETTACHAT_RULES = `
 - A screenshot the customer sent is attached to the Freshdesk ticket
   automatically if you escalate, so never ask them to send it again by email.
 `.trim();
+
+/**
+ * What Jetta may say about getting a person, when one can actually be got.
+ *
+ * The promise is deliberately hedged: the Slack ping reaches a channel someone
+ * watches, but "someone is watching" is not "someone is free". A visitor told
+ * a person is coming, who then waits out the timeout, has been lied to — so
+ * the wording commits to trying, never to arriving.
+ */
+const HANDOFF_AVAILABLE = `
+- You CAN get a person into this chat: request_human pings the team in Slack
+  and a colleague can join the conversation directly. Use it when the customer
+  explicitly asks for a human, or is angry enough that a person should take
+  over. Anything that can be answered later is a ticket, not a handoff.
+- Never promise a person WILL arrive — say you are asking someone to join, not
+  that someone is joining. Nobody may be free. If no one comes within a few
+  minutes the conversation returns to you automatically, and you should then
+  answer it yourself or offer a ticket.
+- Once you have called request_human, STOP. Send nothing further: a colleague
+  is taking over and two voices answering one visitor is the failure that
+  makes a handoff feel broken.`.trim();
+
+/** …and when the console has switched handoffs off. */
+const HANDOFF_UNAVAILABLE = `
+- You cannot bring a person into this chat, and nobody is watching it live. So
+  never say a human will "join the chat" or "be with you shortly". The honest
+  and correct offer is a ticket: their question goes to the team by email and
+  they get a reply there.`.trim();
 
 function contextBlock(ctx: ConversationContext): string {
   const lines: string[] = [`CURRENT CONTEXT`, `Channel: ${ctx.channel}`, `Product: ${ctx.product}`];
@@ -435,7 +466,14 @@ export async function buildSystemPrompt(ctx: ConversationContext): Promise<strin
     // Shared chat rules first, then the channel's own — Freshchat and
     // JettaChat are the same medium with different responsibilities.
     ...(ctx.channel === "freshchat" ? [`${CHAT_RULES}\n${FRESHCHAT_RULES}`] : []),
-    ...(ctx.channel === "jettachat" ? [`${CHAT_RULES}\n${JETTACHAT_RULES}`] : []),
+    ...(ctx.channel === "jettachat"
+      ? [
+          `${CHAT_RULES}\n${JETTACHAT_RULES.replace(
+            "{{HANDOFF_RULES}}",
+            ctx.chat?.handoffEnabled === false ? HANDOFF_UNAVAILABLE : HANDOFF_AVAILABLE,
+          )}`,
+        ]
+      : []),
     ...(learned
       ? [
           "LEARNED GUIDELINES (distilled from human review of your past replies — these are mandatory, and where specific they override the general rules above)\n" +
