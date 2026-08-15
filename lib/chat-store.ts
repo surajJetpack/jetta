@@ -114,6 +114,44 @@ export async function getConversation(id: string): Promise<ChatConversation | nu
   return memChats.get(id) ?? null;
 }
 
+/**
+ * Serialise read-modify-write on one conversation.
+ *
+ * Every mutation here is GET → change → SET of the whole document, so two
+ * writers that overlap silently discard one another's change. Observed, not
+ * theorised: converting a chat to a ticket while Jetta was mid-reply produced
+ * a ticket and a status change, and her save — from a copy read moments
+ * earlier — dropped the line telling the visitor it had happened.
+ *
+ * The same window can drop a customer's message when they type while a reply
+ * is being written, which is the version of this bug that actually matters.
+ *
+ * A short NX lock rather than Lua or a message list: it is contained, needs no
+ * change to how conversations are stored, and the worst case is bounded — the
+ * lock self-expires, and a caller that cannot get it proceeds anyway after a
+ * second of trying. Losing a message is worse than writing one out of order.
+ */
+const lockKey = (id: string) => `jetta:chat:lock:${id}`;
+
+async function withConversationLock<T>(id: string, fn: () => Promise<T>): Promise<T> {
+  const r = client();
+  if (!r) return await fn(); // in-memory fallback is single-process by definition
+
+  for (let attempt = 0; attempt < 12; attempt++) {
+    const got = await r.set(lockKey(id), "1", { nx: true, px: 5000 });
+    if (got) {
+      try {
+        return await fn();
+      } finally {
+        await r.del(lockKey(id)).catch(() => {});
+      }
+    }
+    await new Promise((res) => setTimeout(res, 40 + attempt * 15));
+  }
+  console.warn(`chat ${id}: proceeding without the write lock after 12 attempts.`);
+  return await fn();
+}
+
 /** Persist and re-index. Every write refreshes the retention TTL. */
 async function save(conv: ChatConversation): Promise<void> {
   const r = client();
@@ -135,6 +173,15 @@ export async function appendMessage(
   author: ChatMessage["author"],
   text: string,
   meta: Pick<ChatMessage, "via" | "authorName" | "system" | "attachments"> = {},
+): Promise<ChatMessage | null> {
+  return withConversationLock(conversationId, () => appendMessageLocked(conversationId, author, text, meta));
+}
+
+async function appendMessageLocked(
+  conversationId: string,
+  author: ChatMessage["author"],
+  text: string,
+  meta: Pick<ChatMessage, "via" | "authorName" | "system" | "attachments">,
 ): Promise<ChatMessage | null> {
   const conv = await getConversation(conversationId);
   if (!conv) return null;
@@ -158,6 +205,15 @@ export async function appendMessage(
 
 /** Patch conversation-level fields (status, ticket link, learned identity). */
 export async function updateConversation(
+  conversationId: string,
+  patch: Partial<Pick<ChatConversation, "status" | "ticketId" | "humanRequestedAt" | "humanAgent">> & {
+    visitor?: Partial<ChatVisitor>;
+  },
+): Promise<ChatConversation | null> {
+  return withConversationLock(conversationId, () => updateConversationLocked(conversationId, patch));
+}
+
+async function updateConversationLocked(
   conversationId: string,
   patch: Partial<Pick<ChatConversation, "status" | "ticketId" | "humanRequestedAt" | "humanAgent">> & {
     visitor?: Partial<ChatVisitor>;

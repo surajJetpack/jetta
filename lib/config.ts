@@ -298,6 +298,15 @@ export const config = {
      * live chat. Unset falls back to the escalation channel.
      */
     chatChannel: env("SLACK_CHAT_CHANNEL"),
+    /**
+     * Things that need a HUMAN but not a developer: trial/discount approvals
+     * waiting on a yes/no, and the daily KB sync report.
+     *
+     * Kept off the escalation channel because they are a different job. An
+     * engineer scanning for bugs learns to skim a channel where most messages
+     * are not bugs, and the one that was gets skimmed with them.
+     */
+    opsChannel: env("SLACK_OPS_CHANNEL"),
     /** Dedicated channel for "draft pending review" pings. Unset = no draft pings
      * (they're noise on #escalations; drafts are reviewable in FD + /drafts). */
     draftsChannel: env("JETTA_DRAFTS_SLACK_CHANNEL"),

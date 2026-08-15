@@ -691,6 +691,25 @@ export interface CreatedTicket {
   url: string;
 }
 
+/** Fallback used when FRESHDESK_DOMAIN is unset. */
+const DEFAULT_FD_DOMAIN = "jetpackwork.freshdesk.com";
+
+/**
+ * Agent-side URL for a ticket.
+ *
+ * One helper because this was being rebuilt in five places with two DIFFERENT
+ * fallback domains — four said jetpackwork, one said jetpackapps — so a
+ * missing env var would have sent people to somebody else's helpdesk from one
+ * screen and the right one from the rest.
+ */
+export function freshdeskDomain(): string {
+  return config.freshdesk.domain ?? DEFAULT_FD_DOMAIN;
+}
+
+export function freshdeskTicketUrl(ticketId: string | number): string {
+  return `https://${freshdeskDomain()}/a/tickets/${ticketId}`;
+}
+
 /**
  * Create a ticket with files attached.
  *
@@ -788,10 +807,7 @@ export async function createTicket(t: NewTicket): Promise<CreatedTicket> {
     created = await post(base);
   }
 
-  return {
-    id: String(created.id),
-    url: `https://${config.freshdesk.domain}/a/tickets/${created.id}`,
-  };
+  return { id: String(created.id), url: freshdeskTicketUrl(created.id) };
 }
 
 export async function replyToTicket(ticketId: string, body: string): Promise<void> {
@@ -805,14 +821,26 @@ export async function replyToTicket(ticketId: string, body: string): Promise<voi
   });
 }
 
-export async function addPrivateNote(ticketId: string, body: string): Promise<void> {
+/**
+ * Add an agent-only note.
+ *
+ * `text` is PLAIN text and is converted here. The notes field is HTML, so
+ * passing raw text through meant every line break collapsed — a five-line note
+ * arrived as one paragraph — and any "<" in model-written text went into an
+ * HTML field unescaped. Callers that have already built HTML pass `html: true`.
+ */
+export async function addPrivateNote(
+  ticketId: string,
+  text: string,
+  opts: { html?: boolean } = {},
+): Promise<void> {
   if (!config.freshdesk.live) {
-    console.log(`[stub] add_private_note #${ticketId}:\n${body}`);
+    console.log(`[stub] add_private_note #${ticketId}:\n${text}`);
     return;
   }
   await fd(`/tickets/${ticketId}/notes`, {
     method: "POST",
-    body: JSON.stringify({ body, private: true }),
+    body: JSON.stringify({ body: opts.html ? text : textToFdHtml(text), private: true }),
   });
 }
 

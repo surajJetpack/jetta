@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { freshdeskDomain } from "@/lib/tools/freshdesk";
 import { gate } from "@/lib/console-auth";
 import { Nav } from "../nav";
 import EvalsPanel from "./evals-panel";
@@ -12,7 +13,7 @@ export default async function EvalsPage() {
   return (
     <div className="mx-auto max-w-4xl space-y-5 px-5 pt-8 pb-20">
       <Nav current="evals" user={user} isAdmin={isAdmin} canViewAs={isAdmin || viewingAsGeneral} viewingAsGeneral={viewingAsGeneral} />
-      <EvalsPanel freshdeskDomain={config.freshdesk.domain ?? "jetpackapps.freshdesk.com"} />
+      <EvalsPanel freshdeskDomain={freshdeskDomain()} />
     </div>
   );
 }

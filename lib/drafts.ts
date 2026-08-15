@@ -7,6 +7,7 @@
  * Slack ping are best-effort notifications on top.
  */
 import crypto from "node:crypto";
+import { freshdeskTicketUrl } from "./tools/freshdesk";
 import { config } from "./config";
 import type { ConversationContext } from "./types";
 import type { AgentResult } from "./agent";
@@ -62,7 +63,7 @@ export async function createDraftFromRun(
   };
   await addReplyDraft(draft);
 
-  const ticketUrl = `https://${config.freshdesk.domain ?? "jetpackapps.freshdesk.com"}/a/tickets/${draft.ticketId}`;
+  const ticketUrl = freshdeskTicketUrl(draft.ticketId);
 
   // Best-effort notifications — a failure here never loses the draft.
   // The Freshdesk note IS the primary review surface (JETTA_DRAFT_FD_NOTE=false
@@ -76,7 +77,7 @@ export async function createDraftFromRun(
       `Your decision is recorded automatically when you reply — no console step needed.<br>` +
       `Fallback console: ${config.consoleUrl}/drafts</p>`;
     await freshdesk
-      .addPrivateNote(draft.ticketId, noteHtml)
+      .addPrivateNote(draft.ticketId, noteHtml, { html: true })
       .then(() =>
         logOpsEvent({
           level: "info",

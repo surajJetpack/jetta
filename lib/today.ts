@@ -15,11 +15,11 @@
  * ones on screen.
  */
 import { getOutcomes, listMonetApprovals, getDailyRollup } from "./kv";
+import { freshdeskTicketUrl } from "./tools/freshdesk";
 import { listLearnings } from "./evals";
 import { listArticles, countByState, type ArticleState } from "./kb-store";
 import { topicTrends, ticketRecords, type TopicTrend, type TicketRecord } from "./topics";
 import { yesterdayKey } from "./daily-overview";
-import { config } from "./config";
 
 const HOUR_S = 3600;
 const WINDOW_HOURS = 24;
@@ -45,7 +45,7 @@ function refFor(id: string, channel: string): { label: string; url: string | nul
   }
   return {
     label: `#${id}`,
-    url: `https://${config.freshdesk.domain ?? "jetpackwork.freshdesk.com"}/a/tickets/${id}`,
+    url: freshdeskTicketUrl(id),
     external: true,
   };
 }

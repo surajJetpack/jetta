@@ -2,12 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import Link from "next/link";
-import { Bot, ExternalLink, Hand, Paperclip, Search, Send, Undo2, UserRound } from "lucide-react";
+import { Bot, ExternalLink, Hand, Paperclip, Search, Send, Ticket as TicketIcon, Undo2, UserRound } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
+import { ConfirmButton } from "@/components/jetta/confirm-button";
 import { StatusChip, type ChipTone } from "@/components/jetta/status-chip";
 import { EmptyState } from "@/components/jetta/empty-state";
 import { RelativeTime } from "@/components/jetta/relative-time";
@@ -38,6 +39,19 @@ interface Msg {
  * hits the same route the widget does, but authenticates with its session
  * cookie instead of a conversation token — so no token in the URL here.
  */
+/**
+ * First thing the visitor TYPED, as a starting subject — not the first
+ * message, since a chat that opens with a bare screenshot would otherwise be
+ * titled with the vision pass's description of a dialog box. The server
+ * applies the same rule when the field arrives empty.
+ */
+function suggestSubject(c: Conv): string {
+  const typed = c.messages.find((m) => m.author === "visitor" && m.text.trim())?.text ?? "";
+  const line = typed.split("\n")[0]!.trim();
+  if (!line) return "Support request from live chat";
+  return line.length > 70 ? `${line.slice(0, 70)}…` : line;
+}
+
 function consoleFileUrl(pathname: string): string {
   return `/api/chat/file/${pathname.replace(/^chat\//, "")}`;
 }
@@ -82,7 +96,13 @@ type Filter = "needs_human" | "all" | "open" | "ticketed";
  * Selection lives in the URL (?c=…) so a conversation stays linkable — the
  * Slack handoff ping points at one, and it must survive a refresh.
  */
-export default function ChatInbox({ initial }: { initial: Conv[] }) {
+export default function ChatInbox({
+  initial,
+  freshdeskDomain,
+}: {
+  initial: Conv[];
+  freshdeskDomain: string;
+}) {
   const router = useRouter();
   const params = useSearchParams();
   const selectedId = params.get("c");
@@ -95,9 +115,13 @@ export default function ChatInbox({ initial }: { initial: Conv[] }) {
   // react-hooks/set-state-in-effect and stops the PREVIOUS conversation
   // flashing up for a poll cycle after you click a different one.
   const detail = fetched && fetched.id === selectedId ? fetched : null;
+  const attachmentCount = detail?.messages.reduce((n, m) => n + (m.attachments?.length ?? 0), 0) ?? 0;
   const [filter, setFilter] = useState<Filter>("all");
   const [query, setQuery] = useState("");
   const [text, setText] = useState("");
+  const [ticketSubject, setTicketSubject] = useState("");
+  const [ticketNote, setTicketNote] = useState("");
+  const [ticketNotify, setTicketNotify] = useState(true);
   const [busy, setBusy] = useState(false);
   const endRef = useRef<HTMLDivElement | null>(null);
   const msgCount = useRef(0);
@@ -140,6 +164,10 @@ export default function ChatInbox({ initial }: { initial: Conv[] }) {
   }, [detail?.messages.length]);
 
   const select = (id: string | null) => {
+    // Drop any half-written ticket, so a subject typed for one conversation
+    // cannot be submitted against the next one.
+    setTicketSubject("");
+    setTicketNote("");
     const q = new URLSearchParams(Array.from(params.entries()));
     if (id) q.set("c", id);
     else q.delete("c");
@@ -157,6 +185,49 @@ export default function ChatInbox({ initial }: { initial: Conv[] }) {
       });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `HTTP ${res.status}`);
       if (action === "send") setText("");
+      await Promise.all([pollDetail(), pollList()]);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /**
+   * Hand the conversation to Freshdesk by hand.
+   *
+   * The same path Jetta uses, so the ticket carries the transcript, the
+   * visitor's files and the link back either way. It exists because for the
+   * whole life of the automated tool there was no way to work around it when
+   * it broke — and it did break, silently, on every attempt.
+   */
+  const convert = async () => {
+    if (!detail) return;
+    setBusy(true);
+    try {
+      const res = await fetch("/api/admin/chats", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          conversationId: detail.id,
+          action: "ticket",
+          subject: ticketSubject.trim(),
+          text: ticketNote.trim(),
+          notify: ticketNotify,
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        ticketId?: string;
+        alreadyTicketed?: boolean;
+      };
+      if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+      toast.success(
+        data.alreadyTicketed
+          ? `Already ticketed as #${data.ticketId}.`
+          : `Ticket #${data.ticketId} created.`,
+      );
+      setTicketNote("");
       await Promise.all([pollDetail(), pollList()]);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
@@ -266,6 +337,12 @@ export default function ChatInbox({ initial }: { initial: Conv[] }) {
                   </p>
                   <div className="mt-1 flex flex-wrap items-center gap-1">
                     <StatusChip tone={TONES[c.status]}>{LABELS[c.status]}</StatusChip>
+                    {/* Which ticket this became. Without it the Ticketed
+                        filter is a list of chats with no way to tell them
+                        apart from the ticket you are holding. */}
+                    {c.ticketId && (
+                      <span className="text-[10px] tabular-nums text-muted-foreground">#{c.ticketId}</span>
+                    )}
                     {c.humanAgent && <span className="text-[10px] text-muted-foreground">{c.humanAgent}</span>}
                   </div>
                 </button>
@@ -311,12 +388,19 @@ export default function ChatInbox({ initial }: { initial: Conv[] }) {
               <div className="ml-auto flex shrink-0 items-center gap-1.5">
                 <StatusChip tone={TONES[detail.status]}>{LABELS[detail.status]}</StatusChip>
                 {detail.ticketId && (
-                  <Link
-                    href={`/chats/${detail.id}`}
+                  // Freshdesk, not here. This used to link to /chats/<this
+                  // conversation> — the page you were already on — while
+                  // wearing an external-link icon, so the one control that
+                  // should cross between the two systems went nowhere.
+                  <a
+                    href={`https://${freshdeskDomain}/a/tickets/${detail.ticketId}`}
+                    target="_blank"
+                    rel="noreferrer"
                     className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline"
+                    title="Open this ticket in Freshdesk"
                   >
                     ticket #{detail.ticketId} <ExternalLink className="size-3" />
-                  </Link>
+                  </a>
                 )}
               </div>
             </header>
@@ -420,6 +504,67 @@ export default function ChatInbox({ initial }: { initial: Conv[] }) {
                   <Button size="sm" variant="outline" disabled={busy} onClick={() => void act("release")}>
                     <Undo2 /> Hand back to Jetta
                   </Button>
+                )}
+                {/* Hidden once ticketed — the header already links to the
+                    ticket, and a second ticket for one conversation gives the
+                    customer two threads and the team an argument about which
+                    is live. */}
+                {!detail.ticketId && (
+                  <ConfirmButton
+                    size="sm"
+                    variant="outline"
+                    busy={busy}
+                    disabled={!detail.visitor.email}
+                    title="Hand this to the support team"
+                    confirmLabel="Create the ticket"
+                    onConfirm={convert}
+                    description={
+                      <div className="space-y-3 text-left">
+                        <div className="space-y-1">
+                          <label className="text-xs font-medium text-foreground">Subject</label>
+                          <Input
+                            value={ticketSubject || suggestSubject(detail)}
+                            onChange={(e) => setTicketSubject(e.target.value)}
+                            className="text-sm"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-xs font-medium text-foreground">
+                            For whoever picks it up
+                          </label>
+                          <Textarea
+                            rows={3}
+                            value={ticketNote}
+                            placeholder="What you already know, what you ruled out…"
+                            onChange={(e) => setTicketNote(e.target.value)}
+                            className="text-sm"
+                          />
+                        </div>
+                        <p className="text-[11px] text-muted-foreground">
+                          Goes to <span className="text-foreground">{detail.visitor.email}</span>. The
+                          full transcript
+                          {attachmentCount > 0 &&
+                            ` and ${attachmentCount} file${attachmentCount === 1 ? "" : "s"}`}{" "}
+                          {attachmentCount > 0 ? "go" : "goes"} with it.
+                        </p>
+                        <label className="flex items-start gap-2">
+                          <Checkbox
+                            checked={ticketNotify}
+                            onCheckedChange={(v) => setTicketNotify(!!v)}
+                          />
+                          <span className="text-xs">
+                            Tell the visitor in the chat
+                            <span className="block text-[11px] text-muted-foreground">
+                              Jetta stops answering a ticketed chat, so without this the conversation
+                              just goes quiet on them.
+                            </span>
+                          </span>
+                        </label>
+                      </div>
+                    }
+                  >
+                    <TicketIcon /> Make a ticket
+                  </ConfirmButton>
                 )}
               </div>
             </footer>

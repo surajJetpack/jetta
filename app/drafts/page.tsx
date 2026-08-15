@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { freshdeskDomain } from "@/lib/tools/freshdesk";
 import { gate } from "@/lib/console-auth";
 import { Nav } from "../nav";
 import DraftsQueue from "./drafts-queue";
@@ -14,7 +15,7 @@ export default async function DraftsPage() {
       <Nav current="drafts" user={user} isAdmin={isAdmin} canViewAs={isAdmin || viewingAsGeneral} viewingAsGeneral={viewingAsGeneral} />
       <DraftsQueue
         replyMode={config.replyMode}
-        freshdeskDomain={config.freshdesk.domain ?? "jetpackapps.freshdesk.com"}
+        freshdeskDomain={freshdeskDomain()}
       />
     </div>
   );
