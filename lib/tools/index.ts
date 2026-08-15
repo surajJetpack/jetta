@@ -194,10 +194,31 @@ export function buildTools(
           }),
         }),
 
+    /**
+     * Ticket channels only.
+     *
+     * On a chat this tool did nothing — no note is stored anywhere, the string
+     * it returns says as much, and the 24h follow-up it exists to schedule
+     * doesn't run on this channel. What it DID do was give the model somewhere
+     * to put an answer that isn't the customer: observed twice in the eval,
+     * researching a question, logging a note about it, and sending no reply —
+     * so the customer got silence, or the crash apology on top of it.
+     *
+     * This is the same failure that removed `reply_to_ticket` from this channel
+     * (see docs/jettachat.md): "glm-5.2 repeatedly researched an answer, logged
+     * a note claiming it had sent it, and sent nothing. Two rounds of prompt
+     * hardening didn't move it." Prompt hardening didn't fix it there either.
+     * Removing the tool removes the failure mode rather than catching it.
+     *
+     * The resolution signal it carried moves to close_ticket below, which on
+     * this channel has a real effect and cannot stand in for talking.
+     */
+    ...(isChat
+      ? {}
+      : {
     add_private_note: tool({
-      description: isChat
-        ? "Log an internal agent-only note about this conversation (stored in Jetta's run log — the customer never sees it). Use 'resolution_sent' as the status immediately after you send a fix."
-        : "Add an internal agent-only note to the current ticket. Use 'resolution_sent' as the status immediately after you send a fix, so the 24h follow-up is scheduled.",
+      description:
+        "Add an internal agent-only note to the current ticket. Use 'resolution_sent' as the status immediately after you send a fix, so the 24h follow-up is scheduled.",
       inputSchema: z.object({
         body: z.string().describe("The internal note."),
         status: z
@@ -211,17 +232,13 @@ export function buildTools(
         if (dry) {
           return `[dry-run] would add private note${status === "resolution_sent" ? " (resolution_sent → schedules follow-up)" : ""}:\n${body}`;
         }
-        if (isChat) {
-          // Freshchat conversations have no private notes; the note text is
-          // preserved verbatim in the run trace, so nothing is lost.
-          return "Internal note logged (chat channel — recorded in Jetta's run log only).";
-        }
         await freshdesk.addPrivateNote(ticketId, body);
         return status === "resolution_sent"
           ? "Private note added. Follow-up scheduled."
           : "Private note added.";
       },
     }),
+        }),
 
     close_ticket: tool({
       description: isChat
@@ -233,6 +250,11 @@ export function buildTools(
         if (dry) return `[dry-run] would mark the ${isChat ? "conversation" : "ticket"} resolved.`;
         if (held) return isChat ? "Conversation marked resolved." : "Ticket marked resolved.";
         if (isChat) {
+          // Carries the resolution signal on this channel, now that
+          // add_private_note (which used to) isn't offered here. Resolving a
+          // conversation IS the resolution on chat, and unlike a note it has a
+          // real effect — so it cannot be used as a substitute for answering.
+          signals.resolutionSent = true;
           await chatClient.resolveConversation(ticketId);
           return "Conversation marked resolved.";
         }

@@ -74,7 +74,29 @@ async function main() {
         `${label}  hedges the promise (asking, not arriving)`,
         /never promise a person will arrive/i.test(prompt),
       );
-      check(`${label}  tells her to go silent afterwards`, /STOP\. Send nothing further/i.test(prompt));
+      // Was "STOP. Send nothing further" until 2026-08-15. That bullet fought
+      // the one above it — one said how to word the message, the next said not
+      // to send one — and she resolved it both ways on different runs. The
+      // silent resolution is the damaging one: runChatTurn treats an empty
+      // reply as a failed run, so a visitor who asked for a person got the
+      // crash apology instead. The contract is now one message, then stop.
+      check(
+        `${label}  tells her to send exactly one message, then stop`,
+        /EXACTLY ONE short message/i.test(prompt) && /then stop/i.test(prompt),
+      );
+      // The rule that describing was not enough for. She obeyed "never promise
+      // a person will arrive" and then wrote "Someone will be with you
+      // shortly" anyway — the idiom is stronger than the paraphrase, so the
+      // exact strings have to be named where handoff is ON, not only where it
+      // is off.
+      check(
+        `${label}  names the forbidden phrases, not just the rule`,
+        /someone will be with you shortly/i.test(prompt) && /FORBIDDEN/.test(prompt),
+      );
+      check(
+        `${label}  gives her wording to use instead`,
+        /if someone's free they'll jump in/i.test(prompt),
+      );
     } else {
       check(`${label}  still offers the ticket as the honest route`, /offer is a ticket/i.test(prompt));
       check(
