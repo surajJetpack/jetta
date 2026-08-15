@@ -550,3 +550,84 @@ export async function readThread(channel: string, threadTs: string): Promise<Thr
     isBot: !!m.bot_id,
   }));
 }
+
+// ── Configuration health ───────────────────────────────────────────
+
+export interface ChannelCheck {
+  /** The env var this came from, for an error message that says what to fix. */
+  setting: string;
+  /** Configured value: a channel id, or a #name. */
+  value?: string;
+  name?: string;
+  ok: boolean;
+  /** Why not, in words a person can act on. */
+  problem?: string;
+}
+
+/**
+ * Can Jetta actually post where she is pointed?
+ *
+ * Checks each configured channel directly rather than listing the workspace:
+ * one call per channel, and it works for private channels, which all of ours
+ * are. `is_member` is the field that matters — a channel that exists but has
+ * no Jetta in it accepts no messages, and that is the mistake this catches
+ * (create the channel, set the variable, forget the invite).
+ *
+ * Read-only and never posts. Degrades to "cannot check" rather than "broken"
+ * when the scope is missing: an unverifiable channel is not a failing one.
+ */
+export async function checkChannels(): Promise<ChannelCheck[]> {
+  const configured: { setting: string; value?: string }[] = [
+    { setting: "SLACK_ESCALATION_CHANNEL", value: config.slack.escalationChannel },
+    { setting: "SLACK_CHAT_CHANNEL", value: config.slack.chatChannel },
+    { setting: "SLACK_OPS_CHANNEL", value: config.slack.opsChannel },
+  ];
+
+  if (!config.slack.live || !config.slack.botToken) {
+    return configured.map((c) => ({ ...c, ok: false, problem: "Slack is not connected in this environment." }));
+  }
+
+  return await Promise.all(
+    configured.map(async ({ setting, value }): Promise<ChannelCheck> => {
+      if (!value) {
+        return {
+          setting,
+          ok: false,
+          problem: "Not set — these messages fall back to the escalation channel.",
+        };
+      }
+      try {
+        const res = await fetch(
+          `https://slack.com/api/conversations.info?channel=${encodeURIComponent(value.replace(/^#/, ""))}`,
+          { headers: { Authorization: `Bearer ${config.slack.botToken}` } },
+        );
+        const j = (await res.json()) as {
+          ok: boolean;
+          error?: string;
+          channel?: { name?: string; is_member?: boolean; is_private?: boolean };
+        };
+        if (!j.ok) {
+          const problem =
+            j.error === "missing_scope"
+              ? "Can't check — Jetta needs the channels:read scope (groups:read for private channels)."
+              : j.error === "channel_not_found"
+                ? "No such channel. Check the id, or invite Jetta if it is private."
+                : `Slack said: ${j.error}`;
+          return { setting, value, ok: false, problem };
+        }
+        if (!j.channel?.is_member) {
+          return {
+            setting,
+            value,
+            name: j.channel?.name,
+            ok: false,
+            problem: `Jetta is not in #${j.channel?.name ?? value} — run /invite @Jetta there.`,
+          };
+        }
+        return { setting, value, name: j.channel.name, ok: true };
+      } catch (e) {
+        return { setting, value, ok: false, problem: e instanceof Error ? e.message : String(e) };
+      }
+    }),
+  );
+}

@@ -3,7 +3,6 @@ import { freshdeskDomain } from "@/lib/tools/freshdesk";
 import { gate } from "@/lib/console-auth";
 import { Nav } from "../nav";
 import EvalsPanel from "./evals-panel";
-import { config } from "@/lib/config";
 
 export const dynamic = "force-dynamic";
 
