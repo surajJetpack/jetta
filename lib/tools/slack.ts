@@ -4,6 +4,38 @@
  */
 import { config } from "../config";
 
+/**
+ * Where non-dev, non-chat notifications go.
+ *
+ * Falls back to the escalation channel so nothing is ever silently dropped
+ * while the channel is being set up — but says so once per process, because a
+ * fallback that nobody notices is how four unrelated kinds of message ended up
+ * sharing one channel in the first place.
+ */
+let warnedNoOpsChannel = false;
+function opsChannel(): string {
+  if (config.slack.opsChannel) return config.slack.opsChannel;
+  if (!warnedNoOpsChannel) {
+    warnedNoOpsChannel = true;
+    console.warn(
+      "SLACK_OPS_CHANNEL is not set — approvals and KB reports are falling back to the escalation channel.",
+    );
+  }
+  return config.slack.escalationChannel ?? "#jetta-escalations";
+}
+
+let warnedNoChatChannel = false;
+function chatChannel(): string {
+  if (config.slack.chatChannel) return config.slack.chatChannel;
+  if (!warnedNoChatChannel) {
+    warnedNoChatChannel = true;
+    console.warn(
+      "SLACK_CHAT_CHANNEL is not set — visitors waiting for a person are being announced in the escalation channel.",
+    );
+  }
+  return config.slack.escalationChannel ?? "#jetta-escalations";
+}
+
 async function postMessage(channel: string, text: string, threadTs?: string): Promise<string> {
   if (!config.slack.live) {
     console.log(`[stub] slack → ${channel}${threadTs ? ` (thread ${threadTs})` : ""}:\n${text}`);
@@ -18,8 +50,22 @@ async function postMessage(channel: string, text: string, threadTs?: string): Pr
     body: JSON.stringify({ channel, text, thread_ts: threadTs }),
   });
   const json = (await res.json()) as { ok: boolean; error?: string; ts?: string };
-  if (!json.ok) throw new Error(`Slack postMessage failed: ${json.error}`);
-  return json.ts ?? "";
+  if (json.ok) return json.ts ?? "";
+
+  // A channel that does not exist, or that Jetta was never invited to, is the
+  // predictable failure of splitting notifications across channels: someone
+  // sets SLACK_CHAT_CHANNEL, forgets to invite the bot, and a visitor waiting
+  // for a person is announced to nobody. Fall back to the channel we know
+  // works rather than lose the message, and say loudly what happened.
+  const missing = json.error === "channel_not_found" || json.error === "not_in_channel";
+  const fallback = config.slack.escalationChannel ?? "#jetta-escalations";
+  if (missing && channel !== fallback) {
+    console.error(
+      `Slack: ${channel} is ${json.error === "not_in_channel" ? "not a channel Jetta has been invited to" : "unknown"} — posting to ${fallback} instead. Create it and invite the bot, or fix the setting.`,
+    );
+    return await postMessage(fallback, `:warning: _(intended for ${channel})_\n${text}`, threadTs);
+  }
+  throw new Error(`Slack postMessage failed: ${json.error}`);
 }
 
 /**
@@ -296,7 +342,8 @@ export interface MonetApprovalRequest {
  * approve path then executes the monday call.
  */
 export async function requestMonetApproval(req: MonetApprovalRequest): Promise<{ ts: string }> {
-  const channel = config.slack.escalationChannel ?? "#jetta-escalations";
+  // A yes/no for a person, not a bug for an engineer.
+  const channel = opsChannel();
   const icon = req.action === "trial" ? ":hourglass_flowing_sand:" : ":money_with_wings:";
   // The approve/reject commands are the point of this message, so they stay in
   // the parent. Only the flag rationale and the expiry caveat move to the thread.
@@ -374,7 +421,7 @@ export async function notifyChatHandoff(input: {
   lastMessage: string;
   consoleUrl: string;
 }): Promise<void> {
-  const channel = config.slack.chatChannel ?? config.slack.escalationChannel ?? "#jetta-escalations";
+  const channel = chatChannel();
   const text = [
     `:wave: *A visitor is asking for a person* — ${input.visitor}`,
     `> ${clamp(input.lastMessage, 200)}`,
@@ -385,8 +432,9 @@ export async function notifyChatHandoff(input: {
 }
 
 export async function notifyKbSync(headline: string, details: string[]): Promise<void> {
-  const channel =
-    config.slack.draftsChannel ?? config.slack.escalationChannel ?? "#jetta-escalations";
+  // A daily cron report. It belongs where routine operational noise lives, not
+  // in the channel someone is watching for things that are on fire.
+  const channel = config.slack.draftsChannel ?? opsChannel();
   const ts = await postMessage(channel, `:books: *KB sync* — ${clamp(headline, 120)}`);
   if (!details.length) return;
   await postMessage(channel, details.join("\n"), ts).catch((e) =>
