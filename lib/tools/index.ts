@@ -18,7 +18,7 @@ import * as freshdesk from "./freshdesk";
 import * as freshchat from "./freshchat";
 import * as jettachat from "./jettachat";
 import * as chatStoreForTools from "../chat-store";
-import * as chatFiles from "../chat-files";
+import { openTicketForConversation } from "../chat-ticket";
 import * as fastspring from "./fastspring";
 import * as monday from "./monday";
 import * as mondayMonetization from "./monday-monetization";
@@ -317,58 +317,19 @@ export function buildTools(
 
               const conv = await chatStoreForTools.getConversation(ticketId);
               if (!conv) return "This conversation has expired — no ticket was created.";
-              // Transcript comes from the store, never from the model: the
-              // agent picking this up must see what was actually said.
-              //
-              // The DESCRIPTION is customer-visible — Freshdesk shows it in the
-              // portal and quotes it in the notification email — so it holds
-              // only the problem and the customer's own words. Where the chat
-              // came from, and the link back to it, are internal and go in a
-              // private note below.
-              const body = [summary.trim(), "", "— Chat transcript —", chatStoreForTools.transcriptText(conv)]
-                .filter(Boolean)
-                .join("\n");
-
-              // The visitor's screenshots go WITH the ticket. Without this the
-              // agent who picks it up reads "here's the error" and a
-              // description of a screenshot they cannot open — the evidence
-              // would stop at the chat and the customer would be asked to send
-              // it a second time.
-              const files = await chatFiles.collectForHandoff(conv);
-              const created = await freshdesk.createTicket({
-                subject,
-                description: body,
+              // Shared with the console's convert button, so a ticket carries
+              // the same transcript, files and back-link however it was made.
+              const created = await openTicketForConversation(conv, {
                 email: email.trim(),
-                name: conv.visitor.name,
+                subject,
+                summary,
                 productHint: ctx.appProduct,
-                attachments: files,
               });
               await chatStoreForTools.updateConversation(ticketId, {
                 status: "ticketed",
                 ticketId: created.id,
                 visitor: { email: email.trim() },
               });
-
-              // Internal breadcrumbs, agent-only. Chiefly the link back: a
-              // transcript tells you what was said, but not what the visitor
-              // did next, and the screenshots read very differently in place.
-              // Best-effort — the ticket is the promise we made the customer,
-              // and a missing note must never undo one that already exists.
-              const noteLines = [
-                "Opened by Jetta from a live chat.",
-                `Conversation: ${jettachat.conversationUrl(ticketId)}`,
-                `Surface: ${conv.surface}${conv.pageUrl ? ` — ${conv.pageUrl}` : ""}`,
-                conv.visitor.mondayAccountSlug ? `monday account: ${conv.visitor.mondayAccountSlug}` : "",
-                files.length ? `Files attached: ${files.map((f) => f.name).join(", ")}` : "",
-              ].filter(Boolean);
-              await freshdesk
-                .addPrivateNote(created.id, noteLines.join("\n"))
-                .catch((e) =>
-                  console.warn(
-                    `create_support_ticket: private note failed on #${created.id}:`,
-                    e instanceof Error ? e.message : e,
-                  ),
-                );
 
               return `Ticket #${created.id} created for ${email.trim()}. Tell the customer their question has gone to the team and they'll get a reply by email — do NOT give them the ticket number or this URL. INTERNAL: ${created.url}`;
             },

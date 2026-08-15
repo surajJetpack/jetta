@@ -20,7 +20,6 @@ import { listLearnings } from "./evals";
 import { listArticles, countByState, type ArticleState } from "./kb-store";
 import { topicTrends, ticketRecords, type TopicTrend, type TicketRecord } from "./topics";
 import { yesterdayKey } from "./daily-overview";
-import { config } from "./config";
 
 const HOUR_S = 3600;
 const WINDOW_HOURS = 24;

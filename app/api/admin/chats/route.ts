@@ -13,6 +13,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminActor, adminAuthorized } from "@/lib/auth";
 import * as store from "@/lib/chat-store";
+import { openTicketForConversation, suggestedSubject } from "@/lib/chat-ticket";
 import { logOpsEvent } from "@/lib/events";
 
 export const runtime = "nodejs";
@@ -50,10 +51,12 @@ export async function POST(req: NextRequest) {
   if (!adminAuthorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const actor = adminActor(req) ?? "console";
 
-  const { conversationId, action, text } = (await req.json().catch(() => ({}))) as {
+  const { conversationId, action, text, subject, notify } = (await req.json().catch(() => ({}))) as {
     conversationId?: string;
-    action?: "join" | "send" | "release";
+    action?: "join" | "send" | "release" | "ticket";
     text?: string;
+    subject?: string;
+    notify?: boolean;
   };
   if (!conversationId || !action) {
     return NextResponse.json({ error: "conversationId and action required" }, { status: 400 });
@@ -102,6 +105,69 @@ export async function POST(req: NextRequest) {
       data: { chars: body.length },
     });
     return NextResponse.json({ ok: true });
+  }
+
+  if (action === "ticket") {
+    // Already converted: hand back the existing ticket rather than opening a
+    // second one. Two tickets for one conversation is worse than none — the
+    // customer gets two threads and the team argues about which is live.
+    if (conv.ticketId) {
+      return NextResponse.json({ ok: true, ticketId: conv.ticketId, alreadyTicketed: true });
+    }
+    const email = conv.visitor.email?.trim();
+    if (!email) {
+      return NextResponse.json(
+        { error: "This visitor never gave an email address, so a ticket would have nobody to reply to." },
+        { status: 400 },
+      );
+    }
+
+    let created;
+    try {
+      created = await openTicketForConversation(conv, {
+        email,
+        subject: (subject ?? "").trim() || suggestedSubject(conv),
+        summary: (text ?? "").trim() || "Converted from a live chat by the support team.",
+        actor,
+      });
+    } catch (e) {
+      // Surfaced to the person who pressed the button, verbatim. The whole
+      // reason this button exists is that a ticket failure used to be visible
+      // only as Jetta apologising to a customer.
+      const message = e instanceof Error ? e.message : String(e);
+      await logOpsEvent({
+        level: "error",
+        event: "chat.ticket_failed",
+        source: "console",
+        actor,
+        ticketId: conversationId,
+        data: { error: message.slice(0, 600) },
+      });
+      return NextResponse.json({ error: `Freshdesk refused the ticket: ${message}` }, { status: 502 });
+    }
+
+    await store.updateConversation(conversationId, { status: "ticketed", ticketId: created.id });
+
+    // Jetta stops answering a ticketed conversation, so without this the
+    // visitor is left watching a chat that simply goes quiet.
+    if (notify !== false) {
+      await store.appendMessage(
+        conversationId,
+        "agent",
+        `${actor} has passed this to the support team — they'll reply by email to ${email}.`,
+        { via: "human", authorName: actor, system: true },
+      );
+    }
+
+    await logOpsEvent({
+      level: "info",
+      event: "chat.ticketed_by_human",
+      source: "console",
+      actor,
+      ticketId: conversationId,
+      data: { freshdeskTicket: created.id, notified: notify !== false },
+    });
+    return NextResponse.json({ ok: true, ticketId: created.id, url: created.url });
   }
 
   if (action === "release") {
