@@ -19,6 +19,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { adminAuthorized } from "@/lib/auth";
 import { listConversations } from "@/lib/chat-store";
 import { listMonetApprovals } from "@/lib/kv";
+import { listLearnings } from "@/lib/evals";
+import { countByState } from "@/lib/kb-store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,9 +30,14 @@ export async function GET(req: NextRequest) {
 
   // One slow store shouldn't blank every badge, so each side settles on its own
   // and a failure reports zero rather than taking the response down with it.
-  const [convs, approvals] = await Promise.all([
+  const [convs, approvals, learnings, kb] = await Promise.all([
     listConversations(100).catch(() => []),
     listMonetApprovals().catch(() => []),
+    // These two moved off /today when it became an agent worklist. They are
+    // admin decisions on a slower clock, and a badge shows them from every page
+    // rather than only from the one page they used to sit on.
+    listLearnings("candidate").catch(() => []),
+    countByState().catch(() => ({ draft: 0 })),
   ]);
 
   return NextResponse.json({
@@ -40,5 +47,10 @@ export async function GET(req: NextRequest) {
     // Being handled by a colleague: information, not a summons.
     chatsLive: convs.filter((c) => c.status === "human").length,
     billingPending: approvals.length,
+    // Behaviour changes waiting on a person: nothing about how Jetta writes
+    // changes until one of these is approved.
+    learningsPending: learnings.length,
+    // Draft articles are invisible to Jetta until published.
+    kbDrafts: kb.draft ?? 0,
   });
 }

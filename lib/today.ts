@@ -20,12 +20,93 @@ import { listLearnings } from "./evals";
 import { listArticles, countByState, type ArticleState } from "./kb-store";
 import { topicTrends, ticketRecords, type TopicTrend, type TicketRecord } from "./topics";
 import { yesterdayKey } from "./daily-overview";
+import { listConversations, getConversation } from "./chat-store";
+import { getTicketDetails, isTerminalStatus } from "./tools/freshdesk";
 
 const HOUR_S = 3600;
 const WINDOW_HOURS = 24;
 /** Escalations stay on the board over a weekend-shaped gap, not just overnight. */
 const ESCALATION_LOOKBACK_H = 72;
 const REOPEN_LOOKBACK_H = 7 * 24;
+
+/**
+ * Why something is on the worklist. A ticket can carry more than one — a
+ * reopened ticket that was then escalated is a different (worse) thing than
+ * either alone, and collapsing it to one label throws that away.
+ */
+export type WorklistSignal = "chat_waiting" | "reopened" | "escalated";
+
+/**
+ * Two ways a ticket needs a person, and they are opposite problems.
+ *
+ * `active`  — the customer has said something recently. Someone should answer.
+ * `stalled` — it was escalated or reopened and nothing has happened since.
+ *             Nobody has picked it up.
+ *
+ * Ranking by the escalation timestamp alone conflates them: a conversation
+ * escalated 36h ago whose customer replied a minute ago is the single most
+ * urgent thing on the page, and sorting by "escalated 36h ago" buries it below
+ * genuinely abandoned tickets.
+ */
+export type WorklistState = "active" | "stalled";
+
+/** Below this, the last message is recent enough that someone is mid-conversation. */
+const ACTIVE_WITHIN_H = 6;
+
+/**
+ * Live Freshdesk status per ticket, cached briefly.
+ *
+ * The worklist is assembled from Jetta's own run history, which records what
+ * happened at the time and nothing after it. A human resolving a ticket gives
+ * her no reason to run again, so without this the record still says "reopened"
+ * and the ticket sits on the worklist until the lookback expires — 13945 was
+ * closed in Freshdesk and top of the list.
+ *
+ * One GET per candidate, so it is cached: /today and the insight route each
+ * build the brief, and a refresh must not mean a second round of calls.
+ */
+const STATUS_TTL_MS = 60_000;
+const statusCache = new Map<string, { at: number; status: string | null }>();
+
+async function liveStatus(ticketId: string): Promise<string | null> {
+  const hit = statusCache.get(ticketId);
+  if (hit && Date.now() - hit.at < STATUS_TTL_MS) return hit.status;
+  // Fail open: an unreachable Freshdesk should leave the worklist stale, not
+  // empty. Showing one resolved ticket is a smaller failure than hiding five
+  // live ones because an API call timed out.
+  const status = await getTicketDetails(ticketId)
+    .then((t) => t.status)
+    .catch(() => null);
+  statusCache.set(ticketId, { at: Date.now(), status });
+  return status;
+}
+
+export interface WorklistItem {
+  /** What the ranking model refers to this by. Ticket id, or `chat:<uuid>`. */
+  id: string;
+  signals: WorklistSignal[];
+  /** Display label — "#13891" or the visitor's name. */
+  label: string;
+  url: string | null;
+  external: boolean;
+  subject: string;
+  topic: string | null;
+  app: string;
+  /** Unix seconds of the event that put it here — not when the ticket arrived. */
+  at: number;
+  /** Hours since the event, rounded. */
+  ageHours: number;
+  state: WorklistState;
+  /** Hours since anyone last said anything. The number that decides urgency. */
+  quietHours: number;
+  /** How many times Jetta has run on it — a proxy for how long the thread is. */
+  runs: number;
+  /**
+   * The ticket's status in Freshdesk right now, not when Jetta last saw it.
+   * Null for chat conversations and when the lookup failed.
+   */
+  status: string | null;
+}
 
 /**
  * Where to send a reader who clicks the id.
@@ -122,23 +203,30 @@ export type TodayBrief = Awaited<ReturnType<typeof buildTodayBrief>>;
 
 /** Assemble the whole brief. Read-only; safe to call from any admin route. */
 export async function buildTodayBrief() {
-  const [outcomes, candidateLearnings, monet, kbCounts, published, yesterday] = await Promise.all([
-    getOutcomes(1000),
-    // Reply drafts are deliberately absent. The console review queue is not the
-    // workflow: agents read Jetta's suggestion as a Freshdesk private note and
-    // send in their own words, and the learning comes from mining what they
-    // actually wrote (/evals → "Learn from human replies"). Counting drafts here
-    // put work on the board that nobody was ever going to do — 83 of 95 turned
-    // out to be unreviewable. What DOES need a human is a candidate learning:
-    // nothing changes Jetta's behaviour until someone approves one.
-    listLearnings("candidate").catch(() => []),
-    listMonetApprovals().catch(() => []),
-    countByState().catch(
-      () => ({ draft: 0, in_review: 0, published: 0, archived: 0 }) as Record<ArticleState, number>,
-    ),
-    listArticles({ state: "published", limit: 500 }).catch(() => []),
-    getDailyRollup(yesterdayKey()).catch(() => null),
-  ]);
+  const [outcomes, candidateLearnings, monet, kbCounts, published, yesterday, conversations] =
+    await Promise.all([
+      getOutcomes(1000),
+      // Reply drafts are deliberately absent. The console review queue is not the
+      // workflow: agents read Jetta's suggestion as a Freshdesk private note and
+      // send in their own words, and the learning comes from mining what they
+      // actually wrote (/evals → "Learn from human replies"). Counting drafts here
+      // put work on the board that nobody was ever going to do — 83 of 95 turned
+      // out to be unreviewable. What DOES need a human is a candidate learning:
+      // nothing changes Jetta's behaviour until someone approves one.
+      listLearnings("candidate").catch(() => []),
+      listMonetApprovals().catch(() => []),
+      countByState().catch(
+        () => ({ draft: 0, in_review: 0, published: 0, archived: 0 }) as Record<ArticleState, number>,
+      ),
+      listArticles({ state: "published", limit: 500 }).catch(() => []),
+      getDailyRollup(yesterdayKey()).catch(() => null),
+      // Someone sitting in a live chat is the most time-critical thing here, and
+      // the only worklist input that isn't a ticket. A store blip must not take
+      // the whole brief down with it.
+      listConversations(100).catch(() => []),
+    ]);
+
+  const waitingChats = conversations.filter((c) => c.status === "waiting_human");
 
   const nowS = Math.floor(Date.now() / 1000);
   const windowStart = nowS - WINDOW_HOURS * HOUR_S;
@@ -192,7 +280,10 @@ export async function buildTodayBrief() {
     subject: t.subject,
     topic: t.topic,
     product: t.product,
+    app: t.app,
     at,
+    lastAt: t.lastAt,
+    runs: t.runs,
     ...refFor(t.ticketId, t.channel),
   });
 
@@ -205,6 +296,131 @@ export async function buildTodayBrief() {
     .filter((t) => t.reopenedAt != null && t.reopenedAt >= nowS - REOPEN_LOOKBACK_H * HOUR_S)
     .sort((a, b) => b.reopenedAt! - a.reopenedAt!)
     .map((t) => queueRow(t, t.reopenedAt!));
+
+  // ── The worklist ─────────────────────────────────────────────────
+  /*
+   * One ranked list of things a person has to pick up, rather than three
+   * separate piles the reader has to merge in their head.
+   *
+   * A ticket appearing for two reasons is merged into one row carrying both
+   * signals — the same ticket listed twice is the fastest way to make a
+   * worklist untrustworthy.
+   *
+   * The order built here is a deterministic fallback, not the final answer:
+   * chats first because a visitor is a minutes problem and everything else is
+   * a days problem, then reopens newest-first (a fresh failure is the live
+   * one), then escalations oldest-first (the neglected one is the problem).
+   * The model reorders this, but if it fails or drops something the page is
+   * still usable and still complete.
+   */
+  const byId = new Map<string, WorklistItem>();
+  const age = (at: number) => Math.max(0, Math.round((nowS - at) / HOUR_S));
+
+  const add = (item: WorklistItem) => {
+    const existing = byId.get(item.id);
+    if (!existing) return void byId.set(item.id, item);
+    for (const s of item.signals) if (!existing.signals.includes(s)) existing.signals.push(s);
+    if (item.at > existing.at) {
+      existing.at = item.at;
+      existing.ageHours = item.ageHours;
+    }
+  };
+
+  const row = (r: ReturnType<typeof queueRow>, signal: WorklistSignal): WorklistItem => {
+    const quietHours = age(r.lastAt);
+    return {
+      id: r.ticketId,
+      signals: [signal],
+      label: r.label,
+      url: r.url,
+      external: r.external,
+      subject: r.subject,
+      topic: r.topic,
+      app: r.app,
+      at: r.at,
+      ageHours: age(r.at),
+      state: quietHours < ACTIVE_WITHIN_H ? "active" : "stalled",
+      quietHours,
+      runs: r.runs,
+      status: null,
+    };
+  };
+
+  for (const r of reopened) add(row(r, "reopened"));
+  for (const e of escalations) add(row(e, "escalated"));
+
+  const chatRows: WorklistItem[] = waitingChats.map((c) => {
+    const at = Math.floor((c.humanRequestedAt ?? Date.parse(c.lastActivityAt)) / 1000);
+    return {
+      id: `chat:${c.id}`,
+      signals: ["chat_waiting"],
+      label: c.visitor.name || c.visitor.email || "Visitor",
+      url: `/chats/${c.id}`,
+      external: false,
+      subject: "Waiting for a person in live chat",
+      topic: null,
+      app: c.visitor.app ?? "unknown",
+      at,
+      ageHours: age(at),
+      // A waiting visitor is by definition mid-conversation.
+      state: "active",
+      quietHours: age(at),
+      runs: 1,
+      // Chat status lives in the chat store and is already accurate — these
+      // rows exist because the conversation says waiting_human.
+      status: null,
+    };
+  });
+
+  /*
+   * Order: a waiting visitor first, then anything with a live customer on the
+   * other end, then the abandoned pile.
+   *
+   * Within "active", most recent first — that is the person typing now. Within
+   * "stalled", quietest first — the one nobody has touched longest is the one
+   * being forgotten. Sorting the whole list by one clock gets one of those two
+   * groups backwards whichever clock you pick.
+   */
+  /*
+   * Drop anything that is finished, according to the system that owns it.
+   *
+   * This is the one place the brief looks outside its own history, and it has
+   * to: the history records what happened, and nothing that happens afterwards
+   * — a human closing a ticket, someone deleting a conversation — leaves any
+   * trace in it. Both halves of this were live bugs. A closed ticket sat top of
+   * the list as "reopened"; a deleted conversation kept a row pointing at a
+   * page that no longer exists.
+   *
+   * Tickets are checked against Freshdesk, conversations against the chat
+   * store. Rows already sourced from a waiting conversation skip the lookup —
+   * they exist because that conversation said waiting_human a moment ago.
+   */
+  const candidates = [...chatRows, ...byId.values()];
+  const withStatus = await Promise.all(
+    candidates.map(async (item) => {
+      if (item.id.startsWith("chat:")) return item;
+      if (/^\d+$/.test(item.id)) return { ...item, status: await liveStatus(item.id) };
+      // A conversation id. Gone means deleted or expired past retention, and
+      // the row would link to a dead page; ticketed means the Freshdesk ticket
+      // is the live thread now and this row is a duplicate of it.
+      const conv = await getConversation(item.id).catch(() => undefined);
+      if (conv === undefined) return item; // lookup failed — fail open
+      if (!conv) return { ...item, status: "gone" };
+      return { ...item, status: conv.status };
+    }),
+  );
+  const DONE = new Set(["gone", "resolved", "ticketed"]);
+  const live = withStatus.filter(
+    (i) => !(i.status && (isTerminalStatus(i.status) || DONE.has(i.status))),
+  );
+
+  const group = (i: WorklistItem) =>
+    i.signals.includes("chat_waiting") ? 0 : i.state === "active" ? 1 : 2;
+  const worklist = live.sort((a, b) => {
+    const g = group(a) - group(b);
+    if (g !== 0) return g;
+    return group(a) === 2 ? b.quietHours - a.quietHours : a.quietHours - b.quietHours;
+  });
 
   return {
     generatedAt: Date.now(),
@@ -221,6 +437,7 @@ export async function buildTodayBrief() {
     /** Yesterday's narrative from the daily rollup — written by the 06:10 cron. */
     narrative: yesterday?.insight ?? null,
     narrativeDate: yesterday?.date ?? null,
+    worklist,
     trends: {
       partialHistory: trends.partialHistory,
       historyDaysCovered: trends.historyDaysCovered,

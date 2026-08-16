@@ -184,5 +184,7 @@ function SidebarLink({
 function badgeCount(item: NavItem, a: Attention): number {
   if (item.badge === "chats") return a.chatsWaiting || a.chatsLive;
   if (item.badge === "billing") return a.billingPending;
+  if (item.badge === "evals") return a.learningsPending;
+  if (item.badge === "kb-review") return a.kbDrafts;
   return 0;
 }
