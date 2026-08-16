@@ -21,6 +21,15 @@
  */
 import { config } from "./config";
 import { modelLabel } from "./llm";
+import type { Product } from "./types";
+
+/**
+ * Every value `Product` can take. A Record rather than an array so adding a
+ * product breaks the build here — the point of this map is deciding whether a
+ * filter listing every product is really a filter at all, and it can only
+ * answer that if it knows the full set.
+ */
+const ALL_PRODUCTS: Record<Product, true> = { jetpackapps: true, getsign: true, unknown: true };
 
 /**
  * Four states, because two aren't enough.
@@ -177,6 +186,20 @@ export function capabilityRows(): StatusRow[] {
 export function rolloutRows(): StatusRow[] {
   const products = config.productFilter;
   const allowlist = config.ticketAllowlist;
+  // What the filter actually keeps out, rather than what it happens to list.
+  const excluded = products.length
+    ? (Object.keys(ALL_PRODUCTS) as Product[]).filter((p) => !products.includes(p))
+    : [];
+  /*
+   * Entries that aren't a Product at all. This is the failure worth catching:
+   * the filter is a `Product` list, but "product" reads like an app name, so
+   * JETTA_PRODUCTS=vlookup is the natural thing to write — and it matches
+   * nothing, which means every ticket is skipped and Jetta goes silent with no
+   * error anywhere. App-level filtering does not exist; app is AppProduct, and
+   * nothing filters on it.
+   */
+  const invalid = products.filter((p) => !(p in ALL_PRODUCTS));
+  const VALID = (Object.keys(ALL_PRODUCTS) as Product[]).join(", ");
   return [
     {
       label: "Intake filter",
@@ -188,23 +211,58 @@ export function rolloutRows(): StatusRow[] {
       setting: "JETTA_INTAKE_FILTER",
     },
     {
+      // A filter naming every product excludes nothing. Reporting that as a
+      // restriction — and painting it amber — would have someone hunting for
+      // tickets being dropped when none are.
       label: "Product filter",
-      tone: products.length ? "warn" : "off",
-      state: products.length ? products.join(", ").toUpperCase() : "ALL PRODUCTS",
-      meaning: products.length
-        ? `Webhook runs are skipped for anything outside this list${
-            products.includes("unknown") ? "" : ", including tickets the classifier can't place"
-          }. Those tickets get no draft and no note.`
-        : "No product is filtered out.",
+      tone: invalid.length || excluded.length ? "warn" : "off",
+      state: invalid.length
+        ? "INVALID"
+        : excluded.length
+          ? products.join(", ").toUpperCase()
+          : "ALL PRODUCTS",
+      meaning: invalid.length
+        ? `${invalid.join(", ")} ${invalid.length === 1 ? "is not a product" : "are not products"} — the only values that match anything are ${VALID}. ${
+            invalid.length === products.length
+              ? "Nothing in this list matches, so EVERY email and Freshchat ticket is being skipped and Jetta is doing nothing on them."
+              : "Those entries match nothing and narrow the filter further than intended."
+          } This filter is board-level, not app-level: there is no way to filter to VLOOKUP or TrackMy alone.`
+        : excluded.length
+          ? `Email and Freshchat intake is skipped for ${excluded.join(" and ")} — those tickets get no suggestion and no note. Note this is board-level, not app-level: "jetpackapps" is all nine Jetpack apps together, and no filter narrows to one of them. Chat conversations are not filtered.`
+          : products.length
+            ? `Set, but it names every product (${VALID}), so nothing is excluded — the same as leaving it unset.`
+            : `No product is filtered out. The only values this accepts are ${VALID} — it selects a dev-board side of the house, not an individual app.`,
       setting: "JETTA_PRODUCTS",
     },
     {
+      /*
+       * Two things make this row hard to state honestly, and both were wrong
+       * here before.
+       *
+       * It never gates chat: liveWritesAllowed() returns true for jettachat
+       * before it reads the list at all.
+       *
+       * And in DRAFT mode it gates nothing whatsoever. runAgentLoop computes
+       * `dryRun = opts.dryRun || (!allowed && !hold)` — draft mode sets hold,
+       * so a non-allowlisted ticket is never forced dry. Customer writes are
+       * already held and the internal actions are meant to run for every
+       * ticket. An allowlist therefore sits inert until reply mode flips to
+       * AUTO, at which point it silently becomes a hard restriction. Reporting
+       * it as an active brake while it does nothing is the wrong error; so is
+       * hiding a landmine that arms itself on a config change.
+       */
       label: "Ticket allowlist",
       tone: allowlist.length ? "warn" : "off",
-      state: allowlist.length ? `${allowlist.length} TICKET${allowlist.length === 1 ? "" : "S"}` : "NO RESTRICTION",
-      meaning: allowlist.length
-        ? `Live writes only happen on these ticket ids: ${allowlist.join(", ")}. Every other ticket reasons but writes nothing.`
-        : "Jetta may write on any ticket that passes the filters above.",
+      state: !allowlist.length
+        ? "NO RESTRICTION"
+        : `${allowlist.length} TICKET${allowlist.length === 1 ? "" : "S"}${
+            config.replyMode === "draft" ? " · INERT" : ""
+          }`,
+      meaning: !allowlist.length
+        ? "Jetta may write on any ticket that passes the filters above."
+        : config.replyMode === "draft"
+          ? `Lists ${allowlist.join(", ")}, but restricts nothing while reply mode is DRAFT — held runs are never forced dry, so every ticket still gets its private note, Slack escalation and dev-board item. Switch reply mode to AUTO and this becomes a hard limit to those ids alone, with nothing on screen to announce it. It never gates chat.`
+          : `Live writes only happen on ${allowlist.join(", ")} — every other ticket reasons and writes nothing. It does NOT gate chat: JettaChat conversations write, reply and raise tickets as normal.`,
       setting: "JETTA_TICKET_ALLOWLIST",
     },
     {
@@ -266,6 +324,17 @@ export function reasoningRows(): StatusRow[] {
         : "Retrieval order is whatever the index returned.",
       setting: "RERANK_ENABLED",
     },
+    {
+      // Not driven by a flag — it's a property of the code paths, and the
+      // asymmetry is the whole point. A chat screenshot becomes words the model
+      // can read; the identical screenshot on an email ticket does not, and
+      // nothing in the reply says so. That silence is why this is a warn.
+      label: "Reading images",
+      tone: "warn",
+      state: "CHAT ONLY",
+      meaning:
+        "Images a visitor uploads in chat get a light-tier vision pass — errors transcribed verbatim — and the description stays in the prompt for the rest of the conversation. PDFs are skipped. Freshdesk attachments get none of this: the model is never told a file is there, and answers the ticket without it. Slack DMs likewise see only a filename.",
+    },
   ];
 }
 
@@ -300,15 +369,27 @@ export function headlineState(): StatusRow[] {
     rows.push({
       label: "Ticket allowlist",
       tone: "warn",
-      state: `${allowlist.length} TICKET${allowlist.length === 1 ? "" : "S"}`,
-      meaning: `Jetta only writes on ${allowlist.join(", ")}. Every other ticket reasons but writes nothing.`,
+      state: `${allowlist.length} TICKET${allowlist.length === 1 ? "" : "S"}${
+        config.replyMode === "draft" ? " · INERT" : ""
+      }`,
+      meaning:
+        config.replyMode === "draft"
+          ? `Lists ${allowlist.join(", ")} but restricts nothing in DRAFT mode. It becomes a hard limit the moment reply mode flips to AUTO.`
+          : `On tickets Jetta only writes on ${allowlist.join(", ")}; every other ticket reasons and writes nothing. Chat is not gated by it.`,
     });
-  } else if (products.length) {
+    // Only a filter that actually excludes a product is worth a chip. One that
+    // names all three restricts nothing, and a permanent amber badge for
+    // nothing is how people learn to stop reading the bar.
+  } else if (
+    products.length &&
+    (Object.keys(ALL_PRODUCTS) as Product[]).some((p) => !products.includes(p))
+  ) {
     rows.push({
       label: "Product filter",
       tone: "warn",
       state: products.join(", ").toUpperCase(),
-      meaning: "Tickets outside this list are skipped before the agent runs.",
+      meaning:
+        "Email and Freshchat intake outside this list is skipped before the agent runs. Chat conversations are not filtered.",
     });
   }
   return rows;

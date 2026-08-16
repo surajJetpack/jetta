@@ -201,12 +201,18 @@ export default function GuideContent({ isAdmin }: { isAdmin: boolean }) {
             </p>
           </StepCard>
 
-          <StepCard title="Attachments">
+          <StepCard title="Attachments — and what Jetta can see">
             <p className="text-sm">
-              Visitors can send screenshots, and you will see them in the transcript. <b>Jetta
-              cannot.</b> She knows a file&apos;s name, type and size and nothing else, so a chat
-              that hinges on what&apos;s in an image is one she is answering half-blind — worth
-              reading those closely.
+              Visitors can send screenshots, and <b>in chat Jetta reads them</b>: every uploaded
+              image gets described before she answers, with any error message transcribed word for
+              word, and that description stays with her for the rest of the conversation. PDFs are
+              skipped — the useful ones are multi-page and a summary of page one misleads.
+            </p>
+            <p className="mt-1.5 text-sm">
+              <b>This is chat only.</b> The same screenshot attached to a Freshdesk ticket is
+              invisible to her — she is never told a file is there and answers without it, saying
+              nothing to indicate she missed anything. If a ticket turns on what&apos;s in an image,
+              assume her suggestion didn&apos;t account for it.
             </p>
           </StepCard>
 
