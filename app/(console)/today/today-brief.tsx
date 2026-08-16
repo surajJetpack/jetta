@@ -26,6 +26,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { StepCard } from "@/components/jetta/step-card";
 import { StatusChip } from "@/components/jetta/status-chip";
 import { EmptyState } from "@/components/jetta/empty-state";
+import { MetricRow } from "@/components/jetta/metric-row";
+import { DataList, DataRow } from "@/components/jetta/data-row";
+import { SectionHeader } from "@/components/jetta/page-header";
 
 /** Every clickable reference the API returns carries its own resolved link. */
 interface Ref {
@@ -108,15 +111,6 @@ interface Brief {
 
 
 
-function Stat({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="rounded-lg border bg-muted/40 p-3">
-      <div className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">{label}</div>
-      <div className="mt-1 flex items-center gap-2 font-mono text-sm font-semibold">{children}</div>
-    </div>
-  );
-}
-
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return <div className="text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">{children}</div>;
 }
@@ -152,6 +146,47 @@ function TicketRef({ item }: { item: { label: string; url: string | null; extern
       {item.label}
       <ExternalLink className="size-3 shrink-0 opacity-60" aria-hidden />
     </a>
+  );
+}
+
+/**
+ * Escalations and reopened tickets are the same object — a ticket, a subject,
+ * a topic and a timestamp — so they get one renderer rather than two
+ * near-identical blocks. Rows rather than cards: these lists run long on a busy
+ * morning, and a bordered card per ticket costs three times the height while
+ * giving the eye no column to run down.
+ */
+function QueueList({
+  label,
+  icon: Icon,
+  items,
+  now,
+}: {
+  label: string;
+  icon: typeof BookOpen;
+  items: QueueItem[];
+  now: number;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <SectionHeader meta={items.length}>{label}</SectionHeader>
+      <DataList>
+        {items.map((it) => (
+          <DataRow
+            key={it.ticketId}
+            icon={<Icon aria-hidden />}
+            title={<TicketRef item={it} />}
+            detail={it.subject}
+            meta={
+              <>
+                {it.topic && <StatusChip>{displayTopic(it.topic)}</StatusChip>}
+                <span title={new Date(it.at * 1000).toLocaleString()}>{fmtAgo(it.at, now)}</span>
+              </>
+            }
+          />
+        ))}
+      </DataList>
+    </div>
   );
 }
 
@@ -301,14 +336,23 @@ export default function TodayBrief({ isAdmin = true }: { isAdmin?: boolean }) {
               </CardAction>
             </CardHeader>
             <CardContent className="space-y-4">
-              {/* Every tile here is the same 24h window — the open-queue total
-                  lives on the queue card, so the row never mixes timeframes. */}
-              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-                <Stat label="Came in">{s.arrived}</Stat>
-                <Stat label="Jetta answered">{s.answered}</Stat>
-                <Stat label="Escalated">{s.escalated}</Stat>
-                <Stat label="Reopened">{s.reopened}</Stat>
-              </div>
+              {/* Every metric here is the same 24h window — the open-queue total
+                  lives on the queue card, so the row never mixes timeframes.
+                  Tone only where the number is itself a state: escalated and
+                  reopened mean someone has work, answered and arrived don't. */}
+              <MetricRow
+                metrics={[
+                  { label: "Came in", value: s.arrived },
+                  { label: "Jetta answered", value: s.answered },
+                  { label: "Escalated", value: s.escalated, tone: s.escalated ? "warn" : undefined },
+                  {
+                    label: "Reopened",
+                    value: s.reopened,
+                    tone: s.reopened ? "bad" : undefined,
+                    hint: s.reopened ? "her answer didn't land" : undefined,
+                  },
+                ]}
+              />
 
               {brief.byApp.length > 0 && (
                 <div className="space-y-2">
@@ -540,53 +584,21 @@ export default function TodayBrief({ isAdmin = true }: { isAdmin?: boolean }) {
                 )}
 
                 {q.escalations.count > 0 && (
-                  <div className="space-y-2">
-                    <SectionLabel>Escalated to the team (last 72h)</SectionLabel>
-                    {q.escalations.items.map((e) => (
-                      <StepCard
-                        key={e.ticketId}
-                        title={
-                          <span className="inline-flex items-center gap-1.5">
-                            <Siren className="size-4 shrink-0" aria-hidden />
-                            <TicketRef item={e} />
-                          </span>
-                        }
-                        meta={
-                          <>
-                            {e.topic && <StatusChip>{displayTopic(e.topic)}</StatusChip>}
-                            <span title={new Date(e.at * 1000).toLocaleString()}>{fmtAgo(e.at, now)}</span>
-                          </>
-                        }
-                      >
-                        <p className="text-xs text-muted-foreground">{e.subject}</p>
-                      </StepCard>
-                    ))}
-                  </div>
+                  <QueueList
+                    label="Escalated to the team (last 72h)"
+                    icon={Siren}
+                    items={q.escalations.items}
+                    now={now}
+                  />
                 )}
 
                 {q.reopened.count > 0 && (
-                  <div className="space-y-2">
-                    <SectionLabel>Reopened — the customer came back</SectionLabel>
-                    {q.reopened.items.map((r) => (
-                      <StepCard
-                        key={r.ticketId}
-                        title={
-                          <span className="inline-flex items-center gap-1.5">
-                            <Undo2 className="size-4 shrink-0" aria-hidden />
-                            <TicketRef item={r} />
-                          </span>
-                        }
-                        meta={
-                          <>
-                            {r.topic && <StatusChip>{displayTopic(r.topic)}</StatusChip>}
-                            <span title={new Date(r.at * 1000).toLocaleString()}>{fmtAgo(r.at, now)}</span>
-                          </>
-                        }
-                      >
-                        <p className="text-xs text-muted-foreground">{r.subject}</p>
-                      </StepCard>
-                    ))}
-                  </div>
+                  <QueueList
+                    label="Reopened — the customer came back"
+                    icon={Undo2}
+                    items={q.reopened.items}
+                    now={now}
+                  />
                 )}
 
                 {/* Only count what this reader can act on, or the page claims

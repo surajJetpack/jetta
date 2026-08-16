@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { gate } from "@/lib/console-auth";
+import { PageHeader } from "@/components/jetta/page-header";
 import TodayBrief from "./today-brief";
 
 export const dynamic = "force-dynamic";
@@ -14,6 +15,10 @@ export default async function TodayPage() {
   if (locked) redirect("/login?next=%2Ftoday");
   return (
     <>
+      <PageHeader
+        title="Today"
+        description="What came in overnight, what's spiking, and what needs a person."
+      />
       <TodayBrief isAdmin={isAdmin} />
     </>
   );
