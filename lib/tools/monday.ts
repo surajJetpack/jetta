@@ -91,6 +91,38 @@ async function attachFilesToUpdate(
   return uploaded;
 }
 
+type MondayColumnValue = {
+  text: string | null;
+  type: string;
+  column: { title: string } | null;
+};
+
+/**
+ * Which column says how far along an item is.
+ *
+ * Both dev boards carry FOUR status-type columns — Dev Status, Project,
+ * Priority and Type — so "the first status column" resolves to "VLOOKUP" on
+ * one item and "Working on it" on the next. The progress one is titled "Dev
+ * Status" on both; a plain "Status" is accepted as a fallback for a board that
+ * has not been renamed.
+ *
+ * Unmatched reads "unknown", never "open". This field was HARDCODED to "open"
+ * until 2026-08-16: every search told the agent — and any colleague asking in
+ * Slack — that a shipped item was still live, in the same confident sentence
+ * as the facts that were true.
+ */
+const PROGRESS_COLUMN_TITLES = ["dev status", "status"];
+
+function progressOf(columns: MondayColumnValue[] | undefined): string {
+  for (const title of PROGRESS_COLUMN_TITLES) {
+    const hit = (columns ?? []).find(
+      (c) => c.type === "status" && c.column?.title?.trim().toLowerCase() === title,
+    );
+    if (hit?.text?.trim()) return hit.text.trim();
+  }
+  return "unknown";
+}
+
 export async function searchDevBoard(symptom: string, product: Product): Promise<DevBoardItem[]> {
   if (!config.monday.live) {
     if (/mapping|map|column/i.test(symptom)) {
@@ -98,7 +130,7 @@ export async function searchDevBoard(symptom: string, product: Product): Promise
         {
           id: "5566778899",
           title: "[GetSign] Mapping editor: confirm-on-close UX confusion",
-          status: "In Progress",
+          status: "Working on it",
           url: itemUrl("5566778899", "getsign"),
         },
       ];
@@ -112,9 +144,17 @@ export async function searchDevBoard(symptom: string, product: Product): Promise
   // — and missing an existing item would make Jetta file a duplicate.
   const board = boardIdFor(product);
   const data = await gql<{
-    boards: { items_page: { items: { id: string; name: string }[] } }[];
+    boards: {
+      items_page: { items: { id: string; name: string; column_values: MondayColumnValue[] }[] };
+    }[];
   }>(
-    `query ($board: [ID!]) { boards(ids: $board) { items_page(limit: 100) { items { id name } } } }`,
+    `query ($board: [ID!]) {
+      boards(ids: $board) {
+        items_page(limit: 100) {
+          items { id name column_values { text type column { title } } }
+        }
+      }
+    }`,
     { board: [board] },
   ).catch(() => null);
 
@@ -134,7 +174,12 @@ export async function searchDevBoard(symptom: string, product: Product): Promise
     .filter((s) => s.score > 0)
     .sort((a, b) => b.score - a.score)
     .slice(0, 5)
-    .map(({ i }) => ({ id: i.id, title: i.name, status: "open", url: itemUrl(i.id, product) }));
+    .map(({ i }) => ({
+      id: i.id,
+      title: i.name,
+      status: progressOf(i.column_values),
+      url: itemUrl(i.id, product),
+    }));
 }
 
 export interface CreateDevItemInput {
