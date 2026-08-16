@@ -32,7 +32,7 @@ export default async function SystemPage() {
 
   return (
     <>
-      <Card>
+      <Card id="capabilities" className="scroll-mt-16">
         <CardHeader>
           <CardTitle>What Jetta can change</CardTitle>
           <CardDescription>
@@ -45,7 +45,7 @@ export default async function SystemPage() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card id="channels" className="scroll-mt-16">
         <CardHeader>
           <CardTitle>Channels</CardTitle>
           <CardDescription>How customers and colleagues reach Jetta.</CardDescription>
@@ -55,7 +55,7 @@ export default async function SystemPage() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card id="rollout" className="scroll-mt-16">
         <CardHeader>
           <CardTitle>Which tickets Jetta touches</CardTitle>
           <CardDescription>
@@ -69,7 +69,7 @@ export default async function SystemPage() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card id="reasoning" className="scroll-mt-16">
         <CardHeader>
           <CardTitle>Reasoning &amp; retrieval</CardTitle>
           <CardDescription>Which models answer, and how the knowledge base is searched.</CardDescription>

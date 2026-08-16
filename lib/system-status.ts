@@ -51,6 +51,12 @@ export interface StatusRow {
   meaning: string;
   /** The environment variable behind it, so an admin knows what to change. */
   setting?: string;
+  /**
+   * Which card on /system explains this, for the topbar chips. Without it the
+   * chip lands at the top of the page and leaves the reader to find the row —
+   * and does visibly nothing at all when they are already on /system.
+   */
+  anchor?: string;
 }
 
 /** How customers and colleagues actually reach Jetta. */
@@ -329,6 +335,7 @@ export function headlineState(): StatusRow[] {
     meaning: auto
       ? "Replies reach the customer with no human in front of them."
       : "Every Freshdesk reply waits for a human.",
+    anchor: "capabilities",
   });
 
   const products = config.productFilter;
@@ -345,6 +352,7 @@ export function headlineState(): StatusRow[] {
       state: products.join(", ").toUpperCase(),
       meaning:
         "Email and Freshchat intake outside this list is skipped before the agent runs. Chat conversations are not filtered.",
+      anchor: "rollout",
     });
   }
   return rows;

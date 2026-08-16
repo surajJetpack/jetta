@@ -43,8 +43,15 @@ export function ConsoleTopbar({
           {headline.map((h) => (
             <Tooltip key={h.label}>
               <TooltipTrigger asChild>
+                {/* Deep-link to the card that explains it, not the top of the
+                    page. An anchor also keeps the chip useful while already on
+                    /system, where a link to /system did visibly nothing. */}
                 {isAdmin ? (
-                  <Link href="/system" aria-label={`${h.label}: ${h.state}`}>
+                  <Link
+                    href={h.anchor ? `/system#${h.anchor}` : "/system"}
+                    aria-label={`${h.label}: ${h.state} — open on System`}
+                    className="rounded-full transition-opacity hover:opacity-80 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+                  >
                     <Signal tone={h.tone}>{h.state}</Signal>
                   </Link>
                 ) : (
