@@ -21,6 +21,15 @@
  */
 import { config } from "./config";
 import { modelLabel } from "./llm";
+import type { Product } from "./types";
+
+/**
+ * Every value `Product` can take. A Record rather than an array so adding a
+ * product breaks the build here — the point of this map is deciding whether a
+ * filter listing every product is really a filter at all, and it can only
+ * answer that if it knows the full set.
+ */
+const ALL_PRODUCTS: Record<Product, true> = { jetpackapps: true, getsign: true, unknown: true };
 
 /**
  * Four states, because two aren't enough.
@@ -177,6 +186,10 @@ export function capabilityRows(): StatusRow[] {
 export function rolloutRows(): StatusRow[] {
   const products = config.productFilter;
   const allowlist = config.ticketAllowlist;
+  // What the filter actually keeps out, rather than what it happens to list.
+  const excluded = products.length
+    ? (Object.keys(ALL_PRODUCTS) as Product[]).filter((p) => !products.includes(p))
+    : [];
   return [
     {
       label: "Intake filter",
@@ -188,22 +201,29 @@ export function rolloutRows(): StatusRow[] {
       setting: "JETTA_INTAKE_FILTER",
     },
     {
+      // A filter naming every product excludes nothing. Reporting that as a
+      // restriction — and painting it amber — would have someone hunting for
+      // tickets being dropped when none are.
       label: "Product filter",
-      tone: products.length ? "warn" : "off",
-      state: products.length ? products.join(", ").toUpperCase() : "ALL PRODUCTS",
-      meaning: products.length
-        ? `Webhook runs are skipped for anything outside this list${
-            products.includes("unknown") ? "" : ", including tickets the classifier can't place"
-          }. Those tickets get no draft and no note.`
-        : "No product is filtered out.",
+      tone: excluded.length ? "warn" : "off",
+      state: excluded.length ? products.join(", ").toUpperCase() : "ALL PRODUCTS",
+      meaning: excluded.length
+        ? `Email and Freshchat intake is skipped for ${excluded.join(" and ")} — those tickets get no suggestion and no note. Chat conversations are not filtered.`
+        : products.length
+          ? "Set, but it names every product, so nothing is excluded — the same as leaving it unset."
+          : "No product is filtered out.",
       setting: "JETTA_PRODUCTS",
     },
     {
+      // The exemption is the part that matters: liveWritesAllowed() in
+      // lib/agent.ts returns true for jettachat before it ever reads this list,
+      // so an allowlist that looks like a global brake leaves the one
+      // unsupervised channel writing at full speed.
       label: "Ticket allowlist",
       tone: allowlist.length ? "warn" : "off",
       state: allowlist.length ? `${allowlist.length} TICKET${allowlist.length === 1 ? "" : "S"}` : "NO RESTRICTION",
       meaning: allowlist.length
-        ? `Live writes only happen on these ticket ids: ${allowlist.join(", ")}. Every other ticket reasons but writes nothing.`
+        ? `On tickets, live writes only happen on ${allowlist.join(", ")} — every other ticket reasons and writes nothing. It does NOT gate chat: JettaChat conversations write, reply and raise tickets as normal.`
         : "Jetta may write on any ticket that passes the filters above.",
       setting: "JETTA_TICKET_ALLOWLIST",
     },
@@ -312,14 +332,21 @@ export function headlineState(): StatusRow[] {
       label: "Ticket allowlist",
       tone: "warn",
       state: `${allowlist.length} TICKET${allowlist.length === 1 ? "" : "S"}`,
-      meaning: `Jetta only writes on ${allowlist.join(", ")}. Every other ticket reasons but writes nothing.`,
+      meaning: `On tickets Jetta only writes on ${allowlist.join(", ")}; every other ticket reasons and writes nothing. Chat is not gated by it.`,
     });
-  } else if (products.length) {
+    // Only a filter that actually excludes a product is worth a chip. One that
+    // names all three restricts nothing, and a permanent amber badge for
+    // nothing is how people learn to stop reading the bar.
+  } else if (
+    products.length &&
+    (Object.keys(ALL_PRODUCTS) as Product[]).some((p) => !products.includes(p))
+  ) {
     rows.push({
       label: "Product filter",
       tone: "warn",
       state: products.join(", ").toUpperCase(),
-      meaning: "Tickets outside this list are skipped before the agent runs.",
+      meaning:
+        "Email and Freshchat intake outside this list is skipped before the agent runs. Chat conversations are not filtered.",
     });
   }
   return rows;
