@@ -120,8 +120,14 @@ export interface FastSpringAccount {
 export interface DevBoardItem {
   id: string;
   title: string;
+  /** The board's own progress value ("Working on it", "ToDo"), or "unknown". */
   status: string;
   url: string;
+  /** Who has it, from the board's Developer column. Absent when nobody does. */
+  assignee?: string;
+  priority?: string;
+  /** The board's "Last Updated" stamp, as monday renders it. */
+  updatedAt?: string;
 }
 
 /** Where the current interaction originated. */

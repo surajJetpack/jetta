@@ -113,14 +113,26 @@ type MondayColumnValue = {
  */
 const PROGRESS_COLUMN_TITLES = ["dev status", "status"];
 
-function progressOf(columns: MondayColumnValue[] | undefined): string {
-  for (const title of PROGRESS_COLUMN_TITLES) {
+/**
+ * First non-empty column of `type` whose title starts with one of `titles`,
+ * in the order given.
+ *
+ * Prefix rather than exact match because board titles carry decoration: the
+ * jetpackapps board's assignee column is literally "Developer  ↗️", and an
+ * exact comparison silently returns nobody for every item on that board.
+ */
+function pickColumn(
+  columns: MondayColumnValue[] | undefined,
+  type: string,
+  titles: string[],
+): string | undefined {
+  for (const title of titles) {
     const hit = (columns ?? []).find(
-      (c) => c.type === "status" && c.column?.title?.trim().toLowerCase() === title,
+      (c) => c.type === type && c.column?.title?.trim().toLowerCase().startsWith(title),
     );
     if (hit?.text?.trim()) return hit.text.trim();
   }
-  return "unknown";
+  return undefined;
 }
 
 export async function searchDevBoard(symptom: string, product: Product): Promise<DevBoardItem[]> {
@@ -132,6 +144,9 @@ export async function searchDevBoard(symptom: string, product: Product): Promise
           title: "[GetSign] Mapping editor: confirm-on-close UX confusion",
           status: "Working on it",
           url: itemUrl("5566778899", "getsign"),
+          assignee: "Dev (stub)",
+          priority: "Medium",
+          updatedAt: "2026-08-01 09:00:00 UTC",
         },
       ];
     }
@@ -177,8 +192,12 @@ export async function searchDevBoard(symptom: string, product: Product): Promise
     .map(({ i }) => ({
       id: i.id,
       title: i.name,
-      status: progressOf(i.column_values),
+      status: pickColumn(i.column_values, "status", PROGRESS_COLUMN_TITLES) ?? "unknown",
       url: itemUrl(i.id, product),
+      // "Reporter" is a people column too, so the title is what separates them.
+      assignee: pickColumn(i.column_values, "people", ["developer", "assignee", "owner"]),
+      priority: pickColumn(i.column_values, "status", ["priority"]),
+      updatedAt: pickColumn(i.column_values, "last_updated", ["last updated"]),
     }));
 }
 
@@ -339,11 +358,12 @@ export interface DevItemUpdate {
  * Read what engineering actually said on a dev item — the updates thread, with
  * replies, newest first.
  *
- * Deliberately NOT offered to the ticket agent, only to the Slack assistant.
- * These are internal engineering notes ("this is a race in the webhook
- * registration, punting to next sprint") and the ticket agent's whole job is
- * writing to customers; one careless paraphrase and a customer is reading our
- * sprint planning. A colleague in Slack has every right to see it.
+ * Offered to BOTH toolsets, but on different terms. These are internal
+ * engineering notes ("this is a race in the webhook registration, punting to
+ * next sprint"), and the ticket agent's whole job is writing to customers — so
+ * there it is fenced by the rules in lib/system-prompt.ts (never quote, never
+ * name an engineer, never repeat a version or sprint) and guarded by
+ * scripts/dev-comment-leak-test.ts. A colleague in Slack simply gets to read it.
  *
  * The board is read off the item rather than assumed, so an id from either
  * dev board resolves to a correct link.

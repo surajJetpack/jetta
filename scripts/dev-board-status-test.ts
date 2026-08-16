@@ -65,6 +65,22 @@ async function main() {
       items.every((i) => !NOT_PROGRESS.test(i.status)),
       items.map((i) => i.status).join(", "),
     );
+    // Assignee comes from a column literally titled "Developer  ↗️" on one
+    // board, so an exact title match returns nobody for every item on it.
+    check(
+      `${product}: at least one item names who has it`,
+      items.some((i) => i.assignee),
+      items.map((i) => `${i.id}:${i.assignee ?? "—"}`).join(", "),
+    );
+    check(
+      `${product}: an assignee is a name, not a status value`,
+      items.every((i) => !i.assignee || !NOT_PROGRESS.test(i.assignee)),
+    );
+    check(
+      `${product}: last-updated stamps parse as dates`,
+      items.every((i) => !i.updatedAt || !Number.isNaN(Date.parse(i.updatedAt))),
+      items.map((i) => i.updatedAt ?? "—").join(", "),
+    );
   }
 
   check("statuses vary across items, rather than one value for everything", new Set(seen).size > 1, seen.join(", "));
