@@ -1,85 +1,132 @@
 import { redirect } from "next/navigation";
 import { config } from "@/lib/config";
-import { modelLabel } from "@/lib/llm";
 import { gate } from "@/lib/console-auth";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  channelRows,
+  capabilityRows,
+  rolloutRows,
+  reasoningRows,
+  ENDPOINTS,
+  CRONS,
+} from "@/lib/system-status";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import { LiveBadge } from "@/components/jetta/live-badge";
+import { StatusRows } from "@/components/jetta/signal";
+import SlackChannelHealth from "@/components/jetta/slack-channel-health";
 import { Nav } from "./nav";
 import TicketTester from "./ticket-tester";
 
 export const dynamic = "force-dynamic";
 
-function Stat({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="rounded-lg border bg-muted/40 p-3">
-      <div className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">{label}</div>
-      <div className="mt-1 flex items-center gap-2 font-mono text-sm font-semibold">{children}</div>
-    </div>
-  );
-}
-
-const ENDPOINTS = [
-  ["POST /api/webhook", "Freshdesk events (production entrypoint)"],
-  ["POST /api/webhook/freshchat", "Freshchat conversation events (Freddy hand-off)"],
-  ["POST /api/slack", "Slack admin commands (@Jetta …)"],
-  ["GET /api/cron/followup", "daily 24h follow-up checker"],
-  ["POST /api/admin/run", "this console's ticket runner (admin-gated)"],
-] as const;
-
-export default async function Home() {
+/**
+ * System — what Jetta can currently do, and to whom.
+ *
+ * Ordered by blast radius rather than by integration: the first card is the
+ * one that decides whether anything Jetta does reaches a customer or a real
+ * account, and the second is who can reach her. The old version of this page
+ * led with five LIVE/STUB badges, which told you an integration was connected
+ * without telling you whether it could write.
+ */
+export default async function SystemPage() {
   const { locked, user, isAdmin, viewingAsGeneral } = await gate();
   if (locked) redirect("/login?next=%2F");
 
-  const integrations: { name: string; live: boolean; note?: string }[] = [
-    { name: "Freshdesk", live: config.freshdesk.live, note: config.freshdesk.domain },
-    { name: "Freshchat", live: config.freshchat.live },
-    { name: "FastSpring", live: config.fastspring.live },
-    { name: "monday.com", live: config.monday.live },
-    { name: "Slack", live: config.slack.live },
-  ];
-
   return (
     <div className="mx-auto max-w-4xl space-y-5 px-5 pt-8 pb-20">
-      <Nav current="console" user={user} isAdmin={isAdmin} canViewAs={isAdmin || viewingAsGeneral} viewingAsGeneral={viewingAsGeneral} />
+      <Nav
+        current="console"
+        user={user}
+        isAdmin={isAdmin}
+        canViewAs={isAdmin || viewingAsGeneral}
+        viewingAsGeneral={viewingAsGeneral}
+      />
 
       <Card>
         <CardHeader>
-          <CardTitle>System status</CardTitle>
+          <CardTitle>What Jetta can change</CardTitle>
+          <CardDescription>
+            Each of these is a separate opt-in, independent of whether the integration is connected.
+            An integration can be fully live and still unable to write anything.
+          </CardDescription>
         </CardHeader>
-        <CardContent className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          <Stat label="Reasoning model">
-            <span className="truncate">{modelLabel()}</span>
-          </Stat>
-          <Stat label="Global mode">
-            <LiveBadge live={!config.stubMode} />
-          </Stat>
-          <Stat label="Reply mode">{config.replyMode === "draft" ? "DRAFT" : "AUTO"}</Stat>
-          {integrations.map((i) => (
-            <Stat key={i.name} label={i.name}>
-              <LiveBadge live={i.live} />
-              {i.note && <span className="truncate text-xs font-normal text-muted-foreground">{i.note}</span>}
-            </Stat>
-          ))}
+        <CardContent>
+          <StatusRows rows={capabilityRows()} />
         </CardContent>
       </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Channels</CardTitle>
+          <CardDescription>How customers and colleagues reach Jetta.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <StatusRows rows={channelRows()} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Which tickets Jetta touches</CardTitle>
+          <CardDescription>
+            These decide whether a run happens at all. A ticket filtered out here produces no
+            suggestion, no note and no event — from the outside, indistinguishable from Jetta
+            ignoring it.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <StatusRows rows={rolloutRows()} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Reasoning &amp; retrieval</CardTitle>
+          <CardDescription>Which models answer, and how the knowledge base is searched.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <StatusRows rows={reasoningRows()} />
+        </CardContent>
+      </Card>
+
+      {/* Needs the bot token and a Slack round-trip, so it stays off a general
+          user's page load — they have no way to act on the answer anyway. */}
+      {isAdmin && <SlackChannelHealth />}
 
       <TicketTester freshdeskLive={config.freshdesk.live} freshchatLive={config.freshchat.live} />
 
       <Card>
         <CardHeader>
-          <CardTitle>Endpoints</CardTitle>
+          <CardTitle>Entrypoints</CardTitle>
+          <CardDescription>Everything that can start a run.</CardDescription>
         </CardHeader>
-        <CardContent>
-          {ENDPOINTS.map(([path, desc], i) => (
-            <div key={path}>
-              {i > 0 && <Separator className="my-2" />}
-              <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-sm">
-                <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">{path}</code>
-                <span className="text-muted-foreground">{desc}</span>
+        <CardContent className="space-y-3">
+          <div>
+            {ENDPOINTS.map((e, i) => (
+              <div key={e.path}>
+                {i > 0 && <Separator className="my-2" />}
+                <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-sm">
+                  <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">{e.path}</code>
+                  <span className="text-muted-foreground">{e.detail}</span>
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
+
+          <div className="border-t pt-3">
+            <p className="mb-2 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+              Scheduled
+            </p>
+            {CRONS.map((c, i) => (
+              <div key={c.path}>
+                {i > 0 && <Separator className="my-2" />}
+                <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-sm">
+                  <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">{c.path}</code>
+                  <span className="font-mono text-xs text-foreground">{c.schedule}</span>
+                  <span className="text-muted-foreground">{c.detail}</span>
+                </div>
+              </div>
+            ))}
+          </div>
         </CardContent>
       </Card>
     </div>

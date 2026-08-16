@@ -3,7 +3,6 @@ import Link from "next/link";
 import { gate } from "@/lib/console-auth";
 import { Nav } from "../../nav";
 import ChatSettingsForm from "./settings-form";
-import SlackChannelHealth from "@/components/jetta/slack-channel-health";
 
 export const dynamic = "force-dynamic";
 
@@ -31,7 +30,14 @@ export default async function ChatSettingsPage() {
       </div>
       <h1 className="text-lg font-semibold tracking-tight">Chat settings</h1>
       <ChatSettingsForm />
-      <SlackChannelHealth />
+      <p className="text-xs text-muted-foreground">
+        Where the &quot;a visitor wants a person&quot; ping goes, and whether Jetta can post there, is
+        on{" "}
+        <Link href="/" className="text-primary hover:underline">
+          System
+        </Link>{" "}
+        with the rest of the channel routing.
+      </p>
     </div>
   );
 }
