@@ -21,6 +21,7 @@ import { listArticles, countByState, type ArticleState } from "./kb-store";
 import { topicTrends, ticketRecords, type TopicTrend, type TicketRecord } from "./topics";
 import { yesterdayKey } from "./daily-overview";
 import { listConversations } from "./chat-store";
+import { getTicketDetails, isTerminalStatus } from "./tools/freshdesk";
 
 const HOUR_S = 3600;
 const WINDOW_HOURS = 24;
@@ -52,6 +53,34 @@ export type WorklistState = "active" | "stalled";
 /** Below this, the last message is recent enough that someone is mid-conversation. */
 const ACTIVE_WITHIN_H = 6;
 
+/**
+ * Live Freshdesk status per ticket, cached briefly.
+ *
+ * The worklist is assembled from Jetta's own run history, which records what
+ * happened at the time and nothing after it. A human resolving a ticket gives
+ * her no reason to run again, so without this the record still says "reopened"
+ * and the ticket sits on the worklist until the lookback expires — 13945 was
+ * closed in Freshdesk and top of the list.
+ *
+ * One GET per candidate, so it is cached: /today and the insight route each
+ * build the brief, and a refresh must not mean a second round of calls.
+ */
+const STATUS_TTL_MS = 60_000;
+const statusCache = new Map<string, { at: number; status: string | null }>();
+
+async function liveStatus(ticketId: string): Promise<string | null> {
+  const hit = statusCache.get(ticketId);
+  if (hit && Date.now() - hit.at < STATUS_TTL_MS) return hit.status;
+  // Fail open: an unreachable Freshdesk should leave the worklist stale, not
+  // empty. Showing one resolved ticket is a smaller failure than hiding five
+  // live ones because an API call timed out.
+  const status = await getTicketDetails(ticketId)
+    .then((t) => t.status)
+    .catch(() => null);
+  statusCache.set(ticketId, { at: Date.now(), status });
+  return status;
+}
+
 export interface WorklistItem {
   /** What the ranking model refers to this by. Ticket id, or `chat:<uuid>`. */
   id: string;
@@ -72,6 +101,11 @@ export interface WorklistItem {
   quietHours: number;
   /** How many times Jetta has run on it — a proxy for how long the thread is. */
   runs: number;
+  /**
+   * The ticket's status in Freshdesk right now, not when Jetta last saw it.
+   * Null for chat conversations and when the lookup failed.
+   */
+  status: string | null;
 }
 
 /**
@@ -308,6 +342,7 @@ export async function buildTodayBrief() {
       state: quietHours < ACTIVE_WITHIN_H ? "active" : "stalled",
       quietHours,
       runs: r.runs,
+      status: null,
     };
   };
 
@@ -331,6 +366,9 @@ export async function buildTodayBrief() {
       state: "active",
       quietHours: age(at),
       runs: 1,
+      // Chat status lives in the chat store and is already accurate — these
+      // rows exist because the conversation says waiting_human.
+      status: null,
     };
   });
 
@@ -343,9 +381,28 @@ export async function buildTodayBrief() {
    * being forgotten. Sorting the whole list by one clock gets one of those two
    * groups backwards whichever clock you pick.
    */
+  /*
+   * Drop anything Freshdesk says is finished.
+   *
+   * This is the one place the brief looks outside its own history, and it has
+   * to: the history is a record of what happened, and a human closing a ticket
+   * afterwards leaves no trace in it.
+   *
+   * Only freshdesk-channel rows are checked. Chat rows carry their state in the
+   * chat store, which is already current.
+   */
+  const candidates = [...chatRows, ...byId.values()];
+  const withStatus = await Promise.all(
+    candidates.map(async (item) => {
+      if (item.id.startsWith("chat:") || !/^\d+$/.test(item.id)) return item;
+      return { ...item, status: await liveStatus(item.id) };
+    }),
+  );
+  const live = withStatus.filter((i) => !(i.status && isTerminalStatus(i.status)));
+
   const group = (i: WorklistItem) =>
     i.signals.includes("chat_waiting") ? 0 : i.state === "active" ? 1 : 2;
-  const worklist = [...chatRows, ...byId.values()].sort((a, b) => {
+  const worklist = live.sort((a, b) => {
     const g = group(a) - group(b);
     if (g !== 0) return g;
     return group(a) === 2 ? b.quietHours - a.quietHours : a.quietHours - b.quietHours;

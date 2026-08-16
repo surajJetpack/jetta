@@ -116,6 +116,7 @@ RANKING THE WORKLIST — this is the main job.
     - "quiet Xh" is how long since anyone last said anything. That, not the age, is how long someone has been waiting.
     - "active" means the customer spoke recently and is likely still there. It outranks anything stalled.
     - "stalled" means nobody has touched it since it was escalated or reopened. Among those, the quietest has been forgotten longest and goes first.
+11a. A freshdesk status of "waiting on customer" means we already replied and the ball is with them — rank it below anything actually waiting on us, and say so in its "why". Resolved and closed tickets never reach you; they are filtered out before this list is built.
 12. A visitor waiting in live chat outranks everything. They are sitting in front of a chat window; a ticket customer is not.
 13. "reopened" means Jetta answered and the customer came back unsatisfied. Treat it as worse than a first-time escalation of the same age — the failure is already proven.
 14. "N exchanges" is how many times this has been worked. A high count on a stalled ticket means several attempts have not resolved it; say so rather than repeating the subject.
@@ -161,9 +162,10 @@ function renderBrief(b: TodayBrief, yesterday: DailyRollup | null): string {
             .join(" + ");
           const who = w.app && w.app !== "unknown" ? `, app: ${appName(w.app)}` : "";
           const topic = w.topic ? `, topic "${displayTopic(w.topic)}"` : "";
+          const status = w.status ? `, freshdesk status "${w.status}"` : "";
           return `  [${w.id}] ${w.state}, ${why}, quiet ${w.quietHours}h, ${w.runs} exchange${
             w.runs === 1 ? "" : "s"
-          }${who}${topic} — "${w.subject}"`;
+          }${status}${who}${topic} — "${w.subject}"`;
         })
         .join("\n")
     : "  (nothing is waiting on a person)";

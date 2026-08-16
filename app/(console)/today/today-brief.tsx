@@ -92,6 +92,7 @@ interface WorklistItem {
   state: "active" | "stalled";
   quietHours: number;
   runs: number;
+  status: string | null;
 }
 interface Brief {
   generatedAt: number;
@@ -205,6 +206,13 @@ function WorklistRow({ item, why }: { item: WorklistItem; why: string | null }) 
       }
       meta={
         <>
+          {/* The live Freshdesk status, not the one Jetta last recorded — a
+              ticket sitting on "waiting on customer" is not waiting on us. */}
+          {item.status && (
+            <StatusChip tone={item.status === "waiting on customer" ? "archived" : "in_review"}>
+              {item.status}
+            </StatusChip>
+          )}
           {item.runs > 1 && <span>{item.runs}&nbsp;exchanges</span>}
           <span title={new Date(item.at * 1000).toLocaleString()}>
             quiet {item.quietHours}h
