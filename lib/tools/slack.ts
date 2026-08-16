@@ -3,6 +3,7 @@
  * the admin command interface to post threaded replies.
  */
 import { config } from "../config";
+import type { AttachmentFile } from "../types";
 
 /**
  * Where non-dev, non-chat notifications go.
@@ -522,6 +523,120 @@ export interface ThreadMessage {
   user: string;
   text: string;
   isBot: boolean;
+}
+
+// ── File delivery ──────────────────────────────────────────────────
+
+export interface UploadOutcome {
+  uploaded: string[];
+  failed: { name: string; reason: string }[];
+}
+
+/**
+ * Put files into a Slack conversation.
+ *
+ * Three calls per batch, which is Slack's current upload flow: ask for a signed
+ * URL per file, PUT the bytes at it, then complete them all in ONE
+ * `completeUploadExternal` so the thread gets a single message carrying every
+ * file rather than one message per screenshot.
+ *
+ * `channel` and `threadTs` come from the event being answered, never from a
+ * model argument — see the note on `send_ticket_files` in lib/slack-assistant.ts.
+ *
+ * Failures are returned, not thrown and not swallowed. The caller reports them
+ * to the person waiting: "I couldn't send that" is recoverable, while silence
+ * after "sending them over" is the failure that wastes someone's afternoon.
+ */
+export async function uploadFiles(
+  channel: string,
+  threadTs: string | undefined,
+  files: AttachmentFile[],
+  comment?: string,
+): Promise<UploadOutcome> {
+  const sendable = files.filter((f) => f.data.byteLength > 0);
+  const failed: { name: string; reason: string }[] = files
+    .filter((f) => f.data.byteLength === 0)
+    .map((f) => ({ name: f.name, reason: "the file is empty" }));
+
+  if (!sendable.length) return { uploaded: [], failed };
+
+  if (!config.slack.live) {
+    console.log(
+      `[stub] slack upload → ${channel}${threadTs ? ` (thread ${threadTs})` : ""}: ${sendable.map((f) => f.name).join(", ")}`,
+    );
+    return { uploaded: sendable.map((f) => f.name), failed };
+  }
+
+  const auth = { Authorization: `Bearer ${config.slack.botToken}` };
+  const ready: { id: string; title: string }[] = [];
+
+  for (const f of sendable) {
+    try {
+      const ticketRes = await fetch("https://slack.com/api/files.getUploadURLExternal", {
+        method: "POST",
+        headers: { ...auth, "Content-Type": "application/x-www-form-urlencoded" },
+        // `length` must be the exact byte count — Slack rejects the upload later
+        // if the body doesn't match what was reserved here.
+        body: new URLSearchParams({ filename: f.name, length: String(f.data.byteLength) }),
+      });
+      const slot = (await ticketRes.json()) as {
+        ok: boolean;
+        error?: string;
+        upload_url?: string;
+        file_id?: string;
+      };
+      if (!slot.ok || !slot.upload_url || !slot.file_id) {
+        failed.push({ name: f.name, reason: describeUploadError(slot.error) });
+        continue;
+      }
+
+      const put = await fetch(slot.upload_url, { method: "POST", body: new Uint8Array(f.data) });
+      if (!put.ok) {
+        failed.push({ name: f.name, reason: `upload rejected (HTTP ${put.status})` });
+        continue;
+      }
+      ready.push({ id: slot.file_id, title: f.name });
+    } catch (e) {
+      failed.push({ name: f.name, reason: e instanceof Error ? e.message : String(e) });
+    }
+  }
+
+  if (!ready.length) return { uploaded: [], failed };
+
+  const doneRes = await fetch("https://slack.com/api/files.completeUploadExternal", {
+    method: "POST",
+    headers: { ...auth, "Content-Type": "application/json; charset=utf-8" },
+    body: JSON.stringify({
+      files: ready,
+      channel_id: channel,
+      thread_ts: threadTs,
+      initial_comment: comment,
+    }),
+  });
+  const done = (await doneRes.json()) as { ok: boolean; error?: string };
+  if (!done.ok) {
+    return {
+      uploaded: [],
+      failed: [...failed, ...ready.map((r) => ({ name: r.title, reason: describeUploadError(done.error) }))],
+    };
+  }
+
+  return { uploaded: ready.map((r) => r.title), failed };
+}
+
+/** Slack's error codes, translated into something a person can act on. */
+function describeUploadError(error: string | undefined): string {
+  switch (error) {
+    case "missing_scope":
+    case "not_allowed_token_type":
+      return "Jetta is missing the files:write scope — add it in the Slack app config and reinstall.";
+    case "not_in_channel":
+      return "Jetta is not a member of this channel.";
+    case "file_uploads_disabled":
+      return "file uploads are disabled for this workspace.";
+    default:
+      return `Slack said: ${error ?? "unknown error"}`;
+  }
 }
 
 /**

@@ -365,7 +365,10 @@ async function handleDirectMessage(
     messages.push({ role: "user", content: text });
   }
 
-  const answer = await answerInSlack(messages);
+  // The conversation she is answering into — this is also the only place her
+  // file uploads can land, since the destination is closed over rather than
+  // passed as a tool argument.
+  const answer = await answerInSlack(messages, { channel, threadTs, userId });
   await slack.replyInThread(channel, threadTs ?? "", answer.text).catch(async () => {
     // A plain DM has no thread to reply into; post to the conversation itself.
     await slack.replyInThread(channel, "", answer.text);

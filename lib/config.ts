@@ -76,6 +76,18 @@ export const config = {
    */
   intakeFilter: env("JETTA_INTAKE_FILTER") !== "false",
 
+  /**
+   * Which day is "Saturday". Ticket search buckets by calendar day and weekday,
+   * and Freshdesk stores created_at in UTC — so a support day that runs on IST
+   * or PT lands across two UTC days.
+   *
+   * Unset means UTC, which is what every other day-bucketed surface uses
+   * (lib/series.ts): leaving it alone keeps Slack and /analytics agreeing about
+   * what a day is. Set it only if you want the support day to win, and expect
+   * the two to differ by a few hours' worth of tickets when you do.
+   */
+  timezone: env("JETTA_TZ") ?? "UTC",
+
   /** Console base URL for deep links in Slack pings / FD notes. Never embeds the admin key. */
   consoleUrl: (
     env("JETTA_CONSOLE_URL") ??
