@@ -182,7 +182,17 @@ export function defaultSettings(): ChatSettings {
     uploadsPerConversation: config.jettachat.uploadsPerConversation,
     retentionDays: config.jettachat.retentionDays,
     handoffEnabled: true,
-    handoffTimeoutMinutes: 3,
+    /**
+     * How long a visitor waits for a colleague before the conversation comes
+     * back to Jetta.
+     *
+     * One minute, not three. This is time the visitor spends watching a chat
+     * window where nothing happens — Jetta is silent from the moment a person
+     * is asked for — so it should be set by how long that is bearable, not by
+     * how long a colleague might plausibly take. If nobody has picked it up
+     * within a minute, an answer from Jetta beats a longer wait for a maybe.
+     */
+    handoffTimeoutMinutes: 1,
     handoffChannel: undefined,
   };
 }

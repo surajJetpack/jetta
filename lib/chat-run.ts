@@ -12,10 +12,13 @@
  *      dead conversation, so `holdCustomerWrites` is never set on this path.
  *      The safety model moves from pre-send review to the absolute grounding
  *      rule in the prompt plus after-the-fact review in the console.
- *   3. **Silence is a bug.** On a ticket, a run that produces no reply is
- *      invisible and harmless. Here it is a customer staring at a typing
- *      indicator that stops. Every exit path either sends something or opens
- *      a ticket — see `deliverFallback`.
+ *   3. **Silence is a bug — but not always the same bug.** On a ticket, a run
+ *      that produces no reply is invisible and harmless. Here it is a customer
+ *      staring at a typing indicator that stops. Every exit path sends
+ *      something; `chooseDelivery` decides what, because a turn that asked for
+ *      a colleague and then went quiet did what the prompt told it to, and
+ *      answering that with the crash apology told a customer the bot had broken
+ *      at the moment it had actually worked.
  */
 import { getChatSettings } from "./chat-settings";
 import { buildContext, buildMessages } from "./context";
@@ -41,6 +44,47 @@ const FALLBACK_TEXT =
 
 async function deliverFallback(conversationId: string): Promise<void> {
   await store.appendMessage(conversationId, "agent", FALLBACK_TEXT);
+}
+
+/**
+ * A run can end with no text and still have done its job.
+ *
+ * "Silence is a bug" was written for the crash case and then applied to every
+ * empty turn, including the two where going quiet is what the prompt ASKS for.
+ * Called request_human? She is told to say one thing and stop. So a turn that
+ * asked for a colleague and produced no text was being answered with
+ * "something went wrong on my end" — the bot telling a customer it had broken
+ * at the exact moment it had actually succeeded in fetching them a person.
+ *
+ * These are not the crash apology. They say the true thing the model didn't.
+ */
+const HANDOFF_ACK =
+  "I've asked the team — if someone's free they'll jump in here. " +
+  "If nobody is, I'll pick this back up in a minute.";
+const TICKET_ACK =
+  "I've passed this to our team — they'll get back to you by email shortly.";
+
+export type DeliveryKind = "reply" | "handoff_ack" | "ticket_ack" | "fallback";
+
+/**
+ * What the visitor gets, given what the loop produced.
+ *
+ * Pulled out of runChatTurn as a pure function for one reason: it is the branch
+ * that got this wrong in production, and inside the turn it could only be
+ * exercised by a live model that had to be coaxed into going quiet. Here it is
+ * four assertions in a test that costs nothing — see scripts/chat-contract-test.ts.
+ */
+export function chooseDelivery(
+  text: string,
+  toolsUsed: readonly string[],
+): { kind: DeliveryKind; text: string } {
+  const trimmed = text.trim();
+  if (trimmed) return { kind: "reply", text: trimmed };
+  // Order matters: a turn that did both asked for a person LAST, and the person
+  // is the more immediate promise.
+  if (toolsUsed.includes("request_human")) return { kind: "handoff_ack", text: HANDOFF_ACK };
+  if (toolsUsed.includes("create_support_ticket")) return { kind: "ticket_ack", text: TICKET_ACK };
+  return { kind: "fallback", text: FALLBACK_TEXT };
 }
 
 /**
@@ -124,11 +168,21 @@ export async function runChatTurn(conversationId: string, messageId: string): Pr
     // is the message, so sending it is our job rather than the model's. An
     // empty final text is the only way a turn can now produce nothing, and
     // that means the loop genuinely failed rather than forgot.
-    const text = result.text.trim();
-    const replied = text.length > 0;
-    if (replied) {
-      await store.appendMessage(conversationId, "agent", toChatText(text));
-    } else {
+    const delivery = chooseDelivery(result.text, result.toolsUsed);
+
+    if (delivery.kind === "handoff_ack" || delivery.kind === "ticket_ack") {
+      // The run succeeded and went quiet. Standing in for her is not a failure,
+      // but it IS a prompt-adherence miss worth counting — she is told to send
+      // exactly one message before stopping.
+      await logOpsEvent({
+        level: "info",
+        event: "chat.quiet_after_handoff",
+        source: "jettachat",
+        ticketId: conversationId,
+        data: { toolsUsed: result.toolsUsed, stoodIn: delivery.kind },
+      });
+    } else if (delivery.kind === "fallback") {
+      // Nothing was said and nothing was handed on: the loop genuinely failed.
       await logOpsEvent({
         level: "warn",
         event: "chat.no_reply_sent",
@@ -136,8 +190,18 @@ export async function runChatTurn(conversationId: string, messageId: string): Pr
         ticketId: conversationId,
         data: { toolsUsed: result.toolsUsed },
       });
-      await deliverFallback(conversationId);
     }
+
+    await store.appendMessage(
+      conversationId,
+      "agent",
+      delivery.kind === "reply" ? toChatText(delivery.text) : delivery.text,
+    );
+
+    // For the outcome record, "replied" has always meant a real message reached
+    // the customer — the crash apology is the one case where it did not. A
+    // stand-in ack counts: the visitor was told what happened and what next.
+    const replied = delivery.kind !== "fallback";
 
     await recordOutcome({
       ticketId: conversationId,
