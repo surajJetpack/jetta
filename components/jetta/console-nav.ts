@@ -27,7 +27,7 @@ import {
 } from "lucide-react";
 
 /** Which live counter, if any, rides on an item. Keys match /api/admin/attention. */
-export type BadgeKey = "chats" | "billing";
+export type BadgeKey = "chats" | "billing" | "evals" | "kb-review";
 
 export interface NavItem {
   id: string;
@@ -83,6 +83,7 @@ export const NAV: NavGroup[] = [
         label: "Evals",
         icon: GraduationCap,
         hint: "The learning loop — approve what changes how Jetta writes",
+        badge: "evals",
         adminOnly: true,
       },
     ],
@@ -104,6 +105,7 @@ export const NAV: NavGroup[] = [
         label: "Review",
         icon: ClipboardCheck,
         hint: "Draft articles waiting to be published",
+        badge: "kb-review",
         adminOnly: true,
       },
     ],

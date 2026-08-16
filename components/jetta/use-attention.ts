@@ -7,9 +7,17 @@ export interface Attention {
   chatsWaiting: number;
   chatsLive: number;
   billingPending: number;
+  learningsPending: number;
+  kbDrafts: number;
 }
 
-const NONE: Attention = { chatsWaiting: 0, chatsLive: 0, billingPending: 0 };
+const NONE: Attention = {
+  chatsWaiting: 0,
+  chatsLive: 0,
+  billingPending: 0,
+  learningsPending: 0,
+  kbDrafts: 0,
+};
 
 /**
  * What is waiting, polled once for the whole chrome.
@@ -35,6 +43,8 @@ export function useAttention(): Attention {
         chatsWaiting: j.chatsWaiting ?? 0,
         chatsLive: j.chatsLive ?? 0,
         billingPending: j.billingPending ?? 0,
+        learningsPending: j.learningsPending ?? 0,
+        kbDrafts: j.kbDrafts ?? 0,
       });
     } catch {
       setCounts(NONE);
