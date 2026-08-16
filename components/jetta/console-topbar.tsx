@@ -1,0 +1,70 @@
+import Link from "next/link";
+import { Menu } from "lucide-react";
+import { headlineState } from "@/lib/system-status";
+import { freshdeskDomain } from "@/lib/tools/freshdesk";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Signal } from "./signal";
+import { CommandPalette } from "./command-palette";
+import { ThemeToggle } from "./theme-toggle";
+import { ViewAsSwitch } from "./view-as-switch";
+import { LogoutButton } from "./logout-button";
+import { MobileSidebar } from "./mobile-sidebar";
+
+/**
+ * The bar above every page: search, the state of the machine, and who you are.
+ *
+ * A server component so the status chips read config directly — they describe
+ * the deployment, not the session, and there is nothing here worth a round
+ * trip to discover.
+ */
+export function ConsoleTopbar({
+  user,
+  isAdmin,
+  canViewAs,
+  viewingAsGeneral,
+  sidebarCollapsed,
+}: {
+  user: string;
+  isAdmin: boolean;
+  canViewAs: boolean;
+  viewingAsGeneral: boolean;
+  sidebarCollapsed: boolean;
+}) {
+  const headline = headlineState();
+
+  return (
+    <header className="sticky top-0 z-30 flex h-12 shrink-0 items-center gap-2 border-b bg-background/85 px-3 backdrop-blur-sm">
+      <MobileSidebar isAdmin={isAdmin} defaultCollapsed={sidebarCollapsed} icon={<Menu />} />
+
+      <CommandPalette isAdmin={isAdmin} freshdeskDomain={freshdeskDomain() ?? ""} />
+
+      <div className="ml-auto flex shrink-0 items-center gap-1.5">
+        <div className="hidden items-center gap-1.5 md:flex">
+          {headline.map((h) => (
+            <Tooltip key={h.label}>
+              <TooltipTrigger asChild>
+                {isAdmin ? (
+                  <Link href="/system" aria-label={`${h.label}: ${h.state}`}>
+                    <Signal tone={h.tone}>{h.state}</Signal>
+                  </Link>
+                ) : (
+                  <span aria-label={`${h.label}: ${h.state}`}>
+                    <Signal tone={h.tone}>{h.state}</Signal>
+                  </span>
+                )}
+              </TooltipTrigger>
+              <TooltipContent className="max-w-xs">{h.meaning}</TooltipContent>
+            </Tooltip>
+          ))}
+        </div>
+
+        {user !== "dev" && (
+          <span className="hidden text-xs text-muted-foreground sm:inline">{user}</span>
+        )}
+        {canViewAs && <ViewAsSwitch viewingAsGeneral={viewingAsGeneral} />}
+        <ThemeToggle />
+        {user !== "dev" && <LogoutButton />}
+      </div>
+    </header>
+  );
+}

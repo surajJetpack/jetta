@@ -269,6 +269,51 @@ export function reasoningRows(): StatusRow[] {
   ];
 }
 
+/**
+ * The one or two facts worth carrying on every screen.
+ *
+ * Not a summary of the System page — a filter for the things that would
+ * surprise someone who didn't go looking. Reply mode always qualifies: whether
+ * a human sees a reply before the customer does is the premise of everybody's
+ * job here. A rollout filter qualifies because it makes Jetta look broken
+ * (tickets arrive, nothing happens) with no other visible explanation.
+ *
+ * Write gates deliberately do NOT appear. MONDAY_ALLOW_WRITES is armed as the
+ * intended steady state, and a permanent warning about the intended steady
+ * state is how people learn to stop reading warnings.
+ */
+export function headlineState(): StatusRow[] {
+  const rows: StatusRow[] = [];
+  const auto = config.replyMode === "auto";
+  rows.push({
+    label: "Reply mode",
+    tone: auto ? "warn" : "good",
+    state: auto ? "AUTO" : "DRAFT",
+    meaning: auto
+      ? "Replies reach the customer with no human in front of them."
+      : "Every Freshdesk reply waits for a human.",
+  });
+
+  const allowlist = config.ticketAllowlist;
+  const products = config.productFilter;
+  if (allowlist.length) {
+    rows.push({
+      label: "Ticket allowlist",
+      tone: "warn",
+      state: `${allowlist.length} TICKET${allowlist.length === 1 ? "" : "S"}`,
+      meaning: `Jetta only writes on ${allowlist.join(", ")}. Every other ticket reasons but writes nothing.`,
+    });
+  } else if (products.length) {
+    rows.push({
+      label: "Product filter",
+      tone: "warn",
+      state: products.join(", ").toUpperCase(),
+      meaning: "Tickets outside this list are skipped before the agent runs.",
+    });
+  }
+  return rows;
+}
+
 export interface EndpointRow {
   path: string;
   detail: string;
