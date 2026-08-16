@@ -215,16 +215,34 @@ export function rolloutRows(): StatusRow[] {
       setting: "JETTA_PRODUCTS",
     },
     {
-      // The exemption is the part that matters: liveWritesAllowed() in
-      // lib/agent.ts returns true for jettachat before it ever reads this list,
-      // so an allowlist that looks like a global brake leaves the one
-      // unsupervised channel writing at full speed.
+      /*
+       * Two things make this row hard to state honestly, and both were wrong
+       * here before.
+       *
+       * It never gates chat: liveWritesAllowed() returns true for jettachat
+       * before it reads the list at all.
+       *
+       * And in DRAFT mode it gates nothing whatsoever. runAgentLoop computes
+       * `dryRun = opts.dryRun || (!allowed && !hold)` — draft mode sets hold,
+       * so a non-allowlisted ticket is never forced dry. Customer writes are
+       * already held and the internal actions are meant to run for every
+       * ticket. An allowlist therefore sits inert until reply mode flips to
+       * AUTO, at which point it silently becomes a hard restriction. Reporting
+       * it as an active brake while it does nothing is the wrong error; so is
+       * hiding a landmine that arms itself on a config change.
+       */
       label: "Ticket allowlist",
       tone: allowlist.length ? "warn" : "off",
-      state: allowlist.length ? `${allowlist.length} TICKET${allowlist.length === 1 ? "" : "S"}` : "NO RESTRICTION",
-      meaning: allowlist.length
-        ? `On tickets, live writes only happen on ${allowlist.join(", ")} — every other ticket reasons and writes nothing. It does NOT gate chat: JettaChat conversations write, reply and raise tickets as normal.`
-        : "Jetta may write on any ticket that passes the filters above.",
+      state: !allowlist.length
+        ? "NO RESTRICTION"
+        : `${allowlist.length} TICKET${allowlist.length === 1 ? "" : "S"}${
+            config.replyMode === "draft" ? " · INERT" : ""
+          }`,
+      meaning: !allowlist.length
+        ? "Jetta may write on any ticket that passes the filters above."
+        : config.replyMode === "draft"
+          ? `Lists ${allowlist.join(", ")}, but restricts nothing while reply mode is DRAFT — held runs are never forced dry, so every ticket still gets its private note, Slack escalation and dev-board item. Switch reply mode to AUTO and this becomes a hard limit to those ids alone, with nothing on screen to announce it. It never gates chat.`
+          : `Live writes only happen on ${allowlist.join(", ")} — every other ticket reasons and writes nothing. It does NOT gate chat: JettaChat conversations write, reply and raise tickets as normal.`,
       setting: "JETTA_TICKET_ALLOWLIST",
     },
     {
@@ -331,8 +349,13 @@ export function headlineState(): StatusRow[] {
     rows.push({
       label: "Ticket allowlist",
       tone: "warn",
-      state: `${allowlist.length} TICKET${allowlist.length === 1 ? "" : "S"}`,
-      meaning: `On tickets Jetta only writes on ${allowlist.join(", ")}; every other ticket reasons and writes nothing. Chat is not gated by it.`,
+      state: `${allowlist.length} TICKET${allowlist.length === 1 ? "" : "S"}${
+        config.replyMode === "draft" ? " · INERT" : ""
+      }`,
+      meaning:
+        config.replyMode === "draft"
+          ? `Lists ${allowlist.join(", ")} but restricts nothing in DRAFT mode. It becomes a hard limit the moment reply mode flips to AUTO.`
+          : `On tickets Jetta only writes on ${allowlist.join(", ")}; every other ticket reasons and writes nothing. Chat is not gated by it.`,
     });
     // Only a filter that actually excludes a product is worth a chip. One that
     // names all three restricts nothing, and a permanent amber badge for
