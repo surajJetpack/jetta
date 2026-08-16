@@ -10,6 +10,15 @@
  * Enforced in the API routes. The UI hides what a general user cannot do, but
  * hiding a button is not a permission — anyone can call the endpoint directly,
  * so the endpoint is where the answer has to live.
+ *
+ * The NAV is narrower than these permissions, and deliberately so. A general
+ * user is shown three tabs (Today, Chats, Guide — see GENERAL_TABS in
+ * app/nav.tsx) because that is the shape of their day, not because the other
+ * pages are forbidden to them: follow a direct link to /kb and it still loads,
+ * and drafting an article there still works. Read the tab list as an opinion
+ * about what is worth their attention, and this file as the answer to what
+ * they are allowed to do. If the two are ever meant to agree, the change
+ * belongs here and in the routes — not in the nav.
  */
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";

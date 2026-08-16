@@ -286,14 +286,23 @@ export default function GuideContent() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Monitor className="size-4 text-primary" /> Console — status &amp; ticket tester
+            <Monitor className="size-4 text-primary" /> System — what Jetta can currently do
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-2 text-sm">
           <p>
-            System status: which model is answering, whether each integration is <LiveBadge live /> or{" "}
-            <LiveBadge live={false} />, and the reply mode (DRAFT = every Freshdesk reply waits for a
-            human).
+            Four questions, in order of how much they matter. <b>What Jetta can change</b> — whether
+            replies reach customers unreviewed, and whether board, billing and trial writes are{" "}
+            <LiveBadge live label="ARMED" /> or <LiveBadge live={false} label="DRY RUN" />.{" "}
+            <b>Channels</b> — how customers reach her, and whether each one is actually credentialed
+            rather than just switched on. <b>Which tickets Jetta touches</b> — the filters that decide
+            whether she runs at all; a ticket excluded here gets no suggestion and no note, which
+            looks exactly like her ignoring it. <b>Reasoning &amp; retrieval</b> — the models and how
+            the knowledge base is searched.
+          </p>
+          <p className="text-muted-foreground">
+            Every row says what it means in practice and names the setting behind it. If something
+            looks wrong here, it is a deploy, not a form.
           </p>
           <p>
             The <b>ticket tester</b> re-runs any ticket through Jetta. With <b>Dry run</b>{" "}

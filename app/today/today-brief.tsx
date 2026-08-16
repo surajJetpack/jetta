@@ -163,18 +163,16 @@ function QueueTile({
   hint,
   urgent,
 }: {
-  href: string;
+  /** Omitted when the reader has nowhere useful to go — the tile still counts. */
+  href?: string;
   icon: typeof BookOpen;
   label: string;
   count: number;
   hint?: string;
   urgent?: boolean;
 }) {
-  return (
-    <Link
-      href={href}
-      className="flex items-start gap-3 rounded-lg border bg-muted/40 p-3 transition-colors hover:bg-muted focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
-    >
+  const body = (
+    <>
       <Icon className={`mt-0.5 size-4 shrink-0 ${count ? "text-primary" : "text-muted-foreground"}`} aria-hidden />
       <div className="min-w-0">
         <div className="flex items-baseline gap-2">
@@ -187,11 +185,28 @@ function QueueTile({
           </p>
         )}
       </div>
+    </>
+  );
+  const base = "flex items-start gap-3 rounded-lg border bg-muted/40 p-3";
+  if (!href) return <div className={base}>{body}</div>;
+  return (
+    <Link
+      href={href}
+      className={`${base} transition-colors hover:bg-muted focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none`}
+    >
+      {body}
     </Link>
   );
 }
 
-export default function TodayBrief() {
+/**
+ * `isAdmin` gates the three approval tiles — learnings, KB review, billing.
+ * Not a security measure: those actions are refused by their own API routes.
+ * It stops a general user being pointed at three counters they will be told
+ * "no" on, which reads as the page being broken rather than as the page being
+ * someone else's job.
+ */
+export default function TodayBrief({ isAdmin = true }: { isAdmin?: boolean }) {
   const [brief, setBrief] = useState<Brief | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -476,18 +491,27 @@ export default function TodayBrief() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                <div className={`grid gap-3 ${isAdmin ? "grid-cols-2 md:grid-cols-4" : "grid-cols-1"}`}>
+                  {isAdmin && (
+                    <>
+                      <QueueTile
+                        href="/evals"
+                        icon={GraduationCap}
+                        label="learnings"
+                        count={q.learnings.count}
+                        hint={q.learnings.count ? "approve to apply" : "none proposed"}
+                      />
+                      <QueueTile href="/kb/review" icon={BookOpen} label="KB to review" count={q.kbReview} />
+                      <QueueTile
+                        href="/billing"
+                        icon={CreditCard}
+                        label="billing approvals"
+                        count={q.billingApprovals}
+                      />
+                    </>
+                  )}
                   <QueueTile
-                    href="/evals"
-                    icon={GraduationCap}
-                    label="learnings"
-                    count={q.learnings.count}
-                    hint={q.learnings.count ? "approve to apply" : "none proposed"}
-                  />
-                  <QueueTile href="/kb/review" icon={BookOpen} label="KB to review" count={q.kbReview} />
-                  <QueueTile href="/billing" icon={CreditCard} label="billing approvals" count={q.billingApprovals} />
-                  <QueueTile
-                    href="/analytics"
+                    href={isAdmin ? "/analytics" : undefined}
                     icon={Undo2}
                     label="reopened this week"
                     count={q.reopened.count}
@@ -495,7 +519,7 @@ export default function TodayBrief() {
                   />
                 </div>
 
-                {q.learnings.count > 0 && (
+                {isAdmin && q.learnings.count > 0 && (
                   <div className="space-y-2">
                     <SectionLabel>Candidate learnings — approve to change how Jetta writes</SectionLabel>
                     {q.learnings.items.map((l) => (
@@ -565,11 +589,12 @@ export default function TodayBrief() {
                   </div>
                 )}
 
-                {q.learnings.count === 0 &&
-                  q.escalations.count === 0 &&
+                {/* Only count what this reader can act on, or the page claims
+                    work is outstanding and then shows them none of it. */}
+                {q.escalations.count === 0 &&
                   q.reopened.count === 0 &&
-                  q.kbReview === 0 &&
-                  q.billingApprovals === 0 && (
+                  (!isAdmin ||
+                    (q.learnings.count === 0 && q.kbReview === 0 && q.billingApprovals === 0)) && (
                     <EmptyState
                       icon={CheckCircle2}
                       title="Queue's clear"

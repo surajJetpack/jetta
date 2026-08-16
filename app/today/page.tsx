@@ -16,7 +16,7 @@ export default async function TodayPage() {
   return (
     <div className="mx-auto max-w-4xl space-y-5 px-5 pt-8 pb-20">
       <Nav current="today" user={user} isAdmin={isAdmin} canViewAs={isAdmin || viewingAsGeneral} viewingAsGeneral={viewingAsGeneral} />
-      <TodayBrief />
+      <TodayBrief isAdmin={isAdmin} />
     </div>
   );
 }
