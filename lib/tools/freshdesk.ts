@@ -6,6 +6,7 @@
  */
 import { config } from "../config";
 import { imageDimensions } from "../image-dims";
+import { shiftDayKey, supportTimeZone, zonedDayKey, zonedWeekday } from "../tz";
 import type { Attachment, AttachmentFile, Ticket, TicketReply } from "../types";
 
 const FRESHDESK_RESOLVED = 4;
@@ -326,6 +327,197 @@ export async function getTicketDetails(ticketId: string): Promise<Ticket> {
   };
 }
 
+// ── Full thread reading ────────────────────────────────────────────
+
+export interface TicketMessage {
+  /** 0 is the customer's opening message. Indices are stable: new replies append. */
+  index: number;
+  at: string;
+  /** The agent's real name where we could resolve it, else "customer"/"agent". */
+  author: string;
+  direction: "customer" | "agent";
+  /** An internal note — the customer never saw this one. */
+  private: boolean;
+  body: string;
+  /** The body was cut short; ask for a narrower range to read the rest. */
+  truncated: boolean;
+  attachments: Attachment[];
+  /**
+   * Images pasted INTO the message body. Deliberately a count and not a list:
+   * these never appear in `attachments` (Freshdesk serves them from a different
+   * host entirely), so a reader who only sees `attachments: []` concludes there
+   * were no screenshots when there were three.
+   */
+  inlineImages: number;
+}
+
+export interface TicketThread {
+  id: string;
+  subject: string;
+  status: string;
+  url: string;
+  requester: string;
+  product?: string;
+  /** Every message on the ticket, including the opening one — not just this page. */
+  total: number;
+  /** The slice returned, inclusive. */
+  from: number;
+  to: number;
+  messages: TicketMessage[];
+}
+
+export interface TicketThreadOptions {
+  /** First message to return; 0 is the opening message. Omit for the newest page. */
+  from?: number;
+  limit?: number;
+}
+
+const THREAD_PAGE_DEFAULT = 12;
+const THREAD_PAGE_MAX = 20;
+/** Long enough to read a real reply; short enough that a page stays sendable. */
+const THREAD_BODY_CHARS = 2000;
+
+/**
+ * A ticket conversation as something a person can actually read, a page at a
+ * time, with its attachments named.
+ *
+ * Separate from `getTicketDetails` rather than an option on it, because the two
+ * want opposite things. That one feeds the agent loop, where the result is
+ * re-sent on every step: it keeps the newest 20 replies and rewrites incoming
+ * bodies with a `[system]` note telling the model it cannot see the images and
+ * that they'll be forwarded on escalation. Neither is right for a colleague in
+ * Slack who asked what the customer said — they want to page back through the
+ * whole thing, and the escalation note is about a workflow that isn't running.
+ */
+export async function getTicketThread(
+  ticketId: string,
+  { from, limit = THREAD_PAGE_DEFAULT }: TicketThreadOptions = {},
+): Promise<TicketThread> {
+  const size = Math.min(Math.max(Math.trunc(limit) || THREAD_PAGE_DEFAULT, 1), THREAD_PAGE_MAX);
+
+  if (!config.freshdesk.live) {
+    const t = await getTicketDetails(ticketId);
+    return {
+      id: t.id,
+      subject: t.subject,
+      status: t.status,
+      url: freshdeskTicketUrl(ticketId),
+      requester: `${t.requesterName ?? "Unknown"} <${t.requesterEmail ?? "unknown"}>`,
+      total: 1,
+      from: 0,
+      to: 0,
+      messages: [
+        {
+          index: 0,
+          at: new Date().toISOString(),
+          author: t.requesterName ?? "customer",
+          direction: "customer",
+          private: false,
+          body: t.description,
+          truncated: false,
+          attachments: [],
+          inlineImages: 0,
+        },
+      ],
+    };
+  }
+
+  type FDTicket = {
+    id: number;
+    subject: string;
+    description_text?: string;
+    description?: string;
+    status: number;
+    created_at: string;
+    requester_id: number;
+    custom_fields?: Record<string, unknown>;
+    attachments?: FDAttachment[];
+  };
+
+  const [ticket, conversations] = await Promise.all([
+    fd<FDTicket>(`/tickets/${ticketId}`),
+    fetchConversations(ticketId),
+  ]);
+
+  let requester = `contact ${ticket.requester_id}`;
+  try {
+    const contact = await fd<{ name: string; email: string }>(`/contacts/${ticket.requester_id}`);
+    requester = `${contact.name} <${contact.email}>`;
+  } catch {
+    // Best-effort, exactly as in getTicketDetails — a missing contact must not
+    // cost you the conversation you asked for.
+  }
+
+  const opening: TicketMessage = {
+    index: 0,
+    at: ticket.created_at,
+    author: "customer",
+    direction: "customer",
+    private: false,
+    body: ticket.description_text ?? stripHtml(ticket.description ?? ""),
+    truncated: false,
+    attachments: (ticket.attachments ?? []).map((a) => toAttachment(a, "customer")),
+    inlineImages: countInlineImages(ticket.description ?? ""),
+  };
+
+  const rest: TicketMessage[] = conversations.map((c, i) => ({
+    index: i + 1,
+    at: c.created_at,
+    author: c.incoming ? "customer" : "agent",
+    direction: c.incoming ? "customer" : "agent",
+    private: c.private,
+    body: c.body_text ?? stripHtml(c.body ?? ""),
+    truncated: false,
+    attachments: (c.attachments ?? []).map((a) => toAttachment(a, c.incoming ? "customer" : "agent")),
+    inlineImages: c.incoming ? countInlineImages(c.body ?? "") : 0,
+  }));
+
+  const all = [opening, ...rest];
+  const total = all.length;
+  // No `from` means "the latest", which is what someone catching up wants.
+  const start = Math.min(Math.max(Math.trunc(from ?? total - size), 0), Math.max(total - 1, 0));
+  const page = all.slice(start, start + size).map((m) => ({
+    ...m,
+    body:
+      m.body.length > THREAD_BODY_CHARS ? `${m.body.slice(0, THREAD_BODY_CHARS)}\n[…truncated]` : m.body,
+    truncated: m.body.length > THREAD_BODY_CHARS,
+  }));
+
+  // Real names for the agent side, resolved once per distinct agent from a cache
+  // — "Gabriel replied" and "Jetta replied" are different facts, and "agent"
+  // hides which one it was on exactly the tickets where it matters.
+  const authorIds = new Map<number, number[]>();
+  conversations.forEach((c, i) => {
+    if (c.incoming || !c.user_id) return;
+    const index = i + 1;
+    if (index < start || index >= start + size) return;
+    authorIds.set(c.user_id, [...(authorIds.get(c.user_id) ?? []), index]);
+  });
+  await Promise.all(
+    [...authorIds].map(async ([userId, indices]) => {
+      const name = await getAgentName(userId);
+      if (!name) return;
+      for (const i of indices) {
+        const m = page.find((p) => p.index === i);
+        if (m) m.author = name;
+      }
+    }),
+  );
+
+  return {
+    id: String(ticket.id),
+    subject: ticket.subject,
+    status: STATUS_LABELS[ticket.status] ?? String(ticket.status),
+    url: freshdeskTicketUrl(ticket.id),
+    requester,
+    product: (ticket.custom_fields?.cf_product as string | undefined) ?? undefined,
+    total,
+    from: start,
+    to: start + page.length - 1,
+    messages: page,
+  };
+}
+
 /**
  * What we forward to the Dev board: the evidence types monday.com accepts on an
  * update. Deliberately wider than screenshots — a survey of live tickets found
@@ -477,6 +669,93 @@ export async function downloadTicketAttachments(ticketId: string): Promise<Attac
   }
 
   return files.slice(0, MAX_FORWARD_FILES);
+}
+
+/** Ceilings for handing files to a colleague. Slack itself allows far more. */
+const MAX_SEND_FILES = 10;
+
+export interface TicketFilesRequest {
+  /** Attachment names or ids. Empty/omitted means every attachment on the ticket. */
+  wanted?: string[];
+  /** Also fetch the screenshots pasted into message bodies, which have no filename. */
+  includePasted?: boolean;
+}
+
+export interface TicketFiles {
+  files: AttachmentFile[];
+  /** What was left behind and why — reported to the person, never silently dropped. */
+  skipped: { name: string; reason: string }[];
+}
+
+/**
+ * Download a ticket's files so they can be handed to someone.
+ *
+ * Deliberately NOT `downloadTicketAttachments`, which looks similar and is not:
+ * that one implements an escalation policy — customer-authored only, the last
+ * five, and filtered to the content types monday.com will accept on an update.
+ * Every one of those rules would be wrong here. A colleague asking for "the
+ * file on 13943" may well mean the .eml monday rejects, or the one an agent
+ * attached, and silently returning four of five files is how you end up
+ * debugging the wrong screenshot.
+ *
+ * Size ceilings are kept, because those are about this process's memory rather
+ * than about policy.
+ */
+export async function downloadTicketFiles(
+  ticketId: string,
+  { wanted, includePasted = false }: TicketFilesRequest = {},
+): Promise<TicketFiles> {
+  if (!config.freshdesk.live) return { files: [], skipped: [] };
+
+  const all = await listTicketAttachments(ticketId);
+  const skipped: { name: string; reason: string }[] = [];
+
+  // Match on name or id, case- and whitespace-insensitive: the names come back
+  // to us through a model that has just rendered them in a Slack message, and
+  // "Crop It 2026-8-10 at 19.54.57.png" survives that round trip imperfectly.
+  const norm = (s: string) => s.trim().toLowerCase();
+  const asked = (wanted ?? []).map(norm).filter(Boolean);
+  let chosen = asked.length
+    ? all.filter((a) => asked.includes(norm(a.name)) || asked.includes(norm(a.id)))
+    : all;
+
+  for (const missing of asked.filter(
+    (w) => !all.some((a) => norm(a.name) === w || norm(a.id) === w),
+  )) {
+    skipped.push({ name: missing, reason: "no attachment on this ticket has that name or id" });
+  }
+
+  const oversized = chosen.filter((a) => a.size > MAX_FORWARD_BYTES);
+  for (const a of oversized) {
+    skipped.push({ name: a.name, reason: `too large to relay (${Math.round(a.size / 1024 / 1024)}MB)` });
+  }
+  chosen = chosen.filter((a) => a.size <= MAX_FORWARD_BYTES).slice(0, MAX_SEND_FILES);
+
+  const files: AttachmentFile[] = [];
+  let total = 0;
+  for (const a of chosen) {
+    if (total + a.size > MAX_FORWARD_TOTAL_BYTES) {
+      skipped.push({ name: a.name, reason: "the total size limit was reached" });
+      continue;
+    }
+    try {
+      // No auth header — attachment_url is a pre-signed S3 link and S3 rejects
+      // extras. It is also short-lived, which is exactly why the bytes are
+      // relayed instead of the URL.
+      const res = await fetch(a.url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      files.push({ name: a.name, contentType: a.contentType, data: await res.arrayBuffer() });
+      total += a.size;
+    } catch (e) {
+      skipped.push({ name: a.name, reason: e instanceof Error ? e.message : String(e) });
+    }
+  }
+
+  if (includePasted && files.length < MAX_SEND_FILES && total < MAX_FORWARD_TOTAL_BYTES) {
+    files.push(...(await downloadInlineImages(ticketId, MAX_FORWARD_TOTAL_BYTES - total)));
+  }
+
+  return { files: files.slice(0, MAX_SEND_FILES), skipped };
 }
 
 export async function searchKnowledgeBase(keyword: string): Promise<KbArticle[]> {
@@ -947,6 +1226,148 @@ export async function listOpenTickets(): Promise<OpenTicketsSummary> {
     count: open.length,
     oldestAgeHours: open.length ? Math.round(Math.max(...open.map(ageHours))) : null,
     overdue48h,
+  };
+}
+
+// ── Ticket search ──────────────────────────────────────────────────
+
+export interface TicketSearchRow {
+  id: string;
+  subject: string;
+  status: string;
+  /** As Freshdesk stores it: UTC. */
+  createdAt: string;
+  /** Calendar day and weekday in the support timezone — the terms the question was asked in. */
+  day: string;
+  weekday: string;
+  product?: string;
+  url: string;
+}
+
+export interface TicketSearchResult {
+  timezone: string;
+  /** The window applied, inclusive, in `timezone`. */
+  from: string;
+  to: string;
+  tickets: TicketSearchRow[];
+  /**
+   * Freshdesk matched more than it will page out, so `tickets` is a slice and
+   * any count taken from it is a floor, not a total.
+   */
+  truncated: boolean;
+}
+
+/** Freshdesk's filter API: 30 results per page, 10 pages, hard stop at 300. */
+const SEARCH_PER_PAGE = 30;
+const SEARCH_MAX_PAGES = 10;
+
+export interface TicketSearchOptions {
+  /** Inclusive first day, "YYYY-MM-DD", in the support timezone. */
+  from: string;
+  /** Inclusive last day. */
+  to: string;
+  weekendsOnly?: boolean;
+}
+
+/**
+ * Tickets CREATED in a date window — all of them, not just the ones Jetta
+ * touched. This is the intake question ("what came in over the weekend"), which
+ * her run history cannot answer and which had no route at all before.
+ *
+ * Two behaviours of Freshdesk's filter API drive the shape here, both probed
+ * against the live account on 2026-08-16:
+ *
+ *  - `created_at` takes a DATE, not a timestamp: `'2026-08-14T00:00:00Z'` is
+ *    rejected outright with a validation error.
+ *  - both `>` and `<` are INCLUSIVE of the day named. `created_at:>'2026-08-15'`
+ *    returns tickets from the 15th, and `created_at:<'2026-05-13'` returns
+ *    tickets created at 23:42 on the 13th. Treating `<` as exclusive would
+ *    silently swallow a day.
+ *
+ * So the query is deliberately a day wider at each end than asked for, and the
+ * exact window is applied here against real timestamps in the support zone. The
+ * spare day costs one page at most; losing half a Saturday to a UTC offset is a
+ * wrong answer nobody would catch.
+ */
+export async function searchTickets({
+  from,
+  to,
+  weekendsOnly = false,
+}: TicketSearchOptions): Promise<TicketSearchResult> {
+  const timezone = supportTimeZone();
+
+  if (!config.freshdesk.live) {
+    const at = `${from}T09:12:44Z`;
+    return {
+      timezone,
+      from,
+      to,
+      tickets: [
+        {
+          id: "13988",
+          subject: "GetSign — signature request stuck at 'sending'",
+          status: "open",
+          createdAt: at,
+          day: zonedDayKey(new Date(at), timezone),
+          weekday: zonedWeekday(new Date(at), timezone),
+          url: freshdeskTicketUrl("13988"),
+        },
+      ],
+      truncated: false,
+    };
+  }
+
+  type FDSearchTicket = {
+    id: number;
+    subject: string;
+    status: number;
+    created_at: string;
+    custom_fields?: Record<string, unknown>;
+  };
+
+  const query = `"created_at:>'${shiftDayKey(from, -1)}' AND created_at:<'${shiftDayKey(to, 1)}'"`;
+  const found: FDSearchTicket[] = [];
+  let total = 0;
+
+  for (let page = 1; page <= SEARCH_MAX_PAGES; page++) {
+    const d = await fd<{ total: number; results: FDSearchTicket[] }>(
+      `/search/tickets?query=${encodeURIComponent(query)}&page=${page}`,
+    );
+    total = d.total;
+    found.push(...d.results);
+    if (d.results.length < SEARCH_PER_PAGE) break;
+    if (page * SEARCH_PER_PAGE >= Math.min(total, SEARCH_PER_PAGE * SEARCH_MAX_PAGES)) break;
+  }
+
+  const tickets = found
+    .map((t): TicketSearchRow => {
+      const at = new Date(t.created_at);
+      return {
+        id: String(t.id),
+        subject: t.subject,
+        status: STATUS_LABELS[t.status] ?? String(t.status),
+        createdAt: t.created_at,
+        day: zonedDayKey(at, timezone),
+        weekday: zonedWeekday(at, timezone),
+        // cf_product holds the label itself, not a slug — it is the same field
+        // getTicketDetails reads as productHint, and it is often unset.
+        product: (t.custom_fields?.cf_product as string | undefined) ?? undefined,
+        url: freshdeskTicketUrl(t.id),
+      };
+    })
+    .filter((t) => t.day >= from && t.day <= to)
+    .filter((t) => !weekendsOnly || t.weekday === "Sat" || t.weekday === "Sun")
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
+  return {
+    timezone,
+    from,
+    to,
+    tickets,
+    // Counted on the widened window, before the filtering above — which is the
+    // honest direction to be wrong in: it claims uncertainty slightly too often
+    // rather than reporting a partial count as complete.
+    truncated: total > SEARCH_PER_PAGE * SEARCH_MAX_PAGES,
   };
 }
 
