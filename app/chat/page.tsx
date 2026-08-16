@@ -738,16 +738,38 @@ export default function ChatWidgetPage() {
           );
         })}
 
+        {/*
+          Dressed as an agent message rather than a bare bubble: same avatar,
+          same name above it, so the wait reads as Jetta answering rather than
+          as three dots of unexplained latency. The indicator only ever means
+          her — a person typing during takeover is not tracked, and runActive
+          is the agent loop.
+
+          role="status" announces the line, which a screen reader previously
+          had no way to know about at all: an animation of three dots is
+          silence. The label is visible text rather than sr-only, so sighted
+          users get the same answer to "is anything happening".
+        */}
         {typing && (
-          <div className="flex justify-start">
-            <div className="flex gap-1 rounded-2xl rounded-bl-sm bg-neutral-100 px-3.5 py-3">
-              {[0, 150, 300].map((delay) => (
-                <span
-                  key={delay}
-                  className="h-1.5 w-1.5 animate-bounce rounded-full bg-neutral-400"
-                  style={{ animationDelay: `${delay}ms` }}
-                />
-              ))}
+          <div className="flex items-end justify-start gap-2" role="status" aria-live="polite">
+            {ui.avatarUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={ui.avatarUrl} alt="" className="mb-0.5 size-6 shrink-0 rounded-full object-cover" />
+            ) : (
+              <span className="mb-0.5 size-6 shrink-0 rounded-full bg-neutral-200" aria-hidden />
+            )}
+            <div>
+              <p className="mb-0.5 text-[11px] text-neutral-500">{ui.title} is typing…</p>
+              <div className="flex w-fit items-center gap-2 rounded-2xl rounded-bl-sm bg-neutral-100 px-3.5 py-3">
+                {[0, 150, 300].map((delay) => (
+                  <span
+                    key={delay}
+                    aria-hidden
+                    className="h-1.5 w-1.5 animate-bounce rounded-full bg-neutral-400 motion-reduce:animate-none"
+                    style={{ animationDelay: `${delay}ms` }}
+                  />
+                ))}
+              </div>
             </div>
           </div>
         )}
