@@ -5,10 +5,9 @@ import Link from "next/link";
 import {
   BookOpen,
   CheckCircle2,
-  CreditCard,
   ExternalLink,
   Flame,
-  GraduationCap,
+  MessageSquare,
   ArrowRight,
   RotateCw,
   Siren,
@@ -72,16 +71,34 @@ interface LearningItem {
 }
 interface Insight {
   headline: string;
-  startHere: string;
-  highlights: string[];
+  /** The worklist in priority order. Ids are guaranteed real — see reconcileRanking. */
+  ranking: { id: string; why: string | null }[];
+  concerns: string[];
+  recommendations: string[];
   generatedAt: number;
   model: string;
+}
+interface WorklistItem {
+  id: string;
+  signals: ("chat_waiting" | "reopened" | "escalated")[];
+  label: string;
+  url: string | null;
+  external: boolean;
+  subject: string;
+  topic: string | null;
+  app: string;
+  at: number;
+  ageHours: number;
+  state: "active" | "stalled";
+  quietHours: number;
+  runs: number;
 }
 interface Brief {
   generatedAt: number;
   windowHours: number;
   summary: { arrived: number; answered: number; waiting: number; escalated: number; reopened: number };
   byApp: { app: string; count: number }[];
+  worklist: WorklistItem[];
   narrative: { headline: string; highlights: string[]; watchouts: string[]; generatedAt: number } | null;
   narrativeDate: string | null;
   trends: {
@@ -149,99 +166,63 @@ function TicketRef({ item }: { item: { label: string; url: string | null; extern
   );
 }
 
+
 /**
- * Escalations and reopened tickets are the same object — a ticket, a subject,
- * a topic and a timestamp — so they get one renderer rather than two
- * near-identical blocks. Rows rather than cards: these lists run long on a busy
- * morning, and a bordered card per ticket costs three times the height while
- * giving the eye no column to run down.
+ * One line of the worklist.
+ *
+ * The signals and the quiet time carry the urgency, so they sit in the meta
+ * column where the eye runs down them. `why` is the model's one clause on why
+ * this sits here; when it is absent the row is in deterministic order and says
+ * nothing rather than inventing a justification.
  */
-function QueueList({
-  label,
-  icon: Icon,
-  items,
-  now,
-}: {
-  label: string;
-  icon: typeof BookOpen;
-  items: QueueItem[];
-  now: number;
-}) {
+function WorklistRow({ item, why }: { item: WorklistItem; why: string | null }) {
+  const waiting = item.signals.includes("chat_waiting");
+  const reopened = item.signals.includes("reopened");
+  const Icon = waiting ? MessageSquare : reopened ? Undo2 : Siren;
   return (
-    <div className="space-y-1.5">
-      <SectionHeader meta={items.length}>{label}</SectionHeader>
-      <DataList>
-        {items.map((it) => (
-          <DataRow
-            key={it.ticketId}
-            icon={<Icon aria-hidden />}
-            title={<TicketRef item={it} />}
-            detail={it.subject}
-            meta={
-              <>
-                {it.topic && <StatusChip>{displayTopic(it.topic)}</StatusChip>}
-                <span title={new Date(it.at * 1000).toLocaleString()}>{fmtAgo(it.at, now)}</span>
-              </>
-            }
-          />
-        ))}
-      </DataList>
-    </div>
+    <DataRow
+      href={item.url ?? undefined}
+      external={item.external}
+      icon={
+        <Icon
+          className={waiting || item.state === "active" ? "text-tone-bad" : undefined}
+          aria-hidden
+        />
+      }
+      title={
+        <span className="inline-flex items-center gap-1.5">
+          <span className="font-mono text-xs">{item.label}</span>
+          {waiting && <StatusChip tone="stale">waiting</StatusChip>}
+          {reopened && <StatusChip tone="stale">reopened</StatusChip>}
+          {!waiting && item.state === "active" && <StatusChip tone="in_review">active</StatusChip>}
+        </span>
+      }
+      detail={
+        <>
+          {item.subject}
+          {why && <span className="text-foreground"> — {why}</span>}
+        </>
+      }
+      meta={
+        <>
+          {item.runs > 1 && <span>{item.runs}&nbsp;exchanges</span>}
+          <span title={new Date(item.at * 1000).toLocaleString()}>
+            quiet {item.quietHours}h
+          </span>
+        </>
+      }
+    />
   );
 }
 
-function QueueTile({
-  href,
-  icon: Icon,
-  label,
-  count,
-  hint,
-  urgent,
-}: {
-  /** Omitted when the reader has nowhere useful to go — the tile still counts. */
-  href?: string;
-  icon: typeof BookOpen;
-  label: string;
-  count: number;
-  hint?: string;
-  urgent?: boolean;
-}) {
-  const body = (
-    <>
-      <Icon className={`mt-0.5 size-4 shrink-0 ${count ? "text-primary" : "text-muted-foreground"}`} aria-hidden />
-      <div className="min-w-0">
-        <div className="flex items-baseline gap-2">
-          <span className="font-mono text-sm font-semibold">{count}</span>
-          <span className="truncate text-sm">{label}</span>
-        </div>
-        {hint && (
-          <p className={`mt-0.5 text-xs ${urgent ? "font-medium text-tone-bad" : "text-muted-foreground"}`}>
-            {hint}
-          </p>
-        )}
-      </div>
-    </>
-  );
-  const base = "flex items-start gap-3 rounded-lg border bg-muted/40 p-3";
-  if (!href) return <div className={base}>{body}</div>;
-  return (
-    <Link
-      href={href}
-      className={`${base} transition-colors hover:bg-muted focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none`}
-    >
-      {body}
-    </Link>
-  );
-}
 
 /**
- * `isAdmin` gates the three approval tiles — learnings, KB review, billing.
- * Not a security measure: those actions are refused by their own API routes.
- * It stops a general user being pointed at three counters they will be told
- * "no" on, which reads as the page being broken rather than as the page being
- * someone else's job.
+ * Today is the agent's worklist. Approving learnings, reviewing articles and
+ * deciding billing all left this page for their own — they are admin work on a
+ * different clock, and mixing them in made the morning read a mixed pile with
+ * no single spine.
  */
-export default function TodayBrief({ isAdmin = true }: { isAdmin?: boolean }) {
+export default function TodayBrief() {
   const [brief, setBrief] = useState<Brief | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -297,8 +278,26 @@ export default function TodayBrief({ isAdmin = true }: { isAdmin?: boolean }) {
     void loadInsight(true);
   };
 
+  /*
+   * The model's order when it produced one, the deterministic order otherwise.
+   * reconcileRanking guarantees the ids are real and complete, so this is a
+   * lookup rather than a filter — but the page still falls back cleanly on the
+   * first load, before the insight has arrived.
+   */
+  const whyFor = new Map((insight?.ranking ?? []).map((r) => [r.id, r.why]));
+  const byId = new Map((brief?.worklist ?? []).map((w) => [w.id, w]));
+  const ranked: WorklistItem[] = insight?.ranking?.length
+    ? insight.ranking.map((r) => byId.get(r.id)).filter((w): w is WorklistItem => !!w)
+    : (brief?.worklist ?? []);
+
+  const waitingChats = (brief?.worklist ?? []).filter((w) =>
+    w.signals.includes("chat_waiting"),
+  ).length;
+  const longestQuiet = brief?.worklist.length
+    ? Math.max(...brief.worklist.map((w) => w.quietHours))
+    : null;
+
   const s = brief?.summary;
-  const q = brief?.queue;
   const emerging = brief?.trends.emerging ?? [];
 
   return (
@@ -340,17 +339,29 @@ export default function TodayBrief({ isAdmin = true }: { isAdmin?: boolean }) {
                   lives on the queue card, so the row never mixes timeframes.
                   Tone only where the number is itself a state: escalated and
                   reopened mean someone has work, answered and arrived don't. */}
+              {/* Describes the worklist, not a 24h window. The old strip counted
+                  arrivals, so on a quiet weekend it read four zeros directly
+                  above nine people waiting — the top of the page contradicting
+                  the rest of it. */}
               <MetricRow
                 metrics={[
-                  { label: "Came in", value: s.arrived },
-                  { label: "Jetta answered", value: s.answered },
-                  { label: "Escalated", value: s.escalated, tone: s.escalated ? "warn" : undefined },
                   {
-                    label: "Reopened",
-                    value: s.reopened,
-                    tone: s.reopened ? "bad" : undefined,
-                    hint: s.reopened ? "her answer didn't land" : undefined,
+                    label: "Need you",
+                    value: brief.worklist.length,
+                    tone: brief.worklist.length ? "bad" : "good",
                   },
+                  {
+                    label: "Waiting in chat",
+                    value: waitingChats,
+                    tone: waitingChats ? "bad" : undefined,
+                    hint: waitingChats ? "someone is sitting there" : undefined,
+                  },
+                  {
+                    label: "Longest quiet",
+                    value: longestQuiet == null ? "—" : `${longestQuiet}h`,
+                    tone: longestQuiet != null && longestQuiet >= 48 ? "warn" : undefined,
+                  },
+                  { label: "Came in (24h)", value: s.arrived, hint: `${s.answered} answered` },
                 ]}
               />
 
@@ -403,20 +414,6 @@ export default function TodayBrief({ isAdmin = true }: { isAdmin?: boolean }) {
                 {insight && (
                   <div className="space-y-3">
                     <p className="text-sm font-semibold">{insight.headline}</p>
-                    <div className="flex items-start gap-2 rounded-md border border-primary/30 bg-primary/5 p-2.5">
-                      <ArrowRight className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
-                      <p className="text-sm">
-                        <span className="font-medium">Start here: </span>
-                        {insight.startHere}
-                      </p>
-                    </div>
-                    {insight.highlights.length > 0 && (
-                      <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
-                        {insight.highlights.map((h, i) => (
-                          <li key={i}>{h}</li>
-                        ))}
-                      </ul>
-                    )}
                     <p className="text-[11px] text-muted-foreground">
                       Written {fmtAgo(Math.floor(insight.generatedAt / 1000), now)} from the numbers on this page.
                       {brief.narrativeDate ? ` Yesterday's full digest is on Insights.` : ""}
@@ -523,99 +520,120 @@ export default function TodayBrief({ isAdmin = true }: { isAdmin?: boolean }) {
             </CardContent>
           </Card>
 
-          {/* ── The queue ───────────────────────────────────────── */}
-          {q && (
-            <Card>
-              <CardHeader>
-                <CardTitle>
-                  Waiting on a human
-                  <span className="ml-2 font-mono text-sm font-semibold text-muted-foreground">
-                    {s.waiting} {s.waiting === 1 ? "ticket" : "tickets"}
-                  </span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className={`grid gap-3 ${isAdmin ? "grid-cols-2 md:grid-cols-4" : "grid-cols-1"}`}>
-                  {isAdmin && (
-                    <>
-                      <QueueTile
-                        href="/evals"
-                        icon={GraduationCap}
-                        label="learnings"
-                        count={q.learnings.count}
-                        hint={q.learnings.count ? "approve to apply" : "none proposed"}
-                      />
-                      <QueueTile href="/kb/review" icon={BookOpen} label="KB to review" count={q.kbReview} />
-                      <QueueTile
-                        href="/billing"
-                        icon={CreditCard}
-                        label="billing approvals"
-                        count={q.billingApprovals}
-                      />
-                    </>
-                  )}
-                  <QueueTile
-                    href={isAdmin ? "/analytics" : undefined}
-                    icon={Undo2}
-                    label="reopened this week"
-                    count={q.reopened.count}
-                    hint="Jetta's answer didn't land"
-                  />
+          {/* ── ① What needs you now ────────────────────────────── */}
+          <Card>
+            <CardHeader>
+              <CardTitle>
+                What needs you now
+                <span className="ml-2 font-mono text-sm font-semibold text-muted-foreground">
+                  {brief.worklist.length}
+                </span>
+              </CardTitle>
+              <CardAction>
+                <Button variant="ghost" size="sm" onClick={refresh} disabled={loading}>
+                  <RotateCw className={loading ? "animate-spin" : undefined} /> Refresh
+                </Button>
+              </CardAction>
+            </CardHeader>
+            <CardContent>
+              {brief.worklist.length === 0 ? (
+                <EmptyState
+                  icon={CheckCircle2}
+                  title="Queue's clear"
+                  hint="Nobody is waiting on a person right now."
+                />
+              ) : (
+                <DataList>
+                  {ranked.map((w) => (
+                    <WorklistRow key={w.id} item={w} why={whyFor.get(w.id) ?? null} />
+                  ))}
+                </DataList>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* ── ② What's going wrong ────────────────────────────── */}
+          <Card>
+            <CardHeader>
+              <CardTitle>What&apos;s going wrong</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {insight?.concerns.length ? (
+                <ul className="space-y-1.5">
+                  {insight.concerns.map((c, i) => (
+                    <li key={i} className="flex items-start gap-2 text-sm">
+                      <TriangleAlert className="mt-0.5 size-4 shrink-0 text-tone-warn" aria-hidden />
+                      <span>{c}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Nothing bigger than the individual tickets above.
+                </p>
+              )}
+
+              {/* The evidence under the prose — spikes stay the source of truth. */}
+              {brief.trends.partialHistory && (
+                <Alert>
+                  <TriangleAlert />
+                  <AlertTitle>
+                    Only {brief.trends.historyDaysCovered} days of labelled history — not enough to tell a
+                    spike from a normal Tuesday yet.
+                  </AlertTitle>
+                </Alert>
+              )}
+              {emerging.length > 0 && (
+                <div className="space-y-1.5">
+                  <SectionHeader meta={emerging.length}>Topics above their normal rate</SectionHeader>
+                  <DataList>
+                    {emerging.map((t) => {
+                      const chip = spikeChip(t);
+                      return (
+                        <DataRow
+                          key={t.topic}
+                          icon={<Flame aria-hidden />}
+                          title={displayTopic(t.topic)}
+                          detail={`${t.recent} in 24h${
+                            t.apps.length ? ` · ${t.apps.map((a) => appName(a.app)).join(", ")}` : ""
+                          }`}
+                          meta={
+                            <>
+                              <StatusChip tone={chip.tone}>{chip.text}</StatusChip>
+                              <StatusChip tone={t.kbArticle ? "published" : "draft"}>
+                                {t.kbArticle ? "in KB" : "no article"}
+                              </StatusChip>
+                            </>
+                          }
+                        />
+                      );
+                    })}
+                  </DataList>
                 </div>
+              )}
+            </CardContent>
+          </Card>
 
-                {isAdmin && q.learnings.count > 0 && (
-                  <div className="space-y-2">
-                    <SectionLabel>Candidate learnings — approve to change how Jetta writes</SectionLabel>
-                    {q.learnings.items.map((l) => (
-                      <StepCard
-                        key={l.id}
-                        title={
-                          <span className="inline-flex items-center gap-1.5">
-                            <GraduationCap className="size-4 shrink-0" aria-hidden />
-                            {l.category}
-                          </span>
-                        }
-                        meta={<StatusChip tone="in_review">{l.product}</StatusChip>}
-                      >
-                        <p className="text-xs text-muted-foreground">{l.text}</p>
-                      </StepCard>
-                    ))}
-                  </div>
-                )}
-
-                {q.escalations.count > 0 && (
-                  <QueueList
-                    label="Escalated to the team (last 72h)"
-                    icon={Siren}
-                    items={q.escalations.items}
-                    now={now}
-                  />
-                )}
-
-                {q.reopened.count > 0 && (
-                  <QueueList
-                    label="Reopened — the customer came back"
-                    icon={Undo2}
-                    items={q.reopened.items}
-                    now={now}
-                  />
-                )}
-
-                {/* Only count what this reader can act on, or the page claims
-                    work is outstanding and then shows them none of it. */}
-                {q.escalations.count === 0 &&
-                  q.reopened.count === 0 &&
-                  (!isAdmin ||
-                    (q.learnings.count === 0 && q.kbReview === 0 && q.billingApprovals === 0)) && (
-                    <EmptyState
-                      icon={CheckCircle2}
-                      title="Queue's clear"
-                      hint="Nothing is waiting on a human right now."
-                    />
-                  )}
-              </CardContent>
-            </Card>
-          )}
+          {/* ── ③ What would help ───────────────────────────────── */}
+          <Card>
+            <CardHeader>
+              <CardTitle>What would help</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {insight?.recommendations.length ? (
+                <ul className="space-y-1.5">
+                  {insight.recommendations.map((r, i) => (
+                    <li key={i} className="flex items-start gap-2 text-sm">
+                      <ArrowRight className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
+                      <span>{r}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-muted-foreground">Nothing to write up right now.</p>
+              )}
+            </CardContent>
+          </Card>
 
           {/* ── Document next ───────────────────────────────────── */}
           <Card>

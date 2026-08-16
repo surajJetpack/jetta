@@ -19,7 +19,7 @@ export default async function TodayPage() {
         title="Today"
         description="What came in overnight, what's spiking, and what needs a person."
       />
-      <TodayBrief isAdmin={isAdmin} />
+      <TodayBrief />
     </>
   );
 }
