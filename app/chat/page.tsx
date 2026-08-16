@@ -30,6 +30,55 @@ interface StagedFile {
 const MAX_STAGED = 4;
 
 /** Object URL for an image preview, remembered so it can be revoked later. */
+/**
+ * Turn bare URLs in a message into links.
+ *
+ * The chat prompt tells Jetta to "put links as plain URLs" — so a reply that
+ * points someone at a help article arrives as text, and until now rendered as
+ * text. The one thing an answer most wants the reader to do was the one thing
+ * they had to copy out by hand.
+ *
+ * Built as React nodes rather than by injecting HTML: the text is model output
+ * shaped by whatever a visitor typed, so it must never reach the DOM as markup.
+ * The pattern matches http(s) only, which also rules out javascript: by
+ * construction rather than by filtering it out afterwards.
+ */
+const URL_RE = /https?:\/\/[^\s<>"']+/g;
+
+function linkify(text: string, linkClass: string): React.ReactNode[] {
+  const out: React.ReactNode[] = [];
+  let last = 0;
+  for (const m of text.matchAll(URL_RE)) {
+    const start = m.index!;
+    let url = m[0];
+    /*
+     * Sentence punctuation is not part of the address. "see https://x.io/a."
+     * must not link the full stop, and a URL inside brackets must not swallow
+     * the closing one — but a genuinely parenthesised path segment should keep
+     * its own, so a ")" only comes off when the URL has no matching "(".
+     */
+    let trimmed = url.replace(/[.,;:!?]+$/, "");
+    while (trimmed.endsWith(")") && !trimmed.includes("(")) trimmed = trimmed.slice(0, -1);
+    url = trimmed;
+
+    if (start > last) out.push(text.slice(last, start));
+    out.push(
+      <a
+        key={`${start}-${url}`}
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer nofollow"
+        className={linkClass}
+      >
+        {url}
+      </a>,
+    );
+    last = start + url.length;
+  }
+  if (last < text.length) out.push(text.slice(last));
+  return out;
+}
+
 function stagePreview(file: File, sink: { current: string[] }): string | undefined {
   if (!file.type.startsWith("image/")) return undefined;
   const url = URL.createObjectURL(file);
@@ -730,7 +779,12 @@ export default function ChatWidgetPage() {
                         : "rounded-bl-sm bg-neutral-100 text-neutral-900",
                     ].join(" ")}
                   >
-                    {m.text}
+                    {linkify(
+                      m.text,
+                      m.author === "visitor"
+                        ? "underline underline-offset-2 decoration-white/50 hover:decoration-white"
+                        : "underline underline-offset-2 decoration-neutral-400 hover:decoration-neutral-900",
+                    )}
                   </div>
                 )}
               </div>
