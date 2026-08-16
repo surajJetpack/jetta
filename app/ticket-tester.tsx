@@ -187,11 +187,11 @@ export default function TicketTester({
                   model <b className="text-foreground">{res.model}</b>
                 </span>
                 <span className="inline-flex items-center gap-1">
-                  {res.dryRun ? <Lock className="size-3.5" /> : <Radio className="size-3.5 text-[var(--live)]" />}
+                  {res.dryRun ? <Lock className="size-3.5" /> : <Radio className="size-3.5 text-tone-good" />}
                   {res.dryRun ? "dry run" : "live"}
                 </span>
                 {res.blockedByAllowlist && (
-                  <span className="text-[var(--stub)]">not on allowlist → forced dry-run</span>
+                  <span className="text-tone-warn">not on allowlist → forced dry-run</span>
                 )}
                 {res.resolutionSent && (
                   <span>

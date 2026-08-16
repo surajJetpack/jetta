@@ -348,7 +348,7 @@ export default function DraftsQueue({
                   title={
                     <span className="inline-flex items-center gap-1.5">
                       {d.state === "approved" ? (
-                        <CheckCircle2 className="text-[var(--live)]" />
+                        <CheckCircle2 className="text-tone-good" />
                       ) : d.state === "discarded" ? (
                         <Trash2 className="text-destructive" />
                       ) : d.state === "expired" ? (

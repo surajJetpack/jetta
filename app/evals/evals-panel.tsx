@@ -71,8 +71,8 @@ interface Learning {
 }
 
 function RatingIcon({ rating }: { rating: ReplyEvaluation["rating"] }) {
-  if (rating === "good") return <ThumbsUp className="size-4 text-[var(--live)]" />;
-  if (rating === "partial") return <PencilLine className="size-4 text-[var(--stub)]" />;
+  if (rating === "good") return <ThumbsUp className="size-4 text-tone-good" />;
+  if (rating === "partial") return <PencilLine className="size-4 text-tone-warn" />;
   return <ThumbsDown className="size-4 text-destructive" />;
 }
 

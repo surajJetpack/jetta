@@ -180,7 +180,7 @@ function QueueTile({
           <span className="truncate text-sm">{label}</span>
         </div>
         {hint && (
-          <p className={`mt-0.5 text-xs ${urgent ? "font-medium text-red-600 dark:text-red-400" : "text-muted-foreground"}`}>
+          <p className={`mt-0.5 text-xs ${urgent ? "font-medium text-tone-bad" : "text-muted-foreground"}`}>
             {hint}
           </p>
         )}

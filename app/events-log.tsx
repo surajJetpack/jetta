@@ -28,7 +28,7 @@ const SOURCES = ["webhook", "freshchat", "jettachat", "console", "cron", "slack"
 
 function LevelIcon({ level }: { level: OpsEvent["level"] }) {
   if (level === "error") return <OctagonX className="size-4 shrink-0 text-destructive" aria-hidden />;
-  if (level === "warn") return <TriangleAlert className="size-4 shrink-0 text-[var(--stub)]" aria-hidden />;
+  if (level === "warn") return <TriangleAlert className="size-4 shrink-0 text-tone-warn" aria-hidden />;
   return <Info className="size-4 shrink-0 text-muted-foreground" aria-hidden />;
 }
 
