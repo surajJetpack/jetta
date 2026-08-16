@@ -354,8 +354,18 @@ async function main() {
     // catches.
     const listening = readStream(conv.id!, conv.token!, {
       ms: 180_000,
-      until: (evts) =>
-        evts.some((e) => e.event === "message" && (e.data as { author?: string }).author === "agent"),
+      // Keep listening past the reply until the indicator clears. It clears a
+      // second or two AFTER the message lands, so stopping on the message
+      // alone made "the typing indicator clears" unobservable — which is why
+      // that check used to carry an escape hatch that made it unfailable.
+      until: (evts) => {
+        const replied = evts.some(
+          (e) => e.event === "message" && (e.data as { author?: string }).author === "agent",
+        );
+        const cleared =
+          evts.filter((e) => e.event === "typing").at(-1)?.data.typing === false;
+        return replied && cleared;
+      },
     });
     await sleep(500);
     const sent = await post("/api/chat/message", {
@@ -376,10 +386,19 @@ async function main() {
     );
     // A typing indicator that never clears is the widget's most visible bug.
     const typing = events.filter((e) => e.event === "typing");
-    check("a typing indicator is sent", typing.length > 0, `${typing.length} typing events`);
+    // Specifically that it turns ON. The old assertion was `typing.length > 0`,
+    // which the stream satisfies with the single `typing:false` it sends on
+    // connect — so it passed for months while the indicator never once lit up.
+    check(
+      "the typing indicator turns on",
+      typing.some((t) => t.data.typing === true),
+      JSON.stringify(typing.map((t) => t.data.typing)),
+    );
     check(
       "the typing indicator clears",
-      typing.at(-1)?.data.typing === false || agentMsgs.length > 0,
+      // No `|| agentMsgs.length` escape hatch: a reply arriving is not evidence
+      // the indicator cleared, and that clause made this unfailable too.
+      typing.at(-1)?.data.typing === false,
       JSON.stringify(typing.map((t) => t.data.typing)),
     );
     const reply = String((agentMsgs[0]?.data as { text?: string })?.text ?? "");
