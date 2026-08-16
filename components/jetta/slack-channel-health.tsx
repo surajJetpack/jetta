@@ -34,9 +34,9 @@ export default async function SlackChannelHealth() {
         {checks.map((c) => (
           <div key={c.setting} className="flex items-start gap-2.5 text-sm">
             {c.ok ? (
-              <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-600" aria-hidden />
+              <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-tone-good" aria-hidden />
             ) : (
-              <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600" aria-hidden />
+              <AlertTriangle className="mt-0.5 size-4 shrink-0 text-tone-warn" aria-hidden />
             )}
             <div className="min-w-0">
               <p className="font-medium">
@@ -44,7 +44,7 @@ export default async function SlackChannelHealth() {
                 {c.name && <span className="ml-1.5 font-normal text-muted-foreground">#{c.name}</span>}
               </p>
               {c.problem ? (
-                <p className="text-[11px] text-amber-700 dark:text-amber-500">{c.problem}</p>
+                <p className="text-[11px] text-tone-warn">{c.problem}</p>
               ) : (
                 <p className="text-[11px] text-muted-foreground">Jetta is in this channel and can post.</p>
               )}

@@ -1,5 +1,6 @@
-/** LIVE / STUB integration badge with the status dot (legacy `.badge`). */
+/** LIVE / STUB integration badge with the status dot. */
 import { cn } from "@/lib/utils";
+import { CHIP_BASE, TONE_SOFT } from "./tone";
 
 export function LiveBadge({
   live,
@@ -12,15 +13,7 @@ export function LiveBadge({
   className?: string;
 }) {
   return (
-    <span
-      className={cn(
-        "inline-flex h-5 items-center gap-1.5 rounded-full px-2 text-[11px] font-semibold tracking-wide",
-        live
-          ? "bg-green-100 text-green-800 dark:bg-green-500/15 dark:text-green-400"
-          : "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-400",
-        className,
-      )}
-    >
+    <span className={cn(CHIP_BASE, TONE_SOFT[live ? "good" : "warn"], className)}>
       <span className="size-1.5 rounded-full bg-current" aria-hidden />
       {label ?? (live ? "LIVE" : "STUB")}
     </span>

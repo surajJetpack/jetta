@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { usePolling } from "@/lib/use-polling";
 import { cn } from "@/lib/utils";
+import { TONE_SOLID } from "./tone";
 
 /**
  * How many visitors are waiting for a person, on the Chats tab.
@@ -33,13 +34,13 @@ export function ChatWaitingBadge({ active }: { active?: boolean }) {
     <span
       className={cn(
         "inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold tabular-nums",
-        // Waiting is urgent and red; a chat a colleague is already handling is
-        // information, not a summons.
+        // Waiting is urgent, and the one place a solid fill is warranted; a
+        // chat a colleague is already handling is information, not a summons.
         waiting > 0
-          ? "animate-pulse bg-red-500 text-white"
+          ? cn("animate-pulse", TONE_SOLID.bad)
           : active
             ? "bg-primary-foreground/20 text-primary-foreground"
-            : "bg-muted-foreground/20 text-muted-foreground",
+            : TONE_SOLID.neutral,
       )}
       title={
         waiting > 0

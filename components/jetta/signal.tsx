@@ -11,16 +11,14 @@
  */
 import { cn } from "@/lib/utils";
 import type { SignalTone, StatusRow } from "@/lib/system-status";
+import { CHIP_BASE, TONE_SOFT, type Tone } from "./tone";
 
-const TONES: Record<SignalTone, string> = {
-  // Active, and things happen in the outside world.
-  on: "bg-primary/10 text-primary dark:bg-primary/15",
-  // A protective gate is engaged.
-  good: "bg-green-100 text-green-800 dark:bg-green-500/15 dark:text-green-400",
-  // Inactive or simulated; nothing escapes.
-  off: "bg-muted text-muted-foreground",
-  // On but unable to work, or working with no human check. Look at this one.
-  warn: "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-400",
+/** System states are the domain; the colour comes from the shared tones. */
+const TONES: Record<SignalTone, Tone> = {
+  on: "info", // active, and things happen in the outside world
+  good: "good", // a protective gate is engaged
+  off: "neutral", // inactive or simulated; nothing escapes
+  warn: "warn", // on but unable to work, or working with no human check
 };
 
 export function Signal({
@@ -34,11 +32,7 @@ export function Signal({
 }) {
   return (
     <span
-      className={cn(
-        "inline-flex h-5 shrink-0 items-center gap-1.5 rounded-full px-2 font-mono text-[11px] font-semibold tracking-wide whitespace-nowrap uppercase",
-        TONES[tone],
-        className,
-      )}
+      className={cn(CHIP_BASE, "font-mono uppercase", TONE_SOFT[TONES[tone]], className)}
     >
       <span className="size-1.5 rounded-full bg-current" aria-hidden />
       {children}
