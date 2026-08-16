@@ -274,7 +274,8 @@ function assistantTools(delivery?: Delivery): ToolSet {
     }),
 
     search_dev_board: tool({
-      description: "Search the monday dev board for open items matching an error or symptom.",
+      description:
+        "Search the monday dev board for items matching an error or symptom. Returns the board's own status (\"Working on it\", \"ToDo\", \"Waiting Customer\"…), who it is assigned to, its priority and when it last moved. A status of \"unknown\" means the board has no progress value on it — say that rather than guessing at one.",
       inputSchema: z.object({
         symptom: z.string().describe("Short description of the error or symptom."),
         product: z.enum(["getsign", "jetpackapps"]).describe("Which board to search."),

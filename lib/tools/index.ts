@@ -413,7 +413,20 @@ export function buildTools(
       description:
         "Search the Dev board for open items matching the error/symptom. ALWAYS call before create_dev_item. Returns matching item id, title, status, and URL.",
       inputSchema: z.object({ symptom: z.string().describe("Short description of the error/symptom.") }),
-      execute: async ({ symptom }) => JSON.stringify(await monday.searchDevBoard(symptom, ctx.product)),
+      // Mapped explicitly rather than passed through: searchDevBoard also
+      // returns who the item is assigned to, and this toolset writes to
+      // CUSTOMERS. An engineer's name has no business in the context of a
+      // reply, and the surest way to keep it out is not to put it there.
+      // The Slack assistant, which answers colleagues, gets the whole object.
+      execute: async ({ symptom }) =>
+        JSON.stringify(
+          (await monday.searchDevBoard(symptom, ctx.product)).map((i) => ({
+            id: i.id,
+            title: i.title,
+            status: i.status,
+            url: i.url,
+          })),
+        ),
     }),
 
     read_dev_item_comments: tool({
