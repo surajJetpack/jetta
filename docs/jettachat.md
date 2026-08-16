@@ -50,7 +50,6 @@ rather than catching it.
 | Review | draft mode — a human approves every reply | **none — sent immediately** |
 | Escalation | Slack + private note | `create_support_ticket` → Freshdesk |
 | Follow-up cron | yes | no (the ticket carries it) |
-| Ticket allowlist | enforced | bypassed (`JETTACHAT_LIVE` is the gate) |
 | Model tier | auto (complexity-routed) | pinned to standard |
 | Sending | `reply_to_ticket` tool call | **the model's final text** (no reply tool) |
 

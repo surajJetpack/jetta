@@ -196,14 +196,6 @@ async function runPipeline(convId: string) {
     const result = await runAgentLoop(system, messages, ctx);
     await recordRun("webhook", ctx, result, Date.now() - started);
 
-    if (result.blockedByAllowlist) {
-      return NextResponse.json({
-        status: "skipped — conversation not on JETTA_TICKET_ALLOWLIST (forced dry-run, no writes)",
-        convId,
-        toolsUsed: result.toolsUsed,
-      });
-    }
-
     // No scheduleFollowUp on chat: conversations resolve in-session, and the
     // follow-up cron's reply/close path is Freshdesk-only.
     const replied = result.toolsUsed.includes("reply_to_ticket");

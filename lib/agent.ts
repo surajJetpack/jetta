@@ -35,10 +35,8 @@ export interface AgentResult {
   toolsUsed: string[];
   /** Full per-call trace (tool, input, result). */
   trace: TraceEntry[];
-  /** The dry-run mode actually used (may be forced on by the allowlist). */
+  /** The dry-run mode actually used. */
   dryRun: boolean;
-  /** True if a live run was downgraded to dry-run because the ticket isn't allowlisted. */
-  blockedByAllowlist: boolean;
   /** True if customer-visible writes (reply/close) were held for human approval. */
   heldCustomerWrites: boolean;
   /** Aggregate token usage across the loop. Cache fields only when the provider caches. */
@@ -51,25 +49,6 @@ export interface AgentResult {
   };
   /** Label of the model that actually ran this loop (provider/model-id). */
   model: string;
-}
-
-/**
- * Live writes allowed only when the allowlist is empty (no restriction) or the
- * ticket is on it.
- *
- * JettaChat is exempt. The allowlist exists to stop Jetta writing to arbitrary
- * pre-existing Freshdesk tickets during a staged rollout — but a JettaChat
- * conversation has a freshly-minted UUID that could never be listed in
- * advance, so applying it would force every chat to dry-run and leave real
- * visitors talking to a wall. That channel's rollout gate is JETTACHAT_LIVE
- * (plus the embed-origin allowlist), which stops traffic at the door instead.
- */
-function liveWritesAllowed(ctx: ConversationContext): boolean {
-  if (ctx.channel === "jettachat") return true;
-  const list = config.ticketAllowlist;
-  if (list.length === 0) return true;
-  const ticketId = ctx.ticket?.id;
-  return !!ticketId && list.includes(ticketId);
 }
 
 export interface RunOptions {
@@ -106,14 +85,8 @@ export async function runAgentLoop(
 ): Promise<AgentResult> {
   const signals: AgentSignals = { resolutionSent: false };
 
-  // Allowlist guard: a requested live run is forced to dry-run unless the ticket
-  // is allowlisted. Dry-run requests pass through unchanged. Held runs (draft
-  // mode) are never forced dry — customer writes are already held, and internal
-  // actions are meant to run live for every ticket.
-  const allowed = liveWritesAllowed(ctx);
   const hold = opts.holdCustomerWrites === true;
-  const blockedByAllowlist = !opts.dryRun && !hold && !allowed;
-  const dryRun = opts.dryRun === true || (!allowed && !hold);
+  const dryRun = opts.dryRun === true;
 
   const tier = resolveTier(ctx, opts);
   const result = await generateText({
@@ -186,7 +159,6 @@ export async function runAgentLoop(
     toolsUsed: trace.map((t) => t.tool),
     trace,
     dryRun,
-    blockedByAllowlist,
     heldCustomerWrites: hold,
     usage: u
       ? {

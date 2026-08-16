@@ -28,7 +28,6 @@ interface RunResult {
   ticket?: { id: string; subject: string; status: string; requester: string | null; product: string };
   model?: string;
   dryRun?: boolean;
-  blockedByAllowlist?: boolean;
   durationMs?: number;
   resolutionSent?: boolean;
   reply?: string;
@@ -190,9 +189,6 @@ export default function TicketTester({
                   {res.dryRun ? <Lock className="size-3.5" /> : <Radio className="size-3.5 text-tone-good" />}
                   {res.dryRun ? "dry run" : "live"}
                 </span>
-                {res.blockedByAllowlist && (
-                  <span className="text-tone-warn">not on allowlist → forced dry-run</span>
-                )}
                 {res.resolutionSent && (
                   <span>
                     <b className="text-foreground">resolution sent</b> → follow-up scheduled

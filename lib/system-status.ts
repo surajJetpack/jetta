@@ -185,7 +185,6 @@ export function capabilityRows(): StatusRow[] {
  */
 export function rolloutRows(): StatusRow[] {
   const products = config.productFilter;
-  const allowlist = config.ticketAllowlist;
   // What the filter actually keeps out, rather than what it happens to list.
   const excluded = products.length
     ? (Object.keys(ALL_PRODUCTS) as Product[]).filter((p) => !products.includes(p))
@@ -233,37 +232,6 @@ export function rolloutRows(): StatusRow[] {
             ? `Set, but it names every product (${VALID}), so nothing is excluded — the same as leaving it unset.`
             : `No product is filtered out. The only values this accepts are ${VALID} — it selects a dev-board side of the house, not an individual app.`,
       setting: "JETTA_PRODUCTS",
-    },
-    {
-      /*
-       * Two things make this row hard to state honestly, and both were wrong
-       * here before.
-       *
-       * It never gates chat: liveWritesAllowed() returns true for jettachat
-       * before it reads the list at all.
-       *
-       * And in DRAFT mode it gates nothing whatsoever. runAgentLoop computes
-       * `dryRun = opts.dryRun || (!allowed && !hold)` — draft mode sets hold,
-       * so a non-allowlisted ticket is never forced dry. Customer writes are
-       * already held and the internal actions are meant to run for every
-       * ticket. An allowlist therefore sits inert until reply mode flips to
-       * AUTO, at which point it silently becomes a hard restriction. Reporting
-       * it as an active brake while it does nothing is the wrong error; so is
-       * hiding a landmine that arms itself on a config change.
-       */
-      label: "Ticket allowlist",
-      tone: allowlist.length ? "warn" : "off",
-      state: !allowlist.length
-        ? "NO RESTRICTION"
-        : `${allowlist.length} TICKET${allowlist.length === 1 ? "" : "S"}${
-            config.replyMode === "draft" ? " · INERT" : ""
-          }`,
-      meaning: !allowlist.length
-        ? "Jetta may write on any ticket that passes the filters above."
-        : config.replyMode === "draft"
-          ? `Lists ${allowlist.join(", ")}, but restricts nothing while reply mode is DRAFT — held runs are never forced dry, so every ticket still gets its private note, Slack escalation and dev-board item. Switch reply mode to AUTO and this becomes a hard limit to those ids alone, with nothing on screen to announce it. It never gates chat.`
-          : `Live writes only happen on ${allowlist.join(", ")} — every other ticket reasons and writes nothing. It does NOT gate chat: JettaChat conversations write, reply and raise tickets as normal.`,
-      setting: "JETTA_TICKET_ALLOWLIST",
     },
     {
       label: "Suggestion as a Freshdesk note",
@@ -363,24 +331,11 @@ export function headlineState(): StatusRow[] {
       : "Every Freshdesk reply waits for a human.",
   });
 
-  const allowlist = config.ticketAllowlist;
   const products = config.productFilter;
-  if (allowlist.length) {
-    rows.push({
-      label: "Ticket allowlist",
-      tone: "warn",
-      state: `${allowlist.length} TICKET${allowlist.length === 1 ? "" : "S"}${
-        config.replyMode === "draft" ? " · INERT" : ""
-      }`,
-      meaning:
-        config.replyMode === "draft"
-          ? `Lists ${allowlist.join(", ")} but restricts nothing in DRAFT mode. It becomes a hard limit the moment reply mode flips to AUTO.`
-          : `On tickets Jetta only writes on ${allowlist.join(", ")}; every other ticket reasons and writes nothing. Chat is not gated by it.`,
-    });
-    // Only a filter that actually excludes a product is worth a chip. One that
-    // names all three restricts nothing, and a permanent amber badge for
-    // nothing is how people learn to stop reading the bar.
-  } else if (
+  // Only a filter that actually excludes a product is worth a chip. One naming
+  // every product restricts nothing, and a permanent amber badge for nothing is
+  // how people learn to stop reading the bar.
+  if (
     products.length &&
     (Object.keys(ALL_PRODUCTS) as Product[]).some((p) => !products.includes(p))
   ) {

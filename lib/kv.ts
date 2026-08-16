@@ -593,7 +593,6 @@ export interface RunLog {
   /** Short triage-written theme, mirrored onto the outcome for topic trends. */
   topic?: string;
   dryRun: boolean;
-  blockedByAllowlist: boolean;
   /** True when customer-visible writes were held for human approval (draft mode). */
   heldCustomerWrites?: boolean;
   replied: boolean;

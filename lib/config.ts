@@ -363,17 +363,6 @@ export const config = {
   sessionSecret: env("SESSION_SECRET") ?? env("ADMIN_SECRET"),
 
   /**
-   * Controlled-rollout allowlist. When non-empty, Jetta only performs LIVE
-   * writes (reply, note, escalate, monday item, etc.) on these ticket IDs; any
-   * other ticket is automatically forced to dry-run (reasons but writes nothing).
-   * Dry-run requests are never affected. Empty = no restriction (writes on all).
-   */
-  ticketAllowlist: (env("JETTA_TICKET_ALLOWLIST") ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean),
-
-  /**
    * Controlled-rollout product filter: "getsign,jetpackapps". When non-empty,
    * webhook-triggered runs skip tickets whose inferred product is not listed —
    * the agent never runs, nothing is written or drafted. Tickets the heuristic
