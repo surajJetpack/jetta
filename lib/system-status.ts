@@ -266,6 +266,17 @@ export function reasoningRows(): StatusRow[] {
         : "Retrieval order is whatever the index returned.",
       setting: "RERANK_ENABLED",
     },
+    {
+      // Not driven by a flag — it's a property of the code paths, and the
+      // asymmetry is the whole point. A chat screenshot becomes words the model
+      // can read; the identical screenshot on an email ticket does not, and
+      // nothing in the reply says so. That silence is why this is a warn.
+      label: "Reading images",
+      tone: "warn",
+      state: "CHAT ONLY",
+      meaning:
+        "Images a visitor uploads in chat get a light-tier vision pass — errors transcribed verbatim — and the description stays in the prompt for the rest of the conversation. PDFs are skipped. Freshdesk attachments get none of this: the model is never told a file is there, and answers the ticket without it. Slack DMs likewise see only a filename.",
+    },
   ];
 }
 
