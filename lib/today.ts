@@ -20,7 +20,7 @@ import { listLearnings } from "./evals";
 import { listArticles, countByState, type ArticleState } from "./kb-store";
 import { topicTrends, ticketRecords, type TopicTrend, type TicketRecord } from "./topics";
 import { yesterdayKey } from "./daily-overview";
-import { listConversations } from "./chat-store";
+import { listConversations, getConversation } from "./chat-store";
 import { getTicketDetails, isTerminalStatus } from "./tools/freshdesk";
 
 const HOUR_S = 3600;
@@ -382,23 +382,37 @@ export async function buildTodayBrief() {
    * groups backwards whichever clock you pick.
    */
   /*
-   * Drop anything Freshdesk says is finished.
+   * Drop anything that is finished, according to the system that owns it.
    *
    * This is the one place the brief looks outside its own history, and it has
-   * to: the history is a record of what happened, and a human closing a ticket
-   * afterwards leaves no trace in it.
+   * to: the history records what happened, and nothing that happens afterwards
+   * — a human closing a ticket, someone deleting a conversation — leaves any
+   * trace in it. Both halves of this were live bugs. A closed ticket sat top of
+   * the list as "reopened"; a deleted conversation kept a row pointing at a
+   * page that no longer exists.
    *
-   * Only freshdesk-channel rows are checked. Chat rows carry their state in the
-   * chat store, which is already current.
+   * Tickets are checked against Freshdesk, conversations against the chat
+   * store. Rows already sourced from a waiting conversation skip the lookup —
+   * they exist because that conversation said waiting_human a moment ago.
    */
   const candidates = [...chatRows, ...byId.values()];
   const withStatus = await Promise.all(
     candidates.map(async (item) => {
-      if (item.id.startsWith("chat:") || !/^\d+$/.test(item.id)) return item;
-      return { ...item, status: await liveStatus(item.id) };
+      if (item.id.startsWith("chat:")) return item;
+      if (/^\d+$/.test(item.id)) return { ...item, status: await liveStatus(item.id) };
+      // A conversation id. Gone means deleted or expired past retention, and
+      // the row would link to a dead page; ticketed means the Freshdesk ticket
+      // is the live thread now and this row is a duplicate of it.
+      const conv = await getConversation(item.id).catch(() => undefined);
+      if (conv === undefined) return item; // lookup failed — fail open
+      if (!conv) return { ...item, status: "gone" };
+      return { ...item, status: conv.status };
     }),
   );
-  const live = withStatus.filter((i) => !(i.status && isTerminalStatus(i.status)));
+  const DONE = new Set(["gone", "resolved", "ticketed"]);
+  const live = withStatus.filter(
+    (i) => !(i.status && (isTerminalStatus(i.status) || DONE.has(i.status))),
+  );
 
   const group = (i: WorklistItem) =>
     i.signals.includes("chat_waiting") ? 0 : i.state === "active" ? 1 : 2;
