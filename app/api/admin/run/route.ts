@@ -67,7 +67,6 @@ export async function POST(req: NextRequest) {
       model: result.model,
       channel,
       dryRun: result.dryRun,
-      blockedByAllowlist: result.blockedByAllowlist,
       freshdeskLive: config.freshdesk.live,
       freshchatLive: config.freshchat.live,
       durationMs,

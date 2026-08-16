@@ -246,13 +246,6 @@ async function processTicket(ticketId: string, channel: "freshdesk" | "freshchat
       return;
     }
 
-    // Allowlist guard: the run was forced to dry-run (ticket not allowlisted) —
-    // nothing was written, so don't schedule follow-ups or log a real outcome.
-    if (result.blockedByAllowlist) {
-      console.log(`Webhook ticket ${ticketId}: not on JETTA_TICKET_ALLOWLIST — forced dry-run, no writes.`);
-      return;
-    }
-
     // Defence in depth: only treat a turn as a resolution if a customer-visible
     // reply actually went out. Guards against the model logging "resolution_sent"
     // without calling reply_to_ticket.

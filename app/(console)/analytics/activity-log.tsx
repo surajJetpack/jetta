@@ -21,7 +21,6 @@ interface RunLog {
   product: string;
   model: string;
   dryRun: boolean;
-  blockedByAllowlist: boolean;
   replied: boolean;
   resolutionSent: boolean;
   escalated: boolean;
@@ -117,7 +116,6 @@ export default function ActivityLog() {
                 <span className="truncate font-normal text-foreground">{l.subject ?? "(no subject)"}</span>
                 <StatusChip>{l.source}</StatusChip>
                 {l.dryRun ? <StatusChip tone="draft">dry-run</StatusChip> : <StatusChip tone="published">live</StatusChip>}
-                {l.blockedByAllowlist && <StatusChip tone="draft">not-allowlisted</StatusChip>}
                 {l.escalated && <StatusChip tone="stale">escalated</StatusChip>}
                 {l.resolutionSent && <StatusChip tone="published">resolved</StatusChip>}
                 {l.error && <StatusChip tone="stale">error</StatusChip>}

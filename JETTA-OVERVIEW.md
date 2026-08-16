@@ -40,7 +40,6 @@ resolution sent? → scheduleFollowUp() (24h)
 
 - **Grounding rule** — product specifics (steps, settings, limits) *must* come from a retrieved KB article with its URL. Never guess/approximate. A wrong-but-confident answer is the worst outcome.
 - **`STUB_MODE`** master switch → all external clients return canned data; per-integration `*_LIVE` flags allow staged rollout.
-- **Ticket allowlist** (`JETTA_TICKET_ALLOWLIST`) — live writes only on allowlisted tickets; everything else is forced to dry-run (reasons, writes nothing).
 - **Dry-run mode** — `/api/admin/run` previews the full action trace with zero external writes (default on).
 - **Context-sourced actions** — ticket id and account come from assembled context, never model-supplied values, so an action can't be misrouted.
 - **Internal/customer separation** — monday Dev board URLs *and* internal tracking mechanics stay out of customer replies; they go only into private notes.
@@ -65,6 +64,6 @@ resolution sent? → scheduleFollowUp() (24h)
 
 ## Demo path (2 min)
 
-1. Ops console → paste an allowlisted ticket → **Dry-run** → show the full tool trace (KB search → grounded reply → private note).
+1. Ops console → **System** → paste a ticket → **Dry-run** → show the full tool trace (KB search → grounded reply → private note).
 2. Insights tab → deflection rate + gap list.
 3. KB manager → show an approved Knowledge-Loop article that closed a gap.

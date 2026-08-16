@@ -56,7 +56,6 @@ export async function recordRun(
     app: ctx.app,
     topic: ctx.topic,
     dryRun: result.dryRun,
-    blockedByAllowlist: result.blockedByAllowlist,
     heldCustomerWrites: result.heldCustomerWrites || undefined,
     // JettaChat has no reply tool — the model's final text is the message, so
     // a non-empty completion is what "replied" means there. Reading the trace
