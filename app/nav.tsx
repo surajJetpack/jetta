@@ -15,12 +15,26 @@ import { ViewAsSwitch } from "@/components/jetta/view-as-switch";
  * sent (/evals → "Learn from human replies"). The page still exists at /drafts
  * as an archive, and the private note still links to it.
  */
-/** Tabs whose whole purpose is an admin-only action. Hidden, not disabled. */
-const ADMIN_ONLY_TABS = new Set(["billing"]);
+/**
+ * What a general user sees. Everything else is admin-only.
+ *
+ * Three tabs, because three is the whole support job: read the morning brief,
+ * watch the chats Jetta answers unsupervised, and look things up in the Guide.
+ * The rest — approving learnings, publishing articles, spending money, reading
+ * system state — is admin work, and a nav full of tabs someone never opens
+ * teaches them to stop reading the nav.
+ *
+ * This is a NAV decision, not a permission. The APIs are the permission
+ * boundary (see lib/roles.ts) and they are deliberately more permissive than
+ * this list: a general user who follows a direct link to /kb still gets there
+ * and can still draft an article. Narrowing the nav is decluttering; narrowing
+ * the APIs would be a lockdown, and that isn't what this is.
+ */
+const GENERAL_TABS = new Set(["today", "chats", "guide"]);
 
 const TABS = [
   { href: "/today", label: "Today", id: "today" },
-  { href: "/", label: "Console", id: "console" },
+  { href: "/", label: "System", id: "console" },
   { href: "/chats", label: "Chats", id: "chats" },
   { href: "/evals", label: "Evals", id: "evals" },
   { href: "/kb", label: "Knowledge Base", id: "kb" },
@@ -45,7 +59,7 @@ export function Nav({
   canViewAs?: boolean;
   viewingAsGeneral?: boolean;
 }) {
-  const tabs = TABS.filter((t) => isAdmin || !ADMIN_ONLY_TABS.has(t.id));
+  const tabs = TABS.filter((t) => isAdmin || GENERAL_TABS.has(t.id));
   return (
     <>
       <header className="mb-5 flex items-center justify-between gap-3">
