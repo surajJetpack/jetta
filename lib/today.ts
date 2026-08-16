@@ -35,6 +35,23 @@ const REOPEN_LOOKBACK_H = 7 * 24;
  */
 export type WorklistSignal = "chat_waiting" | "reopened" | "escalated";
 
+/**
+ * Two ways a ticket needs a person, and they are opposite problems.
+ *
+ * `active`  — the customer has said something recently. Someone should answer.
+ * `stalled` — it was escalated or reopened and nothing has happened since.
+ *             Nobody has picked it up.
+ *
+ * Ranking by the escalation timestamp alone conflates them: a conversation
+ * escalated 36h ago whose customer replied a minute ago is the single most
+ * urgent thing on the page, and sorting by "escalated 36h ago" buries it below
+ * genuinely abandoned tickets.
+ */
+export type WorklistState = "active" | "stalled";
+
+/** Below this, the last message is recent enough that someone is mid-conversation. */
+const ACTIVE_WITHIN_H = 6;
+
 export interface WorklistItem {
   /** What the ranking model refers to this by. Ticket id, or `chat:<uuid>`. */
   id: string;
@@ -48,8 +65,13 @@ export interface WorklistItem {
   app: string;
   /** Unix seconds of the event that put it here — not when the ticket arrived. */
   at: number;
-  /** Hours since `at`, rounded — the model reasons about staleness with this. */
+  /** Hours since the event, rounded. */
   ageHours: number;
+  state: WorklistState;
+  /** Hours since anyone last said anything. The number that decides urgency. */
+  quietHours: number;
+  /** How many times Jetta has run on it — a proxy for how long the thread is. */
+  runs: number;
 }
 
 /**
@@ -226,6 +248,8 @@ export async function buildTodayBrief() {
     product: t.product,
     app: t.app,
     at,
+    lastAt: t.lastAt,
+    runs: t.runs,
     ...refFor(t.ticketId, t.channel),
   });
 
@@ -256,25 +280,39 @@ export async function buildTodayBrief() {
    * still usable and still complete.
    */
   const byId = new Map<string, WorklistItem>();
+  const age = (at: number) => Math.max(0, Math.round((nowS - at) / HOUR_S));
+
   const add = (item: WorklistItem) => {
     const existing = byId.get(item.id);
     if (!existing) return void byId.set(item.id, item);
     for (const s of item.signals) if (!existing.signals.includes(s)) existing.signals.push(s);
-    // Keep the most recent event as the row's timestamp — it is the one that
-    // says how long this has actually been sitting untouched.
     if (item.at > existing.at) {
       existing.at = item.at;
       existing.ageHours = item.ageHours;
     }
   };
-  const age = (at: number) => Math.max(0, Math.round((nowS - at) / HOUR_S));
 
-  for (const r of reopened) {
-    add({ ...r, id: r.ticketId, signals: ["reopened"], ageHours: age(r.at) });
-  }
-  for (const e of escalations) {
-    add({ ...e, id: e.ticketId, signals: ["escalated"], ageHours: age(e.at) });
-  }
+  const row = (r: ReturnType<typeof queueRow>, signal: WorklistSignal): WorklistItem => {
+    const quietHours = age(r.lastAt);
+    return {
+      id: r.ticketId,
+      signals: [signal],
+      label: r.label,
+      url: r.url,
+      external: r.external,
+      subject: r.subject,
+      topic: r.topic,
+      app: r.app,
+      at: r.at,
+      ageHours: age(r.at),
+      state: quietHours < ACTIVE_WITHIN_H ? "active" : "stalled",
+      quietHours,
+      runs: r.runs,
+    };
+  };
+
+  for (const r of reopened) add(row(r, "reopened"));
+  for (const e of escalations) add(row(e, "escalated"));
 
   const chatRows: WorklistItem[] = waitingChats.map((c) => {
     const at = Math.floor((c.humanRequestedAt ?? Date.parse(c.lastActivityAt)) / 1000);
@@ -289,16 +327,28 @@ export async function buildTodayBrief() {
       app: c.visitor.app ?? "unknown",
       at,
       ageHours: age(at),
+      // A waiting visitor is by definition mid-conversation.
+      state: "active",
+      quietHours: age(at),
+      runs: 1,
     };
   });
 
-  const rank = (i: WorklistItem) =>
-    i.signals.includes("chat_waiting") ? 0 : i.signals.includes("reopened") ? 1 : 2;
+  /*
+   * Order: a waiting visitor first, then anything with a live customer on the
+   * other end, then the abandoned pile.
+   *
+   * Within "active", most recent first — that is the person typing now. Within
+   * "stalled", quietest first — the one nobody has touched longest is the one
+   * being forgotten. Sorting the whole list by one clock gets one of those two
+   * groups backwards whichever clock you pick.
+   */
+  const group = (i: WorklistItem) =>
+    i.signals.includes("chat_waiting") ? 0 : i.state === "active" ? 1 : 2;
   const worklist = [...chatRows, ...byId.values()].sort((a, b) => {
-    const r = rank(a) - rank(b);
-    if (r !== 0) return r;
-    // Chats and reopens: freshest first. Escalations: stalest first.
-    return rank(a) === 2 ? a.at - b.at : b.at - a.at;
+    const g = group(a) - group(b);
+    if (g !== 0) return g;
+    return group(a) === 2 ? b.quietHours - a.quietHours : a.quietHours - b.quietHours;
   });
 
   return {

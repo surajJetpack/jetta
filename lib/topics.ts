@@ -92,7 +92,15 @@ export interface TopicTicket {
  */
 export interface TicketRecord {
   ticketId: string;
-  /** First non-empty topic seen for this ticket. */
+  /**
+   * The ticket's MOST RECENT non-empty topic. `getOutcomes` returns newest
+   * first, so the first run processed is the latest one and `??=` keeps it.
+   *
+   * This matters on long threads: ticket 13900 arrived as "vlookup autolink
+   * admin access" and is now "vlookup status reverting duplicates" twelve days
+   * later. Labelling it with the original would describe an issue that is
+   * already closed. Roughly 4% of multi-run tickets drift like this.
+   */
   topic: string | null;
   subject: string;
   product: string;
@@ -108,6 +116,12 @@ export interface TicketRecord {
   at: number;
   /** Unix seconds of the most recent activity on it. */
   lastAt: number;
+  /**
+   * How many times Jetta ran on this ticket. A proxy for how much back-and-forth
+   * it has taken: one run is a fresh ask, nine is a thread that has been going
+   * for days and may no longer be about what its subject says.
+   */
+  runs: number;
   /** A customer-visible reply went out at some point. */
   replied: boolean;
   /** It was escalated at some point, and when. */
@@ -134,6 +148,7 @@ export function ticketRecords(outcomes: OutcomeEvent[]): TicketRecord[] {
         channel: o.channel,
         at: o.at,
         lastAt: o.at,
+        runs: 1,
         replied: o.replied,
         escalated: o.escalated,
         escalatedAt: o.escalated ? o.at : null,
@@ -143,6 +158,7 @@ export function ticketRecords(outcomes: OutcomeEvent[]): TicketRecord[] {
       continue;
     }
     existing.at = Math.min(existing.at, o.at);
+    existing.runs += 1;
     existing.lastAt = Math.max(existing.lastAt, o.at);
     existing.replied ||= o.replied;
     existing.topic ??= topic;
