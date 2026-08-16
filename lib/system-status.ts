@@ -190,6 +190,16 @@ export function rolloutRows(): StatusRow[] {
   const excluded = products.length
     ? (Object.keys(ALL_PRODUCTS) as Product[]).filter((p) => !products.includes(p))
     : [];
+  /*
+   * Entries that aren't a Product at all. This is the failure worth catching:
+   * the filter is a `Product` list, but "product" reads like an app name, so
+   * JETTA_PRODUCTS=vlookup is the natural thing to write — and it matches
+   * nothing, which means every ticket is skipped and Jetta goes silent with no
+   * error anywhere. App-level filtering does not exist; app is AppProduct, and
+   * nothing filters on it.
+   */
+  const invalid = products.filter((p) => !(p in ALL_PRODUCTS));
+  const VALID = (Object.keys(ALL_PRODUCTS) as Product[]).join(", ");
   return [
     {
       label: "Intake filter",
@@ -205,13 +215,23 @@ export function rolloutRows(): StatusRow[] {
       // restriction — and painting it amber — would have someone hunting for
       // tickets being dropped when none are.
       label: "Product filter",
-      tone: excluded.length ? "warn" : "off",
-      state: excluded.length ? products.join(", ").toUpperCase() : "ALL PRODUCTS",
-      meaning: excluded.length
-        ? `Email and Freshchat intake is skipped for ${excluded.join(" and ")} — those tickets get no suggestion and no note. Chat conversations are not filtered.`
-        : products.length
-          ? "Set, but it names every product, so nothing is excluded — the same as leaving it unset."
-          : "No product is filtered out.",
+      tone: invalid.length || excluded.length ? "warn" : "off",
+      state: invalid.length
+        ? "INVALID"
+        : excluded.length
+          ? products.join(", ").toUpperCase()
+          : "ALL PRODUCTS",
+      meaning: invalid.length
+        ? `${invalid.join(", ")} ${invalid.length === 1 ? "is not a product" : "are not products"} — the only values that match anything are ${VALID}. ${
+            invalid.length === products.length
+              ? "Nothing in this list matches, so EVERY email and Freshchat ticket is being skipped and Jetta is doing nothing on them."
+              : "Those entries match nothing and narrow the filter further than intended."
+          } This filter is board-level, not app-level: there is no way to filter to VLOOKUP or TrackMy alone.`
+        : excluded.length
+          ? `Email and Freshchat intake is skipped for ${excluded.join(" and ")} — those tickets get no suggestion and no note. Note this is board-level, not app-level: "jetpackapps" is all nine Jetpack apps together, and no filter narrows to one of them. Chat conversations are not filtered.`
+          : products.length
+            ? `Set, but it names every product (${VALID}), so nothing is excluded — the same as leaving it unset.`
+            : `No product is filtered out. The only values this accepts are ${VALID} — it selects a dev-board side of the house, not an individual app.`,
       setting: "JETTA_PRODUCTS",
     },
     {
