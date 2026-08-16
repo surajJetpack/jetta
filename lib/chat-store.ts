@@ -310,7 +310,20 @@ export async function clearRunActive(conversationId: string): Promise<void> {
 }
 
 export async function isRunActive(conversationId: string): Promise<boolean> {
-  return (await getFlag(runKey(conversationId))) === "1";
+  /*
+   * Presence, not value — and that is load-bearing.
+   *
+   * This used to compare `=== "1"`, which was false on every Redis-backed
+   * deployment: Upstash JSON-parses on read, so the "1" written above comes
+   * back as the NUMBER 1 and the comparison never matched. The typing
+   * indicator therefore never turned on in production; it worked only in the
+   * in-memory fallback, which is where it was written and tested.
+   *
+   * The neighbouring turn-id check survives the same round trip by accident —
+   * a UUID is not valid JSON, so it comes back as the string it went in as.
+   * Anything storing a JSON-parseable scalar here needs this treatment.
+   */
+  return (await getFlag(runKey(conversationId))) != null;
 }
 
 /**
