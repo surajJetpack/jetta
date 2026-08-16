@@ -33,9 +33,15 @@ function CardHeader({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
-function CardTitle({ className, ...props }: React.ComponentProps<"div">) {
+/**
+ * A heading, not a styled div. Every console page now has exactly one <h1>
+ * (PageHeader) and its cards are the sections under it — rendering those titles
+ * as divs left a screen-reader user with a page title and then no structure at
+ * all to navigate by. The visual weight is unchanged; only the element is.
+ */
+function CardTitle({ className, ...props }: React.ComponentProps<"h2">) {
   return (
-    <div
+    <h2
       data-slot="card-title"
       className={cn(
         "font-heading text-base leading-snug font-medium group-data-[size=sm]/card:text-sm",

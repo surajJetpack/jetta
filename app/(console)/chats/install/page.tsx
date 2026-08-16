@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { gate } from "@/lib/console-auth";
 import { config } from "@/lib/config";
+import { PageHeader } from "@/components/jetta/page-header";
 import InstallGuide from "./install-guide";
 
 export const dynamic = "force-dynamic";
@@ -15,15 +16,20 @@ export default async function ChatInstallPage() {
   if (!isAdmin) redirect("/chats");
   return (
     <>
-      <div className="flex flex-wrap items-center gap-3">
-        <Link href="/chats" className="text-xs text-muted-foreground hover:underline">
-          ← All chats
-        </Link>
-        <Link href="/chats/settings" className="text-xs text-primary hover:underline">
-          Chat settings →
-        </Link>
-      </div>
-      <h1 className="text-lg font-semibold tracking-tight">Install JettaChat</h1>
+      <PageHeader
+        title="Install JettaChat"
+        description="Drop the widget onto a site. Which origins may embed it is a security decision — set that in Chat settings."
+        actions={
+          <>
+            <Link href="/chats" className="text-xs text-muted-foreground hover:underline">
+              All chats
+            </Link>
+            <Link href="/chats/settings" className="text-xs text-primary hover:underline">
+              Settings →
+            </Link>
+          </>
+        }
+      />
       <InstallGuide baseUrl={config.jettachat.consoleUrl} />
     </>
   );
