@@ -17,6 +17,7 @@
 import * as freshdesk from "./tools/freshdesk";
 import * as chatFiles from "./chat-files";
 import { transcriptText } from "./chat-store";
+import { transcriptHtml } from "./chat-transcript-html";
 import { conversationUrl } from "./tools/jettachat";
 import type { AppProduct, ChatConversation } from "./types";
 
@@ -46,6 +47,22 @@ export async function openTicketForConversation(
     .filter(Boolean)
     .join("\n");
 
+  // ...and it goes in as CHAT. The plain-text version above is kept as the
+  // fallback and as what the stub path logs, but a hand-off that arrives as
+  // thirty identically-shaped ISO-stamped lines makes the agent parse the
+  // conversation before they can read it. See lib/chat-transcript-html.ts for
+  // why this is email HTML and why it escapes before it formats.
+  const bubbles = transcriptHtml(conv);
+  const descriptionHtml = bubbles
+    ? [
+        opts.summary.trim() ? freshdesk.textToFdHtml(opts.summary.trim()) : "",
+        `<p style="margin:16px 0 6px;font:600 12px -apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#6f7071;text-transform:uppercase;letter-spacing:.04em">Chat transcript</p>`,
+        bubbles,
+      ]
+        .filter(Boolean)
+        .join("")
+    : undefined;
+
   // The visitor's screenshots go WITH the ticket. Without this the agent who
   // picks it up reads "here's the error" and a description of a screenshot
   // they cannot open, and asks the customer to send it a second time.
@@ -54,6 +71,7 @@ export async function openTicketForConversation(
   const created = await freshdesk.createTicket({
     subject: opts.subject,
     description,
+    descriptionHtml,
     email: opts.email,
     name: conv.visitor.name,
     productHint: opts.productHint ?? conv.visitor.app ?? null,
