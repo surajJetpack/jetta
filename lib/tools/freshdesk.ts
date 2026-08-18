@@ -952,6 +952,17 @@ export interface NewTicket {
   subject: string;
   /** Ticket body — plain text; converted to HTML here. */
   description: string;
+  /**
+   * Pre-rendered HTML body, used VERBATIM in place of converting `description`.
+   *
+   * For bodies that are a layout rather than a paragraph — the chat transcript
+   * arrives as bubbles (lib/chat-transcript-html.ts), which `textToFdHtml`
+   * would escape into visible angle brackets. Anything passed here has already
+   * escaped its own untrusted parts; `description` stays populated as the
+   * plain-text version, which is what the stub path logs and what any future
+   * non-HTML consumer should read.
+   */
+  descriptionHtml?: string;
   email: string;
   name?: string;
   /** AppProduct slug; mapped to the cf_product dropdown label when known. */
@@ -1047,7 +1058,7 @@ export async function createTicket(t: NewTicket): Promise<CreatedTicket> {
   }
   const base = {
     subject: t.subject,
-    description: textToFdHtml(t.description),
+    description: t.descriptionHtml ?? textToFdHtml(t.description),
     email: t.email,
     name: t.name,
     status: 2,
