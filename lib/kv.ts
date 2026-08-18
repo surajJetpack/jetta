@@ -705,10 +705,38 @@ export async function recordRunLog(entry: RunLog): Promise<void> {
   if (memRunLogs.length > 500) memRunLogs.length = 500;
 }
 
+/**
+ * Run logs are read in pages, not in one range.
+ *
+ * Upstash refuses any response over 10 MB, and a run log carries its whole
+ * tool trace — around 24 kB each in production. At 500 logs that crossed the
+ * cap (11.15 MB) and /analytics started answering 500 with an empty body,
+ * which reads like a broken route rather than a request that was simply too
+ * big to serve. Paging bounds each request by the page size instead of by how
+ * many logs the caller asked for, or by how chatty the traces have become.
+ *
+ * The pages are fetched together, and the LLEN is what makes that possible:
+ * without knowing the length there is no way to stop except by walking the
+ * pages in order until one comes back short, which cost ~14s for a 500-log
+ * read against production. This is a dashboard someone is waiting on.
+ *
+ * A write landing between the LLEN and the reads shifts every index by one, so
+ * a boundary entry can be duplicated or missed. That is acceptable here and
+ * nowhere else: these logs feed aggregate counts and token sums, where one
+ * row out of five hundred changes nothing anyone would notice.
+ */
+const RUNLOG_PAGE = 100;
+
 export async function getRunLogs(limit = 100): Promise<RunLog[]> {
   const r = client();
   if (r) {
-    const raw = await r.lrange<RunLog | string>(RUNLOGS_KEY, 0, limit - 1);
+    const len = Math.min(await r.llen(RUNLOGS_KEY), limit);
+    const pages: Promise<(RunLog | string)[]>[] = [];
+    for (let start = 0; start < len; start += RUNLOG_PAGE) {
+      const end = Math.min(start + RUNLOG_PAGE, len) - 1;
+      pages.push(r.lrange<RunLog | string>(RUNLOGS_KEY, start, end));
+    }
+    const raw = (await Promise.all(pages)).flat();
     return raw.map((x) => (typeof x === "string" ? (JSON.parse(x) as RunLog) : x));
   }
   return memRunLogs.slice(0, limit);
