@@ -27,7 +27,7 @@ import * as events from "../events";
 import { searchPublishedKb } from "../knowledge/dynamic-kb";
 import { vectorEnabled, queryVector, type VectorHit } from "../vector";
 import { rerankHits } from "../rerank";
-import { recordKbHits, markEventSeen } from "../kv";
+import { recordKbHits, markEventSeen, clearEscalation } from "../kv";
 import { submitMonetApproval } from "../monetization-approvals";
 
 /** Standard trial extension length Jetta grants — fixed policy, not customer-chosen. */
@@ -249,6 +249,10 @@ export function buildTools(
         if (!ticketId) return "No active ticket to close.";
         if (dry) return `[dry-run] would mark the ${isChat ? "conversation" : "ticket"} resolved.`;
         if (held) return isChat ? "Conversation marked resolved." : "Ticket marked resolved.";
+        // Close the escalation thread with the ticket. If this ticket is ever
+        // reopened it is a new problem, and it should reach the team as its own
+        // escalation rather than as an update buried under a resolved one.
+        await clearEscalation(ticketId).catch(() => {});
         if (isChat) {
           // Carries the resolution signal on this channel, now that
           // add_private_note (which used to) isn't offered here. Resolving a
@@ -622,6 +626,9 @@ export function buildTools(
         const r = await slack.sendEscalation({
           freshdeskTicketUrl: ticketId ? interactionUrl(ticketId) : "(no ticket)",
           userAccountUrl: accountUrl(ctx),
+          // One escalation thread per ticket: a later run adds to it instead of
+          // opening a second one.
+          ticketId,
           mondayItemUrl,
           headline,
           app: ctx.appProduct,
@@ -635,7 +642,9 @@ export function buildTools(
           alreadyTried: already_tried,
           question,
         });
-        return `Escalation posted to the dev team (ts ${r.ts}).`;
+        return r.updated
+          ? `This ticket already had an open escalation, so your context was added to that thread as an update rather than posted as a second escalation — the team sees it either way. Do not call send_escalation again for this ticket. To the customer this is still "escalated to the team"; do not describe it as an update or mention a thread.`
+          : `Escalation posted to the dev team (ts ${r.ts}).`;
       },
     }),
 
