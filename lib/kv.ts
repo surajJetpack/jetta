@@ -92,6 +92,14 @@ const memEscalations = new Map<string, string>();
 /**
  * Remember the Slack ts of this ticket's escalation.
  *
+ * Wrapped in an object rather than stored bare, because a Slack ts is all
+ * digits and a dot: the client JSON-parses what it reads back, so a bare
+ * "1786969784.536630" returns as the NUMBER 1786969784.53663 and the trailing
+ * zero is gone. One in ten timestamps of that shape round-trips wrong, and a
+ * wrong ts means the threaded update fails and posts a duplicate parent — the
+ * exact thing this store exists to prevent. Inside an object the string stays a
+ * string.
+ *
  * The TTL is deliberately generous: escalations outlive the conversation that
  * raised them, and a ticket that goes quiet for a month and comes back is still
  * the same open issue to the dev team.
@@ -103,7 +111,7 @@ export async function recordEscalation(
 ): Promise<void> {
   const r = client();
   if (r) {
-    await r.set(escalationKey(ticketId), ts, { ex: ttlSeconds });
+    await r.set(escalationKey(ticketId), { ts }, { ex: ttlSeconds });
     return;
   }
   memEscalations.set(ticketId, ts);
@@ -112,7 +120,14 @@ export async function recordEscalation(
 /** The Slack ts of this ticket's open escalation, or null if it has none. */
 export async function getEscalationTs(ticketId: string): Promise<string | null> {
   const r = client();
-  if (r) return await r.get<string>(escalationKey(ticketId));
+  if (r) {
+    const raw = await r.get<{ ts: string } | string | number>(escalationKey(ticketId));
+    if (raw === null || raw === undefined) return null;
+    // Tolerate a bare value: anything written before the wrapper existed, or
+    // set by hand. It may already have lost a trailing zero, in which case the
+    // post falls back to a new escalation — which is the safe direction.
+    return typeof raw === "object" ? raw.ts : String(raw);
+  }
   return memEscalations.get(ticketId) ?? null;
 }
 

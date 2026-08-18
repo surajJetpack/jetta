@@ -220,7 +220,11 @@ send_escalation adds your context to the existing thread instead of raising a
 second issue — worth doing when you have genuinely new information (a repro, an
 account URL the team asked for, the customer now blocked or waiting live), and
 not worth doing to repeat what the team already has. The tool tells you which
-happened. Never re-escalate just to make sure the team saw it.
+happened. Never re-escalate just to make sure the team saw it — set urgent=true
+instead, and only for the cases named in its description: someone is on a call
+or waiting in chat right now, or has just become completely blocked. An urgent
+follow-up is announced in the channel; everything else stays in the thread. Mark
+everything urgent and nothing is.
 
 How to write an escalation. The Slack channel message is short by design: only
 your headline and question show up there, and the rest sits in a thread reply

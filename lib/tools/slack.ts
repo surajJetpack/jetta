@@ -43,9 +43,20 @@ function chatChannel(): string {
 // escalation updates especially — could not be exercised without a live token.
 let stubTs = 0;
 
-async function postMessage(channel: string, text: string, threadTs?: string): Promise<string> {
+/**
+ * `broadcast` mirrors a threaded message into the channel as well. Slack shows
+ * it as a one-line reference back to the thread, so it is much lighter than a
+ * second top-level post — the point is to be seen without fragmenting the issue.
+ */
+async function postMessage(
+  channel: string,
+  text: string,
+  threadTs?: string,
+  broadcast = false,
+): Promise<string> {
   if (!config.slack.live) {
-    console.log(`[stub] slack → ${channel}${threadTs ? ` (thread ${threadTs})` : ""}:\n${text}`);
+    const how = threadTs ? ` (thread ${threadTs}${broadcast ? ", broadcast" : ""})` : "";
+    console.log(`[stub] slack → ${channel}${how}:\n${text}`);
     return `0000000000.${String(++stubTs).padStart(6, "0")}`;
   }
   const res = await fetch("https://slack.com/api/chat.postMessage", {
@@ -54,7 +65,13 @@ async function postMessage(channel: string, text: string, threadTs?: string): Pr
       Authorization: `Bearer ${config.slack.botToken}`,
       "Content-Type": "application/json; charset=utf-8",
     },
-    body: JSON.stringify({ channel, text, thread_ts: threadTs }),
+    body: JSON.stringify({
+      channel,
+      text,
+      thread_ts: threadTs,
+      // Meaningless without thread_ts, and Slack rejects the combination.
+      reply_broadcast: threadTs && broadcast ? true : undefined,
+    }),
   });
   const json = (await res.json()) as { ok: boolean; error?: string; ts?: string };
   if (json.ok) return json.ts ?? "";
@@ -70,7 +87,7 @@ async function postMessage(channel: string, text: string, threadTs?: string): Pr
     console.error(
       `Slack: ${channel} is ${json.error === "not_in_channel" ? "not a channel Jetta has been invited to" : "unknown"} — posting to ${fallback} instead. Create it and invite the bot, or fix the setting.`,
     );
-    return await postMessage(fallback, `:warning: _(intended for ${channel})_\n${text}`, threadTs);
+    return await postMessage(fallback, `:warning: _(intended for ${channel})_\n${text}`, threadTs, broadcast);
   }
   throw new Error(`Slack postMessage failed: ${json.error}`);
 }
@@ -270,6 +287,13 @@ export interface EscalationInput {
    * second one becomes an update on it. Omit only when there is no ticket.
    */
   ticketId?: string;
+  /**
+   * The team needs to see this now. Only affects an update on an existing
+   * escalation, which otherwise lands in a thread that people who are not
+   * already following it never see — the customer sitting on a live call is
+   * exactly the case where quiet is the wrong default.
+   */
+  urgent?: boolean;
 }
 
 /**
@@ -315,7 +339,7 @@ export async function sendEscalation(
   // parent two messages up already carries them. The Dev item does repeat: it
   // is often the thing that changed since the last post.
   const update = [
-    `:arrows_counterclockwise: *Update — ${linkify(input.headline)}*`,
+    `${input.urgent ? ":rotating_light: *Urgent update" : ":arrows_counterclockwise: *Update"} — ${linkify(input.headline)}*`,
     ...(input.mondayItemUrl ? [link(input.mondayItemUrl, "Dev item")] : []),
     `:question: ${question}`,
     "",
@@ -329,7 +353,10 @@ export async function sendEscalation(
   const priorTs = input.ticketId ? await getEscalationTs(input.ticketId) : null;
   if (priorTs) {
     try {
-      await postMessage(channel, update, priorTs);
+      // Urgent updates are mirrored into the channel too — a thread reply only
+      // notifies people already following it, and "customer is on a call right
+      // now" must not depend on who happened to open the thread.
+      await postMessage(channel, update, priorTs, input.urgent === true);
       return { ts: priorTs, updated: true };
     } catch (e) {
       // The remembered thread is gone — most likely pruned, since the team
