@@ -60,6 +60,23 @@ const QUIET = "#a3a3a3"; // neutral-400 — timestamps
  */
 const FONT = `-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif`;
 
+/**
+ * Colour and font on EVERY element, never inherited from the bubble.
+ *
+ * This is not belt-and-braces, it is the whole thing working at all. Freshdesk
+ * renders the description inside its own stylesheet, and a rule of theirs that
+ * targets a descendant — `div`, `li`, `strong` — applies DIRECTLY to that
+ * element and so beats anything the bubble merely passes down. The first
+ * version set `color:#ffffff` on the near-black visitor bubble and left the
+ * paragraph inside it bare, which is dark-on-dark the moment Freshdesk has an
+ * opinion: the customer's own words were the one thing you could not read.
+ *
+ * An inline style outranks any non-`!important` stylesheet rule, so stating it
+ * per element is what makes the transcript survive a host we do not control —
+ * Freshdesk today, a mail client tomorrow.
+ */
+const TEXT = (fg: string) => `color:${fg};font-family:${FONT};font-size:14px;line-height:1.6`;
+
 /** How the widget's settings reach this renderer, so the skin carries over. */
 export interface TranscriptSkin {
   /** `accentColor` from chat settings — the widget puts it on a human's initials. */
@@ -102,9 +119,16 @@ function linkify(escaped: string): string {
   });
 }
 
-/** `**bold**` → bold. The model writes markdown however firmly it is asked not to. */
+/**
+ * `**bold**` → bold. The model writes markdown however firmly it is asked not
+ * to. `color:inherit` and an explicit weight because a bare <strong> is
+ * something Freshdesk's own stylesheet is free to recolour — see TEXT below.
+ */
 function inline(escaped: string): string {
-  return linkify(escaped).replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  return linkify(escaped).replace(
+    /\*\*([^*]+)\*\*/g,
+    `<strong style="color:inherit;font-weight:700">$1</strong>`,
+  );
 }
 
 const BULLET = /^\s*[-*•]\s+(.*)$/;
@@ -118,14 +142,14 @@ const NUMBERED = /^\s*\d+[.)]\s+(.*)$/;
  * and little enough that the whole surface fits in one screen of code — this
  * runs on model output, and every construct is a place to get escaping wrong.
  */
-function blocks(text: string): string {
+function blocks(text: string, fg: string): string {
   const out: string[] = [];
   let list: { tag: "ul" | "ol"; items: string[] } | null = null;
 
   const flush = () => {
     if (!list) return;
-    const items = list.items.map((i) => `<li style="margin:2px 0">${i}</li>`).join("");
-    out.push(`<${list.tag} style="margin:6px 0;padding-left:20px">${items}</${list.tag}>`);
+    const items = list.items.map((i) => `<li style="margin:2px 0;${TEXT(fg)}">${i}</li>`).join("");
+    out.push(`<${list.tag} style="margin:6px 0;padding-left:20px;${TEXT(fg)}">${items}</${list.tag}>`);
     list = null;
   };
 
@@ -142,10 +166,10 @@ function blocks(text: string): string {
     }
     flush();
     if (!line.trim()) continue;
-    out.push(`<div style="margin:3px 0">${inline(esc(line))}</div>`);
+    out.push(`<div style="margin:3px 0;${TEXT(fg)}">${inline(esc(line))}</div>`);
   }
   flush();
-  return out.join("") || "<div>&nbsp;</div>";
+  return out.join("") || `<div style="${TEXT(fg)}">&nbsp;</div>`;
 }
 
 /**
@@ -191,11 +215,11 @@ function row(m: ChatMessage, visitorName: string, skin: Required<TranscriptSkin>
 
   // rounded-2xl with the tail corner squared off, pointing at its own speaker:
   // bottom-right for the visitor, bottom-left for Jetta.
+  const fg = visitor ? "#ffffff" : INK;
   const bubble =
     `<div style="${visitor ? "float:right" : "float:left"};max-width:85%;padding:8px 14px;` +
     `border-radius:${visitor ? "16px 16px 2px 16px" : "16px 16px 16px 2px"};` +
-    `background:${visitor ? INK : BUBBLE};color:${visitor ? "#ffffff" : INK};` +
-    `font:14px/1.6 ${FONT}">${blocks(text)}</div>`;
+    `background:${visitor ? INK : BUBBLE};${TEXT(fg)}">${blocks(text, fg)}</div>`;
 
   const align = visitor ? "text-align:right" : "margin-left:32px";
   const label = `<div style="font:11px/1.4 ${FONT};color:${LABEL};${align};margin-bottom:3px">${esc(who)}</div>`;
