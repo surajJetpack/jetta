@@ -12,7 +12,7 @@
 import { NextRequest } from "next/server";
 import { channelUnavailable, chatJson, preflight } from "@/lib/chat-http";
 import * as store from "@/lib/chat-store";
-import { getChatSettings } from "@/lib/chat-settings";
+import { getChatSettings, publicSettings } from "@/lib/chat-settings";
 import { profileForOrigin } from "@/lib/profiles";
 import type { AppProduct, ChatSurface } from "@/lib/types";
 
@@ -65,8 +65,8 @@ export async function POST(req: NextRequest) {
   // decide how much to trust it; nothing here grants access to anything.
   const v = (body.visitor ?? {}) as Record<string, unknown>;
   const str = (k: string) => (typeof v[k] === "string" && v[k] ? (v[k] as string) : undefined);
-  const originApp =
-    profileForOrigin(req.headers.get("origin")).key === "getsign" ? "getsign" : undefined;
+  const profile = profileForOrigin(req.headers.get("origin"));
+  const originApp = profile.key === "getsign" ? "getsign" : undefined;
 
   // Name and email are required to start a chat. Enforced here as well as in
   // the widget, because the widget is public JavaScript and its form can be
@@ -75,7 +75,11 @@ export async function POST(req: NextRequest) {
   // always follow up, and the account lookups have something to key on.
   const name = str("name")?.trim().slice(0, 120);
   const email = str("email")?.trim().slice(0, 200);
-  const { requireIdentity } = await getChatSettings();
+  // Resolved through the brand profile, exactly as /api/chat/config resolves it
+  // for the widget. Reading the global value here instead would let the two
+  // disagree the moment a brand overrides the gate: the visitor is either shown
+  // no form and then refused, or shown a form the server never asked for.
+  const { requireIdentity } = publicSettings(await getChatSettings(), profile.key);
   if (requireIdentity && (!name || !email || !/^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(email))) {
     return await chatJson(
       req,

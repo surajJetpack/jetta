@@ -66,6 +66,25 @@
   if (product && !visitor.app) visitor = Object.assign({}, visitor, { app: product });
   var STORAGE_KEY = "jettachat.session";
   var AUTO_OPEN_KEY = "jettachat.autoopened";
+  var BRAND_KEY = "jettachat.brand";
+
+  /**
+   * The launcher's colour, logo, label and side.
+   *
+   * The loader has no settings of its own and deliberately does not fetch any:
+   * styling one button is not worth a ~125 kB request (the avatar dominates
+   * it) on every page view of a marketing site. The frame already fetches the
+   * settings to render itself, so it posts them out here — and the last set is
+   * cached, because a launcher that is black for a moment and then turns brand
+   * colour on every page load looks broken rather than branded.
+   */
+  var brand = (function () {
+    try {
+      return JSON.parse(localStorage.getItem(BRAND_KEY) || "null") || {};
+    } catch {
+      return {};
+    }
+  })();
 
   /**
    * Don't interrupt the same person twice in a day.
@@ -147,14 +166,51 @@
   launcher.type = "button";
   launcher.setAttribute("aria-label", "Open support chat");
   launcher.style.cssText = [
-    "width:56px;height:56px;border-radius:50%;border:0;cursor:pointer",
+    "width:56px;height:56px;border-radius:50%;border:0;cursor:pointer;padding:0;overflow:hidden",
     "background:#171717;color:#fff;float:right",
     "box-shadow:0 6px 20px rgba(0,0,0,.22)",
     "display:flex;align-items:center;justify-content:center",
     "transition:transform .15s ease",
   ].join(";");
-  launcher.innerHTML =
+
+  var BUBBLE_SVG =
     '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>';
+
+  /**
+   * Paint the launcher from whatever brand we have. Called once with the
+   * cached values and again when the frame reports the live ones.
+   *
+   * The avatar replaces the speech bubble rather than sitting beside it: at
+   * 56px there is room for one mark, and a logo says more about who is
+   * answering than a generic bubble does. An avatar that fails to load falls
+   * back to the bubble rather than leaving an empty circle.
+   */
+  function paintLauncher() {
+    if (/^#[0-9a-f]{6}$/i.test(brand.accentColor || "")) {
+      launcher.style.background = brand.accentColor;
+    }
+    if (brand.launcherLabel) launcher.title = brand.launcherLabel;
+    if (brand.avatarUrl && /^data:image\//.test(brand.avatarUrl)) {
+      launcher.innerHTML = "";
+      var img = document.createElement("img");
+      img.src = brand.avatarUrl;
+      img.alt = "";
+      img.style.cssText = "width:100%;height:100%;object-fit:cover;display:block";
+      img.onerror = function () {
+        launcher.innerHTML = BUBBLE_SVG;
+      };
+      launcher.appendChild(img);
+    } else {
+      launcher.innerHTML = BUBBLE_SVG;
+    }
+    // Both the panel and the button move together, or the panel opens off the
+    // side of the button that spawned it.
+    var left = brand.launcherPosition === "left";
+    root.style.right = left ? "auto" : "20px";
+    root.style.left = left ? "20px" : "auto";
+    launcher.style.float = left ? "left" : "right";
+    launcherWrap.style.float = left ? "left" : "right";
+  }
   launcher.onmouseenter = function () {
     launcher.style.transform = "scale(1.06)";
   };
@@ -177,6 +233,7 @@
 
   root.appendChild(panel);
   root.appendChild(launcherWrap);
+  paintLauncher();
 
   function renderBadge() {
     badge.style.display = unread > 0 && !open ? "block" : "none";
@@ -226,6 +283,15 @@
         },
         origin,
       );
+    } else if (msg.type === "jettachat:brand") {
+      brand = msg.brand || {};
+      paintLauncher();
+      try {
+        localStorage.setItem(BRAND_KEY, JSON.stringify(brand));
+      } catch {
+        // A quota failure costs the next page load its instant branding and
+        // nothing else — the frame re-sends this on every load.
+      }
     } else if (msg.type === "jettachat:session") {
       writeSession(msg.session);
     } else if (msg.type === "jettachat:unread") {

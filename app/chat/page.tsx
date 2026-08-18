@@ -129,6 +129,10 @@ interface UiConfig {
   placeholder: string;
   accentColor: string;
   avatarUrl?: string;
+  // Not used by this frame — the launcher is the parent page's — but carried
+  // so it can be handed out through the brand message below.
+  launcherLabel: string;
+  launcherPosition: "left" | "right";
   requireIdentity: boolean;
   autoOpenSeconds: number;
   attachmentsEnabled: boolean;
@@ -140,6 +144,8 @@ const DEFAULT_UI: UiConfig = {
   greeting: "Hi! Ask me anything about your apps, your account, or a problem you're hitting.",
   placeholder: "Type your message…",
   accentColor: "#171717",
+  launcherLabel: "Chat with us",
+  launcherPosition: "right",
   requireIdentity: true,
   autoOpenSeconds: 0,
   attachmentsEnabled: true,
@@ -296,8 +302,24 @@ export default function ChatWidgetPage() {
       .then((r) => r.json())
       .then((c: Partial<UiConfig>) => ({ ...DEFAULT_UI, ...c }))
       .catch(() => DEFAULT_UI);
-    void configRef.current.then(setUi);
-  }, [brandProduct]);
+    void configRef.current.then((c) => {
+      setUi(c);
+      // Hand the brand to the embedding page. The launcher lives out there —
+      // it is the parent that owns the button, the badge and the localStorage —
+      // and it has no settings of its own: making the loader fetch them would
+      // put a ~125 kB request (the avatar dominates it) on every page view of
+      // a marketing site to style one button. This frame has already paid for
+      // that fetch, so it just says what it learned.
+      post("jettachat:brand", {
+        brand: {
+          accentColor: c.accentColor,
+          avatarUrl: c.avatarUrl,
+          launcherLabel: c.launcherLabel,
+          launcherPosition: c.launcherPosition,
+        },
+      });
+    });
+  }, [brandProduct, post]);
 
   /**
    * Ask the embedding page to open the panel.
