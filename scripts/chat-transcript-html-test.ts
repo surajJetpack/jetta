@@ -111,9 +111,78 @@ function main() {
   check("bullets render as a list", html.includes("<ul") && (html.match(/<li/g) ?? []).length === 2);
   check("bold survives as bold", html.includes("<strong>Request signatures from</strong>"));
   check("times are shown, and in UTC", /18 Aug, 05:\d\d UTC/.test(html), html.slice(0, 300));
+
+  /*
+   * ── The widget's own skin ────────────────────────────────────────
+   *
+   * These are the checks that keep the ticket looking like the chat. Every
+   * value is lifted from app/chat/page.tsx; if that file's palette changes and
+   * this one does not, the transcript silently stops matching the product it
+   * is reproducing, and nothing else would notice.
+   */
   check(
-    "the two speakers land on opposite sides",
-    html.includes("float:left") && html.includes("float:right"),
+    "the visitor sits on the RIGHT, as they did in the widget",
+    /float:right;max-width:85%[^"]*background:#171717;color:#ffffff/.test(html),
+    "neutral-900 bubble, white text, right-hand side",
+  );
+  check(
+    "Jetta sits on the left in neutral-100",
+    /float:left;max-width:85%[^"]*background:#f5f5f5;color:#171717/.test(html),
+  );
+  check(
+    "the tail corner points at its own speaker",
+    html.includes("border-radius:16px 16px 2px 16px") && html.includes("border-radius:16px 16px 16px 2px"),
+    "rounded-2xl with rounded-br-sm / rounded-bl-sm",
+  );
+  check("the ground is white, like the widget frame", html.includes("background:#ffffff;border-collapse"));
+
+  /*
+   * Our OWN style strings must survive being attribute values.
+   *
+   * This shipped broken once: the font stack quoted "Segoe UI" with double
+   * quotes, which closed every style="…" it appeared in and silently dropped
+   * each declaration after it. The name and timestamp rows put `font` first,
+   * so the alignment and colours went and nothing failed — the bubbles still
+   * looked fine because their font came last.
+   */
+  check(
+    "no style attribute is cut short by a quote of our own",
+    (html.match(/-apple-system/g) ?? []).length === (html.match(/sans-serif/g) ?? []).length,
+    `${(html.match(/-apple-system/g) ?? []).length} font stacks opened, ${(html.match(/sans-serif/g) ?? []).length} closed`,
+  );
+  check(
+    "the visitor's name and time stay right-aligned with their bubble",
+    (html.match(/text-align:right/g) ?? []).length >= 2,
+    "the declaration that used to be eaten by the broken font stack",
+  );
+  check(
+    "the visitor gets no avatar, exactly as in the widget",
+    (html.match(/border-radius:50%/g) ?? []).length === 2,
+    "one circle per agent turn, none for the visitor",
+  );
+  check(
+    "a human's initials are TWO letters on the accent",
+    html.includes(">PR<"),
+    "the widget uses who.slice(0,2).toUpperCase() so a real person is obvious",
+  );
+
+  // The skin travels from chat settings, so a GetSign hand-off is in GetSign's
+  // colours rather than the portfolio's.
+  const skinned = transcriptHtml(
+    conv([msg({ author: "agent", text: "hi", via: "human", authorName: "Priya" })]),
+    { accentColor: "#2563eb", botName: "GetSign Assistant" },
+  );
+  check("the accent colour reaches the person's avatar", skinned.includes("background:#2563eb"));
+  const named = transcriptHtml(conv([msg({ author: "agent", text: "hi" })]), { botName: "GetSign Assistant" });
+  check("the bot wears the brand's name for the bot", named.includes(">GetSign Assistant<"));
+  const junk = transcriptHtml(
+    conv([msg({ author: "agent", text: "hi", via: "human", authorName: "Priya" })]),
+    { accentColor: "red;background:url(x)" },
+  );
+  check(
+    "a junk accent cannot reach a style attribute",
+    !junk.includes("url(x)") && junk.includes("background:#171717"),
+    "settings are console-editable, so this is untrusted input too",
   );
 
   // ── Email-client constraints ───────────────────────────────────────
