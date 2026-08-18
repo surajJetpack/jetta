@@ -123,6 +123,12 @@ const OVERLAY_FIELDS = [
   "launcherLabel",
   "launcherPosition",
   "avatarUrl",
+  // Not cosmetic, but genuinely per-surface: getsign.io is a marketing site
+  // and the GetSign app view is a logged-in workspace, so "open by itself
+  // after N seconds" and "ask for a name and email first" should not be forced
+  // to agree across them.
+  "requireIdentity",
+  "autoOpenSeconds",
 ] as const;
 
 export type ChatProfileOverlay = Partial<Pick<ChatSettings, (typeof OVERLAY_FIELDS)[number]>>;
@@ -190,11 +196,30 @@ export function publicSettings(s: ChatSettings, profileKey?: string): PublicChat
   if (!overlay) return base;
   for (const k of OVERLAY_FIELDS) {
     const v = overlay[k];
-    // Empty means "not overridden" — see the note on `profiles` above.
+    // Absent means "not overridden" — see the note on `profiles` above.
+    //
+    // ONLY absent. `false` and `0` are answers, not blanks: "don't ask for an
+    // email" and "never open by itself" are exactly the settings a brand is
+    // most likely to want to differ on, and a falsy check here would make them
+    // the two settings it cannot express.
     if (v === undefined || v === null || v === "") continue;
     (base as Record<string, unknown>)[k] = v;
   }
   return base;
+}
+
+/**
+ * How many fields this brand overrides — for the "GetSign — 3 overrides" row
+ * on the settings page. One definition, so the badge and the form can never
+ * disagree about what counts as set.
+ */
+export function overrideCount(s: ChatSettings, profileKey: string): number {
+  const overlay = profileKey === "getsign" ? s.profiles?.getsign : undefined;
+  if (!overlay) return 0;
+  return OVERLAY_FIELDS.filter((k) => {
+    const v = overlay[k];
+    return v !== undefined && v !== null && v !== "";
+  }).length;
 }
 
 /** Env and built-in defaults — the floor everything else is layered onto. */
@@ -360,6 +385,15 @@ export async function saveChatSettings(
           if (/^data:image\/(png|jpeg|webp|gif|svg\+xml);base64,/i.test(a) && a.length <= AVATAR_MAX_CHARS) {
             o.avatarUrl = a;
           }
+        } else if (k === "requireIdentity") {
+          // Only a real boolean counts. A stray "false" string would otherwise
+          // store as truthy and turn the gate back on for the brand that just
+          // asked for it off.
+          if (typeof v === "boolean") o.requireIdentity = v;
+        } else if (k === "autoOpenSeconds") {
+          // Same bounds as the base field, and 0 (off) is kept, not dropped.
+          const n = Number(v);
+          if (Number.isFinite(n)) o.autoOpenSeconds = clamp(n, 0, 300, 0);
         } else {
           o[k] = String(v).slice(0, 400);
         }

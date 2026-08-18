@@ -15,6 +15,8 @@
  */
 export {};
 
+import { readFileSync } from "node:fs";
+
 process.env.STUB_MODE = "true";
 process.env.JETTA_KB_SCOPE = "true";
 process.env.JETTACHAT_ALLOWED_ORIGINS = "https://getsign.io,https://jetpackapps.io";
@@ -28,7 +30,7 @@ function check(name: string, pass: boolean, detail?: string) {
 async function main() {
   const { profileFor, profileForOrigin, GETSIGN_PROFILE, MAIN_PROFILE } = await import("../lib/profiles");
   const { searchPublishedKb, deriveScope, scopeOf } = await import("../lib/kb-store");
-  const { publicSettings, defaultSettings } = await import("../lib/chat-settings");
+  const { publicSettings, defaultSettings, overrideCount } = await import("../lib/chat-settings");
   const { buildSystemPrompt } = await import("../lib/system-prompt");
 
   // ── Profile selection ──────────────────────────────────────────────
@@ -90,6 +92,8 @@ async function main() {
     ...defaultSettings(),
     title: "Jetta",
     subtitle: "Jetpack Apps support",
+    requireIdentity: true,
+    autoOpenSeconds: 20,
     profiles: { getsign: { title: "GetSign", subtitle: "" } },
   };
   check("default surface keeps the base skin", publicSettings(settings).title === "Jetta");
@@ -97,6 +101,48 @@ async function main() {
   check(
     "an empty override inherits rather than blanking",
     publicSettings(settings, "getsign").subtitle === "Jetpack Apps support",
+  );
+  check("an override count reflects what is actually set", overrideCount(settings, "getsign") === 1);
+  check("a brand with no overlay counts zero", overrideCount(defaultSettings(), "getsign") === 0);
+
+  // The two settings a brand is most likely to want OFF are the two a falsy
+  // check would silently refuse to store. Pin both directions.
+  const offs = {
+    ...settings,
+    profiles: { getsign: { requireIdentity: false, autoOpenSeconds: 0 } },
+  };
+  check(
+    "requireIdentity: false overrides rather than inheriting true",
+    publicSettings(offs, "getsign").requireIdentity === false,
+  );
+  check(
+    "autoOpenSeconds: 0 overrides rather than inheriting 20",
+    publicSettings(offs, "getsign").autoOpenSeconds === 0,
+  );
+  check(
+    "the default surface is untouched by either",
+    publicSettings(offs).requireIdentity === true && publicSettings(offs).autoOpenSeconds === 20,
+  );
+  check("false and 0 both count as overrides", overrideCount(offs, "getsign") === 2);
+
+  // The session route ENFORCES the identity gate; the widget draws it from the
+  // config route. Both must resolve through the same brand profile, or a
+  // GetSign visitor is shown no form and then refused by the server.
+  //
+  // Checked against the route's source rather than by calling it: the overlay
+  // only exists once settings have been SAVED, and saving is a no-op without
+  // KV — so an in-process call would pass on defaults whichever value the
+  // route read. A source check has no such blind spot, and this is exactly the
+  // regression an innocent "simplify" would reintroduce.
+  const routeSrc = readFileSync(new URL("../app/api/chat/session/route.ts", import.meta.url), "utf8");
+  check(
+    "the session route resolves requireIdentity through the profile",
+    /publicSettings\(\s*await getChatSettings\(\),\s*profile\.key\s*\)/.test(routeSrc),
+    "it must not read the global requireIdentity directly",
+  );
+  check(
+    "the session route derives its profile from the request origin",
+    /profileForOrigin\(req\.headers\.get\("origin"\)\)/.test(routeSrc),
   );
 
   // ── Prompt identity ────────────────────────────────────────────────

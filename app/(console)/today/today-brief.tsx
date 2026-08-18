@@ -28,7 +28,6 @@ import { EmptyState } from "@/components/jetta/empty-state";
 import { MetricRow } from "@/components/jetta/metric-row";
 import { DataList, DataRow } from "@/components/jetta/data-row";
 import { SectionHeader } from "@/components/jetta/page-header";
-import { BrandFilter, brandQuery, type Brand } from "@/components/jetta/brand-filter";
 
 /** Every clickable reference the API returns carries its own resolved link. */
 interface Ref {
@@ -238,11 +237,10 @@ export default function TodayBrief() {
   const [insight, setInsight] = useState<Insight | null>(null);
   const [insightState, setInsightState] = useState<"loading" | "ready" | "failed">("loading");
   const [insightStale, setInsightStale] = useState(false);
-  const [brand, setBrand] = useState<Brand>(null);
   const now = useNow();
 
   const load = useCallback(() => {
-    fetch(`/api/admin/today${brandQuery(brand)}`, { cache: "no-store" })
+    fetch("/api/admin/today", { cache: "no-store" })
       .then(async (r) => {
         if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error ?? `HTTP ${r.status}`);
         return r.json();
@@ -253,7 +251,7 @@ export default function TodayBrief() {
       })
       .catch((e) => setErr(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false));
-  }, [brand]);
+  }, []);
 
   // Fetched separately from the numbers: assembling the brief already takes a
   // couple of seconds and an LLM call on top would make the page feel stuck.
@@ -338,8 +336,7 @@ export default function TodayBrief() {
           <Card>
             <CardHeader>
               <CardTitle>Last {brief.windowHours} hours</CardTitle>
-              <CardAction className="flex items-center gap-2">
-                <BrandFilter value={brand} onChange={setBrand} disabled={loading} />
+              <CardAction>
                 <Button variant="ghost" size="sm" onClick={refresh} disabled={loading}>
                   <RotateCw className={loading ? "animate-spin" : undefined} /> Refresh
                 </Button>
@@ -397,10 +394,6 @@ export default function TodayBrief() {
                       Your briefing
                     </span>
                     {insightStale && <StatusChip tone="draft">stale</StatusChip>}
-                    {/* The narrative is written once a day over everything. Say
-                        so while a brand filter is on, rather than letting it
-                        read as commentary on the filtered numbers above. */}
-                    {brand && <StatusChip tone="draft">all brands</StatusChip>}
                   </span>
                   <Button
                     variant="ghost"

@@ -21,7 +21,6 @@ import { listArticles, countByState, type ArticleState } from "./kb-store";
 import { topicTrends, ticketRecords, type TopicTrend, type TicketRecord } from "./topics";
 import { yesterdayKey } from "./daily-overview";
 import { listConversations, getConversation } from "./chat-store";
-import { matchesBrand } from "./profiles";
 import { getTicketDetails, isTerminalStatus } from "./tools/freshdesk";
 
 const HOUR_S = 3600;
@@ -203,8 +202,8 @@ function documentNext(
 export type TodayBrief = Awaited<ReturnType<typeof buildTodayBrief>>;
 
 /** Assemble the whole brief. Read-only; safe to call from any admin route. */
-export async function buildTodayBrief(brand: "getsign" | "jetpackapps" | null = null) {
-  const [allOutcomes, candidateLearnings, monet, kbCounts, published, yesterday, allConversations] =
+export async function buildTodayBrief() {
+  const [outcomes, candidateLearnings, monet, kbCounts, published, yesterday, conversations] =
     await Promise.all([
       getOutcomes(1000),
       // Reply drafts are deliberately absent. The console review queue is not the
@@ -226,16 +225,6 @@ export async function buildTodayBrief(brand: "getsign" | "jetpackapps" | null = 
       // the whole brief down with it.
       listConversations(100).catch(() => []),
     ]);
-
-  // Brand filter. Applied to the two worklist inputs and nothing else: the KB
-  // counts, candidate learnings and monetization approvals are the same queue
-  // whichever brand you came here about, and quietly filtering them would hide
-  // work rather than focus it. Yesterday's rollup is left whole too — it is a
-  // pre-aggregated snapshot, so the comparison line says so when brand-filtered.
-  const outcomes = brand ? allOutcomes.filter((o) => matchesBrand(o, brand)) : allOutcomes;
-  const conversations = brand
-    ? allConversations.filter((c) => matchesBrand({ app: c.visitor.app }, brand))
-    : allConversations;
 
   const waitingChats = conversations.filter((c) => c.status === "waiting_human");
 
@@ -436,8 +425,6 @@ export async function buildTodayBrief(brand: "getsign" | "jetpackapps" | null = 
   return {
     generatedAt: Date.now(),
     windowHours: WINDOW_HOURS,
-    /** Which brand this brief was narrowed to; null = everything. */
-    brand,
     summary: {
       arrived: arrivedTickets.length,
       answered,
