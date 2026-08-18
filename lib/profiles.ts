@@ -78,12 +78,71 @@ export function profileFor(product: Product, source: ProductSource = "inferred")
   return product === "getsign" && source === "ground-truth" ? GETSIGN_PROFILE : MAIN_PROFILE;
 }
 
+/**
+ * Does this origin belong to the brand?
+ *
+ * Two ways to qualify, and BOTH are needed.
+ *
+ *   1. The configured list (JETTA_GETSIGN_ORIGINS). A brand may be served from
+ *      a domain that has nothing to do with `site` — a campaign landing page, a
+ *      partner's host — and only a human can say so.
+ *   2. `site` itself, or any subdomain of it. This is the half that was
+ *      missing, and it cost us: the widget was installed on staging.getsign.io
+ *      while the configured list named only the apex and www, so the loader
+ *      called the visitor GetSign (its hostname regex has always matched
+ *      subdomains) and the server called them Jetpack Apps. One question, two
+ *      answers, and the disagreement was invisible until a setting depended on
+ *      it.
+ *
+ * Widening this is safe in the direction that matters: a GetSign visitor gets
+ * a NARROWER knowledge base, never a wider one (see `kbScopes` above), and who
+ * may embed the chat at all is a separate list enforced by lib/chat-http.ts.
+ * The worst case of a false positive here is a visitor being told about the
+ * wrong sibling app; the worst case of a false negative is what we just had.
+ */
+function originIsBrand(origin: string, profile: Profile): boolean {
+  const clean = origin.replace(/\/$/, "");
+  if (originAllowed(clean, profile.origins)) return true;
+  let host: string;
+  let scheme: string;
+  try {
+    const u = new URL(clean);
+    host = u.hostname.toLowerCase();
+    scheme = u.protocol;
+  } catch {
+    return false;
+  }
+  // https only. A brand's own site is served over TLS, and an http origin
+  // claiming to be one is not something to hand a brand identity to.
+  if (scheme !== "https:") return false;
+  const site = profile.site.toLowerCase();
+  return host === site || host.endsWith(`.${site}`);
+}
+
 /** The profile a chat visitor gets, from the page the widget is embedded on. */
 export function profileForOrigin(origin: string | null | undefined): Profile {
   if (!origin) return MAIN_PROFILE;
-  return originAllowed(origin.replace(/\/$/, ""), GETSIGN_PROFILE.origins)
-    ? GETSIGN_PROFILE
-    : MAIN_PROFILE;
+  return originIsBrand(origin, GETSIGN_PROFILE) ? GETSIGN_PROFILE : MAIN_PROFILE;
+}
+
+/**
+ * The profile for a widget request — the ONE place that answers it.
+ *
+ * An explicit `?product=` wins, then the embedding origin. Both public chat
+ * routes go through here rather than each spelling the rule out, because when
+ * they spelled it out separately they disagreed: /api/chat/config honoured the
+ * parameter and /api/chat/session did not, so a brand that turned the identity
+ * gate off got a widget that hid the form and a server that then refused the
+ * session for not filling it in.
+ *
+ * The parameter grants nothing — it only ever picks a skin and NARROWS the
+ * knowledge base — so taking it from the query string is safe.
+ */
+export function profileForRequest(
+  product: string | null | undefined,
+  origin: string | null | undefined,
+): Profile {
+  return product === "getsign" ? GETSIGN_PROFILE : profileForOrigin(origin);
 }
 
 /**

@@ -28,7 +28,8 @@ function check(name: string, pass: boolean, detail?: string) {
 }
 
 async function main() {
-  const { profileFor, profileForOrigin, GETSIGN_PROFILE, MAIN_PROFILE } = await import("../lib/profiles");
+  const { profileFor, profileForOrigin, profileForRequest, GETSIGN_PROFILE, MAIN_PROFILE } =
+    await import("../lib/profiles");
   const { searchPublishedKb, deriveScope, scopeOf } = await import("../lib/kb-store");
   const { publicSettings, defaultSettings, overrideCount } = await import("../lib/chat-settings");
   const { buildSystemPrompt } = await import("../lib/system-prompt");
@@ -48,6 +49,47 @@ async function main() {
   check("getsign.io origin selects the GetSign profile", profileForOrigin("https://getsign.io").key === "getsign");
   check("another origin does not", profileForOrigin("https://jetpackapps.io").key === "main");
   check("no origin does not", profileForOrigin(null).key === "main");
+
+  /*
+   * Subdomains. The regression that started this: the widget was installed on
+   * staging.getsign.io, the configured origin list named only the apex and
+   * www, and so the loader called the visitor GetSign while the server called
+   * them Jetpack Apps. Everything configured on the GetSign skin page stopped
+   * at the door.
+   */
+  check(
+    "a subdomain of the brand's site is the brand",
+    profileForOrigin("https://staging.getsign.io").key === "getsign",
+    "this is the case that shipped broken",
+  );
+  check("so is a deeper one", profileForOrigin("https://a.b.getsign.io").key === "getsign");
+  check("a trailing slash does not defeat it", profileForOrigin("https://staging.getsign.io/").key === "getsign");
+  check(
+    "a lookalike suffix is NOT the brand",
+    profileForOrigin("https://notgetsign.io").key === "main",
+    "endsWith without the dot would match this",
+  );
+  check("and neither is a domain that merely contains it", profileForOrigin("https://getsign.io.evil.com").key === "main");
+  check(
+    "http is refused even on the right host",
+    profileForOrigin("http://getsign.io").key === "main",
+    "a brand identity is not handed out over plaintext",
+  );
+  check("garbage is not an origin", profileForOrigin("not-a-url").key === "main");
+
+  // ── One resolver, both public routes ───────────────────────────────
+  check(
+    "an explicit product wins over the origin",
+    profileForRequest("getsign", "https://jetpackapps.io").key === "getsign",
+  );
+  check(
+    "no product falls back to the origin",
+    profileForRequest(null, "https://staging.getsign.io").key === "getsign",
+  );
+  check(
+    "an unknown product does not select GetSign by itself",
+    profileForRequest("trackmy", "https://jetpackapps.io").key === "main",
+  );
 
   // The asymmetry itself.
   check(
@@ -140,9 +182,32 @@ async function main() {
     /publicSettings\(\s*await getChatSettings\(\),\s*profile\.key\s*\)/.test(routeSrc),
     "it must not read the global requireIdentity directly",
   );
+  const configSrc = readFileSync(new URL("../app/api/chat/config/route.ts", import.meta.url), "utf8");
+  /*
+   * Both public routes must resolve the profile through the SAME helper. They
+   * used to spell the rule out separately, and drifted: config honoured
+   * ?product= and session did not, so a brand that turned the identity gate
+   * off got a widget that hid the form and a server that then refused the
+   * session for not filling it in. Pinned as source checks because the drift
+   * is invisible to any test that exercises one route at a time.
+   */
+  for (const [name, src] of [
+    ["session", routeSrc],
+    ["config", configSrc],
+  ] as const) {
+    check(
+      `the ${name} route resolves its profile through profileForRequest`,
+      /profileForRequest\(\s*req\.nextUrl\.searchParams\.get\("product"\),\s*req\.headers\.get\("origin"\),?\s*\)/.test(src),
+      "both routes must answer 'which brand?' the same way",
+    );
+  }
+
+  // And the widget has to actually SEND the product on the session call, or
+  // the route's new parameter is a door nobody knocks on.
+  const frameSrc2 = readFileSync(new URL("../app/chat/page.tsx", import.meta.url), "utf8");
   check(
-    "the session route derives its profile from the request origin",
-    /profileForOrigin\(req\.headers\.get\("origin"\)\)/.test(routeSrc),
+    "the widget sends its brand on the session request",
+    /\/api\/chat\/session\$\{brandProduct \? `\?product=\$\{brandProduct\}` : ""\}/.test(frameSrc2),
   );
 
   // ── Prompt identity ────────────────────────────────────────────────

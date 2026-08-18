@@ -14,7 +14,7 @@
 import { NextRequest } from "next/server";
 import { chatJson, preflight } from "@/lib/chat-http";
 import { getChatSettings, publicSettings } from "@/lib/chat-settings";
-import { profileByKey, profileForOrigin } from "@/lib/profiles";
+import { profileForRequest } from "@/lib/profiles";
 import { config } from "@/lib/config";
 
 export const runtime = "nodejs";
@@ -28,11 +28,13 @@ export async function GET(req: NextRequest) {
   const settings = await getChatSettings();
   // Which brand the visitor is looking at. The embedding origin decides, so an
   // old install snippet still gets the right skin; ?product= lets a page that
-  // knows better (a monday app view) say so explicitly.
-  const profile =
-    req.nextUrl.searchParams.get("product") === "getsign"
-      ? profileByKey("getsign")
-      : profileForOrigin(req.headers.get("origin"));
+  // knows better (a monday app view) say so explicitly. Resolved by the shared
+  // helper, which /api/chat/session calls too — the two used to spell this out
+  // separately and drifted apart.
+  const profile = profileForRequest(
+    req.nextUrl.searchParams.get("product"),
+    req.headers.get("origin"),
+  );
   return chatJson(req, {
     enabled: config.jettachat.live && settings.enabled,
     ...publicSettings(settings, profile.key),
