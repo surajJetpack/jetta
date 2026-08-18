@@ -32,6 +32,7 @@ interface El {
   attrs: Record<string, string>;
   dataset: Record<string, string>;
   innerHTML: string;
+  textContent?: string;
   title?: string;
   src?: string;
   appendChild(c: El): El;
@@ -66,7 +67,7 @@ function makeEl(tagName: string): El {
 }
 
 /** Run the loader against a stub DOM and hand back the pieces worth asserting on. */
-function boot(cachedBrand: Record<string, unknown> | null) {
+function boot(cachedBrand: Record<string, unknown> | null, innerWidth = 1280) {
   const created: El[] = [];
   const store: Record<string, string> = {};
   if (cachedBrand) store["jettachat.brand"] = JSON.stringify(cachedBrand);
@@ -92,7 +93,7 @@ function boot(cachedBrand: Record<string, unknown> | null) {
       addEventListener: (type: string, fn: typeof onMessage) => {
         if (type === "message") onMessage = fn;
       },
-      innerWidth: 1280,
+      innerWidth,
       parent: {},
       JettaChatConfig: undefined,
     },
@@ -126,18 +127,23 @@ function boot(cachedBrand: Record<string, unknown> | null) {
   const frame = created.find((e) => e.tagName === "iframe")!;
   (frame as unknown as { contentWindow: unknown }).contentWindow = frameWindow;
   const launcher = created.find((e) => e.tagName === "button")!;
+  // The button is a pill: a 56px mark and a label beside it, in that DOM order
+  // regardless of which side the launcher sits on (flex-direction does the
+  // swapping, so the reading order never depends on the setting).
+  const [icon, label] = launcher.children;
   const root = created.find((e) => e.attrs["data-jettachat"] !== undefined)!;
   const send = (data: Record<string, unknown>) =>
     onMessage?.({ origin: "https://jetta.example.com", source: frameWindow, data });
-  return { launcher, root, frame, send, store };
+  return { launcher, icon, label, root, frame, send, store };
 }
 
 function main() {
   // ── Cold start, nothing cached ────────────────────────────────────
   const cold = boot(null);
   check("the frame is pointed at the brand it was installed for", cold.frame.src?.includes("product=getsign") === true, cold.frame.src);
-  check("with no brand yet, the launcher shows the speech bubble", cold.launcher.innerHTML.includes("<svg"));
+  check("with no brand yet, the launcher shows the speech bubble", cold.icon.innerHTML.includes("<svg"));
   check("and stays on the default colour", cold.launcher.style.background === undefined || cold.launcher.style.background === "");
+  check("and shows no label, because none has been reported yet", cold.label.style.display === "none");
 
   // ── The frame reports the live brand ──────────────────────────────
   cold.send({
@@ -150,8 +156,18 @@ function main() {
     },
   });
   check("the launcher takes the brand colour", cold.launcher.style.background === "#2563eb", cold.launcher.style.background);
-  check("the logo replaces the speech bubble", cold.launcher.children.some((c) => c.tagName === "img" && c.src === "data:image/png;base64,AAAA"));
+  check("the logo replaces the speech bubble", cold.icon.children.some((c) => c.tagName === "img" && c.src === "data:image/png;base64,AAAA"));
   check("the label becomes the button's tooltip", cold.launcher.title === "Chat to GetSign");
+  check(
+    "and, the point of all this, becomes text the visitor can read",
+    cold.label.textContent === "Chat to GetSign" && cold.label.style.display === "block",
+    `text=${JSON.stringify(cold.label.textContent)} display=${cold.label.style.display}`,
+  );
+  check(
+    "the pill grows inward from the edge it is anchored to",
+    cold.launcher.style.flexDirection === "row",
+    cold.launcher.style.flexDirection,
+  );
   check("a left-side launcher moves the whole widget", cold.root.style.left === "20px" && cold.root.style.right === "auto");
   check("the brand is cached for the next page view", !!cold.store["jettachat.brand"]);
 
@@ -164,9 +180,27 @@ function main() {
   );
 
   // ── Warm start: the cache paints before the frame speaks ──────────
-  const warm = boot({ accentColor: "#2563eb", avatarUrl: "data:image/png;base64,AAAA", launcherPosition: "left" });
+  const warm = boot({
+    accentColor: "#2563eb",
+    avatarUrl: "data:image/png;base64,AAAA",
+    launcherLabel: "Chat to GetSign",
+    launcherPosition: "left",
+  });
   check("a cached brand paints immediately — no black flash", warm.launcher.style.background === "#2563eb");
-  check("a cached logo shows immediately", warm.launcher.children.some((c) => c.tagName === "img"));
+  check("a cached logo shows immediately", warm.icon.children.some((c) => c.tagName === "img"));
+  check("so does a cached label", warm.label.style.display === "block");
+  check(
+    "opening the panel retracts the label",
+    (() => {
+      warm.send({ type: "jettachat:autoopen" });
+      return warm.label.style.display === "none";
+    })(),
+    `display=${warm.label.style.display}`,
+  );
+
+  // ── A phone gets the circle, not a pill across the page ───────────
+  const narrow = boot({ accentColor: "#2563eb", launcherLabel: "Chat to GetSign" }, 390);
+  check("on a narrow viewport the label stays folded away", narrow.label.style.display === "none");
 
   // The loader can only paint what the frame tells it. That half lives in
   // React and cannot be booted here, so it is asserted against its source —
