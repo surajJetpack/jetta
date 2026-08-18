@@ -73,6 +73,79 @@ export async function unmarkEventSeen(eventId: string): Promise<void> {
 // (The temporary webhook-probe list was absorbed into the unified ops event
 // log — every POST is now a "webhook.received" event in lib/events.ts.)
 
+// ── Open escalations (one Slack thread per ticket) ─────────────────
+//
+// Jetta cannot see that she already escalated: the Slack post is never read
+// back, the Freshdesk private note recording it is filtered out of the replayed
+// history (buildMessages drops private notes), and the run log never reaches
+// the model. Meanwhile the escalation triggers in the system prompt are
+// standing conditions — "no KB answer after two turns" stays true forever — so
+// every customer reply fired a fresh run that re-escalated from a blind
+// context. 31 of 104 live escalations between 4 Jul and 17 Aug were repeat
+// posts for a ticket already escalated; #13900 was posted seven times.
+//
+// So remember where a ticket's escalation lives and let later runs update that
+// thread instead of opening a second one.
+const escalationKey = (ticketId: string) => `jetta:escalation:${ticketId}`;
+const memEscalations = new Map<string, string>();
+
+/**
+ * Remember the Slack ts of this ticket's escalation.
+ *
+ * Wrapped in an object rather than stored bare, because a Slack ts is all
+ * digits and a dot: the client JSON-parses what it reads back, so a bare
+ * "1786969784.536630" returns as the NUMBER 1786969784.53663 and the trailing
+ * zero is gone. One in ten timestamps of that shape round-trips wrong, and a
+ * wrong ts means the threaded update fails and posts a duplicate parent — the
+ * exact thing this store exists to prevent. Inside an object the string stays a
+ * string.
+ *
+ * The TTL is deliberately generous: escalations outlive the conversation that
+ * raised them, and a ticket that goes quiet for a month and comes back is still
+ * the same open issue to the dev team.
+ */
+export async function recordEscalation(
+  ticketId: string,
+  ts: string,
+  ttlSeconds = 90 * 86400,
+): Promise<void> {
+  const r = client();
+  if (r) {
+    await r.set(escalationKey(ticketId), { ts }, { ex: ttlSeconds });
+    return;
+  }
+  memEscalations.set(ticketId, ts);
+}
+
+/** The Slack ts of this ticket's open escalation, or null if it has none. */
+export async function getEscalationTs(ticketId: string): Promise<string | null> {
+  const r = client();
+  if (r) {
+    const raw = await r.get<{ ts: string } | string | number>(escalationKey(ticketId));
+    if (raw === null || raw === undefined) return null;
+    // Tolerate a bare value: anything written before the wrapper existed, or
+    // set by hand. It may already have lost a trailing zero, in which case the
+    // post falls back to a new escalation — which is the safe direction.
+    return typeof raw === "object" ? raw.ts : String(raw);
+  }
+  return memEscalations.get(ticketId) ?? null;
+}
+
+/**
+ * Forget a ticket's escalation, so the next one starts a new thread. Called
+ * when the ticket is resolved (a reopened ticket is usually a different issue)
+ * and when the remembered thread turns out to be gone — the team prunes this
+ * channel, and 270 messages were deleted in one sweep on 15 Aug.
+ */
+export async function clearEscalation(ticketId: string): Promise<void> {
+  const r = client();
+  if (r) {
+    await r.del(escalationKey(ticketId));
+    return;
+  }
+  memEscalations.delete(ticketId);
+}
+
 /** Store a follow-up job, due `delaySeconds` from now (default 24h). */
 export async function scheduleFollowUp(
   ticketId: string,

@@ -3,6 +3,7 @@
  * the admin command interface to post threaded replies.
  */
 import { config } from "../config";
+import { clearEscalation, getEscalationTs, recordEscalation } from "../kv";
 import type { AttachmentFile } from "../types";
 
 /**
@@ -37,10 +38,26 @@ function chatChannel(): string {
   return config.slack.escalationChannel ?? "#jetta-escalations";
 }
 
-async function postMessage(channel: string, text: string, threadTs?: string): Promise<string> {
+// Distinct per stubbed post. A single fixed ts made every stubbed message look
+// like the same message, so anything that threads onto a ts it was handed —
+// escalation updates especially — could not be exercised without a live token.
+let stubTs = 0;
+
+/**
+ * `broadcast` mirrors a threaded message into the channel as well. Slack shows
+ * it as a one-line reference back to the thread, so it is much lighter than a
+ * second top-level post — the point is to be seen without fragmenting the issue.
+ */
+async function postMessage(
+  channel: string,
+  text: string,
+  threadTs?: string,
+  broadcast = false,
+): Promise<string> {
   if (!config.slack.live) {
-    console.log(`[stub] slack → ${channel}${threadTs ? ` (thread ${threadTs})` : ""}:\n${text}`);
-    return "0000000000.000000";
+    const how = threadTs ? ` (thread ${threadTs}${broadcast ? ", broadcast" : ""})` : "";
+    console.log(`[stub] slack → ${channel}${how}:\n${text}`);
+    return `0000000000.${String(++stubTs).padStart(6, "0")}`;
   }
   const res = await fetch("https://slack.com/api/chat.postMessage", {
     method: "POST",
@@ -48,7 +65,13 @@ async function postMessage(channel: string, text: string, threadTs?: string): Pr
       Authorization: `Bearer ${config.slack.botToken}`,
       "Content-Type": "application/json; charset=utf-8",
     },
-    body: JSON.stringify({ channel, text, thread_ts: threadTs }),
+    body: JSON.stringify({
+      channel,
+      text,
+      thread_ts: threadTs,
+      // Meaningless without thread_ts, and Slack rejects the combination.
+      reply_broadcast: threadTs && broadcast ? true : undefined,
+    }),
   });
   const json = (await res.json()) as { ok: boolean; error?: string; ts?: string };
   if (json.ok) return json.ts ?? "";
@@ -64,7 +87,7 @@ async function postMessage(channel: string, text: string, threadTs?: string): Pr
     console.error(
       `Slack: ${channel} is ${json.error === "not_in_channel" ? "not a channel Jetta has been invited to" : "unknown"} — posting to ${fallback} instead. Create it and invite the bot, or fix the setting.`,
     );
-    return await postMessage(fallback, `:warning: _(intended for ${channel})_\n${text}`, threadTs);
+    return await postMessage(fallback, `:warning: _(intended for ${channel})_\n${text}`, threadTs, broadcast);
   }
   throw new Error(`Slack postMessage failed: ${json.error}`);
 }
@@ -259,6 +282,18 @@ export interface EscalationInput {
   alreadyTried: string;
   /** A specific question for the dev team. */
   question: string;
+  /**
+   * Ticket/conversation id, used to find this ticket's existing escalation so a
+   * second one becomes an update on it. Omit only when there is no ticket.
+   */
+  ticketId?: string;
+  /**
+   * The team needs to see this now. Only affects an update on an existing
+   * escalation, which otherwise lands in a thread that people who are not
+   * already following it never see — the customer sitting on a live call is
+   * exactly the case where quiet is the wrong default.
+   */
+  urgent?: boolean;
 }
 
 /**
@@ -266,8 +301,16 @@ export interface EscalationInput {
  * threaded reply holding the full context. Slack collapses the reply to
  * "1 reply", so the channel stays skimmable and detail is one click away —
  * and `@Jetta draft kb` still sees everything, since it reads the whole thread.
+ *
+ * A ticket gets ONE escalation thread. When it has escalated before, the new
+ * context is posted as an update inside that thread rather than as a second
+ * top-level post — see the note on the escalation store in lib/kv.ts for why
+ * Jetta kept raising the same issue twice. `updated` in the return says which
+ * happened, so the caller can tell the model what it actually did.
  */
-export async function sendEscalation(input: EscalationInput): Promise<{ ts: string }> {
+export async function sendEscalation(
+  input: EscalationInput,
+): Promise<{ ts: string; updated: boolean }> {
   const channel = config.slack.escalationChannel ?? "#jetta-escalations";
   // Model-authored prose only. The structured refs below are already links, and
   // the customer's account is resolved across the whole escalation rather than
@@ -290,6 +333,43 @@ export async function sendEscalation(input: EscalationInput): Promise<{ ts: stri
     input.mondayItemUrl ? link(input.mondayItemUrl, "Dev item") : undefined,
   ].filter(Boolean);
 
+  // An update on an escalation the team has already seen. Nothing is clamped
+  // here — a thread reply costs no channel real estate, so the team gets the
+  // new context in full — and the ticket/account links are left off because the
+  // parent two messages up already carries them. The Dev item does repeat: it
+  // is often the thing that changed since the last post.
+  const update = [
+    `${input.urgent ? ":rotating_light: *Urgent update" : ":arrows_counterclockwise: *Update"} — ${linkify(input.headline)}*`,
+    ...(input.mondayItemUrl ? [link(input.mondayItemUrl, "Dev item")] : []),
+    `:question: ${question}`,
+    "",
+    `*What's new*`,
+    summary.trim(),
+    "",
+    `*Already tried*`,
+    bulletize(alreadyTried),
+  ].join("\n");
+
+  const priorTs = input.ticketId ? await getEscalationTs(input.ticketId) : null;
+  if (priorTs) {
+    try {
+      // Urgent updates are mirrored into the channel too — a thread reply only
+      // notifies people already following it, and "customer is on a call right
+      // now" must not depend on who happened to open the thread.
+      await postMessage(channel, update, priorTs, input.urgent === true);
+      return { ts: priorTs, updated: true };
+    } catch (e) {
+      // The remembered thread is gone — most likely pruned, since the team
+      // clears this channel as issues close. Forget it and escalate afresh
+      // below rather than dropping an update nobody would ever see.
+      console.warn(
+        `escalation update for ${input.ticketId} could not reach thread ${priorTs} — posting a new escalation:`,
+        e instanceof Error ? e.message : e,
+      );
+      if (input.ticketId) await clearEscalation(input.ticketId);
+    }
+  }
+
   const parent = [
     // clamp() would cut mid-link and leave broken markup in the channel, so the
     // headline is shortened before linking and the question falls back to its
@@ -299,6 +379,7 @@ export async function sendEscalation(input: EscalationInput): Promise<{ ts: stri
     `:question: ${clamped(input.question, QUESTION_MAX) ? clamp(input.question, QUESTION_MAX) : question}`,
   ].join("\n");
   const ts = await postMessage(channel, parent);
+  if (input.ticketId) await recordEscalation(input.ticketId, ts);
 
   const detail = [
     // Only repeat what the parent had to shorten — otherwise it's pure duplication.
@@ -322,7 +403,7 @@ export async function sendEscalation(input: EscalationInput): Promise<{ ts: stri
     console.warn("escalation detail reply failed:", e instanceof Error ? e.message : e),
   );
 
-  return { ts };
+  return { ts, updated: false };
 }
 
 export interface MonetApprovalRequest {
