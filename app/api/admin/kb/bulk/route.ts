@@ -6,7 +6,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { adminAuthorized, adminActor } from "@/lib/auth";
-import { getArticle, transitionState, deleteArticle } from "@/lib/kb-store";
+import { getArticle, transitionState, deleteArticle, scopeOf } from "@/lib/kb-store";
 import { vectorEnabled, upsertDocs } from "@/lib/vector";
 
 export const runtime = "nodejs";
@@ -42,7 +42,9 @@ export async function POST(req: NextRequest) {
           if (!a) throw new Error("not found");
           if (a.state !== "published") throw new Error("only published articles are ingested");
           if (vectorEnabled()) {
-            await upsertDocs([{ id: a.id, title: a.title, url: a.url, body: a.body, source: a.source }]);
+            await upsertDocs([
+              { id: a.id, title: a.title, url: a.url, body: a.body, source: a.source, product: scopeOf(a) },
+            ]);
           }
           break;
         }

@@ -11,7 +11,7 @@
  * on every reload. The parent holds {conversationId, token} and hands it back
  * through the init handshake below.
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChatMessage, ChatSurface, ChatVisitor } from "@/lib/types";
 
 /** A file the visitor has attached but not yet sent. */
@@ -169,6 +169,19 @@ export default function ChatWidgetPage() {
   // same promise means the answer is never guessed — and a failed fetch resolves
   // to the defaults rather than hanging the widget.
   const configRef = useRef<Promise<UiConfig> | null>(null);
+  /**
+   * The brand this frame was opened for, from its own query string. Only ever
+   * used to ask for the right skin and to pin the product on a new session —
+   * it grants nothing, so a hand-typed /chat?product=getsign is harmless.
+   */
+  const brandProduct = useMemo(
+    () =>
+      typeof window !== "undefined" &&
+      new URLSearchParams(window.location.search).get("product") === "getsign"
+        ? "getsign"
+        : "",
+    [],
+  );
   const [emailInput, setEmailInput] = useState("");
 
   const parentOrigin = useRef<string>("*");
@@ -233,7 +246,13 @@ export default function ChatWidgetPage() {
                 ? { conversationId: attempt.session.conversationId, token: attempt.session.token }
                 : {
                     surface: attempt.surface ?? "unknown",
-                    visitor: attempt.visitor ?? {},
+                    // Fall back to the frame's brand when the embedding page
+                    // named no app: on getsign.io that is what makes the run
+                    // GetSign-scoped from the very first message.
+                    visitor: {
+                      ...(attempt.visitor ?? {}),
+                      ...(attempt.visitor?.app || !brandProduct ? {} : { app: brandProduct }),
+                    },
                     pageUrl:
                       attempt.pageUrl ??
                       (window.parent === window ? window.location.href : undefined),
@@ -266,16 +285,19 @@ export default function ChatWidgetPage() {
         }
       }
     },
-    [post],
+    [post, brandProduct],
   );
 
   useEffect(() => {
-    configRef.current ??= fetch("/api/chat/config")
+    // The brand rides in on the frame's own URL (the loader puts it there),
+    // because this fetch fires before the parent's init message arrives and
+    // the greeting it returns is the first thing the visitor reads.
+    configRef.current ??= fetch(`/api/chat/config${brandProduct ? `?product=${brandProduct}` : ""}`)
       .then((r) => r.json())
       .then((c: Partial<UiConfig>) => ({ ...DEFAULT_UI, ...c }))
       .catch(() => DEFAULT_UI);
     void configRef.current.then(setUi);
-  }, []);
+  }, [brandProduct]);
 
   /**
    * Ask the embedding page to open the panel.

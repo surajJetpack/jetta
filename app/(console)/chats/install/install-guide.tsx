@@ -95,6 +95,7 @@ export default function InstallGuide({ baseUrl }: { baseUrl: string }) {
   // The loader reads its own host from script.src, so there is nothing else to
   // configure — an extra attribute here would be a lie the widget ignores.
   const scriptTag = `<script src="${baseUrl}/jettachat.js" data-surface="wordpress" defer></script>`;
+  const getsignTag = `<script src="${baseUrl}/jettachat.js" data-surface="wordpress" data-app="getsign" defer></script>`;
 
   // Identity must exist BEFORE the first session is created, and the monday SDK
   // resolves asynchronously — so the context is fetched first and the loader is
@@ -189,6 +190,16 @@ export default function InstallGuide({ baseUrl }: { baseUrl: string }) {
             <p className="text-sm text-muted-foreground">
               The launcher appears within a second. Send yourself a test message and it&apos;ll show up under{" "}
               <b>Chats</b> in this console.
+            </p>
+          </Step>
+          <Step n={4} title="On getsign.io, name the app">
+            <Snippet code={getsignTag} />
+            <p className="text-[11px] text-muted-foreground">
+              <code>data-app=&quot;getsign&quot;</code> switches the widget to the GetSign skin from{" "}
+              <b>Settings → What the visitor sees → GetSign</b>, and scopes answers to the GetSign
+              knowledge base — the other apps&apos; articles are not retrievable there. A page served
+              from getsign.io gets this even without the attribute; set it anyway, so the behaviour
+              is readable from the snippet rather than inferred from the domain.
             </p>
           </Step>
         </CardContent>

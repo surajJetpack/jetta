@@ -240,7 +240,15 @@ export default function ChatInbox({
     const q = query.trim().toLowerCase();
     const matches = (c: Conv) =>
       !q ||
-      [c.visitor.name, c.visitor.email, c.visitor.mondayAccountSlug, ...c.messages.map((m) => m.text)]
+      // `app` is in here so "getsign" narrows the list to GetSign's own widget
+      // without a second row of filter buttons in a sidebar this narrow.
+      [
+        c.visitor.name,
+        c.visitor.email,
+        c.visitor.mondayAccountSlug,
+        c.visitor.app,
+        ...c.messages.map((m) => m.text),
+      ]
         .filter(Boolean)
         .some((v) => String(v).toLowerCase().includes(q));
     const inFilter = (c: Conv) =>

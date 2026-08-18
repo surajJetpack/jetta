@@ -36,9 +36,24 @@ interface Settings {
   handoffEnabled: boolean;
   handoffTimeoutMinutes: number;
   handoffChannel?: string;
+  /** Per-brand cosmetic overrides. Empty field = inherit the default above. */
+  profiles?: { getsign?: Partial<Overlay> };
   updatedAt?: number;
   updatedBy?: string;
 }
+/** The fields a brand may override — mirrors OVERLAY_FIELDS server-side. */
+type Overlay = Pick<
+  Settings,
+  | "title"
+  | "subtitle"
+  | "greeting"
+  | "placeholder"
+  | "accentColor"
+  | "launcherLabel"
+  | "launcherPosition"
+  | "avatarUrl"
+>;
+type OverlayKey = keyof Overlay;
 interface Payload {
   settings: Settings;
   env: { live: boolean; hasSecret: boolean; envOrigins: string[] };
@@ -79,6 +94,33 @@ export default function ChatSettingsForm() {
 
   const set = <K extends keyof Settings>(k: K, v: Settings[K]) =>
     setForm((f) => (f ? { ...f, [k]: v } : f));
+
+  /**
+   * Which brand's skin is being edited. "default" is every surface; "getsign"
+   * is getsign.io and the GetSign app view, which get their own title, colours
+   * and greeting on top of the same channel.
+   *
+   * Only cosmetics are per-brand. Origins, limits, retention and handoff are
+   * deliberately absent here — one channel, one security and spend surface.
+   */
+  const [brand, setBrand] = useState<"default" | "getsign">("default");
+  const overlay: Partial<Overlay> = form?.profiles?.getsign ?? {};
+  /** Editing value for a skin field: the override when set, "" when inherited. */
+  const skin = <K extends OverlayKey>(k: K): Settings[K] | "" =>
+    brand === "default" ? (form?.[k] as Settings[K]) : ((overlay[k] as Settings[K]) ?? "");
+  /** Placeholder/preview fallback — what the visitor sees when nothing is set. */
+  const inherited = <K extends OverlayKey>(k: K): Settings[K] => form?.[k] as Settings[K];
+  const setSkin = <K extends OverlayKey>(k: K, v: Settings[K] | undefined) => {
+    if (brand === "default") return set(k, v as Settings[K]);
+    setForm((f) =>
+      f
+        ? {
+            ...f,
+            profiles: { ...f.profiles, getsign: { ...(f.profiles?.getsign ?? {}), [k]: v } },
+          }
+        : f,
+    );
+  };
 
   const save = () => {
     if (!form) return;
@@ -245,33 +287,88 @@ export default function ChatSettingsForm() {
       </Card>
 
       <Card>
-        <CardHeader>
+        <CardHeader className="flex-row items-center justify-between gap-4 space-y-0">
           <CardTitle>What the visitor sees</CardTitle>
+          <div className="flex gap-2">
+            {(
+              [
+                ["default", "Everywhere"],
+                ["getsign", "GetSign"],
+              ] as const
+            ).map(([k, label]) => (
+              <Button
+                key={k}
+                type="button"
+                size="sm"
+                variant={brand === k ? "default" : "outline"}
+                onClick={() => setBrand(k)}
+              >
+                {label}
+              </Button>
+            ))}
+          </div>
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2">
+          {brand === "getsign" && (
+            <p className="sm:col-span-2 text-[11px] text-muted-foreground">
+              Shown on getsign.io and in the GetSign app view. Leave a field blank to inherit the
+              everywhere value. Only the look changes here — the same Jetta answers, on the same
+              channel, with the GetSign knowledge base.
+            </p>
+          )}
           <Field label="Title">
-            <Input value={form.title} onChange={(e) => set("title", e.target.value)} />
+            <Input
+              value={skin("title")}
+              placeholder={brand === "getsign" ? inherited("title") : undefined}
+              onChange={(e) => setSkin("title", e.target.value)}
+            />
           </Field>
           <Field label="Subtitle">
-            <Input value={form.subtitle} onChange={(e) => set("subtitle", e.target.value)} />
+            <Input
+              value={skin("subtitle")}
+              placeholder={brand === "getsign" ? inherited("subtitle") : undefined}
+              onChange={(e) => setSkin("subtitle", e.target.value)}
+            />
           </Field>
           <div className="sm:col-span-2">
             <Field label="Opening message" hint="Shown before the visitor has said anything.">
-              <Textarea rows={2} value={form.greeting} onChange={(e) => set("greeting", e.target.value)} />
+              <Textarea
+                rows={2}
+                value={skin("greeting")}
+                placeholder={brand === "getsign" ? inherited("greeting") : undefined}
+                onChange={(e) => setSkin("greeting", e.target.value)}
+              />
             </Field>
           </div>
           <Field label="Input placeholder">
-            <Input value={form.placeholder} onChange={(e) => set("placeholder", e.target.value)} />
+            <Input
+              value={skin("placeholder")}
+              placeholder={brand === "getsign" ? inherited("placeholder") : undefined}
+              onChange={(e) => setSkin("placeholder", e.target.value)}
+            />
           </Field>
           <Field label="Launcher label">
-            <Input value={form.launcherLabel} onChange={(e) => set("launcherLabel", e.target.value)} />
+            <Input
+              value={skin("launcherLabel")}
+              placeholder={brand === "getsign" ? inherited("launcherLabel") : undefined}
+              onChange={(e) => setSkin("launcherLabel", e.target.value)}
+            />
           </Field>
           <Field label="Accent colour" hint="Hex, e.g. #2563eb. Anything else is ignored.">
             <div className="flex items-center gap-2">
-              <Input value={form.accentColor} onChange={(e) => set("accentColor", e.target.value)} />
+              <Input
+                value={skin("accentColor")}
+                placeholder={brand === "getsign" ? inherited("accentColor") : undefined}
+                onChange={(e) => setSkin("accentColor", e.target.value)}
+              />
               <span
                 className="size-8 shrink-0 rounded-md border"
-                style={{ backgroundColor: /^#[0-9a-f]{6}$/i.test(form.accentColor) ? form.accentColor : undefined }}
+                style={{
+                  backgroundColor: (() => {
+                    const c = skin("accentColor") || inherited("accentColor");
+                    return /^#[0-9a-f]{6}$/i.test(c) ? c : undefined;
+                  })(),
+                }}
               />
             </div>
           </Field>
@@ -282,9 +379,13 @@ export default function ChatSettingsForm() {
             >
               <div className="flex items-center gap-3">
                 <span className="flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-full border bg-muted">
-                  {form.avatarUrl ? (
+                  {skin("avatarUrl") || inherited("avatarUrl") ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={form.avatarUrl} alt="" className="size-full object-cover" />
+                    <img
+                      src={skin("avatarUrl") || inherited("avatarUrl")}
+                      alt=""
+                      className="size-full object-cover"
+                    />
                   ) : (
                     <ImageIcon className="size-5 text-muted-foreground" />
                   )}
@@ -305,13 +406,13 @@ export default function ChatSettingsForm() {
                       return;
                     }
                     const reader = new FileReader();
-                    reader.onload = () => set("avatarUrl", String(reader.result));
+                    reader.onload = () => setSkin("avatarUrl", String(reader.result));
                     reader.readAsDataURL(file);
                   }}
                 />
-                {form.avatarUrl && (
-                  <Button size="sm" variant="ghost" onClick={() => set("avatarUrl", undefined)}>
-                    Remove
+                {skin("avatarUrl") && (
+                  <Button size="sm" variant="ghost" onClick={() => setSkin("avatarUrl", undefined)}>
+                    {brand === "getsign" ? "Inherit" : "Remove"}
                   </Button>
                 )}
               </div>
@@ -320,13 +421,23 @@ export default function ChatSettingsForm() {
 
           <Field label="Launcher position">
             <div className="flex gap-2">
+              {brand === "getsign" && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={overlay.launcherPosition ? "outline" : "default"}
+                  onClick={() => setSkin("launcherPosition", undefined)}
+                >
+                  inherit
+                </Button>
+              )}
               {(["left", "right"] as const).map((p) => (
                 <Button
                   key={p}
                   type="button"
                   size="sm"
-                  variant={form.launcherPosition === p ? "default" : "outline"}
-                  onClick={() => set("launcherPosition", p)}
+                  variant={skin("launcherPosition") === p ? "default" : "outline"}
+                  onClick={() => setSkin("launcherPosition", p)}
                 >
                   {p}
                 </Button>

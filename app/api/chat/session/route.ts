@@ -13,6 +13,7 @@ import { NextRequest } from "next/server";
 import { channelUnavailable, chatJson, preflight } from "@/lib/chat-http";
 import * as store from "@/lib/chat-store";
 import { getChatSettings } from "@/lib/chat-settings";
+import { profileForOrigin } from "@/lib/profiles";
 import type { AppProduct, ChatSurface } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -64,6 +65,8 @@ export async function POST(req: NextRequest) {
   // decide how much to trust it; nothing here grants access to anything.
   const v = (body.visitor ?? {}) as Record<string, unknown>;
   const str = (k: string) => (typeof v[k] === "string" && v[k] ? (v[k] as string) : undefined);
+  const originApp =
+    profileForOrigin(req.headers.get("origin")).key === "getsign" ? "getsign" : undefined;
 
   // Name and email are required to start a chat. Enforced here as well as in
   // the widget, because the widget is public JavaScript and its form can be
@@ -90,7 +93,14 @@ export async function POST(req: NextRequest) {
       mondayAccountSlug: str("mondayAccountSlug")?.slice(0, 120),
       mondayAccountId: str("mondayAccountId")?.slice(0, 60),
       mondayUserId: str("mondayUserId")?.slice(0, 60),
-      app: str("app") as AppProduct | undefined,
+      // A visitor on GetSign's own site is a GetSign visitor, whatever the
+      // install snippet says. This is the pin the whole GetSign profile hangs
+      // on: `conversationToTicket` turns `app` into `productHint`, which
+      // buildContext treats as ground truth — so the brand and the KB scope
+      // are settled before the first message is even read. Deliberately a
+      // fallback, not an override: a monday app view knows better than an
+      // origin does.
+      app: (str("app") ?? originApp) as AppProduct | undefined,
     },
   });
 
