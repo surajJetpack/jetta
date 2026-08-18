@@ -18,6 +18,7 @@ import * as freshdesk from "./tools/freshdesk";
 import * as chatFiles from "./chat-files";
 import { transcriptText } from "./chat-store";
 import { transcriptHtml } from "./chat-transcript-html";
+import { getChatSettings, publicSettings } from "./chat-settings";
 import { conversationUrl } from "./tools/jettachat";
 import type { AppProduct, ChatConversation } from "./types";
 
@@ -52,7 +53,20 @@ export async function openTicketForConversation(
   // thirty identically-shaped ISO-stamped lines makes the agent parse the
   // conversation before they can read it. See lib/chat-transcript-html.ts for
   // why this is email HTML and why it escapes before it formats.
-  const bubbles = transcriptHtml(conv);
+  // The transcript wears the skin the visitor actually saw. Resolved through
+  // the brand profile exactly as /api/chat/config resolves it for the widget,
+  // so a GetSign conversation hands over in GetSign's accent and under
+  // whatever that brand calls the bot — a transcript in the wrong brand's
+  // colours is a small thing that reads as the wrong conversation.
+  //
+  // Best-effort: a settings read that fails must not cost the customer their
+  // ticket, and the renderer's defaults are the widget's own.
+  const skin = await getChatSettings()
+    .then((s) => publicSettings(s, conv.visitor.app === "getsign" ? "getsign" : "main"))
+    .then((s) => ({ accentColor: s.accentColor, botName: s.title }))
+    .catch(() => ({}));
+
+  const bubbles = transcriptHtml(conv, skin);
   const descriptionHtml = bubbles
     ? [
         opts.summary.trim() ? freshdesk.textToFdHtml(opts.summary.trim()) : "",
