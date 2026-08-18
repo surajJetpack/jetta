@@ -7,6 +7,7 @@ import { getOutcomes, getRunLogs, listReplyDrafts, type OutcomeEvent, type Reply
 import { listArticles } from "@/lib/kb-store";
 import { PRICES, tokenStats, gapList } from "@/lib/analytics";
 import { adminAuthorized } from "@/lib/auth";
+import { matchesBrand } from "@/lib/profiles";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -105,11 +106,21 @@ export async function GET(req: NextRequest) {
   if (!adminAuthorized(req)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
-  const [outcomes, replyDrafts, runLogs] = await Promise.all([
+  const [allOutcomes, allDrafts, allRuns] = await Promise.all([
     getOutcomes(500),
     listReplyDrafts(),
     getRunLogs(500),
   ]);
+  // Brand filter — GetSign or the nine marketplace apps, never both. Applied
+  // to every input at once so the panel can't show one brand's outcomes beside
+  // another's token spend.
+  const brandParam = req.nextUrl.searchParams.get("brand");
+  const brand = brandParam === "getsign" || brandParam === "jetpackapps" ? brandParam : null;
+  const only = <T extends { product?: string; app?: string }>(rows: T[]) =>
+    brand ? rows.filter((r) => matchesBrand(r, brand)) : rows;
+  const outcomes = only(allOutcomes);
+  const replyDrafts = only(allDrafts);
+  const runLogs = only(allRuns);
   const total = outcomes.length;
   const escalated = outcomes.filter((o) => o.escalated).length;
   const resolved = outcomes.filter((o) => o.resolutionSent).length;
@@ -128,6 +139,7 @@ export async function GET(req: NextRequest) {
   );
 
   return NextResponse.json({
+    brand,
     outcomes: {
       total,
       resolved,

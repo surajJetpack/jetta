@@ -91,6 +91,9 @@ export default function KbArticle({ id }: { id?: string }) {
   const [body, setBody] = useState("");
   const [keywords, setKeywords] = useState("");
   const [category, setCategory] = useState("");
+  // Brand scope. "shared" (the default) is reachable by both; "getsign" is
+  // reachable by GetSign's surface only, and "jetpackapps" is hidden from it.
+  const [product, setProduct] = useState<Article["product"]>("shared");
   const [tags, setTags] = useState("");
   const [reviewBy, setReviewBy] = useState("");
   const [busy, setBusy] = useState(false);
@@ -109,6 +112,7 @@ export default function KbArticle({ id }: { id?: string }) {
     setBody(a.body);
     setKeywords(a.keywords.join(", "));
     setCategory(a.category);
+    setProduct(a.product ?? "shared");
     setTags(a.tags.join(", "));
     setReviewBy(fmtDay(a.reviewBy));
   }, []);
@@ -150,6 +154,7 @@ export default function KbArticle({ id }: { id?: string }) {
       body,
       keywords: keywords.split(",").map((s) => s.trim()).filter(Boolean),
       category,
+      product,
       tags: tags.split(",").map((s) => s.trim()).filter(Boolean),
       reviewBy: reviewBy ? Math.floor(new Date(reviewBy).getTime() / 1000) : undefined,
       ...(isNew ? { state: "draft" } : {}),
@@ -273,6 +278,7 @@ export default function KbArticle({ id }: { id?: string }) {
       body !== article.body ||
       keywords !== article.keywords.join(", ") ||
       category !== article.category ||
+      product !== (article.product ?? "shared") ||
       tags !== article.tags.join(", ") ||
       reviewBy !== fmtDay(article.reviewBy));
 
@@ -320,6 +326,19 @@ export default function KbArticle({ id }: { id?: string }) {
                   {c.name}
                 </SelectItem>
               ))}
+            </SelectContent>
+          </Select>
+          <Select
+            value={product ?? "shared"}
+            onValueChange={(v) => setProduct(v as Article["product"])}
+          >
+            <SelectTrigger className="w-44" title="Which brand's Jetta may retrieve this article">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="shared">both brands</SelectItem>
+              <SelectItem value="getsign">GetSign only</SelectItem>
+              <SelectItem value="jetpackapps">Jetpack Apps only</SelectItem>
             </SelectContent>
           </Select>
           <Input

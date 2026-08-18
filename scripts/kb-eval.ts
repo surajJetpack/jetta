@@ -12,6 +12,7 @@
  *   --json         machine-readable output (for before/after diffing)
  *   --min-mrr <x>  exit 1 if MRR falls below x (CI/pre-deploy gate)
  *   --keyword      force the keyword fallback path instead of vectors
+ *   --scope <b>    retrieve as a brand profile ("getsign"); default unfiltered
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -47,6 +48,16 @@ const NO_RERANK = flag("--no-rerank");
 const AS_JSON = flag("--json");
 const KEYWORD = flag("--keyword");
 const MIN_MRR = opt("--min-mrr") ? Number(opt("--min-mrr")) : undefined;
+/**
+ * Retrieve as a brand profile would (lib/profiles.ts). Unset = unfiltered,
+ * which is what the portfolio bot does and what every earlier run measured, so
+ * before/after numbers stay comparable by default.
+ *
+ * A scoped run is only meaningful against an index that has been re-ingested
+ * with `product` metadata — before that it correctly returns nothing.
+ */
+const SCOPE = opt("--scope");
+const SCOPES = SCOPE === "getsign" ? (["getsign", "shared"] as const) : [];
 
 const normUrl = (u: string) => u.toLowerCase().replace(/\/+$/, "");
 
@@ -69,9 +80,9 @@ async function retrieve(query: string): Promise<{ hits: Hit[]; retrievalMs: numb
   const t0 = Date.now();
   let hits: Hit[];
   if (!KEYWORD && vectorEnabled()) {
-    hits = await queryVector(query, K);
+    hits = await queryVector(query, K, [...SCOPES]);
   } else {
-    hits = await searchPublishedKb(query, K);
+    hits = await searchPublishedKb(query, K, [...SCOPES]);
   }
   const retrievalMs = Date.now() - t0;
 

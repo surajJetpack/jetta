@@ -22,11 +22,16 @@ import {
   countByState,
   listStaleArticles,
   ARTICLE_STATES,
+  scopeOf,
   type ArticleState,
   type ArticlePatch,
   type KbArticle,
 } from "@/lib/kb-store";
 import { getKbUsage } from "@/lib/kv";
+import type { KbScope } from "@/lib/profiles";
+
+/** Accepted brand scopes — anything else is ignored rather than stored. */
+const SCOPES: KbScope[] = ["getsign", "jetpackapps", "shared"];
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -55,7 +60,14 @@ export async function GET(req: NextRequest) {
       listCategories(),
       getKbUsage().catch(() => ({}) as Awaited<ReturnType<typeof getKbUsage>>),
     ]);
-    return NextResponse.json({ article, categories, usage: usage[id] ?? null });
+    // Send the EFFECTIVE scope, never a bare undefined: the console is where
+    // someone decides an article's brand, and a blank control would invite
+    // them to "fix" an article that is already scoped correctly by derivation.
+    return NextResponse.json({
+      article: { ...article, product: scopeOf(article) },
+      categories,
+      usage: usage[id] ?? null,
+    });
   }
 
   const state = sp.get("state") as ArticleState | null;
@@ -65,7 +77,9 @@ export async function GET(req: NextRequest) {
   const category = sp.get("category") ?? undefined;
   const q = sp.get("q") ?? undefined;
 
-  let articles = await listArticles({ state: state ?? undefined, category, limit: 500 });
+  let articles: KbArticle[] = (
+    await listArticles({ state: state ?? undefined, category, limit: 500 })
+  ).map((a) => ({ ...a, product: scopeOf(a) }));
   if (q) articles = textFilter(articles, q);
 
   const [categories, byState, staleList, usage] = await Promise.all([
@@ -103,6 +117,9 @@ export async function POST(req: NextRequest) {
     // matches the old managed-article behavior.
     state: b.state ?? "published",
     origin: "manual",
+    // Brand scope. Omitted falls to "shared" via deriveScope, which is the
+    // right default for a hand-written article: reachable by both brands.
+    product: SCOPES.includes(b.product as KbScope) ? b.product : undefined,
     createdBy: adminActor(req) ?? "console",
     reviewBy: b.reviewBy,
   });
@@ -120,6 +137,7 @@ export async function PUT(req: NextRequest) {
   if (b.keywords !== undefined) patch.keywords = b.keywords;
   if (b.category !== undefined) patch.category = b.category;
   if (b.tags !== undefined) patch.tags = b.tags;
+  if (b.product !== undefined && SCOPES.includes(b.product)) patch.product = b.product;
   if ("reviewBy" in b) patch.reviewBy = b.reviewBy;
   const article = await updateArticle(b.id, patch, adminActor(req) ?? "console");
   if (!article) return NextResponse.json({ error: "not found" }, { status: 404 });

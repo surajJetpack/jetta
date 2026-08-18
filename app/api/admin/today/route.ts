@@ -13,5 +13,8 @@ export async function GET(req: NextRequest) {
   if (!adminAuthorized(req)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
-  return NextResponse.json(await buildTodayBrief());
+  const brand = req.nextUrl.searchParams.get("brand");
+  return NextResponse.json(
+    await buildTodayBrief(brand === "getsign" || brand === "jetpackapps" ? brand : null),
+  );
 }

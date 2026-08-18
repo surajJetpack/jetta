@@ -27,6 +27,7 @@ import * as events from "../events";
 import { searchPublishedKb } from "../knowledge/dynamic-kb";
 import { vectorEnabled, queryVector, type VectorHit } from "../vector";
 import { rerankHits } from "../rerank";
+import { profileFor } from "../profiles";
 import { recordKbHits, markEventSeen, clearEscalation } from "../kv";
 import { submitMonetApproval } from "../monetization-approvals";
 
@@ -125,16 +126,22 @@ export function buildTools(
         keyword: z.string().describe("Search terms drawn from the user's issue."),
       }),
       execute: async ({ keyword }) => {
+        // Brand scope. Empty for the portfolio bot — it keeps the whole index,
+        // GetSign articles included — and non-empty only on GetSign's own
+        // surface, where the other apps' articles must not be reachable at all.
+        const scopes = config.kbScopeEnabled
+          ? profileFor(ctx.product, ctx.productSource).kbScopes
+          : [];
         let merged: { id: string; title: string; url: string; body?: string; source?: string }[];
         if (vectorEnabled()) {
           // RAG path: over-fetch from the index (only PUBLISHED articles live
           // there), then let the reranker pick the best 5. Rerank failure
           // falls back to fusion order — retrieval never fails on it.
-          const candidates = await queryVector(keyword, 12).catch(() => [] as VectorHit[]);
+          const candidates = await queryVector(keyword, 12, scopes).catch(() => [] as VectorHit[]);
           merged = await rerankHits(keyword, candidates, 5, ctx.taskUsage);
         } else {
           // Keyword fallback over published articles in the unified store.
-          merged = await searchPublishedKb(keyword, 5).catch(() => []);
+          merged = await searchPublishedKb(keyword, 5, scopes).catch(() => []);
         }
         // Usage counters — a metric write must never break the agent loop.
         recordKbHits(merged.map((h) => h.id)).catch(() => {});

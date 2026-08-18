@@ -26,6 +26,7 @@ import crypto from "node:crypto";
 import { Redis } from "@upstash/redis";
 import { config } from "./config";
 import { vectorEnabled, upsertDocs, deleteDocs, queryVector } from "./vector";
+import type { KbScope } from "./profiles";
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -49,6 +50,16 @@ export interface KbArticle {
   origin: ArticleOrigin;
   /** Retrieval-source label surfaced to the agent ("getsign.io" | "managed"). */
   source: string;
+  /**
+   * Which brand may retrieve this article (lib/profiles.ts). Absent on
+   * articles written before scoping existed — `scopeOf()` derives one from the
+   * origin/source rather than treating them as unscoped, so nothing has to be
+   * migrated before the filter is correct.
+   *
+   * "shared" is the default for anything not obviously one brand's, and is
+   * visible to both. Mis-tagging costs precision, never reachability.
+   */
+  product?: KbScope;
   createdBy: string;
   createdAt: number;
   updatedBy: string;
@@ -113,6 +124,8 @@ export interface NewArticle {
   state?: ArticleState;
   origin: ArticleOrigin;
   source?: string;
+  /** Omit to derive from origin/source — see `deriveScope`. */
+  product?: KbScope;
   createdBy: string;
   reviewBy?: number;
   meta?: KbArticle["meta"];
@@ -199,12 +212,35 @@ function memSeedIfNeeded(): void {
       version: 1,
       origin: "seed-getsign",
       source: a.source,
+      product: "getsign",
       createdBy: "mem-seed",
       createdAt: t,
       updatedBy: "mem-seed",
       updatedAt: t,
     });
   });
+}
+
+// ── Scoping ────────────────────────────────────────────────────────
+
+/**
+ * Which brand an untagged article belongs to, from where it came from.
+ *
+ * The crawled and seeded corpora are already cleanly split by site, so the two
+ * site sources answer this outright. Everything else — manual articles,
+ * knowledge-loop output, Freshdesk mining — is "shared" until a human says
+ * otherwise: billing, VAT and account articles genuinely serve both brands,
+ * and the cost of guessing wrong in that direction is zero.
+ */
+export function deriveScope(origin: ArticleOrigin, source: string): KbScope {
+  if (origin === "seed-getsign" || source === "getsign.io") return "getsign";
+  if (origin === "seed-jetpackapps" || source === "jetpackapps.io") return "jetpackapps";
+  return "shared";
+}
+
+/** An article's scope, derived when it predates the field. */
+export function scopeOf(a: Pick<KbArticle, "product" | "origin" | "source">): KbScope {
+  return a.product ?? deriveScope(a.origin, a.source);
 }
 
 // ── Internal helpers ───────────────────────────────────────────────
@@ -281,7 +317,9 @@ async function syncVector(a: KbArticle, wasPublished: boolean): Promise<void> {
   if (!vectorEnabled()) return;
   try {
     if (a.state === "published") {
-      await upsertDocs([{ id: a.id, title: a.title, url: a.url, body: a.body, source: a.source }]);
+      await upsertDocs([
+        { id: a.id, title: a.title, url: a.url, body: a.body, source: a.source, product: scopeOf(a) },
+      ]);
     } else if (wasPublished) {
       await deleteDocs([a.id]);
     }
@@ -323,6 +361,7 @@ export async function createArticle(
     version: 1,
     origin: input.origin,
     source: input.source ?? "managed",
+    product: input.product ?? deriveScope(input.origin, input.source ?? "managed"),
     createdBy: input.createdBy,
     createdAt: t,
     updatedBy: input.createdBy,
@@ -350,7 +389,10 @@ export async function createArticle(
 }
 
 export type ArticlePatch = Partial<
-  Pick<KbArticle, "title" | "url" | "body" | "keywords" | "category" | "tags" | "reviewBy" | "meta">
+  Pick<
+    KbArticle,
+    "title" | "url" | "body" | "keywords" | "category" | "tags" | "reviewBy" | "meta" | "product"
+  >
 >;
 
 /** Edit content/metadata. Content changes bump the version + snapshot. */
@@ -371,10 +413,15 @@ export async function updateArticle(
     ...("tags" in patch ? { tags: patch.tags ?? prev.tags } : {}),
     ...("reviewBy" in patch ? { reviewBy: patch.reviewBy } : {}),
     ...("meta" in patch ? { meta: { ...prev.meta, ...patch.meta } } : {}),
+    ...("product" in patch ? { product: patch.product } : {}),
     updatedBy: actor,
     updatedAt: now(),
   };
   const changed = contentChanged(prev, next);
+  // Scope lives in the index metadata, so moving an article between brands has
+  // to reach the index even though not a word of it changed — otherwise the
+  // retrieval filter keeps using the old brand.
+  const scopeChanged = scopeOf(prev) !== scopeOf(next);
   if (changed) {
     next.version = prev.version + 1;
     next.duplicates = await findDuplicates(next.title, next.body, next.id).catch(() => prev.duplicates ?? []);
@@ -391,7 +438,7 @@ export async function updateArticle(
       detail: changed ? "content edit" : "metadata edit",
     },
   });
-  if (changed && next.state === "published") await syncVector(next, true);
+  if ((changed || scopeChanged) && next.state === "published") await syncVector(next, true);
   return next;
 }
 
@@ -648,8 +695,16 @@ function scoreArticle(a: KbArticle, terms: string[]): number {
 /**
  * Keyword search over PUBLISHED articles — the agent's fallback when the
  * vector store is unavailable (replaces searchManagedKb + searchGetSignKb).
+ *
+ * `scopes` mirrors `queryVector`: empty means no filter. It has to be enforced
+ * here too — a scoped brand that falls back to keyword search must not quietly
+ * regain the articles the vector path just denied it.
  */
-export async function searchPublishedKb(query: string, limit = 5): Promise<KbHit[]> {
+export async function searchPublishedKb(
+  query: string,
+  limit = 5,
+  scopes: KbScope[] = [],
+): Promise<KbHit[]> {
   const terms = query
     .toLowerCase()
     .split(/[^a-z0-9]+/)
@@ -657,6 +712,7 @@ export async function searchPublishedKb(query: string, limit = 5): Promise<KbHit
   if (!terms.length) return [];
   const articles = await listArticles({ state: "published", limit: 500 }).catch(() => []);
   return articles
+    .filter((a) => !scopes.length || scopes.includes(scopeOf(a)))
     .map((a) => ({ a, score: scoreArticle(a, terms) }))
     .filter((s) => s.score > 0)
     .sort((x, y) => y.score - x.score)

@@ -11,14 +11,44 @@
 import type { ConversationContext } from "./types";
 import { RESOLUTION_EXAMPLES } from "./resolution-examples";
 import { getLearningsBlock } from "./evals";
+import { profileFor, type Profile } from "./profiles";
 
-const PERSONA = `
+/**
+ * The default identity: one Jetta across the whole portfolio, GetSign
+ * included. Unchanged, and it stays that way — the GetSign profile below is
+ * additive, so nothing about the main bot's replies should move.
+ */
+const IDENTITY_MAIN = `
 You are Jetta, the primary support agent for Jetpack Apps (jetpackapps.io — the
 monday.com marketplace app portfolio) and GetSign (getsign.io — the e-signature
 app). You operate as a real, named support agent inside Freshdesk and Freshchat.
 You handle the full support lifecycle and close tickets yourself; you escalate to
 humans only when resolution genuinely requires judgement beyond your scope.
+`.trim();
 
+/**
+ * GetSign's own surface: same agent, one brand. Paired with a hard KB filter
+ * (lib/profiles.ts), so the closing paragraph is not a style note — the other
+ * apps' articles genuinely are not retrievable here, and answering about them
+ * would mean answering from memory.
+ */
+const IDENTITY_GETSIGN = `
+You are Jetta, the support agent for GetSign (getsign.io) — the e-signature app
+for monday.com, built by Jetpack Apps. You operate as a real, named support
+agent inside Freshdesk and on GetSign's own chat. You handle the full support
+lifecycle and close tickets yourself; you escalate to humans only when
+resolution genuinely requires judgement beyond your scope.
+
+You are here for GetSign only. Jetpack Apps builds other monday.com apps
+(TrackMy, VLOOKUP Auto-Link, Extract AI and others) and you have no knowledge
+base for them on this surface. If someone asks about one, say plainly that it
+is a different app and open a ticket for them or point them to Jetpack Apps
+support at jetpackapps.io — never answer from memory, and never stretch a
+GetSign article to cover it.
+`.trim();
+
+/** Voice and disclosure — identical for every brand, so it cannot drift. */
+const PERSONA_SHARED = `
 You are knowledgeable, warm, and efficient. You write the way an excellent senior
 support engineer writes: courteous and respectful, specific, and action-oriented.
 You are helpful and easy to deal with — you lead with the answer or next step, but
@@ -28,6 +58,10 @@ the user what to do — not how capable you are.
 You do not volunteer that you are an AI. If a user asks directly whether you are
 an AI, confirm it plainly and without deflecting.
 `.trim();
+
+function persona(profile: Profile): string {
+  return `${profile.key === "getsign" ? IDENTITY_GETSIGN : IDENTITY_MAIN}\n\n${PERSONA_SHARED}`;
+}
 
 const VOICE = `
 VOICE
@@ -480,8 +514,13 @@ const HANDOFF_UNAVAILABLE = `
   and correct offer is a ticket: their question goes to the team by email and
   they get a reply there.`.trim();
 
-function contextBlock(ctx: ConversationContext): string {
-  const lines: string[] = [`CURRENT CONTEXT`, `Channel: ${ctx.channel}`, `Product: ${ctx.product}`];
+function contextBlock(ctx: ConversationContext, profile: Profile): string {
+  const lines: string[] = [
+    `CURRENT CONTEXT`,
+    `Channel: ${ctx.channel}`,
+    `Product: ${ctx.product}`,
+    `Brand: ${profile.brand} (${profile.site})`,
+  ];
 
   if (ctx.ticket) {
     lines.push(
@@ -529,8 +568,9 @@ function contextBlock(ctx: ConversationContext): string {
 export async function buildSystemPrompt(ctx: ConversationContext): Promise<string> {
   // Fail-open: returns "" on any store blip — never blocks reply generation.
   const learned = await getLearningsBlock(ctx.product);
+  const profile = profileFor(ctx.product, ctx.productSource);
   return [
-    PERSONA,
+    persona(profile),
     VOICE,
     PRINCIPLES,
     RULES,
@@ -551,7 +591,7 @@ export async function buildSystemPrompt(ctx: ConversationContext): Promise<strin
             learned,
         ]
       : []),
-    contextBlock(ctx),
+    contextBlock(ctx, profile),
     "RESOLUTION EXAMPLES (reference patterns from past resolved tickets)",
     RESOLUTION_EXAMPLES,
   ].join("\n\n");

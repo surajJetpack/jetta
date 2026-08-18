@@ -10,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { StepCard } from "@/components/jetta/step-card";
 import { StatusChip } from "@/components/jetta/status-chip";
+import { BrandFilter, brandQuery, type Brand } from "@/components/jetta/brand-filter";
 
 interface Gap { ticketId: string; subject: string; reason: string; at: number; url: string }
 interface ModelStat {
@@ -61,12 +62,13 @@ export default function AnalyticsPanel() {
   const [s, setS] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  const [brand, setBrand] = useState<Brand>(null);
 
   // State updates live in promise callbacks (not the function body) so the
   // mount effect satisfies react-hooks/set-state-in-effect; initial
   // loading=true covers the first fetch.
   const load = useCallback(() => {
-    fetch("/api/admin/stats", { cache: "no-store" })
+    fetch(`/api/admin/stats${brandQuery(brand)}`, { cache: "no-store" })
       .then((r) => r.json())
       .then((d) => {
         setS(d as Stats);
@@ -74,7 +76,7 @@ export default function AnalyticsPanel() {
       })
       .catch((e) => setErr(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false));
-  }, []);
+  }, [brand]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -91,7 +93,8 @@ export default function AnalyticsPanel() {
     <Card>
       <CardHeader>
         <CardTitle>Learning &amp; gap analytics</CardTitle>
-        <CardAction>
+        <CardAction className="flex items-center gap-2">
+          <BrandFilter value={brand} onChange={setBrand} disabled={loading} />
           <Button variant="ghost" size="sm" onClick={refresh} disabled={loading}>
             <RotateCw className={loading ? "animate-spin" : undefined} /> Refresh
           </Button>

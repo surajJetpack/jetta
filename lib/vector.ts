@@ -19,6 +19,7 @@ import { FusionAlgorithm, Index } from "@upstash/vector";
 import { embed, embedMany } from "ai";
 import { google } from "@ai-sdk/google";
 import { config } from "./config";
+import type { KbScope } from "./profiles";
 
 let idx: Index | null = null;
 function index(): Index | null {
@@ -44,6 +45,8 @@ export interface VectorDoc {
   url: string;
   body: string;
   source: string;
+  /** Brand scope, for the retrieval filter. See lib/profiles.ts. */
+  product?: KbScope;
 }
 
 export interface VectorHit {
@@ -55,7 +58,7 @@ export interface VectorHit {
   score: number;
 }
 
-type HitMetadata = { title: string; url: string; body: string; source: string };
+type HitMetadata = { title: string; url: string; body: string; source: string; product?: KbScope };
 
 /** Embed + upsert documents (chunk = title + body; articles are short). */
 export async function upsertDocs(docs: VectorDoc[]): Promise<number> {
@@ -66,6 +69,7 @@ export async function upsertDocs(docs: VectorDoc[]): Promise<number> {
     url: d.url,
     body: d.body,
     source: d.source,
+    ...(d.product ? { product: d.product } : {}),
   });
   if (config.vector.hybrid) {
     // Hybrid index: raw text; Upstash embeds dense + BM25 server-side.
@@ -90,6 +94,18 @@ export async function deleteDocs(ids: string[]): Promise<void> {
   await i.delete(ids);
 }
 
+/**
+ * How many documents the index holds. Used either side of an ingest to prove
+ * an in-place rebuild replaced documents rather than adding a second copy of
+ * the corpus. Null when no index is configured.
+ */
+export async function indexInfo(): Promise<{ vectorCount: number } | null> {
+  const i = index();
+  if (!i) return null;
+  const info = await i.info();
+  return { vectorCount: info.vectorCount };
+}
+
 /** Wipe the entire index (used when rebuilding from sources). */
 export async function resetIndex(): Promise<void> {
   const i = index();
@@ -97,10 +113,24 @@ export async function resetIndex(): Promise<void> {
   await i.reset();
 }
 
-/** Semantic search. Returns [] if the vector store isn't configured. */
-export async function queryVector(query: string, topK = 5): Promise<VectorHit[]> {
+/**
+ * Semantic search. Returns [] if the vector store isn't configured.
+ *
+ * `scopes` narrows retrieval to those brands (lib/profiles.ts). EMPTY OR
+ * OMITTED MEANS NO FILTER — the portfolio bot passes nothing and keeps the
+ * whole index, which is also what makes this safe to deploy before the index
+ * has been re-ingested with `product` metadata.
+ */
+export async function queryVector(
+  query: string,
+  topK = 5,
+  scopes: KbScope[] = [],
+): Promise<VectorHit[]> {
   const i = index();
   if (!i) return [];
+  // Metadata filter syntax is Upstash's own, not SQL: string values are
+  // single-quoted and IN takes a parenthesised list.
+  const filter = scopes.length ? `product IN (${scopes.map((s) => `'${s}'`).join(", ")})` : undefined;
   let res;
   if (config.vector.hybrid) {
     // DBSF beat RRF on the golden set (MRR 0.956 vs 0.932, recall@5 1.0 vs
@@ -110,6 +140,7 @@ export async function queryVector(query: string, topK = 5): Promise<VectorHit[]>
       topK,
       includeMetadata: true,
       fusionAlgorithm: FusionAlgorithm.DBSF,
+      ...(filter ? { filter } : {}),
     });
   } else {
     const { embedding } = await embed({
@@ -117,7 +148,7 @@ export async function queryVector(query: string, topK = 5): Promise<VectorHit[]>
       value: query,
       providerOptions: providerOptions("RETRIEVAL_QUERY"),
     });
-    res = await i.query({ vector: embedding, topK, includeMetadata: true });
+    res = await i.query({ vector: embedding, topK, includeMetadata: true, ...(filter ? { filter } : {}) });
   }
   return res
     .filter((r) => r.metadata)

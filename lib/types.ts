@@ -3,6 +3,17 @@
 export type Product = "jetpackapps" | "getsign" | "unknown";
 
 /**
+ * Where a `Product` attribution came from, and therefore how much weight it
+ * can carry. "ground-truth" is Freshdesk's cf_product field or the embedding
+ * page naming its own app; "inferred" is the keyword heuristic or LLM triage.
+ *
+ * Only ground truth may NARROW anything (see lib/profiles.ts): a guess that
+ * turns out wrong should cost a customer the right branding, never the article
+ * that answers their question.
+ */
+export type ProductSource = "ground-truth" | "inferred";
+
+/**
  * The specific monday.com app a ticket concerns — finer-grained than `Product`.
  * Each app bills through its own separate FastSpring store, so billing lookups
  * need to know which app, not just the "jetpackapps" vs "getsign" bucket.
@@ -238,6 +249,12 @@ export interface ConversationContext {
   account: FastSpringAccount | null;
   relatedDevItems: DevBoardItem[];
   product: Product;
+  /**
+   * How `product` was determined. Drives brand-profile selection only — the
+   * GetSign profile's narrowed KB scope needs a product we KNOW, not one we
+   * guessed. Absent is treated as "inferred".
+   */
+  productSource?: ProductSource;
   /**
    * Which app's FastSpring store `account` (if any) was looked up against, and
    * which store a billing write would hit. Derived from cf_product/keywords

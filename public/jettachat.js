@@ -6,6 +6,12 @@
  *   <script src="https://YOUR-JETTA-HOST/jettachat.js" defer
  *           data-surface="wordpress"></script>
  *
+ * On GetSign's own site, name the app so the widget wears the GetSign skin and
+ * answers from the GetSign knowledge base only:
+ *
+ *   <script src="https://YOUR-JETTA-HOST/jettachat.js" defer
+ *           data-surface="wordpress" data-app="getsign"></script>
+ *
  * Or configure it explicitly before load (what a monday app view does, where
  * the account context is known and worth passing through):
  *
@@ -40,6 +46,24 @@
 
   var surface = config.surface || data.surface || "wordpress";
   var visitor = config.visitor || {};
+
+  /**
+   * Which brand this page belongs to.
+   *
+   * GetSign is served by the same Jetta with a different skin and a knowledge
+   * base scoped to GetSign alone, so the answer has to be known before the
+   * frame renders — it decides the greeting the visitor sees first. The
+   * hostname check is the safety net: it keeps working on an install snippet
+   * that was pasted before `data-app` existed.
+   */
+  var product =
+    visitor.app === "getsign" || data.app === "getsign" || /(^|\.)getsign\.io$/i.test(location.hostname)
+      ? "getsign"
+      : "";
+  // Pin it on the visitor too. Server-side this becomes the product hint, and
+  // a hinted product is treated as ground truth — so the scoping holds from
+  // the first message rather than waiting on what the visitor happens to type.
+  if (product && !visitor.app) visitor = Object.assign({}, visitor, { app: product });
   var STORAGE_KEY = "jettachat.session";
   var AUTO_OPEN_KEY = "jettachat.autoopened";
 
@@ -114,7 +138,7 @@
   ].join(";");
 
   var frame = document.createElement("iframe");
-  frame.src = origin + "/chat";
+  frame.src = origin + "/chat" + (product ? "?product=" + encodeURIComponent(product) : "");
   frame.title = "Jetta support chat";
   frame.style.cssText = "width:100%;height:100%;border:0;display:block;";
   panel.appendChild(frame);

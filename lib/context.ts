@@ -5,7 +5,15 @@
  */
 import { generateObject, type ModelMessage } from "ai";
 import { z } from "zod";
-import type { AppProduct, ConversationContext, Product, RunChannel, TaskUsage, Ticket } from "./types";
+import type {
+  AppProduct,
+  ConversationContext,
+  Product,
+  ProductSource,
+  RunChannel,
+  TaskUsage,
+  Ticket,
+} from "./types";
 import { config } from "./config";
 import { getModel, modelLabel } from "./llm";
 import * as freshdesk from "./tools/freshdesk";
@@ -324,9 +332,12 @@ export async function buildContext(
 
   // Attribution precedence: Freshdesk's cf_product field (ground truth set by
   // agents/forms) > keyword heuristic > LLM triage fallback.
-  const product =
-    productFromHint(ticket.productHint) ??
-    (keywordProduct !== "unknown" ? keywordProduct : triage.product);
+  const hintProduct = productFromHint(ticket.productHint);
+  const product = hintProduct ?? (keywordProduct !== "unknown" ? keywordProduct : triage.product);
+  // Only the cf_product field (and, on chat, the embedding page writing into
+  // the same field) counts as knowing. Everything below it is a guess, and a
+  // guess must never narrow the brand profile's KB scope — see lib/profiles.ts.
+  const productSource: ProductSource = hintProduct ? "ground-truth" : "inferred";
 
   // Same precedence at app grain, for reporting. Deliberately a SEPARATE field
   // from `appProduct` above: that one is computed before triage because the
@@ -343,6 +354,7 @@ export async function buildContext(
     account,
     relatedDevItems,
     product,
+    productSource,
     appProduct,
     app,
     complexity: triage.complexity,

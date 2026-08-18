@@ -24,8 +24,14 @@ import {
 import { log } from "./logger";
 
 const SYNC_ACTOR = "kb-sync";
-/** Actors whose edits don't count as human (safe to overwrite from the site). */
-const CRAWLER_ACTORS = new Set([SYNC_ACTOR, "kb-crawl-jetpackapps", "kb-migrate"]);
+/**
+ * Actors whose edits don't count as human (safe to overwrite from the site).
+ *
+ * Machine backfills belong here too: a one-off that stamps a field on every
+ * article would otherwise mark the whole crawled corpus as human-edited and
+ * quietly stop the daily sync from ever updating it again.
+ */
+const CRAWLER_ACTORS = new Set([SYNC_ACTOR, "kb-crawl-jetpackapps", "kb-migrate", "kb-scope-backfill"]);
 const BODY_CHARS = 8000;
 const MIN_BODY_CHARS = 200;
 /** Archive guard: skip archiving when the site returns < this share of stored articles. */

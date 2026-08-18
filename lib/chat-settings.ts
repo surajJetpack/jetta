@@ -95,9 +95,37 @@ export interface ChatSettings {
   /** Slack channel for "a visitor wants a human". Falls back to the escalation channel. */
   handoffChannel?: string;
 
+  /**
+   * Per-brand presentation overrides, keyed by brand profile (lib/profiles.ts).
+   * A GetSign visitor should not be greeted by "Jetpack Apps support".
+   *
+   * COSMETIC FIELDS ONLY, by construction — `OVERLAY_FIELDS` below is the
+   * whole surface. Origins, rate limits, retention, identity and handoff stay
+   * global on purpose: one channel, one security and spend surface, however
+   * many brands are painted on top of it.
+   *
+   * An absent or empty override falls back to the base value, so clearing a
+   * field in the console reverts it rather than blanking the widget.
+   */
+  profiles?: Partial<Record<"getsign", ChatProfileOverlay>>;
+
   updatedAt?: number;
   updatedBy?: string;
 }
+
+/** The only fields a brand profile may override. */
+const OVERLAY_FIELDS = [
+  "title",
+  "subtitle",
+  "greeting",
+  "placeholder",
+  "accentColor",
+  "launcherLabel",
+  "launcherPosition",
+  "avatarUrl",
+] as const;
+
+export type ChatProfileOverlay = Partial<Pick<ChatSettings, (typeof OVERLAY_FIELDS)[number]>>;
 
 /** Exactly the fields the unauthenticated widget endpoint may return. */
 const PUBLIC_FIELDS = [
@@ -151,8 +179,22 @@ export function originAllowed(origin: string, allowed: string[]): boolean {
   });
 }
 
-export function publicSettings(s: ChatSettings): PublicChatSettings {
-  return Object.fromEntries(PUBLIC_FIELDS.map((k) => [k, s[k]])) as PublicChatSettings;
+/**
+ * The widget-visible subset, optionally painted with a brand profile's
+ * overrides. `profileKey` is a plain string rather than a Profile: this module
+ * is imported BY lib/profiles.ts, so it must not import back.
+ */
+export function publicSettings(s: ChatSettings, profileKey?: string): PublicChatSettings {
+  const base = Object.fromEntries(PUBLIC_FIELDS.map((k) => [k, s[k]])) as PublicChatSettings;
+  const overlay = profileKey === "getsign" ? s.profiles?.getsign : undefined;
+  if (!overlay) return base;
+  for (const k of OVERLAY_FIELDS) {
+    const v = overlay[k];
+    // Empty means "not overridden" — see the note on `profiles` above.
+    if (v === undefined || v === null || v === "") continue;
+    (base as Record<string, unknown>)[k] = v;
+  }
+  return base;
 }
 
 /** Env and built-in defaults — the floor everything else is layered onto. */
@@ -295,6 +337,36 @@ export async function saveChatSettings(
     next.avatarUrl = undefined;
   } else if (!/^data:image\/(png|jpeg|webp|gif|svg\+xml);base64,/i.test(avatar) || avatar.length > AVATAR_MAX_CHARS) {
     next.avatarUrl = current.avatarUrl;
+  }
+
+  // Brand overlays get the same validation as the base fields, plus a
+  // whitelist: anything outside OVERLAY_FIELDS is dropped rather than stored,
+  // so a future private field can never be smuggled into the public payload by
+  // writing it under `profiles`.
+  if (next.profiles) {
+    const clean: Partial<Record<"getsign", ChatProfileOverlay>> = {};
+    for (const [key, raw] of Object.entries(next.profiles)) {
+      if (key !== "getsign" || !raw) continue;
+      const o: ChatProfileOverlay = {};
+      for (const k of OVERLAY_FIELDS) {
+        const v = (raw as Record<string, unknown>)[k];
+        if (v === undefined || v === null || v === "") continue;
+        if (k === "accentColor") {
+          if (HEX.test(String(v))) o.accentColor = String(v);
+        } else if (k === "launcherPosition") {
+          if (v === "left" || v === "right") o.launcherPosition = v;
+        } else if (k === "avatarUrl") {
+          const a = String(v).trim();
+          if (/^data:image\/(png|jpeg|webp|gif|svg\+xml);base64,/i.test(a) && a.length <= AVATAR_MAX_CHARS) {
+            o.avatarUrl = a;
+          }
+        } else {
+          o[k] = String(v).slice(0, 400);
+        }
+      }
+      if (Object.keys(o).length) clean.getsign = o;
+    }
+    next.profiles = Object.keys(clean).length ? clean : undefined;
   }
 
   next.updatedAt = Date.now();

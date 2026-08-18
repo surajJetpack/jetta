@@ -44,6 +44,8 @@ export interface Article {
   version: number;
   origin: string;
   source: string;
+  /** Which brand may retrieve it. Absent = derived from origin/source. */
+  product?: "getsign" | "jetpackapps" | "shared";
   createdBy: string;
   createdAt: number;
   updatedBy: string;
@@ -58,8 +60,24 @@ interface Hit { id: string; title: string; url: string; source: string; score?: 
 
 // Filter/sort state survives tab navigation (module cache) and reloads
 // (sessionStorage) — same pattern as ticket-tester.tsx.
-type ListState = { q: string; state: string; category: string; origin: string; sort: string; stale: boolean };
-const DEFAULTS: ListState = { q: "", state: "", category: "", origin: "", sort: "updated", stale: false };
+type ListState = {
+  q: string;
+  state: string;
+  category: string;
+  origin: string;
+  product: string;
+  sort: string;
+  stale: boolean;
+};
+const DEFAULTS: ListState = {
+  q: "",
+  state: "",
+  category: "",
+  origin: "",
+  product: "",
+  sort: "updated",
+  stale: false,
+};
 const STORAGE_KEY = "jetta:kbList";
 let cache: ListState | null = null;
 
@@ -133,6 +151,12 @@ export default function KbList() {
         (!f.state || a.state === f.state) &&
         (!f.category || a.category === f.category) &&
         (!f.origin || a.origin === f.origin) &&
+        // "getsign" here answers the question that matters: what can GetSign's
+        // Jetta actually see? That is its own articles PLUS the shared ones.
+        (!f.product ||
+          (f.product === "shared"
+            ? (a.product ?? "shared") === "shared"
+            : (a.product ?? "shared") === f.product || (a.product ?? "shared") === "shared")) &&
         (!f.stale || staleIds.has(a.id)) &&
         (!needle ||
           a.title.toLowerCase().includes(needle) ||
@@ -292,6 +316,17 @@ export default function KbList() {
               <SelectItem value="knowledge-loop">knowledge-loop</SelectItem>
               <SelectItem value="fd-mined">fd-mined</SelectItem>
               <SelectItem value="seed-getsign">seed-getsign</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={f.product || ALL} onValueChange={(v) => setF({ ...f, product: v === ALL ? "" : v })}>
+            <SelectTrigger size="sm" title="What each brand's Jetta can retrieve">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>all brands</SelectItem>
+              <SelectItem value="getsign">GetSign can see</SelectItem>
+              <SelectItem value="jetpackapps">Jetpack Apps only</SelectItem>
+              <SelectItem value="shared">shared</SelectItem>
             </SelectContent>
           </Select>
           <Select value={f.sort} onValueChange={(v) => setF({ ...f, sort: v })}>

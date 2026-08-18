@@ -375,6 +375,30 @@ export const config = {
     .filter(Boolean),
 
   /**
+   * Origins that identify a visitor as being on GetSign's own surface, and so
+   * select the GetSign profile (see lib/profiles.ts) rather than the portfolio
+   * one. Same wildcard grammar as JETTACHAT_ALLOWED_ORIGINS.
+   *
+   * This is a BRANDING and SCOPING signal, not an access one: an origin listed
+   * here still has to be in the widget's allowlist to embed the chat at all.
+   */
+  getsignOrigins: (env("JETTA_GETSIGN_ORIGINS") ?? "https://getsign.io,https://www.getsign.io")
+    .split(",")
+    .map((s) => s.trim().replace(/\/$/, ""))
+    .filter(Boolean),
+
+  /**
+   * Scope KB retrieval to the brand profile (lib/profiles.ts). OFF until the
+   * vector index has been re-ingested with `product` metadata — filtering on a
+   * field the stored documents don't carry returns nothing at all, which reads
+   * to a customer as "Jetta suddenly knows nothing".
+   *
+   * Only ever narrows the GetSign surface; the portfolio bot passes no scopes
+   * and is unaffected either way. Flip back to false to undo instantly.
+   */
+  kbScopeEnabled: (env("JETTA_KB_SCOPE") ?? "").toLowerCase() === "true",
+
+  /**
    * Post the suggested reply as a private note on the Freshdesk ticket when a
    * draft is created. On by default — Freshdesk is the primary review surface
    * (agents copy the note into the reply editor and send as themselves; the
