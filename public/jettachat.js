@@ -162,16 +162,46 @@
   frame.style.cssText = "width:100%;height:100%;border:0;display:block;";
   panel.appendChild(frame);
 
+  /**
+   * The launcher is a pill, not a circle.
+   *
+   * It collapses to a 56px circle when there is no label to show, which is
+   * what it always used to be — but `launcherLabel` is a field someone sets in
+   * the console and watches appear in the preview, and until now the only
+   * place it landed was a `title` attribute. A tooltip is not an answer to
+   * "what does this button say": it needs a hover, it never appears on a
+   * phone, and a visitor who is deciding whether to ask for help is exactly
+   * the person who will not go looking for it.
+   */
   var launcher = document.createElement("button");
   launcher.type = "button";
   launcher.setAttribute("aria-label", "Open support chat");
   launcher.style.cssText = [
-    "width:56px;height:56px;border-radius:50%;border:0;cursor:pointer;padding:0;overflow:hidden",
+    "min-width:56px;height:56px;border-radius:28px;border:0;cursor:pointer;padding:0;overflow:hidden",
     "background:#171717;color:#fff;float:right",
     "box-shadow:0 6px 20px rgba(0,0,0,.22)",
     "display:flex;align-items:center;justify-content:center",
     "transition:transform .15s ease",
   ].join(";");
+
+  // The mark — avatar or speech bubble — stays a 56px circle at one end of the
+  // pill, so the button keeps its shape whether or not a label is beside it.
+  // It is its own element rather than the button's own content because the
+  // avatar is sized at 100% and would otherwise stretch across the label.
+  var icon = document.createElement("span");
+  icon.style.cssText = [
+    "width:56px;height:56px;flex:0 0 56px;border-radius:50%;overflow:hidden",
+    "display:flex;align-items:center;justify-content:center",
+  ].join(";");
+
+  var label = document.createElement("span");
+  label.style.cssText = [
+    "display:none;white-space:nowrap;max-width:220px;overflow:hidden;text-overflow:ellipsis",
+    "font:600 14px/1 system-ui,-apple-system,'Segoe UI',sans-serif;color:inherit",
+  ].join(";");
+
+  launcher.appendChild(icon);
+  launcher.appendChild(label);
 
   var BUBBLE_SVG =
     '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>';
@@ -180,10 +210,11 @@
    * Paint the launcher from whatever brand we have. Called once with the
    * cached values and again when the frame reports the live ones.
    *
-   * The avatar replaces the speech bubble rather than sitting beside it: at
-   * 56px there is room for one mark, and a logo says more about who is
-   * answering than a generic bubble does. An avatar that fails to load falls
-   * back to the bubble rather than leaving an empty circle.
+   * The avatar replaces the speech bubble rather than sitting beside it: the
+   * mark is one 56px circle, and a logo says more about who is answering than
+   * a generic bubble does. An avatar that fails to load falls back to the
+   * bubble rather than leaving an empty circle. The label, when there is one,
+   * goes beside that circle — see paintLabel below.
    */
   function paintLauncher() {
     if (/^#[0-9a-f]{6}$/i.test(brand.accentColor || "")) {
@@ -191,17 +222,17 @@
     }
     if (brand.launcherLabel) launcher.title = brand.launcherLabel;
     if (brand.avatarUrl && /^data:image\//.test(brand.avatarUrl)) {
-      launcher.innerHTML = "";
+      icon.innerHTML = "";
       var img = document.createElement("img");
       img.src = brand.avatarUrl;
       img.alt = "";
       img.style.cssText = "width:100%;height:100%;object-fit:cover;display:block";
       img.onerror = function () {
-        launcher.innerHTML = BUBBLE_SVG;
+        icon.innerHTML = BUBBLE_SVG;
       };
-      launcher.appendChild(img);
+      icon.appendChild(img);
     } else {
-      launcher.innerHTML = BUBBLE_SVG;
+      icon.innerHTML = BUBBLE_SVG;
     }
     // Both the panel and the button move together, or the panel opens off the
     // side of the button that spawned it.
@@ -210,6 +241,31 @@
     root.style.left = left ? "20px" : "auto";
     launcher.style.float = left ? "left" : "right";
     launcherWrap.style.float = left ? "left" : "right";
+    // The pill grows inward, away from the edge it is anchored to, so a long
+    // label runs across the page rather than off the side of the viewport.
+    launcher.style.flexDirection = left ? "row" : "row-reverse";
+    label.style.padding = left ? "0 20px 0 4px" : "0 4px 0 20px";
+    // The badge counts unread replies, so it belongs over the mark — which has
+    // just swapped ends with the label.
+    badge.style.right = left ? "auto" : "-2px";
+    badge.style.left = left ? "-2px" : "auto";
+    paintLabel();
+  }
+
+  /**
+   * Show the label, or collapse back to the bare circle.
+   *
+   * Three things suppress it. There is nothing to say (no brand has been
+   * reported yet, or this one set no label). The panel is already open, where
+   * a button captioned "Chat with us" is arguing with a chat the visitor is
+   * looking at. Or the viewport is narrow enough that a pill would span it —
+   * on a phone the circle is the whole point, and a 260px button sitting over
+   * the page the visitor came for is worse than no caption.
+   */
+  function paintLabel() {
+    label.textContent = brand.launcherLabel || "";
+    var show = !!brand.launcherLabel && !open && window.innerWidth >= 480;
+    label.style.display = show ? "block" : "none";
   }
   launcher.onmouseenter = function () {
     launcher.style.transform = "scale(1.06)";
@@ -243,6 +299,7 @@
   function setOpen(next) {
     open = next;
     launcher.setAttribute("aria-label", open ? "Close support chat" : "Open support chat");
+    paintLabel();
     if (open) {
       unread = 0;
       renderBadge();
@@ -320,6 +377,10 @@
     document.body.appendChild(root);
     if (config.autoOpen) setOpen(true);
   }
+
+  // Rotating a phone into landscape crosses the width threshold above, and a
+  // label that only appears on reload is a label nobody trusts.
+  window.addEventListener("resize", paintLabel);
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", mount);

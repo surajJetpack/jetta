@@ -91,19 +91,42 @@ export function WidgetPreview({ s, label }: { s: PreviewSettings; label?: string
             )}
           </div>
 
-          <div
-            className={`flex items-center gap-2 border-t border-neutral-200 px-4 py-3 ${
-              s.launcherPosition === "left" ? "justify-start" : "justify-end"
+        </div>
+
+        {/* The launcher sits BELOW the panel, not inside it — it is the only
+            part of the widget the embedding page owns, and drawing it in the
+            footer made it look like a send button. Same shape as the real one
+            (public/jettachat.js): the mark at the edge, the label growing
+            inward, so a label set here is a label a visitor reads. */}
+        <div
+          className={`mt-3 flex items-center ${
+            s.launcherPosition === "left" ? "justify-start" : "justify-end"
+          }`}
+        >
+          <span
+            className={`inline-flex items-center rounded-full text-white shadow-md ${
+              s.launcherPosition === "left" ? "flex-row" : "flex-row-reverse"
             }`}
+            style={{ backgroundColor: accent }}
           >
-            <span
-              className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium text-white"
-              style={{ backgroundColor: accent }}
-            >
-              <MessageCircle className="size-3.5" />
-              {s.launcherLabel}
+            <span className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-full">
+              {s.avatarUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={s.avatarUrl} alt="" className="size-full object-cover" />
+              ) : (
+                <MessageCircle className="size-4" />
+              )}
             </span>
-          </div>
+            {s.launcherLabel && (
+              <span
+                className={`max-w-[160px] truncate text-xs font-semibold ${
+                  s.launcherPosition === "left" ? "pr-3.5 pl-1" : "pr-1 pl-3.5"
+                }`}
+              >
+                {s.launcherLabel}
+              </span>
+            )}
+          </span>
         </div>
 
         <p className="mt-3 text-center text-[11px] text-muted-foreground">

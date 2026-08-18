@@ -13,7 +13,7 @@ import { NextRequest } from "next/server";
 import { channelUnavailable, chatJson, preflight } from "@/lib/chat-http";
 import * as store from "@/lib/chat-store";
 import { getChatSettings, publicSettings } from "@/lib/chat-settings";
-import { profileForOrigin } from "@/lib/profiles";
+import { profileForRequest } from "@/lib/profiles";
 import type { AppProduct, ChatSurface } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -65,7 +65,15 @@ export async function POST(req: NextRequest) {
   // decide how much to trust it; nothing here grants access to anything.
   const v = (body.visitor ?? {}) as Record<string, unknown>;
   const str = (k: string) => (typeof v[k] === "string" && v[k] ? (v[k] as string) : undefined);
-  const profile = profileForOrigin(req.headers.get("origin"));
+  // Same resolution as /api/chat/config, through the same helper. It has to be
+  // the same: this route reads requireIdentity off the profile below, and when
+  // only the config route honoured ?product= a brand that turned the gate off
+  // got a widget that hid the form and a server that then refused the session
+  // for not filling it in.
+  const profile = profileForRequest(
+    req.nextUrl.searchParams.get("product"),
+    req.headers.get("origin"),
+  );
   const originApp = profile.key === "getsign" ? "getsign" : undefined;
 
   // Name and email are required to start a chat. Enforced here as well as in

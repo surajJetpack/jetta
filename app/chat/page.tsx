@@ -244,7 +244,12 @@ export default function ChatWidgetPage() {
       let attempt = init;
       for (let i = 0; i < 2; i++) {
         try {
-          const res = await fetch("/api/chat/session", {
+          // The brand rides on the query string here as well as on the
+          // visitor below. They answer different questions: `visitor.app` is
+          // what the conversation gets TAGGED with, and `?product=` is what
+          // the server resolves the SKIN and the identity gate from. Sending
+          // only the first left the session route guessing from the origin.
+          const res = await fetch(`/api/chat/session${brandProduct ? `?product=${brandProduct}` : ""}`, {
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify(
