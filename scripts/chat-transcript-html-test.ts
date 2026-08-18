@@ -109,7 +109,11 @@ function main() {
     "a transcript that calls a colleague 'Jetta' makes the escalation unreadable",
   );
   check("bullets render as a list", html.includes("<ul") && (html.match(/<li/g) ?? []).length === 2);
-  check("bold survives as bold", html.includes("<strong>Request signatures from</strong>"));
+  check(
+    "bold survives as bold, carrying its own weight",
+    /<strong style="color:inherit;font-weight:700">Request signatures from<\/strong>/.test(html),
+    "an unstyled <strong> is something the host stylesheet may flatten",
+  );
   check("times are shown, and in UTC", /18 Aug, 05:\d\d UTC/.test(html), html.slice(0, 300));
 
   /*
@@ -150,6 +154,33 @@ function main() {
     (html.match(/-apple-system/g) ?? []).length === (html.match(/sans-serif/g) ?? []).length,
     `${(html.match(/-apple-system/g) ?? []).length} font stacks opened, ${(html.match(/sans-serif/g) ?? []).length} closed`,
   );
+  /*
+   * ── Nothing inside a bubble may inherit its colour ───────────────
+   *
+   * Reported from a real ticket: the customer's message was invisible. The
+   * bubble carried color:#ffffff and the paragraph inside it carried only a
+   * margin, so Freshdesk's own stylesheet — which targets descendants
+   * directly — beat the inherited white and painted dark text on the
+   * near-black bubble. An inline style outranks any non-!important rule, so
+   * every generated element has to state its own colour.
+   */
+  check(
+    "no paragraph inside a bubble is left bare",
+    !/style="margin:3px 0"/.test(html),
+    "a bare inner div inherits nothing once the host stylesheet has an opinion",
+  );
+  check("no list item is left bare", !/style="margin:2px 0"/.test(html));
+  check("no <strong> is left bare", !/<strong>/.test(html));
+  check(
+    "the visitor's text is stated white, not merely inherited",
+    (html.match(/color:#ffffff/g) ?? []).length >= 2,
+    "once on the bubble is not enough — it must be on the text too",
+  );
+  check(
+    "Jetta's text is stated dark on its own elements",
+    (html.match(/color:#171717/g) ?? []).length >= 2,
+  );
+
   check(
     "the visitor's name and time stay right-aligned with their bubble",
     (html.match(/text-align:right/g) ?? []).length >= 2,
