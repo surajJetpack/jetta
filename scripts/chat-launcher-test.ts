@@ -67,7 +67,11 @@ function makeEl(tagName: string): El {
 }
 
 /** Run the loader against a stub DOM and hand back the pieces worth asserting on. */
-function boot(cachedBrand: Record<string, unknown> | null, innerWidth = 1280) {
+function boot(
+  cachedBrand: Record<string, unknown> | null,
+  innerWidth = 1280,
+  jettaConfig: Record<string, unknown> | undefined = undefined,
+) {
   const created: El[] = [];
   const store: Record<string, string> = {};
   if (cachedBrand) store["jettachat.brand"] = JSON.stringify(cachedBrand);
@@ -95,7 +99,7 @@ function boot(cachedBrand: Record<string, unknown> | null, innerWidth = 1280) {
       },
       innerWidth,
       parent: {},
-      JettaChatConfig: undefined,
+      JettaChatConfig: jettaConfig,
     },
     document: doc,
     localStorage: {
@@ -196,6 +200,54 @@ function main() {
       return warm.label.style.display === "none";
     })(),
     `display=${warm.label.style.display}`,
+  );
+
+  // ── The embedding page can move the launcher out of the way ───────
+  //
+  // Inside a monday app view the corner is already taken and the collision is
+  // with the PARENT page, which no z-index of ours can win — the widget is in
+  // an iframe. Moving is the only fix, and the console's side setting can't
+  // make it: that value is per brand, so it would move GetSign's website too.
+  const moved = boot({ accentColor: "#2563eb", launcherPosition: "right" }, 1280, {
+    surface: "monday",
+    launcher: { position: "left", offsetY: 88 },
+  });
+  check(
+    "the page's side wins over the brand setting",
+    moved.root.style.left === "20px" && moved.root.style.right === "auto",
+    `left=${moved.root.style.left} right=${moved.root.style.right}`,
+  );
+  check(
+    "and the launcher lifts clear of whatever sits along the bottom",
+    moved.root.style.cssText.includes("bottom:88px"),
+    moved.root.style.cssText,
+  );
+
+  // A repaint must not quietly hand the position back to the brand setting —
+  // the frame reports the brand a moment after load, which is exactly when a
+  // launcher that has been moved would jump back under the thing it was moved
+  // out from under.
+  moved.send({ type: "jettachat:brand", brand: { accentColor: "#2563eb", launcherPosition: "right" } });
+  check(
+    "and it stays put when the frame reports the brand",
+    moved.root.style.left === "20px" && moved.root.style.right === "auto",
+    `left=${moved.root.style.left} right=${moved.root.style.right}`,
+  );
+
+  // Nothing passed = nothing changed, or every existing embed moves.
+  const untouched = boot({ accentColor: "#2563eb", launcherPosition: "right" });
+  check(
+    "an embed that asks for nothing keeps the 20px corner it always had",
+    untouched.root.style.cssText.includes("bottom:20px") && untouched.root.style.right === "20px",
+    untouched.root.style.cssText,
+  );
+
+  // A page meaning 88 and passing "88px" must not park the launcher off-screen.
+  const junk = boot({ accentColor: "#2563eb" }, 1280, { launcher: { offsetY: "88px", offsetX: 9999 } });
+  check(
+    "an unusable offset falls back rather than hiding the widget",
+    junk.root.style.cssText.includes("bottom:20px") && junk.root.style.cssText.includes("right:240px"),
+    junk.root.style.cssText,
   );
 
   // ── A phone gets the circle, not a pill across the page ───────────

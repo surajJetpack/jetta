@@ -155,6 +155,8 @@ export async function mountJettaChat() {
 
   window.JettaChatConfig = {
     surface: "monday",
+    // Bottom-right belongs to monday inside an app view.
+    launcher: { position: "left" },
     visitor: {
       name: me.name,
       email: me.email,
@@ -274,6 +276,13 @@ export async function mountJettaChat() {
             The app needs the <code>me:read</code> scope, or the query comes back without a name and email and
             the visitor is asked for them anyway. Set <code>app</code> to whichever product the view belongs to
             so tickets are attributed correctly.
+          </p>
+          <p className="text-[11px] text-muted-foreground">
+            <b>If something already occupies that corner</b>, move the launcher from the embedding page:{" "}
+            <code>launcher: {"{ position: \"left\", offsetY: 88 }"}</code>. It outranks the side set in
+            Settings, which is per brand and would move the website too. Raising it with{" "}
+            <code>offsetY</code> clears a bottom bar; z-index is no help — the widget is in an iframe, so it
+            can never stack above monday&apos;s own floating buttons.
           </p>
           <p className="text-[11px] text-muted-foreground">
             Two origins go on the allowed list, not one: the host your app view is served from{" "}

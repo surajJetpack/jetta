@@ -20,6 +20,20 @@
  *     visitor: { mondayAccountSlug: "acme", app: "vlookup", email: "a@b.com" },
  *   };
  *
+ * WHERE THE LAUNCHER SITS is settable per embed, because only the embedding
+ * page knows what else is in that corner:
+ *
+ *   window.JettaChatConfig = {
+ *     launcher: { position: "left", offsetX: 20, offsetY: 88 },
+ *   };
+ *
+ * This exists for the case a console setting cannot answer. The side is a
+ * console field, but it is keyed by BRAND — one value for GetSign's site and
+ * GetSign's monday view alike — and inside a monday app view the thing being
+ * collided with belongs to the parent page. That is also why moving is the
+ * only fix available: the launcher lives in an iframe, so no z-index of ours
+ * can stack above the host's own floating UI, whatever value it carries.
+ *
  * The loader owns three things the iframe can't: the launcher button, the
  * session in localStorage (third-party storage inside the iframe is blocked in
  * Safari and partitioned elsewhere), and the unread badge while collapsed.
@@ -46,6 +60,24 @@
 
   var surface = config.surface || data.surface || "wordpress";
   var visitor = config.visitor || {};
+
+  /**
+   * Launcher placement, as the embedding page asked for it.
+   *
+   * Clamped rather than trusted: a page meaning `offsetY: 88` and passing
+   * `"88px"` or `8800` would otherwise park the launcher somewhere nobody can
+   * click, which reads as a broken install rather than a bad number. An absent
+   * or unusable value falls back to the 20px edge the widget has always used,
+   * and an absent `position` leaves the console's brand setting in charge.
+   */
+  var placement = config.launcher || {};
+  function edge(v) {
+    var n = Number(v);
+    return isFinite(n) && n >= 0 ? Math.min(n, 240) : 20;
+  }
+  var EDGE_X = edge(placement.offsetX);
+  var EDGE_Y = edge(placement.offsetY);
+  var SIDE = placement.position === "left" || placement.position === "right" ? placement.position : null;
 
   /**
    * Which brand this page belongs to.
@@ -145,11 +177,17 @@
 
   var root = document.createElement("div");
   root.setAttribute("data-jettachat", "");
-  root.style.cssText = "position:fixed;bottom:20px;right:20px;z-index:2147483000;";
+  root.style.cssText =
+    "position:fixed;bottom:" + EDGE_Y + "px;right:" + EDGE_X + "px;z-index:2147483000;";
 
   var panel = document.createElement("div");
   panel.style.cssText = [
-    "width:380px;height:560px;max-width:calc(100vw - 40px);max-height:calc(100vh - 120px)",
+    // The cap subtracts the launcher, the gap and whatever the page pushed the
+    // widget up by — otherwise a raised launcher opens a panel that runs off
+    // the top of a short app view.
+    "width:380px;height:560px;max-width:calc(100vw - 40px);max-height:calc(100vh - " +
+      (100 + EDGE_Y) +
+      "px)",
     "border-radius:16px;overflow:hidden;background:#fff",
     "box-shadow:0 12px 48px rgba(0,0,0,.18)",
     "display:none;margin-bottom:12px",
@@ -236,9 +274,13 @@
     }
     // Both the panel and the button move together, or the panel opens off the
     // side of the button that spawned it.
-    var left = brand.launcherPosition === "left";
-    root.style.right = left ? "auto" : "20px";
-    root.style.left = left ? "20px" : "auto";
+    //
+    // The embedding page outranks the console here. The brand setting is one
+    // value for every surface the brand is on, and the page is the only party
+    // that knows this particular corner is already occupied.
+    var left = SIDE ? SIDE === "left" : brand.launcherPosition === "left";
+    root.style.right = left ? "auto" : EDGE_X + "px";
+    root.style.left = left ? EDGE_X + "px" : "auto";
     launcher.style.float = left ? "left" : "right";
     launcherWrap.style.float = left ? "left" : "right";
     // The pill grows inward, away from the edge it is anchored to, so a long
