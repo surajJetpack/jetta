@@ -22,6 +22,7 @@ interface Settings {
   accentColor: string;
   launcherLabel: string;
   launcherPosition: "left" | "right";
+  launcherIcon: "bubble" | "avatar";
   avatarUrl?: string;
   requireIdentity: boolean;
   autoOpenSeconds: number;
@@ -56,6 +57,7 @@ type Overlay = Pick<
   | "accentColor"
   | "launcherLabel"
   | "launcherPosition"
+  | "launcherIcon"
   | "avatarUrl"
   | "requireIdentity"
   | "autoOpenSeconds"
@@ -401,6 +403,31 @@ export default function ChatSettingsForm() {
                   onClick={() => set("launcherPosition", p)}
                 >
                   {p}
+                </Button>
+              ))}
+            </div>
+          </Field>
+
+          <Field
+            label="What the closed button shows"
+            hint="The avatar still appears inside the chat either way. A logo in a 56px circle on someone else's page reads as an advert; the bubble reads as an invitation."
+          >
+            <div className="flex gap-2">
+              {(
+                [
+                  ["bubble", "Message icon"],
+                  ["avatar", "The avatar"],
+                ] as const
+              ).map(([value, label]) => (
+                <Button
+                  key={value}
+                  type="button"
+                  size="sm"
+                  variant={form.launcherIcon === value ? "default" : "outline"}
+                  onClick={() => set("launcherIcon", value)}
+                  disabled={value === "avatar" && !form.avatarUrl}
+                >
+                  {label}
                 </Button>
               ))}
             </div>

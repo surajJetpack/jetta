@@ -35,6 +35,7 @@ interface Overlay {
   accentColor?: string;
   launcherLabel?: string;
   launcherPosition?: "left" | "right";
+  launcherIcon?: "bubble" | "avatar";
   avatarUrl?: string;
   requireIdentity?: boolean;
   autoOpenSeconds?: number;
@@ -166,6 +167,7 @@ export default function GetSignSkinForm() {
     accentColor: o.accentColor ?? base.accentColor,
     launcherLabel: o.launcherLabel ?? base.launcherLabel,
     launcherPosition: o.launcherPosition ?? base.launcherPosition,
+    launcherIcon: o.launcherIcon ?? base.launcherIcon,
     avatarUrl: o.avatarUrl ?? base.avatarUrl,
     requireIdentity: o.requireIdentity ?? base.requireIdentity,
     autoOpenSeconds: o.autoOpenSeconds ?? base.autoOpenSeconds,
@@ -245,6 +247,20 @@ export default function GetSignSkinForm() {
                   { v: "right" as const, label: "right" },
                 ]}
                 onChange={(v) => set("launcherPosition", v)}
+              />
+            </Field>
+
+            <Field
+              label="What the closed button shows"
+              hint="GetSign's own site is the case for the logo; the avatar still appears inside the chat either way."
+            >
+              <Tri
+                value={o.launcherIcon}
+                options={[
+                  { v: "bubble" as const, label: "message icon" },
+                  { v: "avatar" as const, label: "the avatar" },
+                ]}
+                onChange={(v) => set("launcherIcon", v)}
               />
             </Field>
 
