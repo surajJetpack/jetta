@@ -45,6 +45,16 @@ export interface ChatSettings {
   launcherLabel: string;
   launcherPosition: "left" | "right";
   /**
+   * What the closed button shows: the speech bubble, or the avatar.
+   *
+   * Two decisions used to be one. The avatar is Jetta's face inside the
+   * conversation; the launcher is a button on someone else's page, and a logo
+   * squeezed into a 56px circle in the corner of a marketing site reads as an
+   * advert rather than as "talk to us". Defaults to the bubble, so setting an
+   * avatar no longer changes what the launcher is.
+   */
+  launcherIcon: "bubble" | "avatar";
+  /**
    * Bot avatar, as a data URI. Stored inline rather than in blob storage: an
    * avatar is a few kB, this document is already read on every chat request,
    * and it avoids standing up a bucket for one image. Capped on save so it
@@ -122,6 +132,7 @@ const OVERLAY_FIELDS = [
   "accentColor",
   "launcherLabel",
   "launcherPosition",
+  "launcherIcon",
   "avatarUrl",
   // Not cosmetic, but genuinely per-surface: getsign.io is a marketing site
   // and the GetSign app view is a logged-in workspace, so "open by itself
@@ -142,6 +153,7 @@ const PUBLIC_FIELDS = [
   "accentColor",
   "launcherLabel",
   "launcherPosition",
+  "launcherIcon",
   "avatarUrl",
   "requireIdentity",
   "autoOpenSeconds",
@@ -232,6 +244,7 @@ export function defaultSettings(): ChatSettings {
     accentColor: "#171717",
     launcherLabel: "Chat with us",
     launcherPosition: "right",
+    launcherIcon: "bubble",
     avatarUrl: undefined,
     requireIdentity: true,
     // Off by default. A chat window that opens itself is an interruption, and
@@ -329,6 +342,9 @@ export async function saveChatSettings(
   // moment the file was needed.
   next.maxAttachmentMb = clamp(Number(next.maxAttachmentMb), 1, 25, current.maxAttachmentMb);
   if (!HEX.test(next.accentColor)) next.accentColor = current.accentColor;
+  if (next.launcherIcon !== "bubble" && next.launcherIcon !== "avatar") {
+    next.launcherIcon = current.launcherIcon;
+  }
   if (next.launcherPosition !== "left" && next.launcherPosition !== "right") {
     next.launcherPosition = current.launcherPosition;
   }
@@ -378,6 +394,8 @@ export async function saveChatSettings(
         if (v === undefined || v === null || v === "") continue;
         if (k === "accentColor") {
           if (HEX.test(String(v))) o.accentColor = String(v);
+        } else if (k === "launcherIcon") {
+          if (v === "bubble" || v === "avatar") o.launcherIcon = v;
         } else if (k === "launcherPosition") {
           if (v === "left" || v === "right") o.launcherPosition = v;
         } else if (k === "avatarUrl") {

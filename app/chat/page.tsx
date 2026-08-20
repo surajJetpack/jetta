@@ -133,6 +133,7 @@ interface UiConfig {
   // so it can be handed out through the brand message below.
   launcherLabel: string;
   launcherPosition: "left" | "right";
+  launcherIcon: "bubble" | "avatar";
   requireIdentity: boolean;
   autoOpenSeconds: number;
   attachmentsEnabled: boolean;
@@ -146,6 +147,7 @@ const DEFAULT_UI: UiConfig = {
   accentColor: "#171717",
   launcherLabel: "Chat with us",
   launcherPosition: "right",
+  launcherIcon: "bubble",
   requireIdentity: true,
   autoOpenSeconds: 0,
   attachmentsEnabled: true,
@@ -321,6 +323,7 @@ export default function ChatWidgetPage() {
           avatarUrl: c.avatarUrl,
           launcherLabel: c.launcherLabel,
           launcherPosition: c.launcherPosition,
+          launcherIcon: c.launcherIcon,
         },
       });
     });

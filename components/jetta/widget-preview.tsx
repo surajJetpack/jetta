@@ -23,6 +23,7 @@ export interface PreviewSettings {
   accentColor: string;
   launcherLabel: string;
   launcherPosition: "left" | "right";
+  launcherIcon: "bubble" | "avatar";
   avatarUrl?: string;
   requireIdentity: boolean;
   autoOpenSeconds: number;
@@ -110,7 +111,7 @@ export function WidgetPreview({ s, label }: { s: PreviewSettings; label?: string
             style={{ backgroundColor: accent }}
           >
             <span className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-full">
-              {s.avatarUrl ? (
+              {s.launcherIcon === "avatar" && s.avatarUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={s.avatarUrl} alt="" className="size-full object-cover" />
               ) : (

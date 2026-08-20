@@ -160,7 +160,14 @@ function main() {
     },
   });
   check("the launcher takes the brand colour", cold.launcher.style.background === "#2563eb", cold.launcher.style.background);
-  check("the logo replaces the speech bubble", cold.icon.children.some((c) => c.tagName === "img" && c.src === "data:image/png;base64,AAAA"));
+  // An avatar alone must NOT reach the launcher. It is Jetta's face inside the
+  // conversation; the closed button is a button on someone else's page, and
+  // conflating the two put a logo in the corner of every site that set one.
+  check(
+    "an avatar alone does not replace the speech bubble",
+    cold.icon.innerHTML.includes("<svg") && !cold.icon.children.some((c) => c.tagName === "img"),
+    cold.icon.innerHTML.slice(0, 40),
+  );
   check("the label becomes the button's tooltip", cold.launcher.title === "Chat to GetSign");
   check(
     "and, the point of all this, becomes text the visitor can read",
@@ -183,10 +190,27 @@ function main() {
     `became ${cold.launcher.style.background}`,
   );
 
+  // ── The logo, when it is actually asked for ───────────────────────
+  const logo = boot(null);
+  logo.send({
+    type: "jettachat:brand",
+    brand: { launcherIcon: "avatar", avatarUrl: "data:image/png;base64,AAAA" },
+  });
+  check(
+    "asking for the avatar puts it on the launcher",
+    logo.icon.children.some((c) => c.tagName === "img" && c.src === "data:image/png;base64,AAAA"),
+    logo.icon.innerHTML.slice(0, 40),
+  );
+  // Asking for a logo nobody uploaded must not leave an empty circle.
+  const noLogo = boot(null);
+  noLogo.send({ type: "jettachat:brand", brand: { launcherIcon: "avatar" } });
+  check("asking for an avatar there isn't falls back to the bubble", noLogo.icon.innerHTML.includes("<svg"));
+
   // ── Warm start: the cache paints before the frame speaks ──────────
   const warm = boot({
     accentColor: "#2563eb",
     avatarUrl: "data:image/png;base64,AAAA",
+    launcherIcon: "avatar",
     launcherLabel: "Chat to GetSign",
     launcherPosition: "left",
   });

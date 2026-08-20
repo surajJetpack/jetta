@@ -259,7 +259,16 @@
       launcher.style.background = brand.accentColor;
     }
     if (brand.launcherLabel) launcher.title = brand.launcherLabel;
-    if (brand.avatarUrl && /^data:image\//.test(brand.avatarUrl)) {
+    // The closed button carries the speech bubble unless someone asks for the
+    // logo instead.
+    //
+    // It used to take the avatar whenever one existed, which conflated two
+    // decisions: the avatar is Jetta's face inside the conversation, and the
+    // launcher is a button on someone else's page. A logo squeezed into a 56px
+    // circle in the corner of a marketing site reads as an advert; the bubble
+    // reads as "talk to us", which is the job. So `launcherIcon` chooses, and
+    // the avatar keeps its real work in the panel header either way.
+    if (brand.launcherIcon === "avatar" && brand.avatarUrl && /^data:image\//.test(brand.avatarUrl)) {
       icon.innerHTML = "";
       var img = document.createElement("img");
       img.src = brand.avatarUrl;
