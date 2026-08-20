@@ -133,6 +133,44 @@ export default function InstallGuide({ baseUrl }: { baseUrl: string }) {
     });
 </script>`;
 
+  // The same thing for an app that imports the SDK instead of loading it from a
+  // CDN — which is how ours are actually built. There is no global `monday` in
+  // a bundled app, so the snippet above throws `monday is not defined` and the
+  // widget never appears; the SSR-shaped fix (put it in index.html) is the one
+  // that cannot work here.
+  //
+  // The guard is not defensive padding. React re-invokes effects in
+  // development, and mounting twice appends two loaders — two launchers, two
+  // sessions, and a visitor who cannot tell which one anybody is reading.
+  const mondayModuleSnippet = `import mondaySdk from "monday-sdk-js";
+
+const monday = mondaySdk();
+
+export async function mountJettaChat() {
+  if (window.__jettaChatMounted) return;
+  window.__jettaChatMounted = true;
+
+  const res = await monday.api("query { me { id name email } account { id slug } }");
+  const { me, account } = res.data;
+
+  window.JettaChatConfig = {
+    surface: "monday",
+    visitor: {
+      name: me.name,
+      email: me.email,
+      mondayAccountSlug: account.slug,
+      mondayAccountId: String(account.id),
+      mondayUserId: String(me.id),
+      app: "getsign",
+    },
+  };
+
+  const s = document.createElement("script");
+  s.src = "${baseUrl}/jettachat.js";
+  s.defer = true;
+  document.body.appendChild(s);
+}`;
+
   return (
     <div className="space-y-5">
       <Card>
@@ -227,6 +265,11 @@ export default function InstallGuide({ baseUrl }: { baseUrl: string }) {
             they&apos;re never asked — and Jetta can look up their account, plan and boards from the first message.
           </p>
           <Snippet code={mondaySnippet} />
+          <p className="text-sm text-muted-foreground">
+            That version needs a global <code>monday</code>, which only exists if the view loads the SDK from
+            a CDN. Ours import it, so use this instead — same handover, called once after the view mounts.
+          </p>
+          <Snippet code={mondayModuleSnippet} />
           <p className="text-[11px] text-muted-foreground">
             The app needs the <code>me:read</code> scope, or the query comes back without a name and email and
             the visitor is asked for them anyway. Set <code>app</code> to whichever product the view belongs to
