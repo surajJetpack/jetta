@@ -55,16 +55,23 @@ export async function proxy() {
   const res = NextResponse.next();
   const origins = await allowedOrigins();
 
-  // No configured embedders ⇒ 'none'. A fresh deploy is not embeddable
-  // anywhere until someone says where, which is the right default for a page
-  // that renders customer conversations.
+  // `'self'` is always allowed, and is not part of the configurable list.
+  //
+  // Our own pages are the widget's other legitimate embedder: /chat-demo exists
+  // to show the real launcher and panel, and the settings preview does the same
+  // job for whoever is editing the skin. Neither is reachable without already
+  // being on this origin, so allowing it grants nothing that navigation didn't
+  // already grant — while leaving it out made both of them a blank box. The
+  // demo page has never worked in production for exactly this reason, and with
+  // an empty allowlist ('none') it doesn't work locally either.
+  //
+  // Everything else is still opt-in per origin: a fresh deploy is embeddable on
+  // its own pages and nowhere else until someone says where, which is the right
+  // default for a page that renders customer conversations.
   //
   // Wildcards pass through unchanged: CSP understands https://*.monday.com
   // natively, which is why the allowlist stores them verbatim.
-  res.headers.set(
-    "Content-Security-Policy",
-    `frame-ancestors ${origins.length ? origins.join(" ") : "'none'"}`,
-  );
+  res.headers.set("Content-Security-Policy", `frame-ancestors 'self' ${origins.join(" ")}`.trim());
   return res;
 }
 
