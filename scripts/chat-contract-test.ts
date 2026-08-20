@@ -443,6 +443,51 @@ async function main() {
   await closeTool.execute({});
   check("resolving a chat records the resolution", signals.resolutionSent === true);
 
+  // ── The monday app view ──────────────────────────────────────────
+  //
+  // The whole point of embedding inside the app rather than on the site is that
+  // the visitor arrives with their account attached. That advantage exists in
+  // exactly one place — two lines of the system prompt — and it is invisible
+  // everywhere else: the session succeeds, the reply looks fine, and the only
+  // symptom of losing it is Jetta asking a logged-in customer for the monday
+  // URL she was already handed.
+  section("monday app view");
+  const { buildSystemPrompt } = await import("../lib/system-prompt");
+  const promptCtx = (chat: Record<string, unknown>) =>
+    ({
+      channel: "jettachat",
+      ticket: null,
+      account: null,
+      relatedDevItems: [],
+      product: "jetpackapps",
+      appProduct: "getsign",
+      app: "getsign",
+      chat,
+    }) as never;
+
+  const mondayPrompt = await buildSystemPrompt(
+    promptCtx({ surface: "monday", mondayAccountSlug: "mallasrj01s-team", handoffEnabled: true }),
+  );
+  check(
+    "the prompt says the widget is inside the customer's monday account",
+    /inside the customer's monday\.com account/i.test(mondayPrompt),
+  );
+  check("the prompt carries the account slug", mondayPrompt.includes("mallasrj01s-team"));
+  check(
+    "the prompt forbids asking for a monday URL it already has",
+    /do NOT ask the customer for their monday URL/i.test(mondayPrompt),
+  );
+
+  // The negative half. Without it the two checks above pass on a prompt that
+  // says this to everyone, which would be worse than saying it to nobody: a
+  // WordPress visitor has no account attached, and inventing one is a lie the
+  // trial and discount tools would then act on.
+  const sitePrompt = await buildSystemPrompt(promptCtx({ surface: "wordpress", handoffEnabled: true }));
+  check(
+    "a site visitor gets no monday account line",
+    !/monday account:/i.test(sitePrompt) && !/inside the customer's monday\.com account/i.test(sitePrompt),
+  );
+
   // ── Silence is a bug ─────────────────────────────────────────────
   //
   // Every exit path from a run either sends something or opens a ticket. With

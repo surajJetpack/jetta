@@ -98,27 +98,39 @@ export default function InstallGuide({ baseUrl }: { baseUrl: string }) {
   const getsignTag = `<script src="${baseUrl}/jettachat.js" data-surface="wordpress" data-app="getsign" defer></script>`;
 
   // Identity must exist BEFORE the first session is created, and the monday SDK
-  // resolves asynchronously — so the context is fetched first and the loader is
-  // injected after. Calling identify() later races the visitor: if they open the
-  // chat first, they get asked for a name the SDK already knew.
+  // resolves asynchronously — so who the visitor is is fetched first and the
+  // loader is injected after. Setting JettaChatConfig later races the visitor:
+  // if they open the chat first, they get asked for a name the SDK already knew.
+  //
+  // It comes from monday.api(), NOT from monday.get("context"). The context
+  // object carries IDS ONLY — `user.id` and `account.id` — with no name, no
+  // email and no account slug anywhere in it. Reading them from there yields
+  // undefined, the session is refused for having no identity, and the visitor
+  // is shown the very form this snippet exists to skip. monday.api() needs no
+  // token on the client (it uses the logged-in user's own credentials), but it
+  // does need the app to hold the `me:read` scope.
   const mondaySnippet = `<script>
-  monday.get("context").then(function (res) {
-    window.JettaChatConfig = {
-      surface: "monday",
-      visitor: {
-        name: res.data.user.name,
-        email: res.data.user.email,
-        mondayAccountSlug: res.data.account.slug,
-        mondayAccountId: String(res.data.account.id),
-        mondayUserId: String(res.data.user.id),
-        app: "vlookup"            // the app this view belongs to
-      }
-    };
-    var s = document.createElement("script");
-    s.src = "${baseUrl}/jettachat.js";
-    s.defer = true;
-    document.body.appendChild(s);
-  });
+  monday
+    .api("query { me { id name email } account { id slug } }")
+    .then(function (res) {
+      var me = res.data.me;
+      var account = res.data.account;
+      window.JettaChatConfig = {
+        surface: "monday",
+        visitor: {
+          name: me.name,
+          email: me.email,
+          mondayAccountSlug: account.slug,
+          mondayAccountId: String(account.id),
+          mondayUserId: String(me.id),
+          app: "getsign"            // the app this view belongs to
+        }
+      };
+      var s = document.createElement("script");
+      s.src = "${baseUrl}/jettachat.js";
+      s.defer = true;
+      document.body.appendChild(s);
+    });
 </script>`;
 
   return (
@@ -216,8 +228,15 @@ export default function InstallGuide({ baseUrl }: { baseUrl: string }) {
           </p>
           <Snippet code={mondaySnippet} />
           <p className="text-[11px] text-muted-foreground">
-            Add <code>https://*.monday.com</code> (or the specific app-view host) to the allowed list, and set{" "}
-            <code>app</code> to whichever product the view belongs to so tickets are attributed correctly.
+            The app needs the <code>me:read</code> scope, or the query comes back without a name and email and
+            the visitor is asked for them anyway. Set <code>app</code> to whichever product the view belongs to
+            so tickets are attributed correctly.
+          </p>
+          <p className="text-[11px] text-muted-foreground">
+            Two origins go on the allowed list, not one: the host your app view is served from{" "}
+            <em>and</em> <code>https://*.monday.com</code>. The browser checks the framing rule against every
+            ancestor of the chat, and inside monday your view is itself in a frame — list only your own host and
+            the launcher opens onto nothing.
           </p>
         </CardContent>
       </Card>
@@ -245,8 +264,11 @@ export default function InstallGuide({ baseUrl }: { baseUrl: string }) {
           <div>
             <p className="font-medium">It asks monday users for their name</p>
             <p className="text-muted-foreground">
-              <code>JettaChatConfig</code> wasn&apos;t set before the loader ran. Fetch the monday context first
-              and inject the script afterwards, as in the snippet above — set it later and you race the visitor.
+              Either <code>JettaChatConfig</code> wasn&apos;t set before the loader ran — fetch who the visitor
+              is first and inject the script afterwards, as in the snippet above — or the name and email came
+              back empty. Log the query result: <code>monday.get(&quot;context&quot;)</code> never carries a name,
+              an email or an account slug, and <code>monday.api()</code> returns them only with the{" "}
+              <code>me:read</code> scope granted.
             </p>
           </div>
           <div>
