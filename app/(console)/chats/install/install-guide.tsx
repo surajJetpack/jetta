@@ -154,6 +154,8 @@ export async function mountJettaChat() {
   const { me, account } = res.data;
 
   window.JettaChatConfig = {
+    // Also lifts the launcher 88px off the bottom, clear of monday's AI
+    // sidekick — pass launcher.offsetY to put it somewhere else.
     surface: "monday",
     // Bottom-right belongs to monday inside an app view.
     launcher: { position: "left" },
@@ -278,11 +280,13 @@ export async function mountJettaChat() {
             so tickets are attributed correctly.
           </p>
           <p className="text-[11px] text-muted-foreground">
-            <b>If something already occupies that corner</b>, move the launcher from the embedding page:{" "}
-            <code>launcher: {"{ position: \"left\", offsetY: 88 }"}</code>. It outranks the side set in
-            Settings, which is per brand and would move the website too. Raising it with{" "}
-            <code>offsetY</code> clears a bottom bar; z-index is no help — the widget is in an iframe, so it
-            can never stack above monday&apos;s own floating buttons.
+            <b>The corner is already monday&apos;s.</b> Their AI sidekick is a floating circle in the same
+            spot at the same size, so <code>surface: &quot;monday&quot;</code> now anchors the launcher{" "}
+            <code>88px</code> up by default — a launcher height plus a gap above it — and stacks rather than
+            sits beside it, so it clears either corner. Pass your own{" "}
+            <code>launcher: {"{ position: \"left\", offsetY: 88 }"}</code> to override: it outranks the side
+            set in Settings, which is per brand and would move the website too. z-index is no help — the
+            widget is in an iframe, so it can never stack above monday&apos;s own floating buttons.
           </p>
           <p className="text-[11px] text-muted-foreground">
             Two origins go on the allowed list, not one: the host your app view is served from{" "}

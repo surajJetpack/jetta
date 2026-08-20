@@ -37,6 +37,7 @@ interface El {
   src?: string;
   appendChild(c: El): El;
   setAttribute(k: string, v: string): void;
+  removeAttribute(k: string): void;
   addEventListener(): void;
   onerror?: () => void;
 }
@@ -61,6 +62,10 @@ function makeEl(tagName: string): El {
     },
     setAttribute(k: string, v: string) {
       this.attrs[k] = v;
+    },
+    removeAttribute(k: string) {
+      delete this.attrs[k];
+      if (k === "title") delete this.title;
     },
     addEventListener() {},
   };
@@ -266,6 +271,41 @@ function main() {
     untouched.root.style.cssText,
   );
 
+  // ── monday's corner is already taken ─────────────────────────────
+  //
+  // monday's own AI sidekick is a floating circle in the same corner at the
+  // same size, so at the usual 20px Jetta's launcher sits completely
+  // underneath it — and no z-index of ours can help, because we are in an
+  // iframe on their page. A monday app view that says nothing about placement
+  // must therefore NOT get the 20px default; it gets stacked above.
+  const sidekick = boot({ accentColor: "#2563eb" }, 1280, { surface: "monday" });
+  check(
+    "a monday app view lifts the launcher clear of the sidekick by default",
+    sidekick.root.style.cssText.includes("bottom:88px"),
+    sidekick.root.style.cssText,
+  );
+  check(
+    "and the lift is vertical, so it works in either corner",
+    sidekick.root.style.right === "20px",
+    `right=${sidekick.root.style.right}`,
+  );
+  // The default is a default, not a policy: an app view with its own furniture
+  // still decides.
+  const ownIdea = boot({ accentColor: "#2563eb" }, 1280, { surface: "monday", launcher: { offsetY: 20 } });
+  check(
+    "a monday page that asks for the bottom edge still gets it",
+    ownIdea.root.style.cssText.includes("bottom:20px"),
+    ownIdea.root.style.cssText,
+  );
+  // Only monday. A WordPress footer is not monday's sidekick, and every
+  // existing website embed has to stay exactly where it is.
+  const wp = boot({ accentColor: "#2563eb" }, 1280, { surface: "wordpress" });
+  check(
+    "a website embed is untouched by the monday lift",
+    wp.root.style.cssText.includes("bottom:20px"),
+    wp.root.style.cssText,
+  );
+
   // A page meaning 88 and passing "88px" must not park the launcher off-screen.
   const junk = boot({ accentColor: "#2563eb" }, 1280, { launcher: { offsetY: "88px", offsetX: 9999 } });
   check(
@@ -277,6 +317,26 @@ function main() {
   // ── A phone gets the circle, not a pill across the page ───────────
   const narrow = boot({ accentColor: "#2563eb", launcherLabel: "Chat to GetSign" }, 390);
   check("on a narrow viewport the label stays folded away", narrow.label.style.display === "none");
+
+  // ── Taking the label away actually takes it away ──────────────────
+  //
+  // The cached brand paints the old caption before the frame has spoken, so
+  // clearing the label in the console is a repaint from something to nothing —
+  // the one direction that used to leave the tooltip behind, hovering a
+  // caption at visitors long after it was deleted.
+  const cleared = boot({ accentColor: "#2563eb", launcherLabel: "Chat to GetSign" });
+  check("a cached label is showing before the change lands", cleared.label.style.display === "block");
+  cleared.send({ type: "jettachat:brand", brand: { accentColor: "#2563eb", launcherLabel: "" } });
+  check(
+    "clearing the label folds the pill back to a circle",
+    cleared.label.style.display === "none" && cleared.label.textContent === "",
+    `text=${JSON.stringify(cleared.label.textContent)} display=${cleared.label.style.display}`,
+  );
+  check(
+    "and takes the tooltip with it",
+    !cleared.launcher.title && cleared.launcher.attrs.title === undefined,
+    `title=${JSON.stringify(cleared.launcher.title)}`,
+  );
 
   // The loader can only paint what the frame tells it. That half lives in
   // React and cannot be booted here, so it is asserted against its source —
