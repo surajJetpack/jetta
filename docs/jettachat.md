@@ -95,6 +95,14 @@ discount tools stop having to ask the customer for their monday URL.
 <script src="https://YOUR-JETTA-HOST/jettachat.js" defer></script>
 ```
 
+`surface: "monday"` also anchors the launcher 88px off the bottom instead of
+the usual 20px. monday's own AI sidekick is a floating circle in that corner at
+the same size, and at 20px Jetta's launcher lands completely underneath it —
+unclickable, and looking exactly like a widget that failed to load. The lift is
+vertical so it holds in either corner, and z-index cannot substitute: the
+widget is in an iframe on monday's page. Override it with
+`launcher: { position: "left", offsetX: 20, offsetY: 88 }`.
+
 `window.JettaChat` exposes `open()`, `close()`, `identify(visitor)`, `reset()`.
 
 ## Operating it

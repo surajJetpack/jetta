@@ -24,6 +24,8 @@
  * page knows what else is in that corner:
  *
  *   window.JettaChatConfig = {
+ *     // Optional. Defaults: 20px from each edge — but 88px from the bottom on
+ *     // surface "monday", which is already occupied by monday's AI sidekick.
  *     launcher: { position: "left", offsetX: 20, offsetY: 88 },
  *   };
  *
@@ -67,16 +69,34 @@
    * Clamped rather than trusted: a page meaning `offsetY: 88` and passing
    * `"88px"` or `8800` would otherwise park the launcher somewhere nobody can
    * click, which reads as a broken install rather than a bad number. An absent
-   * or unusable value falls back to the 20px edge the widget has always used,
-   * and an absent `position` leaves the console's brand setting in charge.
+   * or unusable value falls back to the default edge for the surface (see
+   * DEFAULT_EDGE_Y), and an absent `position` leaves the console's brand
+   * setting in charge.
    */
   var placement = config.launcher || {};
-  function edge(v) {
+  /**
+   * How high the launcher sits when the page hasn't said.
+   *
+   * 20px everywhere, except inside a monday app view — where that corner is
+   * not ours. monday puts its own AI sidekick there, a floating circle at the
+   * same size in the same spot, and at 20px Jetta's launcher lands completely
+   * underneath it: invisible, unclickable, and indistinguishable from a widget
+   * that failed to load. Nothing on our side can win that fight with a
+   * z-index, because we are in an iframe on their page.
+   *
+   * 88px stacks Jetta a full launcher height (56px) plus a gap above the
+   * sidekick rather than beside it — which works whichever corner the app puts
+   * us in, and is the same offset the install guide has always recommended for
+   * clearing a bottom bar. A page that knows its own furniture still overrides
+   * it by passing `offsetY`.
+   */
+  var DEFAULT_EDGE_Y = surface === "monday" ? 88 : 20;
+  function edge(v, fallback) {
     var n = Number(v);
-    return isFinite(n) && n >= 0 ? Math.min(n, 240) : 20;
+    return isFinite(n) && n >= 0 ? Math.min(n, 240) : fallback;
   }
-  var EDGE_X = edge(placement.offsetX);
-  var EDGE_Y = edge(placement.offsetY);
+  var EDGE_X = edge(placement.offsetX, 20);
+  var EDGE_Y = edge(placement.offsetY, DEFAULT_EDGE_Y);
   var SIDE = placement.position === "left" || placement.position === "right" ? placement.position : null;
 
   /**
@@ -258,7 +278,14 @@
     if (/^#[0-9a-f]{6}$/i.test(brand.accentColor || "")) {
       launcher.style.background = brand.accentColor;
     }
+    // Assigned every paint, including to nothing.
+    //
+    // This used to only ever be set, never cleared — so a label removed in the
+    // console kept hanging off a hover. The cached brand paints first and puts
+    // the old caption in the tooltip; the live brand arrives with no label,
+    // folds the pill away, and left the tooltip exactly where it was.
     if (brand.launcherLabel) launcher.title = brand.launcherLabel;
+    else launcher.removeAttribute("title");
     // The closed button carries the speech bubble unless someone asks for the
     // logo instead.
     //
