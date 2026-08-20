@@ -234,6 +234,18 @@ function main() {
     `left=${moved.root.style.left} right=${moved.root.style.right}`,
   );
 
+  // The first view in a browser has no cached brand, so nothing has told the
+  // loader which side the brand wants. The placement must still apply — if it
+  // only landed on the brand repaint, the launcher would sit in the occupied
+  // corner until the frame answered, which is where anyone reporting "it's
+  // still on the right" would be looking.
+  const coldMoved = boot(null, 1280, { surface: "monday", launcher: { position: "left" } });
+  check(
+    "placement applies on a first view, before any brand is known",
+    coldMoved.root.style.left === "20px" && coldMoved.root.style.right === "auto",
+    `left=${coldMoved.root.style.left} right=${coldMoved.root.style.right}`,
+  );
+
   // Nothing passed = nothing changed, or every existing embed moves.
   const untouched = boot({ accentColor: "#2563eb", launcherPosition: "right" });
   check(
