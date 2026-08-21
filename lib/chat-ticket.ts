@@ -106,6 +106,14 @@ export async function openTicketForConversation(
       : "Opened by Jetta from a live chat.",
     `Conversation: ${conversationUrl(conv.id)}`,
     `Surface: ${conv.surface}${conv.pageUrl ? ` — ${conv.pageUrl}` : ""}`,
+    // One chat can raise more than one issue, and each gets its own ticket.
+    // Whoever picks this up should know the others exist — the transcript
+    // below covers the whole conversation, so without this line they would
+    // read about a problem already being worked and have no way to tell.
+    conv.ticketId ? `Earlier ticket from this chat: #${conv.ticketId}` : "",
+    conv.previousTicketIds?.length
+      ? `Earlier still: ${conv.previousTicketIds.map((t) => `#${t}`).join(", ")}`
+      : "",
     conv.visitor.mondayAccountSlug ? `monday account: ${conv.visitor.mondayAccountSlug}` : "",
     files.length ? `Files attached: ${files.map((f) => f.name).join(", ")}` : "",
   ].filter(Boolean);
@@ -120,6 +128,40 @@ export async function openTicketForConversation(
     );
 
   return created;
+}
+
+/**
+ * Where an update from a still-running chat should go.
+ *
+ * Pulled out as a pure function for the same reason `chooseDelivery` was: it is
+ * a three-way branch on a remote system's state that cannot be exercised
+ * without one, and the branch most likely to be got wrong is the one that looks
+ * like an edge case. `status` is null when the Freshdesk lookup FAILED, and
+ * that must route to "note" — treating an unreachable API as a closed ticket
+ * would spray duplicate tickets across the team every time Freshdesk had a bad
+ * minute. Only a status we actually read, and that is actually terminal, moves
+ * off the default.
+ */
+export type TicketUpdateRoute =
+  /** Add a private note to the existing ticket — the normal path. */
+  | { kind: "note" }
+  /**
+   * The old ticket is finished; open a fresh one carrying the conversation.
+   * The address is carried on the branch rather than re-derived by the caller,
+   * so "we only replace when we have somewhere to reply" is one invariant in
+   * one place instead of a non-null assertion at the call site.
+   */
+  | { kind: "replace"; status: string; email: string }
+  /** It needs a new ticket and we have no requester address. */
+  | { kind: "needs_email"; status: string };
+
+export function routeTicketUpdate(
+  status: string | null,
+  email: string | undefined,
+): TicketUpdateRoute {
+  if (!status || !freshdesk.isTerminalStatus(status)) return { kind: "note" };
+  const trimmed = email?.trim();
+  return trimmed ? { kind: "replace", status, email: trimmed } : { kind: "needs_email", status };
 }
 
 /**

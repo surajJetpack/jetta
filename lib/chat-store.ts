@@ -203,35 +203,90 @@ async function appendMessageLocked(
   return msg;
 }
 
+type ConversationPatch = Partial<
+  Pick<
+    ChatConversation,
+    | "status"
+    | "ticketId"
+    | "previousTicketIds"
+    | "ticketedAt"
+    | "lastTicketSyncAt"
+    | "humanRequestedAt"
+    | "humanAgent"
+  >
+> & { visitor?: Partial<ChatVisitor> };
+
 /** Patch conversation-level fields (status, ticket link, learned identity). */
 export async function updateConversation(
   conversationId: string,
-  patch: Partial<Pick<ChatConversation, "status" | "ticketId" | "humanRequestedAt" | "humanAgent">> & {
-    visitor?: Partial<ChatVisitor>;
-  },
+  patch: ConversationPatch,
 ): Promise<ChatConversation | null> {
   return withConversationLock(conversationId, () => updateConversationLocked(conversationId, patch));
 }
 
 async function updateConversationLocked(
   conversationId: string,
-  patch: Partial<Pick<ChatConversation, "status" | "ticketId" | "humanRequestedAt" | "humanAgent">> & {
-    visitor?: Partial<ChatVisitor>;
-  },
+  patch: ConversationPatch,
 ): Promise<ChatConversation | null> {
   const conv = await getConversation(conversationId);
   if (!conv) return null;
   if (patch.status) conv.status = patch.status;
+  /*
+   * Stamp the hand-off moment here rather than at the two call sites.
+   *
+   * Both Jetta's create_support_ticket and the console's convert button set
+   * status: "ticketed", and add_to_ticket needs to know where the transcript
+   * already sent to Freshdesk ends. Making each caller remember to stamp it is
+   * the shape of bug chat-ticket.ts exists to prevent — the ticket carries the
+   * screenshots when the bot opens it and not when a person does. One path.
+   *
+   * Only on the transition: re-patching a ticketed conversation must not move
+   * the mark and re-send the whole transcript as a "delta".
+   */
+  if (patch.status === "ticketed" && !conv.ticketedAt) {
+    conv.ticketedAt = nowIso();
+    conv.lastTicketSyncAt ??= conv.ticketedAt;
+  }
+  // Explicit patches win over the stamp above: replacing a closed ticket with a
+  // fresh one re-bases both marks, and the transition guard would not fire
+  // because the conversation is already `ticketed`.
+  if (patch.ticketedAt) conv.ticketedAt = patch.ticketedAt;
+  if (patch.lastTicketSyncAt) conv.lastTicketSyncAt = patch.lastTicketSyncAt;
   // `in` rather than an undefined check: handing a conversation back passes
   // humanAgent: undefined to CLEAR it, and an undefined check would silently
   // keep the previous person's name on a conversation they had left.
   if ("humanRequestedAt" in patch) conv.humanRequestedAt = patch.humanRequestedAt;
   if ("humanAgent" in patch) conv.humanAgent = patch.humanAgent;
   if (patch.ticketId) conv.ticketId = patch.ticketId;
+  if (patch.previousTicketIds) conv.previousTicketIds = patch.previousTicketIds;
   if (patch.visitor) conv.visitor = { ...conv.visitor, ...patch.visitor };
   conv.lastActivityAt = nowIso();
   await save(conv);
   return conv;
+}
+
+/**
+ * Has this conversation been idle too long for the widget to resume it?
+ *
+ * The visitor's claim on a conversation never expires on its own — the token
+ * is a plain HMAC with no timestamp, and the id sits in the embedding page's
+ * localStorage indefinitely. So without this, someone who chatted a month ago
+ * and comes back with a completely different problem lands in the old thread,
+ * and cannot get out of it: `conversationToTicket` derives the subject and
+ * description from the FIRST visitor message, permanently, however many turns
+ * have happened since.
+ *
+ * Stale means "start a new conversation", NOT "delete this one". The transcript
+ * lives out its retention window and stays in the console either way; only the
+ * widget stops picking it back up.
+ */
+export function isStale(conv: ChatConversation, idleHours: number): boolean {
+  const last = Date.parse(conv.lastActivityAt);
+  // An unparseable timestamp is a corrupt record, not an old one. Resuming is
+  // the safe answer: the worst case is a stale thread, and the alternative
+  // silently discards a conversation that may be seconds old.
+  if (!Number.isFinite(last)) return false;
+  return Date.now() - last > Math.max(1, idleHours) * 3_600_000;
 }
 
 /** Newest-first conversation list for the console. */
@@ -341,6 +396,32 @@ export function transcriptText(conv: ChatConversation): string {
       return `[${m.createdAt}] ${who}: ${textWithAttachments(m.text, m.attachments)}`;
     })
     .join("\n\n");
+}
+
+/**
+ * The part of the transcript said after `sinceIso` — what add_to_ticket pushes
+ * onto an existing Freshdesk ticket.
+ *
+ * Same rendering as transcriptText, and deliberately the same source: the note
+ * carries what was ACTUALLY said, not the model's account of it. A summary is
+ * offered alongside, never instead — the agent picking the ticket up has to be
+ * able to read the customer's own words.
+ *
+ * Strictly after, not at-or-after: the mark is the timestamp of the last
+ * message already sent, so an inclusive comparison would repeat it.
+ */
+export function transcriptSince(conv: ChatConversation, sinceIso: string | undefined): string {
+  return transcriptText({ ...conv, messages: messagesSince(conv, sinceIso) });
+}
+
+/**
+ * Turns said after `sinceIso`. Shared by the note text and the file forwarding
+ * so the two can never disagree about what "new" means — a note describing a
+ * screenshot it did not carry is the bug this whole path exists to avoid.
+ */
+export function messagesSince(conv: ChatConversation, sinceIso: string | undefined): ChatMessage[] {
+  const since = sinceIso ? Date.parse(sinceIso) : 0;
+  return conv.messages.filter((m) => Date.parse(m.createdAt) > since);
 }
 
 /** Every stored file across a conversation, oldest first. */

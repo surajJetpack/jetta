@@ -226,7 +226,12 @@ export interface ChatConversation {
    *                 fall back to a ticket if nobody arrives
    * human         — a person is in the conversation; Jetta stays silent
    * resolved      — done
-   * ticketed      — handed to Freshdesk for an email reply
+   * ticketed      — a Freshdesk ticket carries the outcome, and the team will
+   *                 reply there by email. NOT an end state for the chat: Jetta
+   *                 keeps answering, and anything new the visitor says is
+   *                 pushed onto the ticket via add_to_ticket. The status says
+   *                 where the ANSWER will come from, not whether the
+   *                 conversation is over.
    */
   status: "open" | "waiting_human" | "human" | "resolved" | "ticketed";
   /** Unix ms a human was requested — drives the "nobody came" fallback. */
@@ -238,8 +243,34 @@ export interface ChatConversation {
   pageUrl?: string;
   visitor: ChatVisitor;
   messages: ChatMessage[];
-  /** Freshdesk ticket opened as the escalation path, once one exists. */
+  /**
+   * The ACTIVE Freshdesk ticket — the one add_to_ticket writes to and the one
+   * the console links. Singular on purpose: the console, /today's dedupe and
+   * the guide all read this field, and one conversation has one live thread at
+   * a time even when it has raised more than one issue.
+   */
   ticketId?: string;
+  /**
+   * Tickets this conversation opened earlier, oldest first.
+   *
+   * A chat can raise two genuinely separate problems — support widgets invite
+   * exactly that, because someone already typing will bundle questions — and
+   * merging them into one ticket gives the team a thread they cannot close.
+   * When a second issue gets its own ticket, the first moves here.
+   *
+   * The known limitation: if the customer then goes BACK to the first issue,
+   * updates land on the newest ticket. Rare enough to accept, and the private
+   * note says it came from the live chat, so an agent can follow it across.
+   */
+  previousTicketIds?: string[];
+  /** ISO time the ticket was opened. Stamped by the store on the transition. */
+  ticketedAt?: string;
+  /**
+   * ISO high-water mark: everything said at or before this has already been
+   * pushed onto the ticket. Advanced by add_to_ticket, so a second call sends
+   * the delta rather than the transcript again.
+   */
+  lastTicketSyncAt?: string;
 }
 
 /** Assembled context handed to the Claude loop for a single turn. */
@@ -293,6 +324,12 @@ export interface ConversationContext {
      * listening while holding a tool that pings a channel someone watches.
      */
     handoffEnabled: boolean;
+    /**
+     * The Freshdesk ticket this conversation already has, if any. Its presence
+     * is what swaps create_support_ticket for add_to_ticket and adds the
+     * post-ticket rules to the prompt: one conversation, one thread.
+     */
+    ticketId?: string;
   };
 }
 

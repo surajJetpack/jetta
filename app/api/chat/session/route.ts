@@ -46,6 +46,13 @@ export async function POST(req: NextRequest) {
     // Expired or pruned — tell the widget to start over rather than 404ing it
     // into an error state the visitor can't clear.
     if (!conv) return await chatJson(req, { expired: true }, { status: 410 });
+    // Idle too long counts as gone, and takes the SAME path: the widget drops
+    // the stored session and opens a fresh one without the visitor seeing an
+    // error. The conversation itself is untouched and stays in the console —
+    // this only decides what gets picked back up. See store.isStale.
+    if (store.isStale(conv, (await getChatSettings()).sessionIdleHours)) {
+      return await chatJson(req, { expired: true }, { status: 410 });
+    }
     return await chatJson(req, {
       conversationId: conv.id,
       token,

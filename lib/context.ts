@@ -367,6 +367,11 @@ export async function buildContext(
           mondayAccountSlug: chatConv.visitor.mondayAccountSlug,
           pageUrl: chatConv.pageUrl,
           handoffEnabled: (await getChatSettings()).handoffEnabled,
+          // A conversation that already has a ticket is a different job: she
+          // keeps answering, but the escalation path is now "add to the
+          // existing thread", never "open a second one". Both the tool list
+          // and the prompt branch on this one field.
+          ticketId: chatConv.ticketId,
         }
       : undefined,
   };

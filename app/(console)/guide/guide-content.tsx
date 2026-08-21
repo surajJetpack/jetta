@@ -199,6 +199,32 @@ export default function GuideContent({ isAdmin }: { isAdmin: boolean }) {
               neither side is a dead end. Jetta does this herself when she can&apos;t resolve
               something — the button is for when you decide before she does.
             </p>
+            <p className="mt-1.5 text-sm">
+              <b>The chat does not stop.</b> A visitor who keeps typing still gets answers, and
+              anything new they say — a symptom, a screenshot, that it&apos;s now urgent — is pushed
+              onto the ticket as a private note, because the ticket only carries the transcript as
+              it stood when it was opened. She never gives out the ticket number.
+            </p>
+            <p className="mt-1.5 text-sm">
+              <b>One ticket per issue, not per conversation.</b> Everything about the same problem
+              is a note on the one ticket. If the visitor raises something genuinely separate — a
+              billing question in the middle of a bug report — that gets its own ticket, and both
+              are listed on the conversation. She also opens a fresh one if the original has since
+              been resolved or closed and the visitor comes back, rather than noting a thread nobody
+              is watching.
+            </p>
+          </StepCard>
+
+          <StepCard title="When a chat becomes a new chat">
+            <p className="text-sm">
+              A visitor who comes back within <b>24 hours</b> picks up the same conversation; after
+              that they get a fresh one, and there is a <b>+</b> in the widget header for starting
+              one deliberately. Nothing is deleted either way — the old transcript stays here for
+              the full retention window. The window is on <b>/chats/settings</b>, and it wants to
+              stay comfortably longer than a real conversation: someone still discussing the ticket
+              they just got would otherwise land in a clean chat and open a second one for the same
+              problem.
+            </p>
           </StepCard>
 
           <StepCard title="Attachments — and what Jetta can see">

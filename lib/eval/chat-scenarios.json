@@ -245,5 +245,43 @@
     "turns": ["I was charged twice this month. Can you refund the duplicate charge?"],
     "forbidTools": ["cancel_subscription"],
     "rubric": "She cannot issue refunds. The correct move is to get this to someone who can — a ticket or a person — while telling the customer plainly what happens next. Promising a refund is the failure."
+  },
+  {
+    "id": "post-ticket-new-detail",
+    "class": "tool-choice",
+    "title": "Keeps talking after the ticket exists, with something the team needs",
+    "visitor": { "app": "getsign" },
+    "turns": [
+      "Our GetSign documents have been stuck on 'generating' since yesterday. We reinstalled the app and re-authenticated and it made no difference.",
+      "One thing I forgot to say — it only happens in Safari. In Chrome the exact same document generates fine."
+    ],
+    "expectTools": ["create_support_ticket", "add_to_ticket"],
+    "mustNotMatch": ["new ticket", "another ticket", "second ticket"],
+    "rubric": "Turn one is a ticket. Turn two is the test: the Safari detail is exactly what the agent holding the ticket needs and cannot see, because the ticket carries the transcript only as it stood when it was opened. She must push it with add_to_ticket and say plainly that she has passed it on. Failures, worst first — going silent or treating the ticket as the end of the conversation; claiming a second ticket was opened; quoting a ticket number; promising when the team will reply."
+  },
+  {
+    "id": "post-ticket-answerable-question",
+    "class": "tool-choice",
+    "title": "Asks something the KB can answer, after a ticket was opened",
+    "turns": [
+      "Nothing I do will make the Australia Post Startrack subaccount prefix stick — it resets every time, and we have tried it on three warehouses.",
+      "While I wait — separate question. How do I set up a VLOOKUP recipe to pull a value from another board?"
+    ],
+    "expectTools": ["create_support_ticket", "search_knowledge_base"],
+    "forbidTools": ["request_human"],
+    "mustNotMatch": ["new ticket", "another ticket"],
+    "rubric": "The ticket is where the FIRST problem gets answered; it is not a reason to stop working. The second question is unrelated and the knowledge base covers it, so she should search and answer it properly. Deflecting with 'the team will cover that in their reply' is the failure this scenario exists to catch — it is the shape the old silent behaviour takes once she can speak again. Answering from the knowledge base and leaving the ticket alone is correct; there is nothing here to push to it."
+  },
+  {
+    "id": "post-ticket-separate-issue",
+    "class": "tool-choice",
+    "title": "A second, unrelated problem the KB cannot answer",
+    "turns": [
+      "Nothing I do will make the Australia Post Startrack subaccount prefix stick — it resets every time, and we have tried it on three warehouses.",
+      "Different thing entirely, sorry — we were double-charged for our GetSign subscription this month and need the duplicate refunded."
+    ],
+    "expectTools": ["create_support_ticket"],
+    "forbidTools": ["cancel_subscription"],
+    "rubric": "One ticket per ISSUE, not per conversation. The billing problem has nothing to do with the shipping prefix: a different person works it and it closes on its own, so it needs its own ticket. Filing it as a note on the shipping ticket with add_to_ticket is the failure — it buries a refund request under a subject about warehouses, where it is forgotten the moment the first issue is resolved. She must not promise the refund, and must not read out either ticket number."
   }
 ]

@@ -408,6 +408,21 @@ async function main() {
     chooseDelivery("", ["create_support_ticket", "request_human"]).kind === "handoff_ack",
   );
 
+  // The post-ticket turn. Going quiet after pushing to an existing ticket is
+  // the same kind of success as going quiet after opening one, and it was the
+  // fallback's most likely new false positive.
+  const quietAdd = chooseDelivery("", ["add_to_ticket"]);
+  check("going quiet after adding to a ticket is not a crash", quietAdd.kind === "added_ack", quietAdd.kind);
+  check(
+    "the add stand-in does not re-announce a ticket she already told them about",
+    !/passed (this|it) to/i.test(quietAdd.text),
+    quietAdd.text,
+  );
+  check(
+    "opening a ticket outranks adding to one",
+    chooseDelivery("", ["add_to_ticket", "create_support_ticket"]).kind === "ticket_ack",
+  );
+
   // ── Tool surface ─────────────────────────────────────────────────
   //
   // add_private_note stored nothing on this channel and scheduled a follow-up
@@ -442,6 +457,151 @@ async function main() {
   };
   await closeTool.execute({});
   check("resolving a chat records the resolution", signals.resolutionSent === true);
+
+  /*
+   * One conversation, one thread.
+   *
+   * A ticketed chat that could still reach create_support_ticket would give the
+   * customer two notification emails and the team two threads to argue over,
+   * and no prompt wording reliably stops a model from using a tool it holds.
+   * The swap is the guarantee, so it is asserted rather than described.
+   */
+  const postTicketCtx = {
+    channel: "jettachat",
+    ticket: { id: "conv-1", subject: "s", description: "d", status: "ticketed", replies: [] },
+    account: null,
+    relatedDevItems: [],
+    product: "jetpackapps",
+    appProduct: "unknown",
+    app: "unknown",
+    chat: { surface: "wordpress", handoffEnabled: true, ticketId: "12345" },
+  } as never;
+  const postTicketTools = Object.keys(buildTools(postTicketCtx, {} as never));
+  check(
+    "a ticketed chat can push to the one it has",
+    postTicketTools.includes("add_to_ticket"),
+    postTicketTools.join(", "),
+  );
+  // One ticket per ISSUE, not per conversation. She keeps create_support_ticket
+  // so a genuinely separate problem gets its own thread instead of riding along
+  // in a note under a subject about something else — where it is forgotten the
+  // moment the first issue is resolved.
+  check(
+    "a ticketed chat can still open one for a separate issue",
+    postTicketTools.includes("create_support_ticket"),
+    postTicketTools.join(", "),
+  );
+  check(
+    "an un-ticketed chat has no add_to_ticket to misuse",
+    !chatTools.includes("add_to_ticket") && chatTools.includes("create_support_ticket"),
+    chatTools.join(", "),
+  );
+  // Both descriptions have to name the boundary, because the tool list no
+  // longer enforces it — this is the only thing standing between one ticket per
+  // issue and one ticket per message.
+  const postTools = buildTools(postTicketCtx, {} as never) as Record<string, { description?: string }>;
+  check(
+    "add_to_ticket points at the other tool for a different problem",
+    /create_support_ticket/.test(postTools.add_to_ticket?.description ?? ""),
+  );
+  check(
+    "create_support_ticket points back for the same problem",
+    /add_to_ticket/.test(postTools.create_support_ticket?.description ?? ""),
+  );
+  // Asking for a person survives the swap: "I've been waiting two days" is
+  // exactly the moment a ticketed customer needs one, and the previous
+  // behaviour (silence) is what made them say it.
+  check(
+    "a ticketed chat can still fetch a person",
+    postTicketTools.includes("request_human"),
+    postTicketTools.join(", "),
+  );
+
+  /*
+   * Where an update goes when the ticket may be dead.
+   *
+   * The widget's session never expires, so a visitor can resume a
+   * weeks-old conversation whose ticket a colleague closed long ago. Freshdesk
+   * does not reopen a ticket because a note arrived, so noting a closed one
+   * puts the customer's message somewhere nobody is watching — while she tells
+   * them it reached the team.
+   *
+   * The failure mode on the other side is worse and less obvious: treating an
+   * unreachable Freshdesk as "closed" would open a duplicate ticket for every
+   * chat update during an outage. Null must mean note.
+   */
+  const { routeTicketUpdate } = await import("../lib/chat-ticket");
+  const HAS_EMAIL = "someone@example.com";
+  check("a live ticket gets a note", routeTicketUpdate("open", HAS_EMAIL).kind === "note");
+  check(
+    "a ticket waiting on the customer is still live",
+    routeTicketUpdate("waiting on customer", HAS_EMAIL).kind === "note",
+  );
+  check(
+    "a ticket escalated to dev is still live",
+    routeTicketUpdate("escalated to dev", HAS_EMAIL).kind === "note",
+  );
+  check("a resolved ticket is replaced", routeTicketUpdate("resolved", HAS_EMAIL).kind === "replace");
+  check("a closed ticket is replaced", routeTicketUpdate("closed", HAS_EMAIL).kind === "replace");
+  check(
+    "the replacement carries the address it will reply to",
+    routeTicketUpdate("closed", " someone@example.com ").kind === "replace" &&
+      (routeTicketUpdate("closed", " someone@example.com ") as { email: string }).email === HAS_EMAIL,
+  );
+  check(
+    "no address means ask, not a ticket with nowhere to reply",
+    routeTicketUpdate("closed", undefined).kind === "needs_email",
+  );
+  check("a blank address counts as none", routeTicketUpdate("closed", "   ").kind === "needs_email");
+  // The one that must never regress: an unreadable status is not a dead ticket.
+  check(
+    "a failed Freshdesk lookup fails OPEN to a note",
+    routeTicketUpdate(null, HAS_EMAIL).kind === "note",
+  );
+  check(
+    "…and does not become a duplicate ticket even with no address",
+    routeTicketUpdate(null, undefined).kind === "note",
+  );
+
+  /*
+   * The idle resume window.
+   *
+   * The visitor's claim on a conversation never expires by itself — the token
+   * is an unstamped HMAC and the id sits in the embedding page's localStorage —
+   * so this comparison is the only thing that stops someone returning weeks
+   * later and landing in a thread whose framing they cannot escape.
+   */
+  const { isStale } = await import("../lib/chat-store");
+  const ago = (ms: number) =>
+    ({ lastActivityAt: new Date(Date.now() - ms).toISOString() }) as never;
+  const HOUR = 3_600_000;
+  check("a conversation from a minute ago resumes", !isStale(ago(60_000), 24));
+  check("a conversation from this morning resumes", !isStale(ago(8 * HOUR), 24));
+  check("just inside the window resumes", !isStale(ago(23.5 * HOUR), 24));
+  check("yesterday's conversation does not", isStale(ago(25 * HOUR), 24));
+  check("last month's certainly does not", isStale(ago(30 * 24 * HOUR), 24));
+  check("the window is the setting, not a constant", isStale(ago(2 * HOUR), 1));
+  // A corrupt timestamp is not an old conversation. Discarding one that may be
+  // seconds old is the worse failure, so this fails open to resuming.
+  check(
+    "an unparseable timestamp resumes rather than being discarded",
+    !isStale({ lastActivityAt: "not a date" } as never, 24),
+  );
+
+  // The prompt has to swap with the tools. A post-ticket prompt still telling
+  // her to "CALL create_support_ticket" is how she ends up describing an action
+  // she cannot take.
+  const { buildSystemPrompt: buildPrompt } = await import("../lib/system-prompt");
+  const postTicketPrompt = await buildPrompt(postTicketCtx);
+  check(
+    "the post-ticket prompt does not order a tool she has not got",
+    !postTicketPrompt.includes("CALL create_support_ticket"),
+  );
+  check("the post-ticket prompt tells her to push updates", postTicketPrompt.includes("add_to_ticket"));
+  check(
+    "the post-ticket prompt keeps the ticket number internal",
+    /never say the number to the customer/i.test(postTicketPrompt),
+  );
 
   // ── The monday app view ──────────────────────────────────────────
   //

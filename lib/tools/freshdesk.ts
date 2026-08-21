@@ -1100,6 +1100,29 @@ export async function createTicket(t: NewTicket): Promise<CreatedTicket> {
   return { id: String(created.id), url: freshdeskTicketUrl(created.id) };
 }
 
+/**
+ * Just the status label, in one GET.
+ *
+ * getTicketDetails would answer this too, but it also pulls the whole
+ * conversation thread and the contact record — three requests and a full
+ * transcript to read one field. This is called on the chat path, where a
+ * visitor is watching a typing indicator.
+ *
+ * Returns null when the lookup fails, and callers are expected to fail OPEN on
+ * that: "I could not reach Freshdesk" must not be treated as "the ticket is
+ * closed".
+ */
+export async function getTicketStatus(ticketId: string): Promise<string | null> {
+  if (!config.freshdesk.live) return "open";
+  try {
+    const t = await fd<{ status: number }>(`/tickets/${ticketId}`);
+    return STATUS_LABELS[t.status] ?? String(t.status);
+  } catch (e) {
+    console.warn(`getTicketStatus(${ticketId}) failed:`, e instanceof Error ? e.message : e);
+    return null;
+  }
+}
+
 export async function replyToTicket(ticketId: string, body: string): Promise<void> {
   if (!config.freshdesk.live) {
     console.log(`[stub] reply_to_ticket #${ticketId}:\n${body}`);
@@ -1122,16 +1145,54 @@ export async function replyToTicket(ticketId: string, body: string): Promise<voi
 export async function addPrivateNote(
   ticketId: string,
   text: string,
-  opts: { html?: boolean } = {},
+  opts: { html?: boolean; attachments?: AttachmentFile[] } = {},
 ): Promise<void> {
   if (!config.freshdesk.live) {
-    console.log(`[stub] add_private_note #${ticketId}:\n${text}`);
+    console.log(
+      `[stub] add_private_note #${ticketId}` +
+        (opts.attachments?.length ? ` (+${opts.attachments.length} file(s))` : "") +
+        `:\n${text}`,
+    );
+    return;
+  }
+  const body = opts.html ? text : textToFdHtml(text);
+  const files = (opts.attachments ?? []).slice(0, MAX_FORWARD_FILES);
+  if (files.length) {
+    // Same multipart shape as postTicketMultipart, and for the same reason:
+    // Freshdesk takes files only as multipart, and fetch must be left to write
+    // its own boundary. A note is where a chat's later screenshots land — the
+    // ticket was created before the customer sent them.
+    await postNoteMultipart(ticketId, body, files);
     return;
   }
   await fd(`/tickets/${ticketId}/notes`, {
     method: "POST",
-    body: JSON.stringify({ body: opts.html ? text : textToFdHtml(text), private: true }),
+    body: JSON.stringify({ body, private: true }),
   });
+}
+
+async function postNoteMultipart(
+  ticketId: string,
+  bodyHtml: string,
+  files: AttachmentFile[],
+): Promise<void> {
+  const form = new FormData();
+  form.append("body", bodyHtml);
+  form.append("private", "true");
+  for (const f of files) {
+    form.append("attachments[]", new Blob([f.data], { type: f.contentType }), f.name);
+  }
+  const token = Buffer.from(`${config.freshdesk.apiKey}:X`).toString("base64");
+  const res = await fetch(fdUrl(`/tickets/${ticketId}/notes`), {
+    method: "POST",
+    headers: { Authorization: `Basic ${token}` },
+    body: form,
+  });
+  if (!res.ok) {
+    throw new Error(
+      `Freshdesk POST /tickets/${ticketId}/notes (multipart) failed: ${res.status} ${await res.text()}`,
+    );
+  }
 }
 
 export interface LatestAgentReply {

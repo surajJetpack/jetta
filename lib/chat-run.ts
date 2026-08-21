@@ -63,8 +63,16 @@ const HANDOFF_ACK =
   "If nobody is, I'll pick this back up in a minute.";
 const TICKET_ACK =
   "I've passed this to our team — they'll get back to you by email shortly.";
+/**
+ * The post-ticket sibling of TICKET_ACK. Different words on purpose: the
+ * customer already knows a ticket exists, and telling them again that their
+ * question "has been passed to the team" reads as the bot having forgotten the
+ * last five minutes.
+ */
+const ADDED_ACK =
+  "I've added that to what the team already has — they'll cover it in their reply.";
 
-export type DeliveryKind = "reply" | "handoff_ack" | "ticket_ack" | "fallback";
+export type DeliveryKind = "reply" | "handoff_ack" | "ticket_ack" | "added_ack" | "fallback";
 
 /**
  * What the visitor gets, given what the loop produced.
@@ -84,6 +92,9 @@ export function chooseDelivery(
   // is the more immediate promise.
   if (toolsUsed.includes("request_human")) return { kind: "handoff_ack", text: HANDOFF_ACK };
   if (toolsUsed.includes("create_support_ticket")) return { kind: "ticket_ack", text: TICKET_ACK };
+  // Below the other two: a turn that opened a ticket AND pushed to one is
+  // describing the ticket it just opened, and that is the bigger news.
+  if (toolsUsed.includes("add_to_ticket")) return { kind: "added_ack", text: ADDED_ACK };
   return { kind: "fallback", text: FALLBACK_TEXT };
 }
 
@@ -119,7 +130,13 @@ export async function runChatTurn(conversationId: string, messageId: string): Pr
     if (current?.status === "waiting_human") {
       const waited = Date.now() - (current.humanRequestedAt ?? 0);
       if (waited < settings.handoffTimeoutMinutes * 60_000) return;
-      await store.updateConversation(conversationId, { status: "open" });
+      // Back to whichever state she was in before the ask. A conversation that
+      // already had a ticket must not be demoted to "open" here: the console
+      // would list it as unhandled and /today would resurrect a row that is a
+      // duplicate of the Freshdesk ticket.
+      await store.updateConversation(conversationId, {
+        status: current.ticketId ? "ticketed" : "open",
+      });
       await store.appendMessage(
         conversationId,
         "agent",
@@ -164,13 +181,30 @@ export async function runChatTurn(conversationId: string, messageId: string): Pr
 
     const ticketed = result.toolsUsed.includes("create_support_ticket");
 
+    // Answering ON TOP of an existing ticket is the newest mode on this
+    // channel and the one most likely to go wrong in a way nobody notices —
+    // she can only contradict a colleague here. Counted while it beds in.
+    if (ctx.chat?.ticketId) {
+      await logOpsEvent({
+        level: "info",
+        event: "chat.post_ticket_turn",
+        source: "jettachat",
+        ticketId: conversationId,
+        data: {
+          freshdeskTicket: ctx.chat.ticketId,
+          toolsUsed: result.toolsUsed,
+          pushedToTicket: result.toolsUsed.includes("add_to_ticket"),
+        },
+      });
+    }
+
     // Delivery. On this channel the agent has no reply tool — its final text
     // is the message, so sending it is our job rather than the model's. An
     // empty final text is the only way a turn can now produce nothing, and
     // that means the loop genuinely failed rather than forgot.
     const delivery = chooseDelivery(result.text, result.toolsUsed);
 
-    if (delivery.kind === "handoff_ack" || delivery.kind === "ticket_ack") {
+    if (delivery.kind !== "reply" && delivery.kind !== "fallback") {
       // The run succeeded and went quiet. Standing in for her is not a failure,
       // but it IS a prompt-adherence miss worth counting — she is told to send
       // exactly one message before stopping.
@@ -218,7 +252,13 @@ export async function runChatTurn(conversationId: string, messageId: string): Pr
       // resolution if a reply actually went out. The model logs
       // "resolution_sent" in its note as a matter of habit, and it does that
       // even on turns where it forgot to send anything.
-      resolutionSent: result.resolutionSent && replied,
+      //
+      // …and never on a conversation whose answer is coming from a ticket. A
+      // visitor who says "fine, I'll wait for the email" is a perfectly good
+      // reason for her to mark the CHAT resolved, but the problem is not
+      // solved and a colleague still has to solve it. Counting it would credit
+      // her with resolutions the team is about to work.
+      resolutionSent: result.resolutionSent && replied && !ctx.chat?.ticketId && !ticketed,
       escalated: result.toolsUsed.includes("send_escalation") || ticketed,
       kind: "handled",
     }).catch((e) => console.warn("recordOutcome failed:", e));

@@ -98,7 +98,7 @@ async function main() {
         /if someone's free they'll jump in/i.test(prompt),
       );
     } else {
-      check(`${label}  still offers the ticket as the honest route`, /offer is a ticket/i.test(prompt));
+      check(`${label}  still offers the ticket as the honest route`, /correct route is the ticket/i.test(prompt));
       check(
         `${label}  create_support_ticket survives handoff being off`,
         tools.includes("create_support_ticket"),
@@ -106,8 +106,11 @@ async function main() {
       );
     }
 
-    // Whatever the setting, the placeholder must have been substituted.
-    check(`${label}  no unsubstituted template left in the prompt`, !prompt.includes("{{HANDOFF_RULES}}"));
+    // Whatever the setting, EVERY placeholder must have been substituted —
+    // matched generically, so a new one added to JETTACHAT_RULES is covered
+    // the day it lands rather than the day someone remembers this line.
+    const leftovers = prompt.match(/\{\{[A-Z_]+\}\}/g) ?? [];
+    check(`${label}  no unsubstituted template left in the prompt`, !leftovers.length, leftovers.join(", "));
   }
 }
 

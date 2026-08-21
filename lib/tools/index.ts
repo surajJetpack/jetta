@@ -18,7 +18,8 @@ import * as freshdesk from "./freshdesk";
 import * as freshchat from "./freshchat";
 import * as jettachat from "./jettachat";
 import * as chatStoreForTools from "../chat-store";
-import { openTicketForConversation } from "../chat-ticket";
+import { openTicketForConversation, routeTicketUpdate, suggestedSubject } from "../chat-ticket";
+import * as chatFiles from "../chat-files";
 import * as fastspring from "./fastspring";
 import * as monday from "./monday";
 import * as mondayMonetization from "./monday-monetization";
@@ -328,11 +329,29 @@ export function buildTools(
         }
       : {}),
 
+    /*
+     * ── The escalation path ──
+     *
+     * create_support_ticket is always here. add_to_ticket joins it only once a
+     * ticket exists, and the pair encodes the distinction that matters to the
+     * team: ONE TICKET PER ISSUE, not one per conversation.
+     *
+     * Both halves are failure modes. Two tickets for the SAME problem gives the
+     * customer two notification emails and the team an argument about which
+     * thread is live. One ticket for TWO problems gives them a thread they
+     * cannot close — the second issue rides along in a note under a subject
+     * about something else, and gets forgotten when the first is resolved.
+     *
+     * The tools cannot tell these apart; only the model can, so the line is
+     * drawn in both descriptions and again in the prompt. What the tool DOES
+     * enforce is the race below: a ticket that appeared during this turn was
+     * not the model's decision, and is always the same issue.
+     */
     ...(isOwnChat
       ? {
           create_support_ticket: tool({
             description:
-              "Open a Freshdesk ticket so the team can pick this up by email, and tell the customer you have done it. Use this for anything that needs a reply LATER — it is the right choice unless the customer specifically wants someone now (for that, use request_human). Use it when the knowledge base has no answer, the request needs account changes you cannot make, the customer is upset or wants a refund, or they ask for a human. REQUIRES the customer's email address: ask for it first if you don't have it. The full chat transcript is attached automatically — summarize, don't re-type it.",
+              "Open a Freshdesk ticket so the team can pick this up by email, and tell the customer you have done it. Use this for anything that needs a reply LATER — it is the right choice unless the customer specifically wants someone now (for that, use request_human). Use it when the knowledge base has no answer, the request needs account changes you cannot make, the customer is upset or wants a refund, or they ask for a human. REQUIRES the customer's email address: ask for it first if you don't have it. The full chat transcript is attached automatically — summarize, don't re-type it. If this conversation ALREADY has a ticket, use this ONLY for a genuinely separate problem — one a different person would work, or that would be closed on its own. For anything about the issue that ticket is already about, use add_to_ticket.",
             inputSchema: z.object({
               email: z
                 .string()
@@ -357,6 +376,16 @@ export function buildTools(
 
               const conv = await chatStoreForTools.getConversation(ticketId);
               if (!conv) return "This conversation has expired — no ticket was created.";
+              // A ticket that appeared DURING this turn — a console operator
+              // converting the chat while the loop ran — was not a decision the
+              // model made, and is by definition about the issue in front of
+              // it. Refuse that one. A ticket that was already there when the
+              // turn started is different: holding both tools, the model chose
+              // this one, and that choice is the "separate issue" judgement the
+              // pair exists to allow.
+              if (conv.ticketId && !ctx.chat?.ticketId) {
+                return "Someone on the team just opened a ticket for this conversation, so no second one was created. Tell the customer their question is with the team and they'll get a reply by email — do not mention a ticket number.";
+              }
               // Shared with the console's convert button, so a ticket carries
               // the same transcript, files and back-link however it was made.
               const created = await openTicketForConversation(conv, {
@@ -368,10 +397,175 @@ export function buildTools(
               await chatStoreForTools.updateConversation(ticketId, {
                 status: "ticketed",
                 ticketId: created.id,
+                // The one it supersedes moves to the history, so the console
+                // and any later lookup can still find it. Only the newest is
+                // "active" — see ChatConversation.previousTicketIds.
+                ...(conv.ticketId
+                  ? {
+                      previousTicketIds: [...(conv.previousTicketIds ?? []), conv.ticketId],
+                      ticketedAt: new Date().toISOString(),
+                      // The new ticket carries the whole transcript, so nothing
+                      // is outstanding against it.
+                      lastTicketSyncAt: conv.messages.at(-1)?.createdAt,
+                    }
+                  : {}),
                 visitor: { email: email.trim() },
               });
 
               return `Ticket #${created.id} created for ${email.trim()}. Tell the customer their question has gone to the team and they'll get a reply by email — do NOT give them the ticket number or this URL. INTERNAL: ${created.url}`;
+            },
+          }),
+        }
+      : {}),
+
+    /*
+     * Once the ticket exists, this replaces it.
+     *
+     * The reason it has to exist at all: the ticket carries a SNAPSHOT of the
+     * transcript taken the moment it was opened. Everything the customer says
+     * afterwards lives only in our Redis, and the agent who picks the ticket up
+     * never sees it. "Oh, and it only happens in Safari" — said thirty seconds
+     * after the hand-off — was invisible to the only person who could act on
+     * it. This is the pipe from the still-running chat to the ticket.
+     *
+     * A private note, not a reply: a public reply would email the customer a
+     * copy of a conversation they are currently having, and the ticket's public
+     * thread belongs to the agent who will answer it, not to Jetta.
+     */
+    ...(isOwnChat && ctx.chat?.ticketId
+      ? {
+          add_to_ticket: tool({
+            description:
+              "Add new information to the support ticket this conversation already has. Use it whenever the customer tells you something the team does not yet know ABOUT THAT SAME ISSUE: a new symptom, the answer to a question you asked, a screenshot, that it has become urgent, or that they changed their mind. The new chat messages and any files they have sent since the ticket was opened go with it automatically — write what CHANGED, do not re-type the conversation. This does not email the customer; it is how the agent handling their ticket finds out. If the customer has raised a genuinely DIFFERENT problem — one a different person would work, or that would be closed on its own — that needs its own ticket: use create_support_ticket instead, and never bundle it into this note.",
+            inputSchema: z.object({
+              note: z
+                .string()
+                .describe(
+                  "What the team needs to know that they didn't when the ticket was opened, in a sentence or two.",
+                ),
+            }),
+            execute: async ({ note }) => {
+              if (!ticketId) return "No active conversation.";
+              const conv = await chatStoreForTools.getConversation(ticketId);
+              if (!conv) return "This conversation has expired.";
+              if (!conv.ticketId) {
+                return "This conversation has no ticket yet — use create_support_ticket instead.";
+              }
+              if (dry) return `[dry-run] would add a note to ticket #${conv.ticketId}: "${note}".`;
+
+              // Everything said since the last push. The mark starts at the
+              // moment of ticketing, so the first call carries exactly what the
+              // ticket's own transcript is missing.
+              const since = conv.lastTicketSyncAt ?? conv.ticketedAt;
+              const fresh = chatStoreForTools.messagesSince(conv, since);
+
+              /*
+               * Is the ticket still alive?
+               *
+               * The widget's session never expires — the token is a plain HMAC
+               * with no timestamp and the conversation id sits in the embedding
+               * page's localStorage — so a visitor who chatted three weeks ago
+               * and comes back RESUMES this conversation, ticket and all. A
+               * note on a ticket a colleague closed a fortnight ago lands
+               * somewhere nobody is watching, and Freshdesk does not reopen a
+               * ticket because a note arrived. She would tell the customer
+               * their message reached the team; it would not have.
+               *
+               * Fail OPEN on a failed lookup: "I could not reach Freshdesk" is
+               * not "the ticket is closed", and noting a live ticket wrongly
+               * costs nothing while opening a duplicate costs the team a thread.
+               */
+              const route = routeTicketUpdate(
+                await freshdesk.getTicketStatus(conv.ticketId),
+                conv.visitor.email,
+              );
+              if (route.kind === "needs_email") {
+                return `The previous ticket is ${route.status} and this needs a new one, but there is no email address on file. Ask the customer for their email address, then call this again.`;
+              }
+              if (route.kind === "replace") {
+                const status = route.status;
+                // The whole transcript and every file, not just the delta: a
+                // fresh ticket has to stand on its own, and the agent picking
+                // it up has none of the history the closed one carried.
+                const reopened = await openTicketForConversation(conv, {
+                  email: route.email,
+                  subject: suggestedSubject({ ...conv, messages: fresh }),
+                  summary: [
+                    `Follow-up from a live chat, after ticket #${conv.ticketId} was ${status}.`,
+                    note.trim(),
+                  ].join("\n\n"),
+                  productHint: ctx.appProduct,
+                }).catch((e) => {
+                  console.warn(`add_to_ticket: replacement ticket failed:`, e);
+                  return null;
+                });
+                if (!reopened) {
+                  return "The previous ticket is closed and a new one could not be opened just now. Do NOT tell the customer their message reached the team. Answer what you can and say you'll make sure someone picks this up.";
+                }
+                await chatStoreForTools.updateConversation(ticketId, {
+                  ticketId: reopened.id,
+                  ticketedAt: new Date().toISOString(),
+                  // The new ticket carries the FULL transcript, so nothing is
+                  // outstanding — the mark goes to the newest message, not to
+                  // the end of the delta.
+                  lastTicketSyncAt: conv.messages.at(-1)?.createdAt,
+                });
+                await events.logOpsEvent({
+                  level: "info",
+                  event: "chat.ticket_replaced",
+                  source: "jettachat",
+                  ticketId,
+                  data: { closedTicket: conv.ticketId, closedStatus: status, newTicket: reopened.id },
+                });
+                return `The previous ticket was ${status}, so a new ticket #${reopened.id} was opened carrying this whole conversation. Tell the customer their follow-up has gone to the team and they'll get a reply by email — do NOT give them the ticket number or this URL. INTERNAL: ${reopened.url}`;
+              }
+
+              const delta = chatStoreForTools.transcriptSince(conv, since);
+              const files = await chatFiles.collectForHandoff({ messages: fresh }).catch(() => []);
+
+              const body = [
+                `From the live chat, which is still running: ${note.trim()}`,
+                delta ? `\n— New chat messages —\n${delta}` : "",
+                files.length ? `\nFiles attached: ${files.map((f) => f.name).join(", ")}` : "",
+                `\nConversation: ${jettachat.conversationUrl(conv.id)}`,
+              ]
+                .filter(Boolean)
+                .join("\n");
+
+              try {
+                await freshdesk.addPrivateNote(conv.ticketId, body, { attachments: files });
+              } catch (e) {
+                // Unlike the note on ticket CREATION, this note is the whole
+                // action — swallowing the failure would have her tell the
+                // customer their update reached the team when it did not.
+                const message = e instanceof Error ? e.message : String(e);
+                console.warn(`add_to_ticket failed on #${conv.ticketId}:`, message);
+                return "Could not reach the ticket system just now, so this has NOT been added. Do not tell the customer it has. Answer what you can and say you'll make sure the team sees the rest.";
+              }
+
+              // Advance the mark only on success, and to the last message we
+              // actually sent rather than to "now": a message that landed while
+              // the note was in flight belongs to the next push, not to a gap.
+              const mark = fresh.at(-1)?.createdAt;
+              if (mark) {
+                await chatStoreForTools
+                  .updateConversation(ticketId, { lastTicketSyncAt: mark })
+                  .catch((e) => console.warn(`add_to_ticket: sync mark not advanced:`, e));
+              }
+
+              await events.logOpsEvent({
+                level: "info",
+                event: "chat.added_to_ticket",
+                source: "jettachat",
+                ticketId,
+                data: {
+                  freshdeskTicket: conv.ticketId,
+                  messages: fresh.length,
+                  files: files.length,
+                },
+              });
+
+              return `Added to ticket #${conv.ticketId}. Tell the customer you've passed the new detail to the team handling their ticket — do NOT give them the ticket number, and do not say a new ticket was opened.`;
             },
           }),
         }

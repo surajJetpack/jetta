@@ -167,6 +167,13 @@ export default function ChatWidgetPage() {
   // An init we are holding until the visitor tells us who they are. On monday
   // the embedding app supplies both from its SDK and this never renders.
   const [identityGate, setIdentityGate] = useState<InitPayload | null>(null);
+  // What the embedding page told us at init. Held so "Start a new chat" can
+  // open one with the identity the visitor already gave — asking a person who
+  // has been chatting for ten minutes to retype their email is absurd.
+  const initRef = useRef<InitPayload>({ surface: "unknown" });
+  // Two-step, because one stray click would otherwise wipe a transcript the
+  // visitor is mid-way through reading.
+  const [confirmNew, setConfirmNew] = useState(false);
   const [nameInput, setNameInput] = useState("");
   // Copy and colour come from the console, so changing "Jetpack Apps support"
   // no longer needs a deploy. Defaults match the shipped settings so the widget
@@ -239,6 +246,7 @@ export default function ChatWidgetPage() {
         return;
       }
       setIdentityGate(null);
+      initRef.current = init;
 
       // Two attempts at most: a stored session that outlived its transcript
       // (410) is dropped and retried as a fresh one, so the visitor never sees
@@ -374,6 +382,25 @@ export default function ChatWidgetPage() {
       window.removeEventListener("message", onMessage);
       clearTimeout(timer);
     };
+  }, [openSession, post]);
+
+  /**
+   * Start a fresh conversation, keeping the visitor we already know.
+   *
+   * Used by the header control and by a 410 on send. The old conversation is
+   * not deleted — it lives out its retention window and stays in the console;
+   * this only stops the widget picking it back up. Clearing the parent's stored
+   * session first matters: the parent owns localStorage, so leaving it set
+   * would resurrect the old conversation on the next page load.
+   */
+  const startFresh = useCallback(async () => {
+    setConfirmNew(false);
+    post("jettachat:session", { session: null });
+    setSession(null);
+    setMessages([]);
+    setTicketed(false);
+    setError(null);
+    await openSession({ ...initRef.current, session: null });
   }, [openSession, post]);
 
   // ── Live updates ─────────────────────────────────────────────────
@@ -568,7 +595,15 @@ export default function ChatWidgetPage() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ ...session, text, uploadIds: readyIds }),
       });
-      if (res.status === 429) {
+      if (res.status === 410) {
+        // The idle window closed while this tab sat open. Hand the message
+        // back, start a clean conversation, and say why — the alternative is
+        // "that message didn't send" on a chat that will never accept another.
+        setInput(text);
+        setStaged(sentStaged);
+        await startFresh();
+        setError("You'd been away a while, so this is a fresh chat. Send that again when you're ready.");
+      } else if (res.status === 429) {
         setError("You're sending messages very quickly — give it a moment.");
         // Rate limiting happens before the server claims the uploads, so the
         // ids are still good — hand the whole message back for one retry.
@@ -643,15 +678,52 @@ export default function ChatWidgetPage() {
             <p className="text-xs text-neutral-500">{ui.subtitle}</p>
           </div>
         </div>
-        <button
-          onClick={() => post("jettachat:close")}
-          aria-label="Close chat"
-          className="rounded p-1 text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-700"
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M18 6 6 18M6 6l12 12" />
-          </svg>
-        </button>
+        <div className="flex items-center gap-1">
+          {/* The honest answer to "I have a different question now". Without it
+              the only way out of a conversation is to wait out the idle window,
+              and a visitor with a new problem is stuck in the old thread —
+              which is also where the model is most likely to file their new
+              issue under the old one. Hidden until there is something to leave. */}
+          {session && messages.length > 0 && (
+            confirmNew ? (
+              <span className="flex items-center gap-1">
+                <button
+                  onClick={() => void startFresh()}
+                  className="rounded px-2 py-1 text-xs font-medium text-neutral-700 transition hover:bg-neutral-100"
+                >
+                  Start a new chat?
+                </button>
+                <button
+                  onClick={() => setConfirmNew(false)}
+                  aria-label="Keep this chat"
+                  className="rounded px-1.5 py-1 text-xs text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-700"
+                >
+                  No
+                </button>
+              </span>
+            ) : (
+              <button
+                onClick={() => setConfirmNew(true)}
+                aria-label="Start a new chat"
+                title="Start a new chat"
+                className="rounded p-1 text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-700"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <path d="M12 5v14M5 12h14" />
+                </svg>
+              </button>
+            )
+          )}
+          <button
+            onClick={() => post("jettachat:close")}
+            aria-label="Close chat"
+            className="rounded p-1 text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-700"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M18 6 6 18M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
       </header>
 
       {identityGate && !session ? (
@@ -880,9 +952,14 @@ export default function ChatWidgetPage() {
           </div>
         )}
 
+        {/* Says where the ANSWER is coming from, not that the chat is over —
+            the composer stays live and Jetta keeps replying. The old wording
+            ("this conversation has been passed to…") read as a closing notice
+            above an input box that still worked. */}
         {ticketed && (
           <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">
-            This conversation has been passed to the support team — they&apos;ll reply by email.
+            Your question is with the support team — they&apos;ll reply by email. You can keep
+            chatting here in the meantime.
           </p>
         )}
 

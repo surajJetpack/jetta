@@ -98,6 +98,23 @@ export interface ChatSettings {
   /** Total files one conversation may ever upload, sent or abandoned. */
   uploadsPerConversation: number;
   retentionDays: number;
+  /**
+   * Idle hours after which a returning visitor gets a NEW conversation instead
+   * of resuming the old one.
+   *
+   * Not the same thing as retention, and the difference matters: the transcript
+   * is kept for `retentionDays` and stays readable in the console either way.
+   * This only decides what the widget picks back up.
+   *
+   * The number is a judgement about what "the same visit" means. Too short and
+   * someone who goes to lunch mid-diagnosis has to re-explain everything; too
+   * long and a visitor with a brand-new problem lands in a stale thread whose
+   * framing they cannot escape — conversationToTicket derives the subject and
+   * description from the FIRST visitor message, permanently, however much has
+   * been said since. A day matches the loader's own notion of "same visitor,
+   * same day" (AUTO_OPEN_EVERY_MS).
+   */
+  sessionIdleHours: number;
   /** Whether Jetta may hand a live conversation to a person at all. */
   handoffEnabled: boolean;
   /** How long a visitor waits before Jetta takes the conversation back. */
@@ -261,6 +278,7 @@ export function defaultSettings(): ChatSettings {
     uploadsPerHour: config.jettachat.uploadsPerHour,
     uploadsPerConversation: config.jettachat.uploadsPerConversation,
     retentionDays: config.jettachat.retentionDays,
+    sessionIdleHours: config.jettachat.sessionIdleHours,
     handoffEnabled: true,
     /**
      * How long a visitor waits for a colleague before the conversation comes
@@ -336,6 +354,11 @@ export async function saveChatSettings(
   next.uploadsPerHour = clamp(Number(next.uploadsPerHour), 1, 200, current.uploadsPerHour);
   next.uploadsPerConversation = clamp(Number(next.uploadsPerConversation), 1, 100, current.uploadsPerConversation);
   next.retentionDays = clamp(Number(next.retentionDays), 1, 3650, current.retentionDays);
+  // Floor of 1 hour: anything shorter and a customer still discussing the
+  // ticket she just opened would be handed a clean conversation with no ticket
+  // link — and she would open a SECOND ticket for the same issue, which is the
+  // exact failure the one-thread rule exists to prevent.
+  next.sessionIdleHours = clamp(Number(next.sessionIdleHours), 1, 8760, current.sessionIdleHours);
   next.handoffTimeoutMinutes = clamp(Number(next.handoffTimeoutMinutes), 1, 120, current.handoffTimeoutMinutes);
   // 25 MB ceiling: Freshdesk refuses attachments above 20 MB, so anything
   // larger would upload fine and then fail silently at the hand-off — the one
