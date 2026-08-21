@@ -702,6 +702,26 @@ async function main() {
     check(`the ${label} prompt has no unreplaced placeholder`, !pr.includes("{{"));
   }
 
+  /*
+   * The invariant that the wholesale swap dropped.
+   *
+   * TICKET_NONE_YET has always carried "never tell a customer a ticket exists
+   * unless you called create_support_ticket in THIS turn". TICKET_ALREADY_OPEN
+   * replaces that block entirely, so for the whole life of the post-ticket state
+   * the guarantee was simply gone — in the state where a fabricated SECOND
+   * ticket is possible. post-ticket-separate-issue then did exactly that: told
+   * the customer a ticket had been opened for their double charge, with one
+   * create_support_ticket call in the whole conversation. Anything that must
+   * hold in both states has to be asserted in both.
+   */
+  for (const [label, pr] of [["pre-ticket", preTicketPrompt], ["post-ticket", postTicketPrompt]] as const) {
+    check(
+      `the ${label} prompt forbids announcing a ticket she did not open`,
+      /unless you called\s+create_support_ticket in THIS turn/i.test(pr),
+    );
+  }
+
+
   // The worst single output of the run: an internal status report, complete
   // with board URL and ticket number, written into the customer's chat.
   for (const [label, p] of [["pre-ticket", preTicketPrompt], ["post-ticket", postTicketPrompt]] as const) {
