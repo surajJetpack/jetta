@@ -45,3 +45,6 @@ next-env.d.ts
 .bakeoff/
 .benchmark/
 .chat-eval/
+
+# screenshot staging for docs/manual (see scripts/manual-shots.mjs)
+.manual-raw/
