@@ -640,13 +640,41 @@ async function cleanup() {
   let tickets = 0;
   if (key) {
     const auth = "Basic " + Buffer.from(`${key}:X`).toString("base64");
+    /*
+     * Freshdesk's two non-obvious answers, both of which used to read as
+     * failure and leave real tickets in a real queue with nobody looking:
+     *
+     *   405 — already deleted. Its DELETE is not idempotent-looking; a second
+     *         call on a trashed ticket is Method Not Allowed, not 204. Counting
+     *         that as a miss made a clean run report "1/7 tickets".
+     *   429 — rate limited. The cap is 40 requests/minute on this account and
+     *         an eval run burns through it, so the tail of the list would fail
+     *         for no reason at all. This is the one that actually loses tickets,
+     *         so it retries rather than warning.
+     */
     for (const id of ticketIds) {
-      const res = await fetch(`https://${domain}/api/v2/tickets/${id}`, {
-        method: "DELETE",
-        headers: { Authorization: auth },
-      });
-      if (res.ok || res.status === 404) tickets++;
-      else console.warn(`  ticket ${id}: HTTP ${res.status}`);
+      let attempt = 0;
+      for (;;) {
+        const res = await fetch(`https://${domain}/api/v2/tickets/${id}`, {
+          method: "DELETE",
+          headers: { Authorization: auth },
+        });
+        if (res.ok || res.status === 404 || res.status === 405) {
+          tickets++;
+          break;
+        }
+        if (res.status === 429 && attempt < 5) {
+          const wait = Number(res.headers.get("retry-after")) || 20 * 2 ** attempt;
+          console.log(`  ticket ${id}: rate limited, waiting ${wait}s`);
+          await new Promise((r) => setTimeout(r, wait * 1000));
+          attempt++;
+          continue;
+        }
+        console.warn(`  ticket ${id}: HTTP ${res.status} — NOT deleted, still in the queue`);
+        break;
+      }
+      // Well inside 40/min even when a run opened two tickets per scenario.
+      await new Promise((r) => setTimeout(r, 1500));
     }
   }
 

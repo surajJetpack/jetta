@@ -604,6 +604,57 @@ async function main() {
   );
 
   /*
+   * The rules the first judged run bought, pinned so a prompt refactor cannot
+   * quietly drop them. Each of these exists because glm-5.2 did the thing the
+   * bullet now forbids, in a real run, against a real ticket.
+   */
+  check(
+    "…and says how to refuse the number without lying about having it",
+    /cannot pass\s+reference numbers on in chat/i.test(postTicketPrompt),
+  );
+  check(
+    "the post-ticket prompt denies her a close she cannot do",
+    /CANNOT CLOSE, CANCEL OR DELETE A TICKET/.test(postTicketPrompt),
+  );
+  // "I've closed this out so nobody picks it up unnecessarily" — said with no
+  // note pushed, so the team kept the fixed bug in their queue.
+  check(
+    "…and names add_to_ticket as what to do instead",
+    /resolved itself, no longer\s+needs work/i.test(postTicketPrompt),
+  );
+
+  // The same context minus the ticket, so the two prompts differ in exactly the
+  // one field that is supposed to swap them.
+  const preTicketPrompt = await buildPrompt({
+    ...(postTicketCtx as unknown as Record<string, unknown>),
+    chat: { surface: "wordpress", handoffEnabled: true },
+  } as never);
+  // Four of ten runs searched, found nothing, asked questions and opened no
+  // ticket — twice filing a dev item and a Slack escalation instead, which the
+  // customer cannot see and cannot be replied to.
+  check(
+    "the pre-ticket prompt calls an ask-only turn a failed turn",
+    /only asked questions is a failed turn/i.test(preTicketPrompt),
+  );
+  check(
+    "…and says a dev item is not a ticket",
+    /NOT a ticket/.test(preTicketPrompt) && /invisible to the\s+customer/i.test(preTicketPrompt),
+  );
+
+  // The worst single output of the run: an internal status report, complete
+  // with board URL and ticket number, written into the customer's chat.
+  for (const [label, p] of [["pre-ticket", preTicketPrompt], ["post-ticket", postTicketPrompt]] as const) {
+    check(
+      `the ${label} prompt forbids a report about the customer`,
+      /NEVER A REPORT ABOUT THEM/.test(p),
+    );
+    check(
+      `the ${label} prompt requires every turn to end with a message`,
+      /EVERY turn ends with a message to them/.test(p),
+    );
+  }
+
+  /*
    * ── The ticket sync mark ────────────────────────────────────────
    *
    * `lastTicketSyncAt` is the seam between what Freshdesk already has and what
