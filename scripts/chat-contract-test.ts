@@ -408,6 +408,21 @@ async function main() {
     chooseDelivery("", ["create_support_ticket", "request_human"]).kind === "handoff_ack",
   );
 
+  // The post-ticket turn. Going quiet after pushing to an existing ticket is
+  // the same kind of success as going quiet after opening one, and it was the
+  // fallback's most likely new false positive.
+  const quietAdd = chooseDelivery("", ["add_to_ticket"]);
+  check("going quiet after adding to a ticket is not a crash", quietAdd.kind === "added_ack", quietAdd.kind);
+  check(
+    "the add stand-in does not re-announce a ticket she already told them about",
+    !/passed (this|it) to/i.test(quietAdd.text),
+    quietAdd.text,
+  );
+  check(
+    "opening a ticket outranks adding to one",
+    chooseDelivery("", ["add_to_ticket", "create_support_ticket"]).kind === "ticket_ack",
+  );
+
   // ── Tool surface ─────────────────────────────────────────────────
   //
   // add_private_note stored nothing on this channel and scheduled a follow-up
@@ -442,6 +457,482 @@ async function main() {
   };
   await closeTool.execute({});
   check("resolving a chat records the resolution", signals.resolutionSent === true);
+
+  /*
+   * One conversation, one thread.
+   *
+   * A ticketed chat that could still reach create_support_ticket would give the
+   * customer two notification emails and the team two threads to argue over,
+   * and no prompt wording reliably stops a model from using a tool it holds.
+   * The swap is the guarantee, so it is asserted rather than described.
+   */
+  const postTicketCtx = {
+    channel: "jettachat",
+    ticket: { id: "conv-1", subject: "s", description: "d", status: "ticketed", replies: [] },
+    account: null,
+    relatedDevItems: [],
+    product: "jetpackapps",
+    appProduct: "unknown",
+    app: "unknown",
+    chat: { surface: "wordpress", handoffEnabled: true, ticketId: "12345" },
+  } as never;
+  const postTicketTools = Object.keys(buildTools(postTicketCtx, {} as never));
+  check(
+    "a ticketed chat can push to the one it has",
+    postTicketTools.includes("add_to_ticket"),
+    postTicketTools.join(", "),
+  );
+  // One ticket per ISSUE, not per conversation. She keeps create_support_ticket
+  // so a genuinely separate problem gets its own thread instead of riding along
+  // in a note under a subject about something else — where it is forgotten the
+  // moment the first issue is resolved.
+  check(
+    "a ticketed chat can still open one for a separate issue",
+    postTicketTools.includes("create_support_ticket"),
+    postTicketTools.join(", "),
+  );
+  check(
+    "an un-ticketed chat has no add_to_ticket to misuse",
+    !chatTools.includes("add_to_ticket") && chatTools.includes("create_support_ticket"),
+    chatTools.join(", "),
+  );
+  // Both descriptions have to name the boundary, because the tool list no
+  // longer enforces it — this is the only thing standing between one ticket per
+  // issue and one ticket per message.
+  const postTools = buildTools(postTicketCtx, {} as never) as Record<string, { description?: string }>;
+  check(
+    "add_to_ticket points at the other tool for a different problem",
+    /create_support_ticket/.test(postTools.add_to_ticket?.description ?? ""),
+  );
+  check(
+    "create_support_ticket points back for the same problem",
+    /add_to_ticket/.test(postTools.create_support_ticket?.description ?? ""),
+  );
+  // Asking for a person survives the swap: "I've been waiting two days" is
+  // exactly the moment a ticketed customer needs one, and the previous
+  // behaviour (silence) is what made them say it.
+  check(
+    "a ticketed chat can still fetch a person",
+    postTicketTools.includes("request_human"),
+    postTicketTools.join(", "),
+  );
+
+  /*
+   * Where an update goes when the ticket may be dead.
+   *
+   * The widget's session never expires, so a visitor can resume a
+   * weeks-old conversation whose ticket a colleague closed long ago. Freshdesk
+   * does not reopen a ticket because a note arrived, so noting a closed one
+   * puts the customer's message somewhere nobody is watching — while she tells
+   * them it reached the team.
+   *
+   * The failure mode on the other side is worse and less obvious: treating an
+   * unreachable Freshdesk as "closed" would open a duplicate ticket for every
+   * chat update during an outage. Null must mean note.
+   */
+  const { routeTicketUpdate } = await import("../lib/chat-ticket");
+  const HAS_EMAIL = "someone@example.com";
+  check("a live ticket gets a note", routeTicketUpdate("open", HAS_EMAIL).kind === "note");
+  check(
+    "a ticket waiting on the customer is still live",
+    routeTicketUpdate("waiting on customer", HAS_EMAIL).kind === "note",
+  );
+  check(
+    "a ticket escalated to dev is still live",
+    routeTicketUpdate("escalated to dev", HAS_EMAIL).kind === "note",
+  );
+  check("a resolved ticket is replaced", routeTicketUpdate("resolved", HAS_EMAIL).kind === "replace");
+  check("a closed ticket is replaced", routeTicketUpdate("closed", HAS_EMAIL).kind === "replace");
+  check(
+    "the replacement carries the address it will reply to",
+    routeTicketUpdate("closed", " someone@example.com ").kind === "replace" &&
+      (routeTicketUpdate("closed", " someone@example.com ") as { email: string }).email === HAS_EMAIL,
+  );
+  check(
+    "no address means ask, not a ticket with nowhere to reply",
+    routeTicketUpdate("closed", undefined).kind === "needs_email",
+  );
+  check("a blank address counts as none", routeTicketUpdate("closed", "   ").kind === "needs_email");
+  // The one that must never regress: an unreadable status is not a dead ticket.
+  check(
+    "a failed Freshdesk lookup fails OPEN to a note",
+    routeTicketUpdate(null, HAS_EMAIL).kind === "note",
+  );
+  check(
+    "…and does not become a duplicate ticket even with no address",
+    routeTicketUpdate(null, undefined).kind === "note",
+  );
+
+  /*
+   * The idle resume window.
+   *
+   * The visitor's claim on a conversation never expires by itself — the token
+   * is an unstamped HMAC and the id sits in the embedding page's localStorage —
+   * so this comparison is the only thing that stops someone returning weeks
+   * later and landing in a thread whose framing they cannot escape.
+   */
+  const { isStale } = await import("../lib/chat-store");
+  const ago = (ms: number) =>
+    ({ lastActivityAt: new Date(Date.now() - ms).toISOString() }) as never;
+  const HOUR = 3_600_000;
+  check("a conversation from a minute ago resumes", !isStale(ago(60_000), 24));
+  check("a conversation from this morning resumes", !isStale(ago(8 * HOUR), 24));
+  check("just inside the window resumes", !isStale(ago(23.5 * HOUR), 24));
+  check("yesterday's conversation does not", isStale(ago(25 * HOUR), 24));
+  check("last month's certainly does not", isStale(ago(30 * 24 * HOUR), 24));
+  check("the window is the setting, not a constant", isStale(ago(2 * HOUR), 1));
+  // A corrupt timestamp is not an old conversation. Discarding one that may be
+  // seconds old is the worse failure, so this fails open to resuming.
+  check(
+    "an unparseable timestamp resumes rather than being discarded",
+    !isStale({ lastActivityAt: "not a date" } as never, 24),
+  );
+
+  // The prompt has to swap with the tools. A post-ticket prompt still telling
+  // her to "CALL create_support_ticket" is how she ends up describing an action
+  // she cannot take.
+  const { buildSystemPrompt: buildPrompt } = await import("../lib/system-prompt");
+  const postTicketPrompt = await buildPrompt(postTicketCtx);
+  check(
+    "the post-ticket prompt does not order a tool she has not got",
+    !postTicketPrompt.includes("CALL create_support_ticket"),
+  );
+  check("the post-ticket prompt tells her to push updates", postTicketPrompt.includes("add_to_ticket"));
+  // "when in doubt, push it" was pushing "ok 👍" onto the ticket.
+  check(
+    "…but not a message that carries no information",
+    /carrying no information is not a\s+doubt/i.test(postTicketPrompt),
+  );
+  check(
+    "the post-ticket prompt keeps the ticket number internal",
+    /never say the number to the customer/i.test(postTicketPrompt),
+  );
+
+  /*
+   * The rules the first judged run bought, pinned so a prompt refactor cannot
+   * quietly drop them. Each of these exists because glm-5.2 did the thing the
+   * bullet now forbids, in a real run, against a real ticket.
+   */
+  check(
+    "…and says how to refuse the number without lying about having it",
+    /cannot pass\s+reference numbers on in chat/i.test(postTicketPrompt),
+  );
+  check(
+    "the post-ticket prompt denies her a close she cannot do",
+    /CANNOT CLOSE, CANCEL OR DELETE A TICKET/.test(postTicketPrompt),
+  );
+  // "I've closed this out so nobody picks it up unnecessarily" — said with no
+  // note pushed, so the team kept the fixed bug in their queue.
+  check(
+    "…and names add_to_ticket as what to do instead",
+    /resolved itself, no longer\s+needs work/i.test(postTicketPrompt),
+  );
+
+  // The same context minus the ticket, so the two prompts differ in exactly the
+  // one field that is supposed to swap them.
+  /*
+   * Dev board writes are off this channel, and the PROMPT has to move with the
+   * toolset. A judged run called create_dev_item six times in ten chats, twice
+   * for a bare "ok 👍" — with MONDAY_ALLOW_WRITES armed those are real board
+   * items and real Slack pings, filed from an endpoint any visitor can reach,
+   * and add_plus_one has no undo. Both halves are checked here because getting
+   * only one of them right is worse than neither: a prompt still ordering a tool
+   * that is gone makes her DESCRIBE filing the bug, and the customer is told
+   * engineering has it.
+   */
+  const ticketChannelTools = Object.keys(
+    buildTools({ ...(postTicketCtx as unknown as Record<string, unknown>), channel: "freshdesk", chat: undefined } as never, {} as never),
+  );
+  for (const t of ["create_dev_item", "add_plus_one"]) {
+    check(`${t} is not offered on chat`, !postTicketTools.includes(t));
+    check(`…but is still there off chat`, ticketChannelTools.includes(t));
+  }
+  // The reads stay — knowing a bug is tracked changes the answer.
+  for (const t of ["search_dev_board", "read_dev_item_comments"]) {
+    check(`${t} is still offered on chat`, postTicketTools.includes(t));
+  }
+
+  const preTicketPrompt = await buildPrompt({
+    ...(postTicketCtx as unknown as Record<string, unknown>),
+    chat: { surface: "wordpress", handoffEnabled: true },
+  } as never);
+  // Four of ten runs searched, found nothing, asked questions and opened no
+  // ticket — twice filing a dev item and a Slack escalation instead, which the
+  // customer cannot see and cannot be replied to.
+  check(
+    "the pre-ticket prompt calls an ask-only turn a failed turn",
+    /only asked questions is a failed turn/i.test(preTicketPrompt),
+  );
+  check(
+    "…and says a dev item is not a ticket",
+    /NOT a ticket/.test(preTicketPrompt) && /invisible to the\s+customer/i.test(preTicketPrompt),
+  );
+
+  for (const [label, pr] of [["pre-ticket", preTicketPrompt], ["post-ticket", postTicketPrompt]] as const) {
+    check(
+      `the ${label} prompt never orders a dev-board write`,
+      !/create_dev_item|add_plus_one/.test(pr),
+      "the prompt still names a tool this channel does not have",
+    );
+    check(
+      `the ${label} prompt says she cannot file on the board`,
+      /cannot FILE anything on the Dev board/.test(pr),
+    );
+    /*
+     * …and that the ban stops at the board.
+     *
+     * The first version of that bullet said "there is no tool here that does"
+     * and "do not say you have logged, filed, raised or escalated anything to
+     * engineering". Both false — send_escalation is ungated on this channel,
+     * and create_support_ticket/add_to_ticket reach the team too — so it
+     * contradicted the post-ticket rule telling her to push updates and say so
+     * plainly. She went quiet instead: the run after that change stopped
+     * pushing the one detail post-ticket exists to carry.
+     */
+    check(
+      `the ${label} prompt still names what DOES reach the team`,
+      /prohibition is about the BOARD/.test(pr) &&
+        /send_escalation tells the team directly/.test(pr),
+    );
+    check(
+      `the ${label} prompt does not forbid saying the team has it`,
+      !/do not say you have logged, filed, raised or escalated/i.test(pr),
+    );
+    // The placeholder must actually be substituted, not shipped raw.
+    check(`the ${label} prompt has no unreplaced placeholder`, !pr.includes("{{"));
+  }
+
+  /*
+   * The invariant that the wholesale swap dropped.
+   *
+   * TICKET_NONE_YET has always carried "never tell a customer a ticket exists
+   * unless you called create_support_ticket in THIS turn". TICKET_ALREADY_OPEN
+   * replaces that block entirely, so for the whole life of the post-ticket state
+   * the guarantee was simply gone — in the state where a fabricated SECOND
+   * ticket is possible. post-ticket-separate-issue then did exactly that: told
+   * the customer a ticket had been opened for their double charge, with one
+   * create_support_ticket call in the whole conversation. Anything that must
+   * hold in both states has to be asserted in both.
+   */
+  for (const [label, pr] of [["pre-ticket", preTicketPrompt], ["post-ticket", postTicketPrompt]] as const) {
+    check(
+      `the ${label} prompt forbids announcing a ticket she did not open`,
+      /unless you called\s+create_support_ticket in THIS turn/i.test(pr),
+    );
+  }
+
+
+  // The worst single output of the run: an internal status report, complete
+  // with board URL and ticket number, written into the customer's chat.
+  for (const [label, p] of [["pre-ticket", preTicketPrompt], ["post-ticket", postTicketPrompt]] as const) {
+    check(
+      `the ${label} prompt forbids a report about the customer`,
+      /NEVER A REPORT ABOUT THEM/.test(p),
+    );
+    check(
+      `the ${label} prompt requires every turn to end with a message`,
+      /EVERY turn ends with a message to them/.test(p),
+    );
+  }
+
+  /*
+   * ── The ticket sync mark ────────────────────────────────────────
+   *
+   * `lastTicketSyncAt` is the seam between what Freshdesk already has and what
+   * only Redis has. Everything the post-ticket state is for runs across it, and
+   * every way of getting it wrong is silent: too early and the team is sent the
+   * transcript twice, too late and the message that mattered is in neither the
+   * ticket nor any delta. Nothing upstream notices either, because the note
+   * posts successfully in both cases.
+   */
+  section("The ticket sync mark");
+  /*
+   * Two things this section has to do to be honest about the store.
+   *
+   * `tick` puts real milliseconds between appends. Timestamps are ISO strings
+   * at millisecond resolution and the comparison is strictly-greater, so two
+   * writes inside the same millisecond are indistinguishable to it — which
+   * in-memory they routinely are, and over HTTP they are not.
+   *
+   * `snap` deep-copies. The in-memory fallback returns the SAME object on every
+   * read (the reason the lock test below needs real KV), so a "snapshot" taken
+   * from it keeps growing as messages arrive. Against Redis every read is a
+   * fresh deserialize, and a snapshot really is frozen — which is the situation
+   * openTicketForConversation is actually in.
+   */
+  const tick = () => new Promise((r) => setTimeout(r, 2));
+  const snap = <T>(c: T): T => structuredClone(c);
+
+  const marked = await newConv("Mark", "mark@example.com");
+  const first = await store.appendMessage(marked.id, "visitor", "my board is blank");
+  await tick();
+  await store.updateConversation(marked.id, { status: "ticketed", ticketId: "50001" });
+  const afterTicket = (await store.getConversation(marked.id))!;
+  check("ticketing stamps a sync mark", !!afterTicket.lastTicketSyncAt, afterTicket.lastTicketSyncAt);
+  check(
+    "the message the ticket was opened FOR is not re-sent as a delta",
+    !store
+      .messagesSince(afterTicket, afterTicket.lastTicketSyncAt)
+      .some((m) => m.id === first!.id),
+  );
+  await tick();
+  const later = await store.appendMessage(marked.id, "visitor", "it only happens in Safari");
+  const withLater = (await store.getConversation(marked.id))!;
+  check(
+    "…but what they say afterwards is",
+    store.messagesSince(withLater, afterTicket.lastTicketSyncAt).some((m) => m.id === later!.id),
+  );
+
+  /*
+   * The boundary itself. The mark is a message's own timestamp, so the message
+   * AT the mark has already been sent and must not go again — while the next
+   * one must. An off-by-one here duplicates a customer's words or drops them,
+   * and both look like a working note.
+   */
+  await store.updateConversation(marked.id, { lastTicketSyncAt: later!.createdAt });
+  const rebased = (await store.getConversation(marked.id))!;
+  check(
+    "a message exactly AT the mark is treated as already sent",
+    !store.messagesSince(rebased, rebased.lastTicketSyncAt).some((m) => m.id === later!.id),
+  );
+  check(
+    "a second push with nothing new to say carries nothing",
+    store.messagesSince(rebased, rebased.lastTicketSyncAt).length === 0,
+    `${store.messagesSince(rebased, rebased.lastTicketSyncAt).length} messages would be re-sent`,
+  );
+
+  /*
+   * The gap this section exists for.
+   *
+   * `openTicketForConversation` receives a SNAPSHOT and then talks to
+   * Freshdesk — a create that uploads the visitor's screenshots as multipart
+   * and takes as long as that takes. A visitor typing during that window lands
+   * in neither place: the ticket's transcript was built from the snapshot, and
+   * a mark stamped at patch time is already past them.
+   *
+   * add_to_ticket states the rule this must obey — "the last message we
+   * actually sent rather than 'now': a message that landed while the note was
+   * in flight belongs to the next push, not to a gap." The create path owes
+   * the same guarantee.
+   */
+  const { openTicketForConversation } = await import("../lib/chat-ticket");
+  const flight = await newConv("Inflight", "inflight@example.com");
+  await store.appendMessage(flight.id, "visitor", "documents are stuck generating");
+  // Exactly what openTicketForConversation is handed, and builds the ticket
+  // transcript from.
+  const snapshot = snap((await store.getConversation(flight.id))!);
+  // …and what the visitor adds while Freshdesk is still uploading. Freshdesk is
+  // stubbed here, so this stands in for a call that really does take seconds
+  // when there are screenshots on it.
+  await tick();
+  const inflight = await store.appendMessage(flight.id, "visitor", "reinstalling changed nothing");
+  check(
+    "the in-flight message is not in the ticket's own transcript",
+    !snapshot.messages.some((m) => m.id === inflight!.id),
+  );
+
+  const opened = await openTicketForConversation(snapshot, {
+    email: "inflight@example.com",
+    subject: "Documents stuck generating",
+    summary: "Contract test.",
+  });
+  check(
+    "the mark describes the transcript that was sent, not the clock",
+    !!opened.syncMark && opened.syncMark === snapshot.messages.at(-1)!.createdAt,
+    opened.syncMark ?? "no mark returned",
+  );
+
+  // Applied the way all three callers apply it.
+  await store.updateConversation(flight.id, {
+    status: "ticketed",
+    ticketId: opened.id,
+    lastTicketSyncAt: opened.syncMark,
+  });
+  const handed = (await store.getConversation(flight.id))!;
+  check(
+    "a message sent while the ticket was being created survives into the first delta",
+    store.messagesSince(handed, handed.lastTicketSyncAt).some((m) => m.id === inflight!.id),
+    "it is in neither the ticket transcript nor any delta — the team never sees it",
+  );
+
+  /*
+   * Files ride the same mark as the words.
+   *
+   * add_to_ticket attaches whatever is on the messages in its delta, so the
+   * mark is the only thing stopping a screenshot being uploaded to the same
+   * ticket on every later push. Freshdesk does not de-duplicate — the agent
+   * gets the same file four times and has to work out whether they are
+   * different.
+   */
+  const shot = {
+    id: "att-1",
+    name: "blank-board.png",
+    contentType: "image/png",
+    size: 12_345,
+    pathname: "chat/att-1/blank-board.png",
+  };
+  const filed = await newConv("Filed", "filed@example.com");
+  await store.updateConversation(filed.id, { status: "ticketed", ticketId: "50003" });
+  await tick();
+  const withShot = await store.appendMessage(filed.id, "visitor", "here's what I see", {
+    attachments: [shot],
+  });
+  const beforePush = (await store.getConversation(filed.id))!;
+  check(
+    "a newly sent file is in the delta waiting to go",
+    store
+      .messagesSince(beforePush, beforePush.lastTicketSyncAt)
+      .some((m) => m.attachments?.length),
+  );
+  await store.updateConversation(filed.id, { lastTicketSyncAt: withShot!.createdAt });
+  const afterPush = (await store.getConversation(filed.id))!;
+  await tick();
+  await store.appendMessage(filed.id, "visitor", "any update?");
+  const nextDelta = store.messagesSince(
+    (await store.getConversation(filed.id))!,
+    afterPush.lastTicketSyncAt,
+  );
+  check(
+    "…and is not attached a second time on the next push",
+    nextDelta.length === 1 && !nextDelta.some((m) => m.attachments?.length),
+    `${nextDelta.filter((m) => m.attachments?.length).length} already-sent file(s) would re-upload`,
+  );
+
+  /*
+   * A second ticket re-bases everything.
+   *
+   * It carries the WHOLE transcript, so nothing is outstanding against it the
+   * moment it opens. Leaving the old mark in place would make the next push
+   * re-send, to the new ticket, every message the new ticket already contains.
+   */
+  const second = await newConv("Second", "second@example.com");
+  await store.appendMessage(second.id, "visitor", "prefix will not stick");
+  await store.updateConversation(second.id, { status: "ticketed", ticketId: "60001" });
+  await tick();
+  await store.appendMessage(second.id, "visitor", "different thing — we were double charged");
+  const beforeSecond = snap((await store.getConversation(second.id))!);
+  const reopened = await openTicketForConversation(beforeSecond, {
+    email: "second@example.com",
+    subject: "Duplicate charge",
+    summary: "Contract test.",
+  });
+  await store.updateConversation(second.id, {
+    ticketId: reopened.id,
+    previousTicketIds: [...(beforeSecond.previousTicketIds ?? []), beforeSecond.ticketId!],
+    ticketedAt: new Date().toISOString(),
+    lastTicketSyncAt: reopened.syncMark,
+  });
+  const twoTickets = (await store.getConversation(second.id))!;
+  check(
+    "the superseded ticket is kept, not overwritten",
+    twoTickets.previousTicketIds?.includes("60001") === true && twoTickets.ticketId === reopened.id,
+    `active ${twoTickets.ticketId}, previous ${JSON.stringify(twoTickets.previousTicketIds)}`,
+  );
+  check(
+    "the new ticket starts with nothing outstanding against it",
+    store.messagesSince(twoTickets, twoTickets.lastTicketSyncAt).length === 0,
+    `${store.messagesSince(twoTickets, twoTickets.lastTicketSyncAt).length} messages would re-send to a ticket that has them`,
+  );
 
   // ── The monday app view ──────────────────────────────────────────
   //

@@ -64,6 +64,8 @@ interface Conv {
   pageUrl?: string;
   humanAgent?: string;
   ticketId?: string;
+  /** Earlier tickets this conversation opened, oldest first. */
+  previousTicketIds?: string[];
   visitor: { name?: string; email?: string; mondayAccountSlug?: string; app?: string };
   messages: Msg[];
 }
@@ -410,6 +412,22 @@ export default function ChatInbox({
                     ticket #{detail.ticketId} <ExternalLink className="size-3" />
                   </a>
                 )}
+                {/* A chat that raised two separate problems has two tickets.
+                    The newest is the live one above; these are the earlier
+                    ones, shown so a conversation never hides a thread it
+                    opened. */}
+                {detail.previousTicketIds?.map((id) => (
+                  <a
+                    key={id}
+                    href={`https://${freshdeskDomain}/a/tickets/${id}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:underline"
+                    title="An earlier ticket from this conversation"
+                  >
+                    also #{id} <ExternalLink className="size-3" />
+                  </a>
+                ))}
               </div>
             </header>
 
@@ -513,10 +531,11 @@ export default function ChatInbox({
                     <Undo2 /> Hand back to Jetta
                   </Button>
                 )}
-                {/* Hidden once ticketed — the header already links to the
-                    ticket, and a second ticket for one conversation gives the
-                    customer two threads and the team an argument about which
-                    is live. */}
+                {/* Hidden once ticketed. Jetta may open a second ticket for a
+                    genuinely separate issue, but this button cannot tell one
+                    issue from another — it would just re-file the same chat,
+                    which is the duplicate-thread failure. Raise the second one
+                    in Freshdesk, where you can see what the first says. */}
                 {!detail.ticketId && (
                   <ConfirmButton
                     size="sm"
@@ -563,8 +582,9 @@ export default function ChatInbox({
                           <span className="text-xs">
                             Tell the visitor in the chat
                             <span className="block text-[11px] text-muted-foreground">
-                              Jetta stops answering a ticketed chat, so without this the conversation
-                              just goes quiet on them.
+                              Jetta keeps chatting either way, but she won&apos;t announce a ticket
+                              she didn&apos;t open — without this, nothing tells them their question
+                              moved.
                             </span>
                           </span>
                         </label>

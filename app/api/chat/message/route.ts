@@ -18,6 +18,7 @@ import {
 import { runChatTurn } from "@/lib/chat-run";
 import { claimPending, MAX_FILES_PER_MESSAGE } from "@/lib/chat-files";
 import { logOpsEvent } from "@/lib/events";
+import { getChatSettings } from "@/lib/chat-settings";
 import * as store from "@/lib/chat-store";
 
 export const runtime = "nodejs";
@@ -78,6 +79,14 @@ export async function POST(req: NextRequest) {
     return await chatJson(req, { error: "that upload expired — try attaching it again" }, { status: 410 });
   }
 
+  // The same idle rule the session route applies on resume, enforced here too:
+  // a tab left open past the window would otherwise keep writing into a
+  // conversation the widget would never have resumed on a reload.
+  const existing = await store.getConversation(conversationId);
+  if (existing && store.isStale(existing, (await getChatSettings()).sessionIdleHours)) {
+    return await chatJson(req, { expired: true }, { status: 410 });
+  }
+
   const stored = await store.appendMessage(conversationId, "visitor", text, { attachments });
   if (!stored) return await chatJson(req, { expired: true }, { status: 410 });
 
@@ -85,13 +94,27 @@ export async function POST(req: NextRequest) {
   // an agent loop, so a burst of messages costs exactly one run.
   await store.setPendingTurn(conversationId, stored.id);
 
-  // A conversation that already became a ticket stays a ticket — the customer
-  // was told the team would email them, so don't restart the bot on top of it.
-  const conv = await store.getConversation(conversationId);
-  if (conv?.status === "ticketed") {
-    return await chatJson(req, { accepted: true, ticketed: true, message: stored });
-  }
-
+  /*
+   * A ticketed conversation still gets a turn.
+   *
+   * This used to return here without waking her, on the reasoning that the
+   * customer had been told the team would email them and the bot should not
+   * restart on top of that promise. What it actually produced was a widget with
+   * a live composer that accepted a message and then answered nothing — and,
+   * worse, a follow-up that reached no one: the ticket carries the transcript
+   * as it stood when it was opened, so "it only happens in Safari", typed
+   * thirty seconds later, was invisible to the agent holding the ticket.
+   *
+   * She now answers with add_to_ticket alongside create_support_ticket, so
+   * everything said here reaches the team — on the existing ticket if it is
+   * the same issue, on its own if it is not. `ticketed` stays in the response:
+   * the widget uses it for the banner that tells the visitor where their
+   * answer is coming from.
+   */
   after(() => runChatTurn(conversationId, stored.id));
-  return await chatJson(req, { accepted: true, message: stored });
+  return await chatJson(req, {
+    accepted: true,
+    ...(existing?.status === "ticketed" ? { ticketed: true } : {}),
+    message: stored,
+  });
 }

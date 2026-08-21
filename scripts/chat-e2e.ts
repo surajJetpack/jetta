@@ -828,17 +828,56 @@ async function main() {
       );
       check("converting twice reuses the first ticket", again.json.alreadyTicketed === true, again.text.slice(0, 160));
 
-      // …and a ticketed conversation stops the bot rather than restarting it.
+      // …and a ticketed conversation keeps talking. The visitor's follow-up has
+      // to be answered AND reach the ticket: it used to do neither, which is
+      // the bug this path exists to prove is gone.
       const afterTicket = await post("/api/chat/message", {
         conversationId: toTicket.id,
         token: toTicket.token,
-        text: "one more thing",
+        text: "One more thing — it only happens in Safari, not Chrome.",
       });
       check(
-        "a ticketed conversation accepts the message but does not wake Jetta",
+        "a ticketed conversation still reports the ticket to the widget",
         afterTicket.json.ticketed === true,
         afterTicket.text.slice(0, 160),
       );
+      if (NO_AGENT) {
+        skip("the post-ticket turn", "--no-agent");
+      } else {
+        // Poll the session rather than the stream: this section is about what
+        // the conversation ENDS UP as, and the stream's delivery guarantees
+        // already have their own section above.
+        const seen = async () =>
+          (await post("/api/chat/session", { conversationId: toTicket.id, token: toTicket.token }))
+            .json as { status: string; messages: { author: string; text: string }[] };
+        const before = (await seen()).messages.length;
+        let resumed = await seen();
+        for (let i = 0; i < 60 && resumed.messages.length <= before; i++) {
+          await sleep(2000);
+          resumed = await seen();
+        }
+        const fresh = resumed.messages.slice(before);
+        check(
+          "Jetta answers instead of going silent on a ticketed chat",
+          fresh.some((m) => m.author === "agent"),
+          `${resumed.messages.length} messages, none new from the agent`,
+        );
+        check(
+          "…and does not hand the customer the ticket number",
+          !fresh.some((m) => m.author === "agent" && m.text.includes(ticketId)),
+        );
+        check(
+          "…and does not claim to have opened another ticket",
+          !fresh.some(
+            (m) => m.author === "agent" && /(new|another|second) (support )?ticket/i.test(m.text),
+          ),
+        );
+        check(
+          "the conversation is still ticketed, not reopened",
+          resumed.status === "ticketed",
+          String(resumed.status),
+        );
+      }
 
       await verifyTicket(ticketId);
     }

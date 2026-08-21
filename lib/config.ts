@@ -211,6 +211,12 @@ export const config = {
     rateLimitPerHour: Number(env("JETTACHAT_RATE_LIMIT_PER_HOUR") ?? "60"),
     /** How long transcripts are retained before Redis expires them. */
     retentionDays: Number(env("JETTACHAT_RETENTION_DAYS") ?? "90"),
+    /**
+     * How long a visitor may be away and still land back in the same
+     * conversation. Separate from retention: this decides what the WIDGET
+     * resumes, retention decides what the console can still read.
+     */
+    sessionIdleHours: Number(env("JETTACHAT_SESSION_IDLE_HOURS") ?? "24"),
     /** Largest file a visitor may attach, in MB. */
     maxAttachmentMb: Number(env("JETTACHAT_MAX_ATTACHMENT_MB") ?? "10"),
     /** Uploads per IP per hour — its own budget, far below the message limit. */

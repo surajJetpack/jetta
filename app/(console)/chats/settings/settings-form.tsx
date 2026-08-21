@@ -35,6 +35,7 @@ interface Settings {
   debounceSeconds: number;
   rateLimitPerHour: number;
   retentionDays: number;
+  sessionIdleHours: number;
   handoffEnabled: boolean;
   handoffTimeoutMinutes: number;
   handoffChannel?: string;
@@ -473,6 +474,16 @@ export default function ChatSettingsForm() {
                 type="number"
                 value={form.retentionDays}
                 onChange={(e) => set("retentionDays", Number(e.target.value))}
+              />
+            </Field>
+            <Field
+              label="Resume a chat for (hours)"
+              hint="A visitor who comes back within this window picks up where they left off; after it they get a new chat. Nothing is deleted — the old transcript stays here. Keep it well above the length of a normal conversation, or someone still discussing the ticket they just got would start a second one."
+            >
+              <Input
+                type="number"
+                value={form.sessionIdleHours}
+                onChange={(e) => set("sessionIdleHours", Number(e.target.value))}
               />
             </Field>
           </div>

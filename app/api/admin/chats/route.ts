@@ -146,15 +146,26 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: `Freshdesk refused the ticket: ${message}` }, { status: 502 });
     }
 
-    await store.updateConversation(conversationId, { status: "ticketed", ticketId: created.id });
+    // syncMark, not "now": a visitor typing while Freshdesk took the ticket is
+    // in neither the transcript it carries nor a delta measured from the clock.
+    // Same rule as Jetta's own create path — the whole reason chat-ticket.ts
+    // has one function is that this button and that tool must not drift.
+    await store.updateConversation(conversationId, {
+      status: "ticketed",
+      ticketId: created.id,
+      lastTicketSyncAt: created.syncMark,
+    });
 
-    // Jetta stops answering a ticketed conversation, so without this the
-    // visitor is left watching a chat that simply goes quiet.
+    // Jetta keeps answering a ticketed conversation, but she will not announce
+    // a ticket she did not open — so without this the visitor never learns
+    // their question moved, and the chat quietly changes meaning underneath
+    // them. The message says it plainly, and says the chat is still open.
     if (notify !== false) {
       await store.appendMessage(
         conversationId,
         "agent",
-        `${actor} has passed this to the support team — they'll reply by email to ${email}.`,
+        `${actor} has passed this to the support team — they'll reply by email to ${email}. ` +
+          `You can carry on here in the meantime.`,
         { via: "human", authorName: actor, system: true },
       );
     }
@@ -171,8 +182,15 @@ export async function POST(req: NextRequest) {
   }
 
   if (action === "release") {
+    // Back to the state she was in before a person took it. A conversation
+    // that already has a ticket must return to `ticketed`, not `open`: the
+    // status is what the console filters and /today read, and demoting it
+    // would resurrect a row that duplicates the Freshdesk ticket. Jetta answers
+    // in both states — the difference is which escalation tool she holds, and
+    // that keys off the ticket id, not the status.
+    const conv = await store.getConversation(conversationId);
     await store.updateConversation(conversationId, {
-      status: "open",
+      status: conv?.ticketId ? "ticketed" : "open",
       humanAgent: undefined,
       humanRequestedAt: undefined,
     });
@@ -183,7 +201,7 @@ export async function POST(req: NextRequest) {
       actor,
       ticketId: conversationId,
     });
-    return NextResponse.json({ ok: true, status: "open" });
+    return NextResponse.json({ ok: true, status: conv?.ticketId ? "ticketed" : "open" });
   }
 
   return NextResponse.json({ error: "unknown action" }, { status: 400 });

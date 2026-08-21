@@ -111,6 +111,19 @@ interface RunRecord {
   rubric: string;
   conversationId: string;
   ticketId?: string;
+  /**
+   * Every OTHER ticket this conversation opened. The post-ticket state is the
+   * first thing that can open two, and cleanup deletes by id — so without this
+   * the superseded one is orphaned in Freshdesk wearing a test address, which
+   * is indistinguishable from a customer's until somebody opens it.
+   */
+  previousTicketIds?: string[];
+  /**
+   * Tools per turn. `toolsUsed` is the flattened total, which cannot answer
+   * "did she call add_to_ticket on the turn that mattered" — the question every
+   * post-ticket scenario is actually asking. Populated from this run onward.
+   */
+  toolsByTurn?: string[][];
   replies: string[];
   finalReply: string;
   toolsUsed: string[];
@@ -277,6 +290,7 @@ async function runScenario(s: Scenario, d: Deps): Promise<RunRecord> {
       const text = result.text.trim();
       rec.replies.push(text);
       rec.toolsUsed.push(...result.toolsUsed);
+      (rec.toolsByTurn ??= []).push([...result.toolsUsed]);
       rec.model = result.model;
       rec.totalTokens += result.usage?.totalTokens ?? 0;
 
@@ -293,6 +307,7 @@ async function runScenario(s: Scenario, d: Deps): Promise<RunRecord> {
     rec.finalReply = rec.replies.at(-1) ?? "";
     const after = await d.store.getConversation(conv.id);
     if (after?.ticketId) rec.ticketId = after.ticketId;
+    if (after?.previousTicketIds?.length) rec.previousTicketIds = after.previousTicketIds;
   } catch (e) {
     rec.error = e instanceof Error ? e.message : String(e);
   }
@@ -396,12 +411,48 @@ async function judgeAll() {
   }
   const judged = read<JudgedRecord[]>(JUDGED, []);
   const seen = new Set(judged.map((j) => j.id));
+  // What the customer actually said. Runs record only the agent's side, and a
+  // reply cannot be graded without the message it answers.
+  const scenarioById = new Map(
+    (
+      JSON.parse(
+        readFileSync(new URL("../lib/eval/chat-scenarios.json", import.meta.url), "utf8"),
+      ) as Scenario[]
+    ).map((s) => [s.id, s]),
+  );
 
   for (const r of runs) {
     if (seen.has(r.id)) {
       console.log(`  ·  ${r.id} (cached)`);
       continue;
     }
+    /*
+     * The judge gets the WHOLE conversation, not just the last thing said.
+     *
+     * It used to get only `finalReply`, and on a multi-turn scenario that hides
+     * the failures that matter most. Two passes were graded on the first run of
+     * the post-ticket set that had real faults on turn one — a turn that
+     * searched four times, opened nothing and said nothing, and a turn that
+     * dropped the customer's first problem entirely. Neither is visible in the
+     * final reply, and both were marked pass.
+     *
+     * A silent turn is spelled out rather than left blank, because on this
+     * channel it is not a stylistic choice: the model's text IS the message, so
+     * an empty turn is what production turns into the crash apology.
+     */
+    const script = scenarioById.get(r.id);
+    const asked = script?.burst ?? script?.turns ?? [];
+    const exchange: string[] = [];
+    for (const [i, reply] of r.replies.entries()) {
+      if (script?.burst && i === 0) exchange.push(`CUSTOMER (sent as ${asked.length} messages): ${asked.join(" / ")}`);
+      else if (asked[i] !== undefined) exchange.push(`CUSTOMER: ${asked[i]}`);
+      exchange.push(
+        reply.trim()
+          ? `AGENT: ${reply}`
+          : "AGENT: (SENT NOTHING — on this channel the reply IS the final text, so the visitor sees an error message)",
+      );
+    }
+
     const prompt = [
       `SCENARIO: ${r.title}`,
       `RUBRIC: ${r.rubric}`,
@@ -409,10 +460,16 @@ async function judgeAll() {
       `WHAT THE AGENT RETRIEVED (${r.kbTitles.length} articles):`,
       r.kbTitles.length ? r.kbTitles.map((t) => `- ${t}`).join("\n") : "- (nothing retrieved)",
       "",
-      `TOOLS CALLED: ${r.toolsUsed.join(", ") || "(none)"}`,
+      `TOOLS CALLED, across the whole conversation: ${r.toolsUsed.join(", ") || "(none)"}`,
+      "(This list is not per-turn. A tool that the scenario's FIRST turn is",
+      " supposed to call appears here too, so do not read its presence as a",
+      " later turn having called it.)",
       "",
-      "THE REPLY:",
-      r.finalReply || "(the agent sent nothing)",
+      "THE CONVERSATION:",
+      exchange.length ? exchange.join("\n\n") : (r.finalReply || "(the agent sent nothing)"),
+      "",
+      "Grade the agent's conduct across the whole conversation, weighting the",
+      "turn the rubric is about. A turn that sent nothing is a failure on its own.",
     ].join("\n");
 
     const { object } = await generateObject({
@@ -570,20 +627,54 @@ function report() {
 async function cleanup() {
   const runs = [...read<RunRecord[]>(RUNS, []), ...read<RunRecord[]>(JUDGED, [])];
   const convIds = [...new Set(runs.map((r) => r.conversationId).filter(Boolean))];
-  const ticketIds = [...new Set(runs.map((r) => r.ticketId).filter(Boolean) as string[])];
+  // Both the active ticket and any it superseded: one conversation can raise
+  // more than one issue, and each of those is a real ticket in a real queue.
+  const ticketIds = [
+    ...new Set(
+      runs.flatMap((r) => [r.ticketId, ...(r.previousTicketIds ?? [])]).filter(Boolean) as string[],
+    ),
+  ];
 
   const domain = process.env.FRESHDESK_DOMAIN ?? "jetpackwork.freshdesk.com";
   const key = process.env.FRESHDESK_API_KEY;
   let tickets = 0;
   if (key) {
     const auth = "Basic " + Buffer.from(`${key}:X`).toString("base64");
+    /*
+     * Freshdesk's two non-obvious answers, both of which used to read as
+     * failure and leave real tickets in a real queue with nobody looking:
+     *
+     *   405 — already deleted. Its DELETE is not idempotent-looking; a second
+     *         call on a trashed ticket is Method Not Allowed, not 204. Counting
+     *         that as a miss made a clean run report "1/7 tickets".
+     *   429 — rate limited. The cap is 40 requests/minute on this account and
+     *         an eval run burns through it, so the tail of the list would fail
+     *         for no reason at all. This is the one that actually loses tickets,
+     *         so it retries rather than warning.
+     */
     for (const id of ticketIds) {
-      const res = await fetch(`https://${domain}/api/v2/tickets/${id}`, {
-        method: "DELETE",
-        headers: { Authorization: auth },
-      });
-      if (res.ok || res.status === 404) tickets++;
-      else console.warn(`  ticket ${id}: HTTP ${res.status}`);
+      let attempt = 0;
+      for (;;) {
+        const res = await fetch(`https://${domain}/api/v2/tickets/${id}`, {
+          method: "DELETE",
+          headers: { Authorization: auth },
+        });
+        if (res.ok || res.status === 404 || res.status === 405) {
+          tickets++;
+          break;
+        }
+        if (res.status === 429 && attempt < 5) {
+          const wait = Number(res.headers.get("retry-after")) || 20 * 2 ** attempt;
+          console.log(`  ticket ${id}: rate limited, waiting ${wait}s`);
+          await new Promise((r) => setTimeout(r, wait * 1000));
+          attempt++;
+          continue;
+        }
+        console.warn(`  ticket ${id}: HTTP ${res.status} — NOT deleted, still in the queue`);
+        break;
+      }
+      // Well inside 40/min even when a run opened two tickets per scenario.
+      await new Promise((r) => setTimeout(r, 1500));
     }
   }
 
