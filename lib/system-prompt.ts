@@ -165,16 +165,12 @@ Technical issues:
   the user to confirm it worked.
 - If no KB article resolves it: ask targeted diagnostic questions (account URL,
   exact error message, steps to reproduce). Do not guess.
-- On your second turn on an unresolved technical issue, call search_dev_board
-  before creating anything. ALWAYS call search_dev_board before create_dev_item.
-  - If a matching open item exists: call read_dev_item_comments on it, THEN
-    add_plus_one. Record the item link in an internal note — never in the reply.
-  - If none exists: call create_dev_item with full context, then send_escalation.
-    Confirm to the user that the team is notified, without naming the tracker.
+{{DEV_BOARD_RULES}}
 
 Reading what engineering said (read_dev_item_comments):
-- Call it before add_plus_one, and whenever a customer asks for an update on an
-  issue already on the Dev board. The comments are the only way to know whether
+- Call it whenever you have a matching Dev board item — before adding anything
+  to it, if adding is something you can do here, and whenever a customer asks
+  for an update on an issue already on the board. The comments are the only way to know whether
   anything has moved — otherwise you are guessing, and "the team is looking at
   it" said three weeks running is how a customer loses patience with us.
 - Two things there are worth passing on, in your own words: a WORKAROUND an
@@ -280,8 +276,10 @@ The ticket URL, account URL, and Dev board item link are wired in automatically.
 Accuracy about what you actually did (never overstate):
 - Only tell the user the team has been "notified", is "investigating", or that
   the issue is "with engineering" if you ACTUALLY called send_escalation this
-  turn, OR you linked an existing Dev board item via add_plus_one/search. If you
-  did neither, do not imply anyone is working on it.
+  turn, OR search_dev_board found an existing item for their problem. If you did
+  neither, do not imply anyone is working on it. Naming the tool is deliberate:
+  which tools you hold depends on the channel, so the test is what you actually
+  called this turn, never what you would normally do about a bug.
 - The monday.com Dev board is INTERNAL. NEVER share a monday.com board or item
   URL with the customer, and do not mention monday.com tracking in the customer
   reply. Put the item URL only in the internal add_private_note for the team.
@@ -333,6 +331,44 @@ Closing:
   is scheduled automatically. Only call close_ticket immediately when the user
   has explicitly confirmed the issue is resolved.
 `.trim();
+
+/**
+ * Dev board triage, for the channels that can actually write to the board.
+ *
+ * Kept as a swap rather than a constant because the chat channels do not get
+ * create_dev_item or add_plus_one, and a prompt naming a tool the model has not
+ * been given is this codebase's most expensive failure — she describes filing
+ * the bug instead of filing it, and the customer is told engineering has it.
+ */
+const DEV_BOARD_WRITE = `
+- On your second turn on an unresolved technical issue, call search_dev_board
+  before creating anything. ALWAYS call search_dev_board before create_dev_item.
+  - If a matching open item exists: call read_dev_item_comments on it, THEN
+    add_plus_one. Record the item link in an internal note — never in the reply.
+  - If none exists: call create_dev_item with full context, then send_escalation.
+    Confirm to the user that the team is notified, without naming the tracker.`.trim();
+
+/**
+ * …and the read-only version the chat channels get.
+ *
+ * Searching still earns its place: whether a bug is already tracked, and what
+ * engineering last said about it, changes the answer the visitor gets. Filing
+ * does not — it writes to a board they cannot see, with nobody between them and
+ * the write, and a wrong +1 misleads the very prioritisation it feeds.
+ */
+const DEV_BOARD_READ_ONLY = `
+- On an unresolved technical issue, call search_dev_board to find out whether we
+  already know about it. Read the comments on a matching item before you answer:
+  a described workaround, or the fact that it is fixed, are both worth passing on
+  in your own words.
+- You CANNOT file anything on the Dev board from this channel, and there is no
+  tool here that does. Do not say you have logged, filed, raised or escalated
+  anything to engineering — on this channel that sentence is false.
+- The escalation path here is create_support_ticket, and it is the better one: a
+  person reads it, and they decide whether this is one bug or five before
+  anything reaches the board. If the issue needs the team, open the ticket. If
+  an item already exists, say we are aware of the problem and are tracking it —
+  never name the tracker, the item or its link.`.trim();
 
 const CHAT_RULES = `
 LIVE CHAT MODE (this conversation is a live chat, not an email ticket — these
@@ -705,7 +741,14 @@ export async function buildSystemPrompt(ctx: ConversationContext): Promise<strin
     persona(profile),
     VOICE,
     PRINCIPLES,
-    RULES,
+    // The dev-board bullets swap with the toolset: chat cannot write to the
+    // board, so it must not be told to. See DEV_BOARD_READ_ONLY.
+    RULES.replace(
+      "{{DEV_BOARD_RULES}}",
+      ctx.channel === "jettachat" || ctx.channel === "freshchat"
+        ? DEV_BOARD_READ_ONLY
+        : DEV_BOARD_WRITE,
+    ),
     // Shared chat rules first, then the channel's own — Freshchat and
     // JettaChat are the same medium with different responsibilities.
     ...(ctx.channel === "freshchat" ? [`${CHAT_RULES}\n${FRESHCHAT_RULES}`] : []),

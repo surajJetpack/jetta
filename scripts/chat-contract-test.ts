@@ -625,6 +625,28 @@ async function main() {
 
   // The same context minus the ticket, so the two prompts differ in exactly the
   // one field that is supposed to swap them.
+  /*
+   * Dev board writes are off this channel, and the PROMPT has to move with the
+   * toolset. A judged run called create_dev_item six times in ten chats, twice
+   * for a bare "ok 👍" — with MONDAY_ALLOW_WRITES armed those are real board
+   * items and real Slack pings, filed from an endpoint any visitor can reach,
+   * and add_plus_one has no undo. Both halves are checked here because getting
+   * only one of them right is worse than neither: a prompt still ordering a tool
+   * that is gone makes her DESCRIBE filing the bug, and the customer is told
+   * engineering has it.
+   */
+  const ticketChannelTools = Object.keys(
+    buildTools({ ...(postTicketCtx as unknown as Record<string, unknown>), channel: "freshdesk", chat: undefined } as never, {} as never),
+  );
+  for (const t of ["create_dev_item", "add_plus_one"]) {
+    check(`${t} is not offered on chat`, !postTicketTools.includes(t));
+    check(`…but is still there off chat`, ticketChannelTools.includes(t));
+  }
+  // The reads stay — knowing a bug is tracked changes the answer.
+  for (const t of ["search_dev_board", "read_dev_item_comments"]) {
+    check(`${t} is still offered on chat`, postTicketTools.includes(t));
+  }
+
   const preTicketPrompt = await buildPrompt({
     ...(postTicketCtx as unknown as Record<string, unknown>),
     chat: { surface: "wordpress", handoffEnabled: true },
@@ -640,6 +662,20 @@ async function main() {
     "…and says a dev item is not a ticket",
     /NOT a ticket/.test(preTicketPrompt) && /invisible to the\s+customer/i.test(preTicketPrompt),
   );
+
+  for (const [label, pr] of [["pre-ticket", preTicketPrompt], ["post-ticket", postTicketPrompt]] as const) {
+    check(
+      `the ${label} prompt never orders a dev-board write`,
+      !/create_dev_item|add_plus_one/.test(pr),
+      "the prompt still names a tool this channel does not have",
+    );
+    check(
+      `the ${label} prompt says she cannot file on the board`,
+      /CANNOT file anything on the Dev board/.test(pr),
+    );
+    // The placeholder must actually be substituted, not shipped raw.
+    check(`the ${label} prompt has no unreplaced placeholder`, !pr.includes("{{"));
+  }
 
   // The worst single output of the run: an internal status report, complete
   // with board URL and ticket number, written into the customer's chat.

@@ -684,6 +684,30 @@ export function buildTools(
       },
     }),
 
+    /*
+     * Dev board WRITES are off the chat channel entirely.
+     *
+     * Reads stay: knowing a bug is already tracked, and what engineering last
+     * said about it, changes the answer a visitor gets. Writes do not — they
+     * change a board the visitor cannot see, and on this channel there is
+     * nobody between them and the write.
+     *
+     * A judged eval of ten chat conversations called create_dev_item six
+     * times, twice for a bare "ok 👍". With MONDAY_ALLOW_WRITES armed that is
+     * six real items and six Slack pings from ten chats, filed autonomously on
+     * an endpoint any anonymous visitor can reach, and add_plus_one has no
+     * undo at all — the team prioritises by +1 count, so a wrong one is worse
+     * than none.
+     *
+     * The escalation path from a chat is create_support_ticket: it is visible
+     * to the customer, it can be replied to, and a person reads it before
+     * anything reaches the board. Nothing is lost — the ticket carries the
+     * transcript, and whoever works it files the dev item with a human's
+     * judgement about whether it is one bug or five.
+     */
+    ...(isChat
+      ? {}
+      : {
     create_dev_item: tool({
       description:
         "Create a new Dev board item with full context. Only after search_dev_board finds no existing master item.",
@@ -753,6 +777,7 @@ export function buildTools(
         return `Added +1 to the Dev board item.${filesNote(r.filesAttached)} INTERNAL item URL — put in the private note ONLY, never the customer reply: ${r.url}`;
       },
     }),
+        }),
 
     extend_trial: tool({
       description:
