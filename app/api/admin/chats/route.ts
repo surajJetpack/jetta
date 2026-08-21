@@ -146,7 +146,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: `Freshdesk refused the ticket: ${message}` }, { status: 502 });
     }
 
-    await store.updateConversation(conversationId, { status: "ticketed", ticketId: created.id });
+    // syncMark, not "now": a visitor typing while Freshdesk took the ticket is
+    // in neither the transcript it carries nor a delta measured from the clock.
+    // Same rule as Jetta's own create path — the whole reason chat-ticket.ts
+    // has one function is that this button and that tool must not drift.
+    await store.updateConversation(conversationId, {
+      status: "ticketed",
+      ticketId: created.id,
+      lastTicketSyncAt: created.syncMark,
+    });
 
     // Jetta keeps answering a ticketed conversation, but she will not announce
     // a ticket she did not open — so without this the visitor never learns

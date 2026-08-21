@@ -603,6 +603,205 @@ async function main() {
     /never say the number to the customer/i.test(postTicketPrompt),
   );
 
+  /*
+   * ── The ticket sync mark ────────────────────────────────────────
+   *
+   * `lastTicketSyncAt` is the seam between what Freshdesk already has and what
+   * only Redis has. Everything the post-ticket state is for runs across it, and
+   * every way of getting it wrong is silent: too early and the team is sent the
+   * transcript twice, too late and the message that mattered is in neither the
+   * ticket nor any delta. Nothing upstream notices either, because the note
+   * posts successfully in both cases.
+   */
+  section("The ticket sync mark");
+  /*
+   * Two things this section has to do to be honest about the store.
+   *
+   * `tick` puts real milliseconds between appends. Timestamps are ISO strings
+   * at millisecond resolution and the comparison is strictly-greater, so two
+   * writes inside the same millisecond are indistinguishable to it — which
+   * in-memory they routinely are, and over HTTP they are not.
+   *
+   * `snap` deep-copies. The in-memory fallback returns the SAME object on every
+   * read (the reason the lock test below needs real KV), so a "snapshot" taken
+   * from it keeps growing as messages arrive. Against Redis every read is a
+   * fresh deserialize, and a snapshot really is frozen — which is the situation
+   * openTicketForConversation is actually in.
+   */
+  const tick = () => new Promise((r) => setTimeout(r, 2));
+  const snap = <T>(c: T): T => structuredClone(c);
+
+  const marked = await newConv("Mark", "mark@example.com");
+  const first = await store.appendMessage(marked.id, "visitor", "my board is blank");
+  await tick();
+  await store.updateConversation(marked.id, { status: "ticketed", ticketId: "50001" });
+  const afterTicket = (await store.getConversation(marked.id))!;
+  check("ticketing stamps a sync mark", !!afterTicket.lastTicketSyncAt, afterTicket.lastTicketSyncAt);
+  check(
+    "the message the ticket was opened FOR is not re-sent as a delta",
+    !store
+      .messagesSince(afterTicket, afterTicket.lastTicketSyncAt)
+      .some((m) => m.id === first!.id),
+  );
+  await tick();
+  const later = await store.appendMessage(marked.id, "visitor", "it only happens in Safari");
+  const withLater = (await store.getConversation(marked.id))!;
+  check(
+    "…but what they say afterwards is",
+    store.messagesSince(withLater, afterTicket.lastTicketSyncAt).some((m) => m.id === later!.id),
+  );
+
+  /*
+   * The boundary itself. The mark is a message's own timestamp, so the message
+   * AT the mark has already been sent and must not go again — while the next
+   * one must. An off-by-one here duplicates a customer's words or drops them,
+   * and both look like a working note.
+   */
+  await store.updateConversation(marked.id, { lastTicketSyncAt: later!.createdAt });
+  const rebased = (await store.getConversation(marked.id))!;
+  check(
+    "a message exactly AT the mark is treated as already sent",
+    !store.messagesSince(rebased, rebased.lastTicketSyncAt).some((m) => m.id === later!.id),
+  );
+  check(
+    "a second push with nothing new to say carries nothing",
+    store.messagesSince(rebased, rebased.lastTicketSyncAt).length === 0,
+    `${store.messagesSince(rebased, rebased.lastTicketSyncAt).length} messages would be re-sent`,
+  );
+
+  /*
+   * The gap this section exists for.
+   *
+   * `openTicketForConversation` receives a SNAPSHOT and then talks to
+   * Freshdesk — a create that uploads the visitor's screenshots as multipart
+   * and takes as long as that takes. A visitor typing during that window lands
+   * in neither place: the ticket's transcript was built from the snapshot, and
+   * a mark stamped at patch time is already past them.
+   *
+   * add_to_ticket states the rule this must obey — "the last message we
+   * actually sent rather than 'now': a message that landed while the note was
+   * in flight belongs to the next push, not to a gap." The create path owes
+   * the same guarantee.
+   */
+  const { openTicketForConversation } = await import("../lib/chat-ticket");
+  const flight = await newConv("Inflight", "inflight@example.com");
+  await store.appendMessage(flight.id, "visitor", "documents are stuck generating");
+  // Exactly what openTicketForConversation is handed, and builds the ticket
+  // transcript from.
+  const snapshot = snap((await store.getConversation(flight.id))!);
+  // …and what the visitor adds while Freshdesk is still uploading. Freshdesk is
+  // stubbed here, so this stands in for a call that really does take seconds
+  // when there are screenshots on it.
+  await tick();
+  const inflight = await store.appendMessage(flight.id, "visitor", "reinstalling changed nothing");
+  check(
+    "the in-flight message is not in the ticket's own transcript",
+    !snapshot.messages.some((m) => m.id === inflight!.id),
+  );
+
+  const opened = await openTicketForConversation(snapshot, {
+    email: "inflight@example.com",
+    subject: "Documents stuck generating",
+    summary: "Contract test.",
+  });
+  check(
+    "the mark describes the transcript that was sent, not the clock",
+    !!opened.syncMark && opened.syncMark === snapshot.messages.at(-1)!.createdAt,
+    opened.syncMark ?? "no mark returned",
+  );
+
+  // Applied the way all three callers apply it.
+  await store.updateConversation(flight.id, {
+    status: "ticketed",
+    ticketId: opened.id,
+    lastTicketSyncAt: opened.syncMark,
+  });
+  const handed = (await store.getConversation(flight.id))!;
+  check(
+    "a message sent while the ticket was being created survives into the first delta",
+    store.messagesSince(handed, handed.lastTicketSyncAt).some((m) => m.id === inflight!.id),
+    "it is in neither the ticket transcript nor any delta — the team never sees it",
+  );
+
+  /*
+   * Files ride the same mark as the words.
+   *
+   * add_to_ticket attaches whatever is on the messages in its delta, so the
+   * mark is the only thing stopping a screenshot being uploaded to the same
+   * ticket on every later push. Freshdesk does not de-duplicate — the agent
+   * gets the same file four times and has to work out whether they are
+   * different.
+   */
+  const shot = {
+    id: "att-1",
+    name: "blank-board.png",
+    contentType: "image/png",
+    size: 12_345,
+    pathname: "chat/att-1/blank-board.png",
+  };
+  const filed = await newConv("Filed", "filed@example.com");
+  await store.updateConversation(filed.id, { status: "ticketed", ticketId: "50003" });
+  await tick();
+  const withShot = await store.appendMessage(filed.id, "visitor", "here's what I see", {
+    attachments: [shot],
+  });
+  const beforePush = (await store.getConversation(filed.id))!;
+  check(
+    "a newly sent file is in the delta waiting to go",
+    store
+      .messagesSince(beforePush, beforePush.lastTicketSyncAt)
+      .some((m) => m.attachments?.length),
+  );
+  await store.updateConversation(filed.id, { lastTicketSyncAt: withShot!.createdAt });
+  const afterPush = (await store.getConversation(filed.id))!;
+  await tick();
+  await store.appendMessage(filed.id, "visitor", "any update?");
+  const nextDelta = store.messagesSince(
+    (await store.getConversation(filed.id))!,
+    afterPush.lastTicketSyncAt,
+  );
+  check(
+    "…and is not attached a second time on the next push",
+    nextDelta.length === 1 && !nextDelta.some((m) => m.attachments?.length),
+    `${nextDelta.filter((m) => m.attachments?.length).length} already-sent file(s) would re-upload`,
+  );
+
+  /*
+   * A second ticket re-bases everything.
+   *
+   * It carries the WHOLE transcript, so nothing is outstanding against it the
+   * moment it opens. Leaving the old mark in place would make the next push
+   * re-send, to the new ticket, every message the new ticket already contains.
+   */
+  const second = await newConv("Second", "second@example.com");
+  await store.appendMessage(second.id, "visitor", "prefix will not stick");
+  await store.updateConversation(second.id, { status: "ticketed", ticketId: "60001" });
+  await tick();
+  await store.appendMessage(second.id, "visitor", "different thing — we were double charged");
+  const beforeSecond = snap((await store.getConversation(second.id))!);
+  const reopened = await openTicketForConversation(beforeSecond, {
+    email: "second@example.com",
+    subject: "Duplicate charge",
+    summary: "Contract test.",
+  });
+  await store.updateConversation(second.id, {
+    ticketId: reopened.id,
+    previousTicketIds: [...(beforeSecond.previousTicketIds ?? []), beforeSecond.ticketId!],
+    ticketedAt: new Date().toISOString(),
+    lastTicketSyncAt: reopened.syncMark,
+  });
+  const twoTickets = (await store.getConversation(second.id))!;
+  check(
+    "the superseded ticket is kept, not overwritten",
+    twoTickets.previousTicketIds?.includes("60001") === true && twoTickets.ticketId === reopened.id,
+    `active ${twoTickets.ticketId}, previous ${JSON.stringify(twoTickets.previousTicketIds)}`,
+  );
+  check(
+    "the new ticket starts with nothing outstanding against it",
+    store.messagesSince(twoTickets, twoTickets.lastTicketSyncAt).length === 0,
+    `${store.messagesSince(twoTickets, twoTickets.lastTicketSyncAt).length} messages would re-send to a ticket that has them`,
+  );
+
   // ── The monday app view ──────────────────────────────────────────
   //
   // The whole point of embedding inside the app rather than on the site is that

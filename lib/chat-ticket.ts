@@ -38,10 +38,29 @@ export interface OpenTicketOptions {
   actor?: string;
 }
 
+/**
+ * A ticket, plus where the transcript it carries ends.
+ *
+ * `syncMark` is the `createdAt` of the last message that actually went to
+ * Freshdesk, and it belongs to this function because this function is the only
+ * one that knows: it is handed a SNAPSHOT of the conversation and then spends
+ * however long a multipart attachment upload takes talking to Freshdesk.
+ *
+ * The caller must store it as `lastTicketSyncAt`. Stamping "now" instead loses
+ * every message the visitor sent during that upload — they are not in the
+ * transcript, because the snapshot predates them, and not in the first delta,
+ * because a mark set at patch time is already past them. It is the one class of
+ * message the post-ticket state exists to carry, and nothing reports it
+ * missing: the ticket opens, the note posts, and the detail is simply gone.
+ *
+ * Undefined only for a conversation with no messages at all.
+ */
+export type OpenedTicket = freshdesk.CreatedTicket & { syncMark?: string };
+
 export async function openTicketForConversation(
   conv: ChatConversation,
   opts: OpenTicketOptions,
-): Promise<freshdesk.CreatedTicket> {
+): Promise<OpenedTicket> {
   // Transcript comes from the store, never from whoever asked for the ticket:
   // the agent picking this up must see what was actually said.
   const description = [opts.summary.trim(), "", "— Chat transcript —", transcriptText(conv)]
@@ -127,7 +146,9 @@ export async function openTicketForConversation(
       ),
     );
 
-  return created;
+  // Taken from the snapshot, not from the clock: this is where the transcript
+  // above ends, whatever has arrived since.
+  return { ...created, syncMark: conv.messages.at(-1)?.createdAt };
 }
 
 /**

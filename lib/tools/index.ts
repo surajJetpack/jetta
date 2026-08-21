@@ -397,6 +397,12 @@ export function buildTools(
               await chatStoreForTools.updateConversation(ticketId, {
                 status: "ticketed",
                 ticketId: created.id,
+                // Where the transcript Freshdesk just received ends. It comes
+                // from openTicketForConversation because only that function saw
+                // the snapshot it sent — anything the visitor typed during the
+                // upload is AFTER this mark, and so reaches the team on the
+                // first add_to_ticket instead of vanishing between the two.
+                lastTicketSyncAt: created.syncMark,
                 // The one it supersedes moves to the history, so the console
                 // and any later lookup can still find it. Only the newest is
                 // "active" — see ChatConversation.previousTicketIds.
@@ -404,9 +410,6 @@ export function buildTools(
                   ? {
                       previousTicketIds: [...(conv.previousTicketIds ?? []), conv.ticketId],
                       ticketedAt: new Date().toISOString(),
-                      // The new ticket carries the whole transcript, so nothing
-                      // is outstanding against it.
-                      lastTicketSyncAt: conv.messages.at(-1)?.createdAt,
                     }
                   : {}),
                 visitor: { email: email.trim() },
@@ -505,10 +508,11 @@ export function buildTools(
                 await chatStoreForTools.updateConversation(ticketId, {
                   ticketId: reopened.id,
                   ticketedAt: new Date().toISOString(),
-                  // The new ticket carries the FULL transcript, so nothing is
-                  // outstanding — the mark goes to the newest message, not to
-                  // the end of the delta.
-                  lastTicketSyncAt: conv.messages.at(-1)?.createdAt,
+                  // The replacement carries the FULL transcript, so nothing is
+                  // outstanding against it — the mark goes to the end of what
+                  // it sent, not to the end of the delta. Same rule, same
+                  // source, as the create path above.
+                  lastTicketSyncAt: reopened.syncMark,
                 });
                 await events.logOpsEvent({
                   level: "info",

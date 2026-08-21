@@ -245,6 +245,18 @@ async function updateConversationLocked(
    */
   if (patch.status === "ticketed" && !conv.ticketedAt) {
     conv.ticketedAt = nowIso();
+    /*
+     * A floor, not the answer. The accurate mark is `openTicketForConversation`'s
+     * `syncMark` — the end of the transcript Freshdesk actually received — and
+     * every caller passes it below.
+     *
+     * This clock reading cannot be that value and must not be mistaken for it:
+     * it is taken after the create call returns, so it sits PAST anything the
+     * visitor typed during the upload, and those messages would then appear in
+     * no delta at all. It stands here only so `since` is never undefined, which
+     * would re-send the entire transcript as a "delta" — a louder failure, and
+     * the one this line was originally added to prevent.
+     */
     conv.lastTicketSyncAt ??= conv.ticketedAt;
   }
   // Explicit patches win over the stamp above: replacing a closed ticket with a
