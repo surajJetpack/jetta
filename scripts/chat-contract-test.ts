@@ -598,6 +598,11 @@ async function main() {
     !postTicketPrompt.includes("CALL create_support_ticket"),
   );
   check("the post-ticket prompt tells her to push updates", postTicketPrompt.includes("add_to_ticket"));
+  // "when in doubt, push it" was pushing "ok 👍" onto the ticket.
+  check(
+    "…but not a message that carries no information",
+    /carrying no information is not a\s+doubt/i.test(postTicketPrompt),
+  );
   check(
     "the post-ticket prompt keeps the ticket number internal",
     /never say the number to the customer/i.test(postTicketPrompt),
@@ -671,7 +676,27 @@ async function main() {
     );
     check(
       `the ${label} prompt says she cannot file on the board`,
-      /CANNOT file anything on the Dev board/.test(pr),
+      /cannot FILE anything on the Dev board/.test(pr),
+    );
+    /*
+     * …and that the ban stops at the board.
+     *
+     * The first version of that bullet said "there is no tool here that does"
+     * and "do not say you have logged, filed, raised or escalated anything to
+     * engineering". Both false — send_escalation is ungated on this channel,
+     * and create_support_ticket/add_to_ticket reach the team too — so it
+     * contradicted the post-ticket rule telling her to push updates and say so
+     * plainly. She went quiet instead: the run after that change stopped
+     * pushing the one detail post-ticket exists to carry.
+     */
+    check(
+      `the ${label} prompt still names what DOES reach the team`,
+      /prohibition is about the BOARD/.test(pr) &&
+        /send_escalation tells the team directly/.test(pr),
+    );
+    check(
+      `the ${label} prompt does not forbid saying the team has it`,
+      !/do not say you have logged, filed, raised or escalated/i.test(pr),
     );
     // The placeholder must actually be substituted, not shipped raw.
     check(`the ${label} prompt has no unreplaced placeholder`, !pr.includes("{{"));

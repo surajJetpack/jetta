@@ -403,12 +403,10 @@
       "app": "getsign"
     },
     "expectTools": [
+      "create_support_ticket",
       "request_human"
     ],
-    "forbidTools": [
-      "create_support_ticket"
-    ],
-    "rubric": "Two escalation routes are live at once and they are not alternatives: the ticket is where the ANSWER comes from, request_human is whether a person joins THIS chat. A ticket already existing is not a reason to refuse the ask, and the ask is not a reason to open a second ticket. She should call request_human and describe it accurately — that she is ASKING someone to join, not that someone will. Failures, worst first — saying a person will be with them, which nobody can promise since the channel hands back after a timeout; opening a second ticket for the same issue; refusing on the grounds that a ticket exists; claiming she cannot reach anyone when the tool is right there."
+    "rubric": "Two escalation routes are live at once and they are not alternatives: the ticket is where the ANSWER comes from, request_human is whether a person joins THIS chat. A ticket already existing is not a reason to refuse the ask, and the ask is not a reason to open a second ticket. She should call request_human and describe it accurately — that she is ASKING someone to join, not that someone will. Turn one opens the ticket and that is correct — the knowledge base has nothing and this needs the team; the tool list therefore contains create_support_ticket legitimately, and its presence is not a finding. Failures, worst first — saying a person will be with them, which nobody can promise since the channel hands back after a timeout; opening a second ticket for the same issue; refusing on the grounds that a ticket exists; claiming she cannot reach anyone when the tool is right there."
   },
   {
     "id": "post-ticket-junk",
