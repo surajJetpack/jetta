@@ -176,10 +176,20 @@ async function main() {
   // KV — so an in-process call would pass on defaults whichever value the
   // route read. A source check has no such blind spot, and this is exactly the
   // regression an innocent "simplify" would reintroduce.
+  // The session route no longer gates on identity at all (anonymous starts
+  // are allowed; Jetta collects identity in-chat). The per-brand resolution
+  // moved to buildContext, which must go through the conversation's own brand
+  // — not the global value — when deciding whether she has to ask.
   const routeSrc = readFileSync(new URL("../app/api/chat/session/route.ts", import.meta.url), "utf8");
   check(
-    "the session route resolves requireIdentity through the profile",
-    /publicSettings\(\s*await getChatSettings\(\),\s*profile\.key\s*\)/.test(routeSrc),
+    "the session route no longer refuses anonymous starts",
+    !routeSrc.includes("name_and_email_required"),
+    "anonymous sessions must be accepted; identity is collected in-chat",
+  );
+  const contextSrc = readFileSync(new URL("../lib/context.ts", import.meta.url), "utf8");
+  check(
+    "needsIdentity resolves through the conversation's brand",
+    /publicSettings\(chatSettings, chatBrandKey\(chatConv\)\)\.requireIdentity/.test(contextSrc),
     "it must not read the global requireIdentity directly",
   );
   const configSrc = readFileSync(new URL("../app/api/chat/config/route.ts", import.meta.url), "utf8");

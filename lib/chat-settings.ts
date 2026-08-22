@@ -61,7 +61,13 @@ export interface ChatSettings {
    * cannot grow into something that belongs in a CDN.
    */
   avatarUrl?: string;
-  /** Ask for name and email before the first message. */
+  /**
+   * Jetta must collect the visitor's name and email IN the chat. There is no
+   * pre-chat form any more: while true and the visitor is anonymous, the run
+   * gets the mandatory-collection prompt block (ctx.chat.needsIdentity) and
+   * she holds substantive help until she has both. Off for surfaces where
+   * identity arrives with the session (the monday app view's SDK context).
+   */
   requireIdentity: boolean;
   /**
    * Open the chat by itself this many seconds after the page loads. 0 is off.

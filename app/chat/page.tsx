@@ -134,7 +134,6 @@ interface UiConfig {
   launcherLabel: string;
   launcherPosition: "left" | "right";
   launcherIcon: "bubble" | "avatar";
-  requireIdentity: boolean;
   autoOpenSeconds: number;
   attachmentsEnabled: boolean;
   maxAttachmentMb: number;
@@ -148,7 +147,6 @@ const DEFAULT_UI: UiConfig = {
   launcherLabel: "Chat with us",
   launcherPosition: "right",
   launcherIcon: "bubble",
-  requireIdentity: true,
   autoOpenSeconds: 0,
   attachmentsEnabled: true,
   maxAttachmentMb: 10,
@@ -164,9 +162,6 @@ export default function ChatWidgetPage() {
   const [dragging, setDragging] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // An init we are holding until the visitor tells us who they are. On monday
-  // the embedding app supplies both from its SDK and this never renders.
-  const [identityGate, setIdentityGate] = useState<InitPayload | null>(null);
   // What the embedding page told us at init. Held so "Start a new chat" can
   // open one with the identity the visitor already gave — asking a person who
   // has been chatting for ten minutes to retype their email is absurd.
@@ -174,7 +169,6 @@ export default function ChatWidgetPage() {
   // Two-step, because one stray click would otherwise wipe a transcript the
   // visitor is mid-way through reading.
   const [confirmNew, setConfirmNew] = useState(false);
-  const [nameInput, setNameInput] = useState("");
   // Copy and colour come from the console, so changing "Jetpack Apps support"
   // no longer needs a deploy. Defaults match the shipped settings so the widget
   // renders sensibly even if this request fails.
@@ -197,7 +191,6 @@ export default function ChatWidgetPage() {
         : "",
     [],
   );
-  const [emailInput, setEmailInput] = useState("");
 
   const parentOrigin = useRef<string>("*");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -232,20 +225,11 @@ export default function ChatWidgetPage() {
   // ── Session bootstrap ────────────────────────────────────────────
   const openSession = useCallback(
     async (init: InitPayload) => {
-      // Name and email are required before a conversation exists. Resuming an
-      // existing session skips this — they gave it when the session was made.
-      // The server enforces the same rule; this only saves a round trip and
-      // gives the visitor a form instead of an error.
-      const cfg = await (configRef.current ?? Promise.resolve(DEFAULT_UI));
-      if (
-        cfg.requireIdentity &&
-        !init.session &&
-        !(init.visitor?.name?.trim() && init.visitor?.email?.trim())
-      ) {
-        setIdentityGate(init);
-        return;
-      }
-      setIdentityGate(null);
+      // No pre-chat form: the conversation starts anonymous and Jetta asks
+      // for name and email IN the chat (the server holds the mandatory rule).
+      // A form was one more screen between a person with a problem and the
+      // first message, and the monday surface never needed it — the embedding
+      // app supplies identity from its SDK, which is still passed through here.
       initRef.current = init;
 
       // Two attempts at most: a stored session that outlived its transcript
@@ -726,81 +710,6 @@ export default function ChatWidgetPage() {
         </div>
       </header>
 
-      {identityGate && !session ? (
-        <form
-          className="flex flex-1 flex-col justify-center gap-3 px-5"
-          onSubmit={(e) => {
-            e.preventDefault();
-            const name = nameInput.trim();
-            const email = emailInput.trim();
-            if (!name || !/^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(email)) {
-              setError("Please enter your name and a valid email address.");
-              return;
-            }
-            setError(null);
-            void openSession({
-              ...identityGate,
-              visitor: { ...(identityGate.visitor ?? {}), name, email },
-            });
-          }}
-        >
-          {/*
-            The greeting belongs HERE, not only in the message list.
-            It was previously rendered behind this gate, so the one screen a
-            first-time visitor actually reads — the form — said nothing about
-            who Jetta is or what she can help with, while the welcome sat on a
-            screen you only reach by filling the form in.
-          */}
-          <p className="text-sm leading-relaxed text-neutral-700">{ui.greeting}</p>
-
-          <div className="flex items-center gap-2" aria-hidden>
-            <span className="h-px flex-1 bg-neutral-200" />
-            <span className="text-[11px] font-medium text-neutral-400">Before we start</span>
-            <span className="h-px flex-1 bg-neutral-200" />
-          </div>
-
-          {/*
-            Framed as the visitor's insurance rather than our convenience —
-            "so we can pick this up by email if we need to" describes our
-            process, which is not a reason for them to hand over an address.
-          */}
-          <p className="text-xs text-neutral-500">
-            Leave your name and email so we can still reach you if the chat gets cut off.
-          </p>
-          <input
-            autoFocus
-            value={nameInput}
-            onChange={(e) => setNameInput(e.target.value)}
-            placeholder="Your name"
-            className="w-full min-w-0 rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-neutral-900"
-          />
-          <input
-            type="email"
-            value={emailInput}
-            onChange={(e) => setEmailInput(e.target.value)}
-            placeholder="you@company.com"
-            className="w-full min-w-0 rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-neutral-900"
-          />
-          {error && <p className="text-xs text-red-600">{error}</p>}
-          <button
-            type="submit"
-            style={{ backgroundColor: ui.accentColor }}
-            className="w-full rounded-lg px-3 py-2 text-sm font-medium text-white transition hover:opacity-90"
-          >
-            Start chatting
-          </button>
-          {/*
-            A promise, so it is measured rather than written: across the chats
-            in the store the slowest first reply was 55s and the median 14s.
-            "Instantly" would have been a lie by a factor of ten.
-          */}
-          <p className="text-center text-[11px] text-neutral-400">
-            Typically answers in under a minute
-            {ui.attachmentsEnabled ? " · screenshots welcome" : ""}
-          </p>
-        </form>
-      ) : (
-      <>
       <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
         {/*
             The greeting again, but as a message rather than a paragraph.
@@ -1059,8 +968,6 @@ export default function ChatWidgetPage() {
           </button>
         </div>
       </div>
-      </>
-      )}
     </div>
   );
 }

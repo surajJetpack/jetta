@@ -63,7 +63,7 @@ export type PlaybookProgress = Record<string, ScenarioProgress>;
 
 export const PLAYBOOK_RULES: string[] = [
   "This runs against the REAL systems — real Freshdesk tickets, real Slack pings, real dev-board items. That is the point: you are testing what customers actually get. The cleanup list at the bottom puts everything back.",
-  "Start every email subject with [TEST]. In chat, just use your real name and work email in the pre-chat form — that is how we find and clean up your conversations.",
+  "Start every email subject with [TEST]. In chat, give your real name and work email when Jetta asks for them — that is how we find and clean up your conversations.",
   "Use an email address you can read: replies and ticket notifications land there, and checking they arrive is part of several scenarios.",
   "Email scenarios are not instant — Jetta runs when Freshdesk delivers the webhook. Give a new ticket a minute or two before calling it a failure.",
   "A failure is a WIN, not a mistake. Screenshot it, mark the scenario failed, write one line about what you saw instead. Finding these is the whole job.",
@@ -91,7 +91,7 @@ export const PLAYBOOK: PlaybookTrack[] = [
         minutes: 3,
         why: "Every answer she gives is supposed to come from a knowledge-base article, not from her imagination. Watch that happen.",
         steps: [
-          { text: "Open /chat-demo, click the chat launcher, and fill the pre-chat form with your real name and work email." },
+          { text: "Open /chat-demo and click the chat launcher — there is no form, you can type straight away. When Jetta asks who you are (she must, in her first reply), give your real name and work email." },
           {
             text: "Send this message:",
             copy: "Can I set an expiration date on a signing link, so it stops working after a while?",
@@ -101,8 +101,10 @@ export const PLAYBOOK: PlaybookTrack[] = [
           { id: "c1", text: "The answer says yes and describes how — setting an expiry when sending, and being able to reset and resend." },
           { id: "c2", text: "The answer reads like our product, not like a generic AI answer about \"e-signature platforms\"." },
           { id: "c3", text: "It arrives within a few seconds and is short enough to read in a chat bubble — no essay, no headings." },
+          { id: "c4", text: "Her first reply also asks for your name and email — and until you give them, she stays at short answers instead of deep troubleshooting." },
         ],
         how: [
+          "There is no pre-chat form: conversations start anonymous, and collecting a name and email is Jetta's own job — mandatory, in the conversation, so a chat that gets cut off can always continue by email.",
           "Before answering a product question, Jetta searches our knowledge base (the same 171 articles you can read in the console) and grounds the reply in the article text it finds. Signing-link expiry is a real article, so this question has a real source.",
           "She is instructed never to invent product steps: if the search comes up empty she must say so or escalate, not guess. The next scenario tests that side.",
         ],
@@ -159,7 +161,7 @@ export const PLAYBOOK: PlaybookTrack[] = [
         minutes: 5,
         why: "Anything that needs a reply later becomes a Freshdesk ticket — created by Jetta, worked by the team, answered by email.",
         steps: [
-          { text: "Start a FRESH chat (new private/incognito window so it's a new conversation), pre-chat form as before." },
+          { text: "Start a FRESH chat (new private/incognito window so it's a new conversation) and give your name and email when she asks." },
           {
             text: "Send:",
             copy: "Not urgent — but could the team email me about getting our invoices addressed to our parent company instead? We need it for our accounts.",

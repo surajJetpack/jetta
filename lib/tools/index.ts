@@ -275,6 +275,61 @@ export function buildTools(
       },
     }),
 
+    // ── JettaChat identity ──
+    // The pre-chat form is gone: conversations start anonymous and Jetta
+    // collects name and email in the chat (the prompt carries the mandatory
+    // rule while ctx.chat.needsIdentity is true). This tool is how what the
+    // visitor typed becomes the conversation's identity — and it stays
+    // available after that, so a mistyped address can be corrected.
+    ...(isOwnChat
+      ? {
+          save_visitor_identity: tool({
+            description:
+              "Record the visitor's name and/or email address the moment they give them in the chat. While the visitor is anonymous this is MANDATORY — ask early, save immediately. Pass EXACTLY what they typed; either field may be omitted if they only gave one. Also use it to correct a previously mistyped address.",
+            inputSchema: z.object({
+              name: z.string().optional().describe("The visitor's name, as they gave it."),
+              email: z
+                .string()
+                .optional()
+                .describe("The visitor's email address, exactly as they typed it."),
+            }),
+            execute: async ({ name, email }) => {
+              if (!ticketId) return "No active conversation.";
+              const cleanName = name?.trim().slice(0, 120) || undefined;
+              const cleanEmail = email?.trim().slice(0, 200) || undefined;
+              if (!cleanName && !cleanEmail) {
+                return "Nothing to save — pass the name and/or email the visitor gave.";
+              }
+              // Same shape check as ticket creation: a sentence in the email
+              // field would poison every follow-up path that keys on it.
+              if (cleanEmail && !/^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(cleanEmail)) {
+                return "That doesn't look like a valid email address. Ask the visitor to re-check it, then save again — do not correct it yourself.";
+              }
+              if (dry) {
+                return `[dry-run] would save visitor identity${cleanName ? ` name "${cleanName}"` : ""}${cleanEmail ? ` email ${cleanEmail}` : ""}.`;
+              }
+              const conv = await chatStoreForTools.getConversation(ticketId);
+              if (!conv) return "This conversation has expired.";
+              await chatStoreForTools.updateConversation(ticketId, {
+                visitor: {
+                  ...(cleanName ? { name: cleanName } : {}),
+                  ...(cleanEmail ? { email: cleanEmail } : {}),
+                },
+              });
+              await events.logOpsEvent({
+                level: "info",
+                event: "chat.identity_saved",
+                source: "jettachat",
+                ticketId,
+                data: { hasName: !!cleanName, hasEmail: !!cleanEmail },
+              });
+              const saved = [cleanName && "name", cleanEmail && "email"].filter(Boolean).join(" and ");
+              return `Saved the visitor's ${saved}.${!cleanEmail && !conv.visitor.email ? " You still need their email address — keep helping, and ask for it." : " Thank them briefly and carry on helping."}`;
+            },
+          }),
+        }
+      : {}),
+
     // ── JettaChat hand-off ──
     // Only on our own widget, and only when the console says a person can
     // actually be fetched. `handoffEnabled` was a setting nothing read: the
