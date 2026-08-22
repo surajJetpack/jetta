@@ -177,9 +177,11 @@ export default function ChatSettingsForm() {
             <label className="flex items-start gap-2.5">
               <Checkbox checked={form.requireIdentity} onCheckedChange={(v) => set("requireIdentity", !!v)} />
               <span className="text-sm">
-                Ask for name and email before the chat starts
+                Jetta must collect name and email in the chat
                 <span className="block text-[11px] text-muted-foreground">
-                  Inside the monday app the SDK supplies both, so the form never appears there.
+                  There is no pre-chat form: while a visitor is anonymous, Jetta asks in the
+                  conversation and holds off on deeper help until she has both. Inside the monday
+                  app the SDK supplies identity, so she never needs to ask there.
                 </span>
               </span>
             </label>

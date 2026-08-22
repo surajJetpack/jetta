@@ -20,7 +20,8 @@ import * as freshdesk from "./tools/freshdesk";
 import * as freshchat from "./tools/freshchat";
 import * as jettachat from "./tools/jettachat";
 import * as chatStore from "./chat-store";
-import { getChatSettings } from "./chat-settings";
+import { getChatSettings, publicSettings } from "./chat-settings";
+import { chatBrandKey } from "./profiles";
 import * as fastspring from "./tools/fastspring";
 import * as monday from "./tools/monday";
 import { getKnownTopics, recordTopicUse } from "./kv";
@@ -362,17 +363,26 @@ export async function buildContext(
     topic: triage.topic,
     taskUsage,
     chat: chatConv
-      ? {
+      ? await (async () => {
+          const chatSettings = await getChatSettings();
+          return {
           surface: chatConv.surface,
           mondayAccountSlug: chatConv.visitor.mondayAccountSlug,
           pageUrl: chatConv.pageUrl,
-          handoffEnabled: (await getChatSettings()).handoffEnabled,
+          handoffEnabled: chatSettings.handoffEnabled,
+          // Resolved through the conversation's own brand, because a brand
+          // may switch the requirement off (a logged-in monday view already
+          // knows who the person is).
+          needsIdentity:
+            !chatConv.visitor.email &&
+            publicSettings(chatSettings, chatBrandKey(chatConv)).requireIdentity,
           // A conversation that already has a ticket is a different job: she
           // keeps answering, but the escalation path is now "add to the
           // existing thread", never "open a second one". Both the tool list
           // and the prompt branch on this one field.
           ticketId: chatConv.ticketId,
-        }
+          };
+        })()
       : undefined,
   };
 }

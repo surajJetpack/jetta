@@ -419,6 +419,30 @@ const FRESHCHAT_RULES = `
  *    generated from `ctx.chat.handoffEnabled` rather than written inline, so
  *    the prompt and the tool list can never disagree again.
  */
+/**
+ * Injected ONLY while ctx.chat.needsIdentity is true. There is no pre-chat
+ * form any more; the widget starts anonymous and Jetta collects identity in
+ * the conversation. Self-removing by construction: the prompt is rebuilt every
+ * run, and a saved email means this block never appears — so "stop asking once
+ * you have it" needs no rule at all.
+ */
+const IDENTITY_REQUIRED = `
+THIS VISITOR IS ANONYMOUS — COLLECT THEIR NAME AND EMAIL. THIS IS MANDATORY.
+- In your FIRST reply: give at most one short, immediately useful answer, and in
+  the same message ask for their name and email address. The honest framing is
+  theirs, not ours: "so we can still reach you if the chat gets cut off".
+- Until you have both, stay at that depth: no multi-step troubleshooting, no
+  account lookups, no escalations. Answer briefly, and ask again — at most once
+  per reply, and never twice in the same words.
+- The moment they give a name and/or an email, call save_visitor_identity with
+  EXACTLY what they typed. Never guess, complete, or normalise an address; if
+  the tool says the email looks invalid, ask them to re-check it.
+- One of the two is progress: save what you have, ask for the rest.
+- If they refuse outright, do not argue and do not withhold safety-relevant or
+  trivial answers — but anything that needs a follow-up (a ticket, a human, an
+  account change) genuinely cannot happen without an email, and you should say
+  so plainly when it comes up.`;
+
 const JETTACHAT_RULES = `
 - HOW REPLYING WORKS HERE — this REPLACES the "Replying and logging" rules
   above. There is no reply_to_ticket tool on this channel. Your final message,
@@ -779,6 +803,7 @@ export async function buildSystemPrompt(ctx: ConversationContext): Promise<strin
             "{{HANDOFF_RULES}}",
             ctx.chat?.handoffEnabled === false ? HANDOFF_UNAVAILABLE : HANDOFF_AVAILABLE,
           )}`,
+          ...(ctx.chat?.needsIdentity ? [IDENTITY_REQUIRED] : []),
         ]
       : []),
     ...(learned

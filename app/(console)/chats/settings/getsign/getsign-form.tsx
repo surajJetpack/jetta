@@ -265,13 +265,13 @@ export default function GetSignSkinForm() {
             </Field>
 
             <Field
-              label="Ask for name and email first"
-              hint="getsign.io is a marketing site; the app view already knows who the visitor is."
+              label="Jetta must collect name and email in the chat"
+              hint="No pre-chat form — she asks in the conversation. The app view already knows who the visitor is."
             >
               <Tri
                 value={o.requireIdentity}
                 options={[
-                  { v: true, label: "ask" },
+                  { v: true, label: "must collect" },
                   { v: false, label: "don't ask" },
                 ]}
                 onChange={(v) => set("requireIdentity", v)}

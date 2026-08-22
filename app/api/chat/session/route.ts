@@ -12,7 +12,7 @@
 import { NextRequest } from "next/server";
 import { channelUnavailable, chatJson, preflight } from "@/lib/chat-http";
 import * as store from "@/lib/chat-store";
-import { getChatSettings, publicSettings } from "@/lib/chat-settings";
+import { getChatSettings } from "@/lib/chat-settings";
 import { profileForRequest } from "@/lib/profiles";
 import type { AppProduct, ChatSurface } from "@/lib/types";
 
@@ -72,36 +72,25 @@ export async function POST(req: NextRequest) {
   // decide how much to trust it; nothing here grants access to anything.
   const v = (body.visitor ?? {}) as Record<string, unknown>;
   const str = (k: string) => (typeof v[k] === "string" && v[k] ? (v[k] as string) : undefined);
-  // Same resolution as /api/chat/config, through the same helper. It has to be
-  // the same: this route reads requireIdentity off the profile below, and when
-  // only the config route honoured ?product= a brand that turned the gate off
-  // got a widget that hid the form and a server that then refused the session
-  // for not filling it in.
+  // Same resolution as /api/chat/config, through the same helper — the brand
+  // pin (`originApp` below) and the skin must never disagree about which
+  // brand a visitor is talking to.
   const profile = profileForRequest(
     req.nextUrl.searchParams.get("product"),
     req.headers.get("origin"),
   );
   const originApp = profile.key === "getsign" ? "getsign" : undefined;
 
-  // Name and email are required to start a chat. Enforced here as well as in
-  // the widget, because the widget is public JavaScript and its form can be
-  // skipped by anyone posting straight to this route. Identity up front is
-  // what makes the rest work: a ticket can always be raised, a human can
-  // always follow up, and the account lookups have something to key on.
+  // A conversation may start anonymous: the pre-chat form is gone, and Jetta
+  // collects name and email IN the chat (the mandatory rule lives in the
+  // agent's prompt while identity is missing, and the tools that need an email
+  // — ticket creation — refuse without one, so nothing downstream trusts a
+  // blank). Identity that DOES arrive here — the monday embed's SDK context,
+  // or a resumed init — is still taken, and a malformed email is dropped
+  // rather than fatal: a bad address from an embed must not block the chat.
   const name = str("name")?.trim().slice(0, 120);
-  const email = str("email")?.trim().slice(0, 200);
-  // Resolved through the brand profile, exactly as /api/chat/config resolves it
-  // for the widget. Reading the global value here instead would let the two
-  // disagree the moment a brand overrides the gate: the visitor is either shown
-  // no form and then refused, or shown a form the server never asked for.
-  const { requireIdentity } = publicSettings(await getChatSettings(), profile.key);
-  if (requireIdentity && (!name || !email || !/^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(email))) {
-    return await chatJson(
-      req,
-      { error: "name_and_email_required", message: "Please give your name and email to start the chat." },
-      { status: 400 },
-    );
-  }
+  const rawEmail = str("email")?.trim().slice(0, 200);
+  const email = rawEmail && /^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(rawEmail) ? rawEmail : undefined;
 
   const conv = await store.createConversation({
     surface,

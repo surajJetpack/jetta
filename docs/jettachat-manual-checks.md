@@ -30,8 +30,11 @@ chat settings page. Ten minutes.
 
 ## 2. Starting a chat
 
-- [ ] The pre-chat form asks for name and email and will not submit without
-      both. A junk address (`a@b`) is refused.
+- [ ] There is NO pre-chat form: the panel opens straight into the chat and
+      you can type immediately.
+- [ ] Jetta asks for your name and email in her first reply, and keeps the
+      help shallow until you give both. Give a junk address (`a@b`) — she asks
+      you to re-check it rather than accepting or "fixing" it.
 - [ ] The greeting from settings is what appears, not the built-in default.
 - [ ] The accent colour from settings is applied to the header and the send
       button.

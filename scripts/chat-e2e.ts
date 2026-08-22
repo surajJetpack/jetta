@@ -277,7 +277,6 @@ async function main() {
   // The named-subset rule, checked from outside rather than from the function.
   check("config leaks no allowlist", !("allowedOrigins" in cfg));
   check("config leaks no rate limits", !("rateLimitPerHour" in cfg));
-  const requireIdentity = cfg.requireIdentity === true;
 
   // ── Brand profile ────────────────────────────────────────────────
   //
@@ -409,13 +408,13 @@ async function main() {
   if (SURFACE !== "monday") {
     skip("monday app view", "not a monday run — pass --surface monday");
   } else if (!sameStore) {
-    // The store half can't run, but the refusal below is pure HTTP and is the
-    // check most worth keeping — it is the one guarding the snippet.
+    // The store half can't run, but the acceptance below is pure HTTP and is
+    // the check most worth keeping — it is the one guarding the snippet.
     skip(
       "monday visitor fields",
       redis ? OTHER_STORE : "no KV credentials — run with --env-file=.env.local",
     );
-    await checkContextOnlyRefused();
+    await checkContextOnlyAccepted();
   } else {
     const stored = await redis!.get<{
       surface?: string;
@@ -433,46 +432,57 @@ async function main() {
       `account ${JSON.stringify(stored?.visitor?.mondayAccountId)}, user ${JSON.stringify(stored?.visitor?.mondayUserId)}`,
     );
 
-    await checkContextOnlyRefused();
+    await checkContextOnlyAccepted();
   }
 
   /**
-   * The snippet bug, pinned from the outside.
+   * The context-only monday session, pinned from the outside.
    *
-   * `monday.get("context")` returns ids only — no name, no email, no account
-   * slug. A snippet that reads identity from there sends exactly this, and the
-   * visitor is then shown the identity form the snippet exists to skip.
-   * Asserting the refusal is what makes that a loud failure rather than a quiet
-   * regression in a file nobody re-reads.
+   * `monday.get("context")` returns ids only — no name, no email. Since the
+   * pre-chat form was removed this must be ACCEPTED (a session may start
+   * anonymous; Jetta collects identity in the chat) — and the ids must still
+   * land in the store, because they are what save the visitor from being
+   * asked for an account slug she already implicitly gave.
    */
-  async function checkContextOnlyRefused() {
-    if (!requireIdentity) {
-      skip("context-only monday session", "requireIdentity is off in the live settings");
-      return;
-    }
+  async function checkContextOnlyAccepted() {
     const ctxOnly = await post(`/api/chat/session${q}`, {
       surface: "monday",
       visitor: { mondayAccountId: MONDAY_VISITOR.mondayAccountId, mondayUserId: MONDAY_VISITOR.mondayUserId },
     });
+    const id = ctxOnly.json.conversationId as string | undefined;
+    if (id) record("conversations", id);
     check(
-      "a monday session with ids but no identity is refused",
-      ctxOnly.status === 400,
-      `HTTP ${ctxOnly.status} — the context object alone must not be enough`,
+      "a monday session with ids but no identity is accepted",
+      ctxOnly.status === 200,
+      `HTTP ${ctxOnly.status} — anonymous starts are allowed now; Jetta asks in-chat`,
     );
   }
 
-  if (requireIdentity) {
-    // The widget enforces this too, but the widget is public JavaScript and its
-    // form can be skipped by posting straight here.
+  {
+    // No pre-chat form: an anonymous session is accepted, and Jetta collects
+    // identity in the conversation (the mandatory rule lives in her prompt
+    // while the visitor has no email — see ctx.chat.needsIdentity).
     const anon = await post("/api/chat/session", { surface: "wordpress", visitor: {} });
-    check("identity is enforced server-side", anon.status === 400, `HTTP ${anon.status}`);
+    if (anon.json.conversationId) record("conversations", anon.json.conversationId as string);
+    check("an anonymous session is accepted", anon.status === 200, `HTTP ${anon.status}`);
+    // A malformed email from an embed must not block the chat — the session
+    // opens and the bad address is dropped rather than stored.
     const badEmail = await post("/api/chat/session", {
       surface: "wordpress",
       visitor: { name: TEST_NAME, email: "not-an-email" },
     });
-    check("a malformed email is refused", badEmail.status === 400, `HTTP ${badEmail.status}`);
-  } else {
-    skip("identity enforcement", "requireIdentity is off in the live settings");
+    if (badEmail.json.conversationId) record("conversations", badEmail.json.conversationId as string);
+    check("a malformed email is dropped, not fatal", badEmail.status === 200, `HTTP ${badEmail.status}`);
+    if (sameStore && badEmail.json.conversationId) {
+      const stored = await redis!.get<{ visitor?: { email?: string } }>(
+        `jetta:chat:${badEmail.json.conversationId}`,
+      );
+      check(
+        "the malformed email was not stored",
+        !stored?.visitor?.email,
+        `stored email = ${JSON.stringify(stored?.visitor?.email)}`,
+      );
+    }
   }
 
   // ── Message validation ───────────────────────────────────────────

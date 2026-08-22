@@ -330,6 +330,13 @@ export interface ConversationContext {
      * post-ticket rules to the prompt: one conversation, one thread.
      */
     ticketId?: string;
+    /**
+     * True while the visitor's email is unknown AND the brand requires
+     * identity. There is no pre-chat form: this flag injects the mandatory
+     * ask-in-chat prompt block, and clears itself — the next run rebuilds the
+     * prompt, and a saved email means no block.
+     */
+    needsIdentity: boolean;
   };
 }
 
