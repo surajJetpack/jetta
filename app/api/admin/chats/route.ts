@@ -15,6 +15,7 @@ import { adminActor, adminAuthorized } from "@/lib/auth";
 import * as store from "@/lib/chat-store";
 import { openTicketForConversation, suggestedSubject } from "@/lib/chat-ticket";
 import { logOpsEvent } from "@/lib/events";
+import { chatBrandKey } from "@/lib/profiles";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -35,7 +36,7 @@ export async function GET(req: NextRequest) {
   if (id) {
     const conv = await store.getConversation(id);
     if (!conv) return NextResponse.json({ error: "not found" }, { status: 404 });
-    return NextResponse.json({ conversation: conv });
+    return NextResponse.json({ conversation: { ...conv, brandKey: chatBrandKey(conv) } });
   }
   if (req.nextUrl.searchParams.get("waiting")) {
     const convs = await store.listConversations(100);
@@ -44,7 +45,10 @@ export async function GET(req: NextRequest) {
       live: convs.filter((c) => c.status === "human").length,
     });
   }
-  return NextResponse.json({ conversations: await store.listConversations(100) });
+  const conversations = await store.listConversations(100);
+  return NextResponse.json({
+    conversations: conversations.map((c) => ({ ...c, brandKey: chatBrandKey(c) })),
+  });
 }
 
 export async function POST(req: NextRequest) {

@@ -126,6 +126,23 @@ export function profileForOrigin(origin: string | null | undefined): Profile {
 }
 
 /**
+ * Which brand skin a stored chat conversation was seen under. The console
+ * needs this to show the same Jetta avatar the visitor saw. Same precedence
+ * as `profileForRequest`: the ground-truth app signal wins, then the
+ * embedding page's origin — computed server-side because origin matching
+ * reads env config, so API/page responses annotate conversations with it
+ * rather than the client re-deriving (and drifting from) the rule.
+ */
+export function chatBrandKey(c: { pageUrl?: string; visitor?: { app?: string } }): ProfileKey {
+  if (c.visitor?.app === "getsign") return "getsign";
+  try {
+    return profileForOrigin(c.pageUrl ? new URL(c.pageUrl).origin : null).key;
+  } catch {
+    return MAIN_PROFILE.key;
+  }
+}
+
+/**
  * The profile for a widget request — the ONE place that answers it.
  *
  * An explicit `?product=` wins, then the embedding origin. Both public chat

@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Bot, ExternalLink, Hand, Paperclip, Search, Send, Ticket as TicketIcon, Undo2, UserRound } from "lucide-react";
+import { ExternalLink, Hand, Paperclip, Search, Send, Ticket as TicketIcon, Undo2 } from "lucide-react";
+import { ChatAvatar } from "@/components/jetta/chat-avatar";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -67,6 +68,8 @@ interface Conv {
   /** Earlier tickets this conversation opened, oldest first. */
   previousTicketIds?: string[];
   visitor: { name?: string; email?: string; mondayAccountSlug?: string; app?: string };
+  /** Which brand skin the visitor saw — annotated server-side (lib/profiles). */
+  brandKey?: "main" | "getsign";
   messages: Msg[];
 }
 
@@ -100,9 +103,12 @@ type Filter = "needs_human" | "all" | "open" | "ticketed";
  */
 export default function ChatInbox({
   initial,
+  avatars,
   freshdeskDomain,
 }: {
   initial: Conv[];
+  /** Jetta's configured widget avatar per brand — icon fallback when unset. */
+  avatars: { main?: string; getsign?: string };
   freshdeskDomain: string;
 }) {
   const router = useRouter();
@@ -335,6 +341,11 @@ export default function ChatInbox({
                   ].join(" ")}
                 >
                   <div className="flex items-center gap-1.5">
+                    <ChatAvatar
+                      kind="visitor"
+                      name={c.visitor.name || c.visitor.email}
+                      className="size-5 text-[9px]"
+                    />
                     <span className="truncate text-xs font-medium">
                       {c.visitor.name || c.visitor.email || "Anonymous"}
                     </span>
@@ -432,7 +443,7 @@ export default function ChatInbox({
             </header>
 
             <div className="flex-1 space-y-2 overflow-y-auto px-3 py-3">
-              {detail.messages.map((m) => {
+              {detail.messages.map((m, i, arr) => {
                 if (m.system) {
                   return (
                     <p key={m.id} className="py-1 text-center text-[11px] text-muted-foreground">
@@ -441,12 +452,35 @@ export default function ChatInbox({
                   );
                 }
                 const human = m.via === "human";
-                const Icon = human ? UserRound : Bot;
+                // One face per run of consecutive same-speaker messages, on
+                // the run's last bubble; the rest get an equal-width spacer so
+                // bubbles stay aligned. Cheaper to read than a face per line.
+                const next = arr[i + 1];
+                const runEnds =
+                  !next ||
+                  next.system === true ||
+                  next.author !== m.author ||
+                  next.via !== m.via ||
+                  next.authorName !== m.authorName;
+                const gutter = !runEnds ? (
+                  <span className="size-6 shrink-0" aria-hidden />
+                ) : m.author === "visitor" ? (
+                  <ChatAvatar kind="visitor" name={detail.visitor.name || detail.visitor.email} />
+                ) : human ? (
+                  <ChatAvatar kind="human" name={m.authorName} />
+                ) : (
+                  <ChatAvatar kind="jetta" src={avatars[detail.brandKey ?? "main"]} />
+                );
                 return (
                   <div
                     key={m.id}
-                    className={m.author === "visitor" ? "flex justify-start" : "flex justify-end"}
+                    className={
+                      m.author === "visitor"
+                        ? "flex items-end justify-start gap-1.5"
+                        : "flex items-end justify-end gap-1.5"
+                    }
                   >
+                    {m.author === "visitor" && gutter}
                     <div
                       className={[
                         "max-w-[78%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap",
@@ -458,8 +492,7 @@ export default function ChatInbox({
                       ].join(" ")}
                     >
                       {m.author === "agent" && (
-                        <p className="mb-0.5 flex items-center gap-1 text-[10px] tracking-wide text-muted-foreground uppercase">
-                          <Icon className="size-3" aria-hidden />
+                        <p className="mb-0.5 text-[10px] tracking-wide text-muted-foreground uppercase">
                           {human ? `${m.authorName ?? "Team"} · human` : "Jetta"}
                         </p>
                       )}
@@ -492,6 +525,7 @@ export default function ChatInbox({
                       )}
                       {m.text}
                     </div>
+                    {m.author === "agent" && gutter}
                   </div>
                 );
               })}
