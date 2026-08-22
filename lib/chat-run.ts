@@ -171,6 +171,22 @@ export async function runChatTurn(conversationId: string, messageId: string): Pr
     // the door rather than halfway through a conversation.
 
     const messages = buildMessages(ctx.ticket, "jettachat");
+    /*
+     * While the visitor is anonymous, the system-prompt rule alone is not
+     * enough: judged prod transcripts show the model asking on turn one and
+     * dropping the ask the moment the visitor ignores it — pricing question,
+     * full answer, no ask, conversation stays anonymous forever. A note pinned
+     * to the LATEST visitor message sits where the model actually looks before
+     * writing. Self-removing by construction: the turn identity is saved,
+     * needsIdentity is false and no note is built.
+     */
+    if (ctx.chat?.needsIdentity) {
+      const last = [...messages].reverse().find((m) => m.role === "user");
+      if (last && typeof last.content === "string") {
+        last.content +=
+          "\n\n[Note from the system, NOT the visitor: they are still anonymous. However you answer, this reply must also ask for their name and email (briefly, varied wording) — and keep the substantive help short until you have both.]";
+      }
+    }
     const system = await buildSystemPrompt(ctx);
     const started = Date.now();
 

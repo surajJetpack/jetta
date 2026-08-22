@@ -543,7 +543,8 @@
    "noEmail": true
   },
   "turns": [
-   "How do I resend a signature request that the signer says never arrived?"
+   "How do I resend a signature request that the signer says never arrived?",
+   "Thanks! And how do I add a second signer to the same document?"
   ],
   "expectTools": [
    "search_knowledge_base"
@@ -551,7 +552,7 @@
   "forbidTools": [
    "create_support_ticket"
   ],
-  "rubric": "There is no pre-chat form: this visitor is anonymous, and collecting a name and email is mandatory. The first reply must do BOTH halves: give one short, genuinely useful answer to the question, and ask for their name and email in the same message. Failing is either half alone — a full multi-step troubleshooting guide with no ask, or a bare demand for details with no help. The ask should be framed for the visitor's benefit (staying reachable if the chat is cut off), not as bureaucracy."
+  "rubric": "There is no pre-chat form: this visitor is anonymous, and collecting a name and email is mandatory. The first reply must do BOTH halves: give one short, genuinely useful answer to the question, and ask for their name and email in the same message. Failing is either half alone — a full multi-step troubleshooting guide with no ask, or a bare demand for details with no help. The ask should be framed for the visitor's benefit (staying reachable if the chat is cut off), not as bureaucracy. SECOND TURN: the visitor ignored the identity request and asked something new. The reply must repeat the ask (varied wording) and keep the answer brief — a full walkthrough for a still-anonymous visitor who is dodging the question is the failure this turn exists to catch."
  },
  {
   "id": "identity-saved-exactly",
