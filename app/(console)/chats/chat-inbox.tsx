@@ -395,8 +395,16 @@ export default function ChatInbox({
               <div className="min-w-0">
                 <p className="truncate text-sm font-medium">
                   {detail.visitor.name || "Anonymous"}{" "}
-                  {detail.visitor.email && (
+                  {detail.visitor.email ? (
                     <span className="text-xs font-normal text-muted-foreground">{detail.visitor.email}</span>
+                  ) : (
+                    // There is no pre-chat form: Jetta collects identity in
+                    // the conversation. Anyone taking over needs to know the
+                    // collecting is now THEIRS — without an email there is no
+                    // ticket and no follow-up.
+                    <span className="rounded-full border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-normal text-amber-600 dark:text-amber-400">
+                      no email yet — if you take over, get it
+                    </span>
                   )}
                 </p>
                 <p className="truncate text-[11px] text-muted-foreground">

@@ -97,18 +97,19 @@ export default function InstallGuide({ baseUrl }: { baseUrl: string }) {
   const scriptTag = `<script src="${baseUrl}/jettachat.js" data-surface="wordpress" defer></script>`;
   const getsignTag = `<script src="${baseUrl}/jettachat.js" data-surface="wordpress" data-app="getsign" defer></script>`;
 
-  // Identity must exist BEFORE the first session is created, and the monday SDK
-  // resolves asynchronously — so who the visitor is is fetched first and the
-  // loader is injected after. Setting JettaChatConfig later races the visitor:
-  // if they open the chat first, they get asked for a name the SDK already knew.
+  // Identity should arrive WITH the first session, and the monday SDK resolves
+  // asynchronously — so who the visitor is is fetched first and the loader is
+  // injected after. Setting JettaChatConfig later races the visitor: if they
+  // open the chat first, Jetta asks them in the conversation for a name and
+  // email the SDK already knew.
   //
   // It comes from monday.api(), NOT from monday.get("context"). The context
   // object carries IDS ONLY — `user.id` and `account.id` — with no name, no
   // email and no account slug anywhere in it. Reading them from there yields
-  // undefined, the session is refused for having no identity, and the visitor
-  // is shown the very form this snippet exists to skip. monday.api() needs no
-  // token on the client (it uses the logged-in user's own credentials), but it
-  // does need the app to hold the `me:read` scope.
+  // undefined and the session starts anonymous, so a logged-in user gets asked
+  // who they are — the question this snippet exists to skip. monday.api()
+  // needs no token on the client (it uses the logged-in user's own
+  // credentials), but it does need the app to hold the `me:read` scope.
   const mondaySnippet = `<script>
   monday
     .api("query { me { id name email } account { id slug } }")
@@ -275,9 +276,9 @@ export async function mountJettaChat() {
           </p>
           <Snippet code={mondayModuleSnippet} />
           <p className="text-[11px] text-muted-foreground">
-            The app needs the <code>me:read</code> scope, or the query comes back without a name and email and
-            the visitor is asked for them anyway. Set <code>app</code> to whichever product the view belongs to
-            so tickets are attributed correctly.
+            The app needs the <code>me:read</code> scope, or the query comes back without a name and email —
+            and Jetta then asks the visitor in the chat for details monday already knows. Set{" "}
+            <code>app</code> to whichever product the view belongs to so tickets are attributed correctly.
           </p>
           <p className="text-[11px] text-muted-foreground">
             <b>The corner is already monday&apos;s.</b> Their AI sidekick is a floating circle in the same
@@ -318,13 +319,14 @@ export async function mountJettaChat() {
             </p>
           </div>
           <div>
-            <p className="font-medium">It asks monday users for their name</p>
+            <p className="font-medium">Jetta asks monday users for their name in the chat</p>
             <p className="text-muted-foreground">
-              Either <code>JettaChatConfig</code> wasn&apos;t set before the loader ran — fetch who the visitor
-              is first and inject the script afterwards, as in the snippet above — or the name and email came
-              back empty. Log the query result: <code>monday.get(&quot;context&quot;)</code> never carries a name,
-              an email or an account slug, and <code>monday.api()</code> returns them only with the{" "}
-              <code>me:read</code> scope granted.
+              Identity never reached the session, so she collects it herself — correct behavior, wrong
+              surface. Either <code>JettaChatConfig</code> wasn&apos;t set before the loader ran — fetch who
+              the visitor is first and inject the script afterwards, as in the snippet above — or the name and
+              email came back empty. Log the query result: <code>monday.get(&quot;context&quot;)</code> never
+              carries a name, an email or an account slug, and <code>monday.api()</code> returns them only with
+              the <code>me:read</code> scope granted.
             </p>
           </div>
           <div>
