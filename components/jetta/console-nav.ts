@@ -18,6 +18,7 @@ import {
   BookOpen,
   ClipboardCheck,
   CreditCard,
+  FlaskConical,
   GraduationCap,
   LifeBuoy,
   MessageSquare,
@@ -69,6 +70,13 @@ export const NAV: NavGroup[] = [
   {
     label: "Understand",
     items: [
+      {
+        id: "testing",
+        href: "/testing",
+        label: "Test Jetta",
+        icon: FlaskConical,
+        hint: "The manual playbook — play the customer, learn how she works",
+      },
       {
         id: "insights",
         href: "/analytics",

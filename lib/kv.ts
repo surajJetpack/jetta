@@ -13,6 +13,7 @@ import { Redis } from "@upstash/redis";
 import { config } from "./config";
 import { log } from "./logger";
 import type { Gap, ModelTokenStat } from "./analytics";
+import type { PlaybookProgress } from "./test-playbook";
 
 // TODO: add a `channel` field before scheduling any freshchat follow-ups — the
 // cron's reply/close path is Freshdesk-only, so chat runs skip scheduling today.
@@ -979,4 +980,33 @@ export async function getDailyRollups(dates: string[]): Promise<(DailyRollup | n
   const r = client();
   if (r) return await Promise.all(dates.map((d) => r.get<DailyRollup>(dailyKey(d))));
   return dates.map((d) => memDaily.get(d) ?? null);
+}
+
+// ── Manual test playbook progress (/testing) ──
+// One hash, field per console username, value = their PlaybookProgress JSON.
+// A hash rather than per-user keys so the page can show everyone's progress
+// (the teammates' bars are half the motivation) with a single read.
+
+const PLAYBOOK_KEY = "jetta:playbook:v1";
+const memPlaybook = new Map<string, PlaybookProgress>();
+
+export async function getPlaybookProgress(user: string): Promise<PlaybookProgress> {
+  const r = client();
+  if (r) return (await r.hget<PlaybookProgress>(PLAYBOOK_KEY, user)) ?? {};
+  return memPlaybook.get(user) ?? {};
+}
+
+export async function savePlaybookProgress(user: string, progress: PlaybookProgress): Promise<void> {
+  const r = client();
+  if (r) {
+    await r.hset(PLAYBOOK_KEY, { [user]: progress });
+    return;
+  }
+  memPlaybook.set(user, progress);
+}
+
+export async function allPlaybookProgress(): Promise<Record<string, PlaybookProgress>> {
+  const r = client();
+  if (r) return ((await r.hgetall<Record<string, PlaybookProgress>>(PLAYBOOK_KEY)) ?? {});
+  return Object.fromEntries(memPlaybook);
 }
