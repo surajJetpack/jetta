@@ -181,6 +181,22 @@ export default function GuideContent({ isAdmin }: { isAdmin: boolean }) {
             something she should have escalated, or a tone we wouldn&apos;t use.
           </p>
 
+          <StepCard title="Who the visitor is">
+            <p className="text-sm">
+              There is <b>no form before the chat</b> — a visitor types immediately, so
+              conversations start as <b>Anonymous</b> in this list. Collecting a name and email is
+              Jetta&apos;s job, done in the conversation: she asks in her first reply, repeats the
+              ask until she has both, and keeps the help brief for anyone who won&apos;t say who
+              they are. The moment they answer, the name appears here.
+            </p>
+            <p className="mt-1.5 text-sm">
+              <b>Why it&apos;s mandatory:</b> without an email there is no ticket, no follow-up and
+              no account lookup. If you take over an anonymous chat, getting their email becomes
+              your job — the header will remind you. Inside the monday apps she never needs to ask:
+              the embed supplies who they are.
+            </p>
+          </StepCard>
+
           <StepCard title="Taking over a live chat">
             <p className="text-sm">
               A visitor who asks for a person moves to{" "}
