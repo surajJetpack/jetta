@@ -92,15 +92,33 @@ export function armChime() {
  * note, because the conversation is already someone's.
  */
 export function playChime(kind: "waiting" | "message") {
-  if (!chimeEnabled()) return;
+  if (!chimeEnabled() || !ctx) return;
+  if (ctx.state !== "running") {
+    // Safari suspends a context when the tab goes to the background — the
+    // exact moment this sound is for. Once a gesture has unlocked the context,
+    // resuming needs no new gesture, so try; a browser that refuses leaves the
+    // state unchanged and strike() below stays silent.
+    void ctx
+      .resume()
+      .then(() => strike(kind))
+      .catch(() => {});
+    return;
+  }
+  strike(kind);
+}
+
+function strike(kind: "waiting" | "message") {
+  if (!ctx || ctx.state !== "running") return;
   try {
+    // The cross-tab claim happens HERE, only in a tab that can actually ring.
+    // Claiming it earlier let a tab whose audio was never unlocked consume the
+    // ring and leave every other tab silent.
     const now = Date.now();
     if (now - Number(localStorage.getItem(LAST_KEY) || 0) < DEBOUNCE_MS) return;
     localStorage.setItem(LAST_KEY, String(now));
   } catch {
     /* no storage means no cross-tab dedupe — ring anyway */
   }
-  if (!ctx || ctx.state !== "running") return;
   const t = ctx.currentTime + 0.02;
   if (kind === "waiting") {
     note(659, t, 0.18);
