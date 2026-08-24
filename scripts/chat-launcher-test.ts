@@ -89,6 +89,8 @@ function boot(
     currentScript: script,
     readyState: "complete",
     body,
+    // The loader injects its keyframes stylesheet here.
+    head: makeEl("head"),
     createElement: (t: string) => {
       const el = makeEl(t);
       created.push(el);
@@ -338,6 +340,42 @@ function main() {
     `title=${JSON.stringify(cleared.launcher.title)}`,
   );
 
+  // ── The unread badge ───────────────────────────────────────────────
+  //
+  // The badge is the second child of the launcher wrap, beside the button.
+  // Two kinds of unread event: one WITHOUT a count is the live "one more
+  // reply just landed" signal; one WITH a count is the frame's recount on
+  // page load, covering replies that arrived while the visitor was on some
+  // other page — the case a loader-side counter can never see.
+  const b = boot({ accentColor: "#2563eb" });
+  const bBadge = b.root.children[1]!.children[1]!;
+  // Initial hiding rides in the cssText, which this stub doesn't parse into
+  // properties — so "hidden" here means "nothing has shown it".
+  check("the badge starts hidden", bBadge.style.display !== "block" && bBadge.style.cssText.includes("display:none"));
+  b.send({ type: "jettachat:unread" });
+  check(
+    "a live reply puts a 1 on the badge",
+    bBadge.textContent === "1" && bBadge.style.display === "block",
+    `text=${JSON.stringify(bBadge.textContent)} display=${bBadge.style.display}`,
+  );
+  b.send({ type: "jettachat:unread" });
+  check("a second reply makes it 2", bBadge.textContent === "2");
+  check(
+    "and the button says so out loud",
+    (b.launcher.attrs["aria-label"] ?? "").includes("2 unread"),
+    b.launcher.attrs["aria-label"],
+  );
+  b.send({ type: "jettachat:unread", count: 5 });
+  check("a recount replaces the tally rather than adding to it", bBadge.textContent === "5");
+  b.send({ type: "jettachat:unread", count: "9" });
+  check("a count that isn't a number is treated as one more, not trusted", bBadge.textContent === "6");
+  b.send({ type: "jettachat:session", session: null });
+  check(
+    "losing the session clears the badge — no counting replies in a dead transcript",
+    bBadge.style.display === "none",
+    bBadge.style.display,
+  );
+
   // The loader can only paint what the frame tells it. That half lives in
   // React and cannot be booted here, so it is asserted against its source —
   // deleting the post() call would otherwise leave every check above green.
@@ -346,6 +384,16 @@ function main() {
     "the frame publishes the brand to the embedding page",
     /post\("jettachat:brand"/.test(frameSrc),
     "without this the launcher only ever shows cached or default branding",
+  );
+  check(
+    "the frame recounts unread replies on load",
+    /post\("jettachat:unread", \{ count/.test(frameSrc),
+    "without this the badge resets to zero on every page navigation",
+  );
+  check(
+    "the frame tracks what the visitor has seen",
+    /lastSeenId/.test(frameSrc),
+    "the recount needs a read cursor persisted through the parent's session",
   );
 
   console.log(failures ? `\n${failures} failed.` : "\nAll checks passed.");

@@ -17,6 +17,9 @@ billing lookups, dev-board context, and the learning loop).
 
 ```
 widget (public/jettachat.js)         embedding page: launcher, localStorage, badge
+                                     (unread survives navigation: the frame keeps a
+                                      lastSeenId read cursor in the stored session
+                                      and recounts on every page load)
    └─ iframe → /chat                 the UI (app/chat/page.tsx)
         ├─ POST /api/chat/session    create or resume; issues the HMAC token
         ├─ POST /api/chat/message    append + trigger the debounced run
@@ -109,6 +112,12 @@ widget is in an iframe on monday's page. Override it with
 
 - **Kill switch:** `JETTACHAT_LIVE=false` — every chat endpoint 503s
   immediately, no redeploy of the embedding site needed.
+- **Sound:** the console chimes when a visitor starts waiting for a person
+  (rings on any console page — the sidebar poll carries it, even from a
+  backgrounded tab) and, softer, when a visitor replies in a chat a person
+  holds. The bell toggle on `/chats` mutes both; the setting is per-browser.
+  Browsers gate audio behind a first click, so a console tab that was opened
+  and never touched stays silent.
 - **Review:** `/chats` in the console. Every conversation shows its transcript,
   and each agent run shows what it retrieved, which tools fired, and what went
   out. This is the compensating control for autonomous sending — it is worth
