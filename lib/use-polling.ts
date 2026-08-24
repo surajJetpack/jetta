@@ -6,8 +6,18 @@ import { useEffect, useRef } from "react";
  * Run `fn` on mount and every `ms` while the tab is visible; re-fire
  * immediately when the tab becomes visible again. Interval-based on purpose —
  * the console fetches imperatively everywhere, no data library needed.
+ *
+ * `whileHidden` keeps the poll running in a backgrounded tab. Pausing is the
+ * right default — most badges only matter to eyes that are here — but a poll
+ * that feeds the notification chime exists precisely for the tab nobody is
+ * looking at, so it must keep ticking to have anything to say.
  */
-export function usePolling(fn: () => void | Promise<void>, ms = 60_000) {
+export function usePolling(
+  fn: () => void | Promise<void>,
+  ms = 60_000,
+  opts?: { whileHidden?: boolean },
+) {
+  const whileHidden = opts?.whileHidden ?? false;
   const fnRef = useRef(fn);
   useEffect(() => {
     fnRef.current = fn;
@@ -15,7 +25,7 @@ export function usePolling(fn: () => void | Promise<void>, ms = 60_000) {
 
   useEffect(() => {
     const tick = () => {
-      if (document.visibilityState === "visible") void fnRef.current();
+      if (whileHidden || document.visibilityState === "visible") void fnRef.current();
     };
     tick();
     const id = setInterval(tick, ms);
@@ -24,5 +34,5 @@ export function usePolling(fn: () => void | Promise<void>, ms = 60_000) {
       clearInterval(id);
       document.removeEventListener("visibilitychange", tick);
     };
-  }, [ms]);
+  }, [ms, whileHidden]);
 }

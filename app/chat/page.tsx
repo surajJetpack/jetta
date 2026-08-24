@@ -105,6 +105,14 @@ function FileIcon() {
 interface Session {
   conversationId: string;
   token: string;
+  /**
+   * The last message the visitor has actually had on screen. Client-side only
+   * — the session API sends just {conversationId, token} — but it rides in the
+   * session object because that is the one thing the parent page persists for
+   * us, and "seen" must survive navigation: the whole point of tracking it is
+   * the reply that arrives while the visitor is on some other page.
+   */
+  lastSeenId?: string;
 }
 
 interface InitPayload {
@@ -112,6 +120,8 @@ interface InitPayload {
   surface?: ChatSurface;
   visitor?: ChatVisitor;
   pageUrl?: string;
+  /** Whether the panel is showing right now — only the parent knows. */
+  open?: boolean;
 }
 
 /** How long to wait for the embedding page before assuming we're standalone. */
@@ -222,6 +232,32 @@ export default function ChatWidgetPage() {
     window.parent.postMessage({ type, ...payload }, parentOrigin.current);
   }, []);
 
+  // ── Read receipts ────────────────────────────────────────────────
+  // This frame renders whether or not anyone can see it — the panel that hides
+  // it belongs to the parent — so the parent reports visibility (init and
+  // jettachat:visible) and these refs remember it. Refs, not state: they are
+  // read inside long-lived listeners, and a re-render has nothing to redraw.
+  const panelOpenRef = useRef(false);
+  const sessionRef = useRef<Session | null>(null);
+  const lastMsgIdRef = useRef<string | undefined>(undefined);
+  const lastSeenRef = useRef<string | undefined>(undefined);
+
+  /**
+   * The visitor has now seen everything up to `id` — persist that through the
+   * parent. Idempotent, so it is safe to call on every signal that eyes are on
+   * the transcript (panel opened, message arrived while open).
+   */
+  const markSeen = useCallback(
+    (id?: string) => {
+      const s = sessionRef.current;
+      const target = id ?? lastMsgIdRef.current;
+      if (!s || !target || lastSeenRef.current === target) return;
+      lastSeenRef.current = target;
+      post("jettachat:session", { session: { ...s, lastSeenId: target } });
+    },
+    [post],
+  );
+
   // ── Session bootstrap ────────────────────────────────────────────
   const openSession = useCallback(
     async (init: InitPayload) => {
@@ -276,12 +312,38 @@ export default function ChatWidgetPage() {
             messages: ChatMessage[];
             status: string;
           };
+          const msgs = data.messages ?? [];
           setSession({ conversationId: data.conversationId, token: data.token });
-          setMessages(data.messages ?? []);
+          setMessages(msgs);
           setTicketed(data.status === "ticketed");
+          sessionRef.current = { conversationId: data.conversationId, token: data.token };
+          lastMsgIdRef.current = msgs[msgs.length - 1]?.id;
+          // Where the visitor had read to, from the parent's stored copy.
+          // Unknown means "nothing unread", not "everything unread" — a
+          // returning visitor whose session predates read-tracking must not be
+          // greeted by a 9+ badge about replies they read weeks ago.
+          lastSeenRef.current = attempt.session?.lastSeenId;
           post("jettachat:session", {
-            session: { conversationId: data.conversationId, token: data.token },
+            session: {
+              conversationId: data.conversationId,
+              token: data.token,
+              lastSeenId: lastSeenRef.current,
+            },
           });
+          if (panelOpenRef.current) {
+            // Already on screen — everything in it is seen by definition.
+            markSeen(lastMsgIdRef.current);
+          } else if (lastSeenRef.current) {
+            // Replies that landed while the visitor was on another page (or
+            // gone entirely) never produced a live unread event anywhere — this
+            // recount on load is the only thing that can put them on the badge.
+            const at = msgs.findIndex((m) => m.id === lastSeenRef.current);
+            const count =
+              at < 0
+                ? 0
+                : msgs.slice(at + 1).filter((m) => m.author === "agent" && !m.system).length;
+            if (count > 0) post("jettachat:unread", { count });
+          }
           return;
         } catch (e) {
           console.error("JettaChat session error:", e);
@@ -290,7 +352,7 @@ export default function ChatWidgetPage() {
         }
       }
     },
-    [post, brandProduct],
+    [post, markSeen, brandProduct],
   );
 
   useEffect(() => {
@@ -346,9 +408,17 @@ export default function ChatWidgetPage() {
       // Only the embedding page may configure this widget.
       if (event.source !== window.parent) return;
       const data = event.data as { type?: string } & InitPayload;
+      // The parent narrates the panel: it owns the box this frame lives in,
+      // so opened/closed is knowledge that can only arrive from out there.
+      if (data?.type === "jettachat:visible") {
+        panelOpenRef.current = !!data.open;
+        if (data.open) markSeen();
+        return;
+      }
       if (data?.type !== "jettachat:init" || settled) return;
       settled = true;
       parentOrigin.current = event.origin;
+      panelOpenRef.current = !!data.open;
       void openSession(data);
     };
 
@@ -366,7 +436,7 @@ export default function ChatWidgetPage() {
       window.removeEventListener("message", onMessage);
       clearTimeout(timer);
     };
-  }, [openSession, post]);
+  }, [openSession, post, markSeen]);
 
   /**
    * Start a fresh conversation, keeping the visitor we already know.
@@ -381,6 +451,9 @@ export default function ChatWidgetPage() {
     setConfirmNew(false);
     post("jettachat:session", { session: null });
     setSession(null);
+    sessionRef.current = null;
+    lastMsgIdRef.current = undefined;
+    lastSeenRef.current = undefined;
     setMessages([]);
     setTicketed(false);
     setError(null);
@@ -404,7 +477,12 @@ export default function ChatWidgetPage() {
     es.addEventListener("message", (e) => {
       const msg = JSON.parse((e as MessageEvent).data) as ChatMessage;
       setMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]));
-      if (msg.author === "agent") post("jettachat:unread");
+      lastMsgIdRef.current = msg.id;
+      // On screen, it is read the moment it lands; hidden, it goes on the
+      // badge. System lines ("Suraj joined") don't ring it — the human's
+      // actual first message follows and does.
+      if (panelOpenRef.current) markSeen(msg.id);
+      else if (msg.author === "agent" && !msg.system) post("jettachat:unread");
     });
     es.addEventListener("typing", (e) => {
       setTyping((JSON.parse((e as MessageEvent).data) as { typing: boolean }).typing);
@@ -414,6 +492,9 @@ export default function ChatWidgetPage() {
     });
     es.addEventListener("expired", () => {
       es.close();
+      // Null the ref too, or a later markSeen would write the dead session
+      // right back into the parent's storage.
+      sessionRef.current = null;
       post("jettachat:session", { session: null });
       setError("This conversation has expired. Refresh to start a new one.");
     });

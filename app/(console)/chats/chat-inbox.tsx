@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ExternalLink, Hand, Paperclip, Search, Send, Ticket as TicketIcon, Undo2 } from "lucide-react";
+import { Bell, BellOff, ExternalLink, Hand, Paperclip, Search, Send, Ticket as TicketIcon, Undo2 } from "lucide-react";
 import { ChatAvatar } from "@/components/jetta/chat-avatar";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,7 @@ import { StatusChip, type ChipTone } from "@/components/jetta/status-chip";
 import { EmptyState } from "@/components/jetta/empty-state";
 import { RelativeTime } from "@/components/jetta/relative-time";
 import { usePolling } from "@/lib/use-polling";
+import { armChime, chimeEnabled, playChime, setChimeEnabled, subscribeChime } from "@/components/jetta/chime";
 
 interface Attachment {
   id: string;
@@ -131,19 +132,68 @@ export default function ChatInbox({
   const [ticketNote, setTicketNote] = useState("");
   const [ticketNotify, setTicketNotify] = useState(true);
   const [busy, setBusy] = useState(false);
+  // The setting lives in localStorage, which the server render can't see —
+  // useSyncExternalStore renders the default and corrects itself without a
+  // hydration mismatch, and follows the toggle across console tabs.
+  const sound = useSyncExternalStore(subscribeChime, chimeEnabled, () => true);
   const endRef = useRef<HTMLDivElement | null>(null);
   const msgCount = useRef(0);
+
+  /**
+   * Every message id we have already laid eyes on — seeded from the server
+   * render on first use, so nothing rings for history. Both polls feed it,
+   * which is also what stops the fast detail poll and the slow list poll
+   * ringing twice for the same message.
+   */
+  const seenIds = useRef<Set<string> | null>(null);
+
+  useEffect(() => {
+    armChime();
+  }, []);
+
+  /**
+   * Ring for a visitor message a person is on the hook for.
+   *
+   * Only in conversations that are with (or waiting for) a human — Jetta
+   * answers the rest herself, and a chime for traffic she is handling is an
+   * alarm that cries wolf. And not for the conversation currently on screen in
+   * a visible tab: a sound narrating what you are already reading teaches you
+   * to turn the sound off.
+   */
+  const noteMessages = useCallback(
+    (convs: Conv[]) => {
+      const seen = (seenIds.current ??= new Set(
+        initial.flatMap((c) => c.messages.map((m) => m.id)),
+      ));
+      let ring = false;
+      for (const c of convs) {
+        for (const m of c.messages) {
+          if (seen.has(m.id)) continue;
+          seen.add(m.id);
+          if (m.author !== "visitor" || m.system) continue;
+          if (c.status !== "human" && c.status !== "waiting_human") continue;
+          if (c.id === selectedId && document.visibilityState === "visible") continue;
+          ring = true;
+        }
+      }
+      if (ring) playChime("message");
+    },
+    [initial, selectedId],
+  );
 
   // The list refreshes slowly, the open conversation quickly — someone typing
   // a reply needs the visitor's next message now; the list can lag.
   const pollList = useCallback(async () => {
     try {
       const r = await fetch("/api/admin/chats", { cache: "no-store" });
-      if (r.ok) setList((await r.json()).conversations ?? []);
+      if (!r.ok) return;
+      const convs = ((await r.json()).conversations ?? []) as Conv[];
+      setList(convs);
+      noteMessages(convs);
     } catch {
       /* a dropped poll fixes itself on the next tick */
     }
-  }, []);
+  }, [noteMessages]);
 
   const pollDetail = useCallback(async () => {
     if (!selectedId) return;
@@ -151,17 +201,25 @@ export default function ChatInbox({
       const r = await fetch(`/api/admin/chats?id=${encodeURIComponent(selectedId)}`, {
         cache: "no-store",
       });
-      if (r.ok) setFetched((await r.json()).conversation ?? null);
+      if (!r.ok) return;
+      const conv = ((await r.json()).conversation ?? null) as Conv | null;
+      setFetched(conv);
+      if (conv) noteMessages([conv]);
     } catch {
       /* keep showing what we have */
     }
-  }, [selectedId]);
+  }, [selectedId, noteMessages]);
 
   // usePolling rather than a hand-rolled interval: it is the console's existing
   // idiom, it pauses in a background tab, and its callback shape keeps every
   // setState inside a promise rather than an effect body.
+  //
+  // The list poll keeps running in a hidden tab — it is what carries the chime
+  // for a visitor replying while you are off in Freshdesk, and ten seconds of
+  // lag on the sound is fine where three would be waste. The detail poll stays
+  // visibility-gated: at 3s it exists to feed eyes, and hidden tabs have none.
   usePolling(pollDetail, 3000);
-  usePolling(pollList, 10_000);
+  usePolling(pollList, 10_000, { whileHidden: true });
 
   // Only follow the conversation down when something new arrives, so reading
   // back through it isn't yanked to the bottom every three seconds.
@@ -319,6 +377,23 @@ export default function ChatInbox({
                 {label}
               </Button>
             ))}
+            {/* The chime's off switch lives where the chime is about — and the
+                setting is shared with the sidebar's waiting-visitor sound, so
+                one bell governs everything that rings. */}
+            <Button
+              size="sm"
+              variant="ghost"
+              className="ml-auto h-7 w-7 p-0"
+              aria-label={sound ? "Turn notification sound off" : "Turn notification sound on"}
+              title={
+                sound
+                  ? "Sound on — rings when a visitor needs a person or replies to one"
+                  : "Sound off"
+              }
+              onClick={() => setChimeEnabled(!sound)}
+            >
+              {sound ? <Bell /> : <BellOff className="text-muted-foreground" />}
+            </Button>
           </div>
 
           <div className="max-h-[70dvh] space-y-1.5 overflow-y-auto pr-1">

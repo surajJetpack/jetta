@@ -200,6 +200,18 @@
   root.style.cssText =
     "position:fixed;bottom:" + EDGE_Y + "px;right:" + EDGE_X + "px;z-index:2147483000;";
 
+  // The one piece of real CSS the loader owns. Keyframes cannot be written as
+  // inline styles, and a reply arriving in the corner of a page someone is
+  // reading deserves one visible movement — a badge that silently changes from
+  // nothing to "1" is invisible in peripheral vision, which is the only vision
+  // pointed at it. One movement, not a loop: looping is how widgets nag.
+  var motion = document.createElement("style");
+  motion.textContent =
+    "@keyframes jettachat-pop{0%{transform:scale(.4)}55%{transform:scale(1.2)}100%{transform:scale(1)}}" +
+    "@keyframes jettachat-nudge{0%,100%{transform:translateY(0)}35%{transform:translateY(-5px)}70%{transform:translateY(2px)}}" +
+    "@media (prefers-reduced-motion:reduce){[data-jettachat] *{animation:none!important}}";
+  (document.head || document.documentElement).appendChild(motion);
+
   var panel = document.createElement("div");
   panel.style.cssText = [
     // The cap subtracts the launcher, the gap and whatever the page pushed the
@@ -369,15 +381,49 @@
   root.appendChild(launcherWrap);
   paintLauncher();
 
-  function renderBadge() {
-    badge.style.display = unread > 0 && !open ? "block" : "none";
+  // The count belongs in the accessible name, because the badge itself is a
+  // visual: a screen reader tabbing to the button should hear what the red
+  // dot is telling everyone else.
+  function paintAria() {
+    launcher.setAttribute(
+      "aria-label",
+      open
+        ? "Close support chat"
+        : unread > 0
+          ? "Open support chat, " + unread + " unread " + (unread === 1 ? "reply" : "replies")
+          : "Open support chat",
+    );
+  }
+
+  function renderBadge(animate) {
+    var show = unread > 0 && !open;
+    badge.style.display = show ? "block" : "none";
     badge.textContent = unread > 9 ? "9+" : String(unread);
+    paintAria();
+    if (show && animate) {
+      // Clear, reflow, replay — the way to re-fire an animation that may
+      // already have run. The nudge is on the wrap, not the launcher, whose
+      // transform belongs to its hover scale.
+      badge.style.animation = "none";
+      launcherWrap.style.animation = "none";
+      void badge.offsetWidth;
+      badge.style.animation = "jettachat-pop .4s ease";
+      launcherWrap.style.animation = "jettachat-nudge .5s ease";
+    }
   }
 
   function setOpen(next) {
     open = next;
-    launcher.setAttribute("aria-label", open ? "Close support chat" : "Open support chat");
+    paintAria();
     paintLabel();
+    // Tell the frame. It holds the transcript and the read cursor, but it
+    // renders whether or not anyone can see it — visibility is a fact only
+    // this side of the iframe boundary knows.
+    try {
+      frame.contentWindow.postMessage({ type: "jettachat:visible", open: open }, origin || "*");
+    } catch {
+      // Frame not ready yet; the init handshake carries the state instead.
+    }
     if (open) {
       unread = 0;
       renderBadge();
@@ -415,6 +461,7 @@
           surface: surface,
           visitor: visitor,
           pageUrl: location.href,
+          open: open,
         },
         origin,
       );
@@ -429,10 +476,23 @@
       }
     } else if (msg.type === "jettachat:session") {
       writeSession(msg.session);
+      // No session means no conversation — a badge counting replies in a
+      // transcript that no longer exists would be advertising nothing.
+      if (!msg.session && unread) {
+        unread = 0;
+        renderBadge();
+      }
     } else if (msg.type === "jettachat:unread") {
       if (!open) {
-        unread += 1;
-        renderBadge();
+        // A count is the frame's recount on page load — replies that arrived
+        // while the visitor was on another page never fired a live event, so
+        // the badge would otherwise reset to zero on every navigation. No
+        // count is the live signal it has always been: one more.
+        unread =
+          typeof msg.count === "number" && isFinite(msg.count)
+            ? Math.max(0, Math.floor(msg.count))
+            : unread + 1;
+        renderBadge(true);
       }
     } else if (msg.type === "jettachat:close") {
       dismissed = true;
