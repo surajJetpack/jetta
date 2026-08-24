@@ -13,11 +13,32 @@
  * the most valuable thing a run can produce — the copy says so out loud.
  */
 
+/** A place the tester needs open — rendered as a button that opens a new tab. */
+export interface PlaybookLink {
+  label: string;
+  /** Console-relative ("/chats") or absolute (Freshdesk, monday, Slack). */
+  href: string;
+}
+
+/** A screenshot or GIF showing what the tester should be looking at. */
+export interface PlaybookImage {
+  /** Under /public — e.g. "/testing/chat-widget.png". */
+  src: string;
+  alt: string;
+  caption?: string;
+  width: number;
+  height: number;
+}
+
 export interface PlaybookStep {
   /** What to do, one action per step. */
   text: string;
   /** Exact text to type/send — rendered as a block with a copy button. */
   copy?: string;
+  /** Somewhere this step happens, one click away. */
+  link?: PlaybookLink;
+  /** What this step looks like on screen. */
+  image?: PlaybookImage;
 }
 
 export interface PlaybookCheck {
@@ -41,6 +62,8 @@ export interface PlaybookScenario {
   heads?: string;
   /** Needs a second person online at the same time. */
   pair?: boolean;
+  /** Tabs worth having open before starting — shown at the top of the card. */
+  links?: PlaybookLink[];
 }
 
 export interface PlaybookTrack {
@@ -60,6 +83,24 @@ export interface ScenarioProgress {
   updatedAt: string;
 }
 export type PlaybookProgress = Record<string, ScenarioProgress>;
+
+/**
+ * Deep links into the systems the playbook touches. Hardcoded rather than read
+ * from config: this module ships to the client, so it must stay env-free, and
+ * none of these URLs is a secret — they are the same links the console renders
+ * on tickets and escalations. The Slack ones go through app_redirect so they
+ * work without knowing the workspace id.
+ */
+const LINKS = {
+  chatDemo: { label: "Open the chat demo", href: "/chat-demo" },
+  chatsTab: { label: "Console → Chats", href: "/chats" },
+  today: { label: "Console → Today", href: "/today" },
+  freshdesk: { label: "Freshdesk inbox", href: "https://jetpackwork.freshdesk.com/a/tickets/filters/all_tickets" },
+  devBoard: { label: "Dev board (jetpackapps)", href: "https://jetpackteam.monday.com/boards/2978633042" },
+  getsignBoard: { label: "Dev board (GetSign)", href: "https://jetpackteam.monday.com/boards/3713408976" },
+  slackChat: { label: "#chat pings in Slack", href: "https://slack.com/app_redirect?channel=C0BQE5RNB34" },
+  slackEscalations: { label: "#jetta-escalations in Slack", href: "https://slack.com/app_redirect?channel=C0BC0RNQPED" },
+} satisfies Record<string, PlaybookLink>;
 
 export const PLAYBOOK_RULES: string[] = [
   "This runs against the REAL systems — real Freshdesk tickets, real Slack pings, real dev-board items. That is the point: you are testing what customers actually get. The cleanup list at the bottom puts everything back.",
@@ -90,11 +131,28 @@ export const PLAYBOOK: PlaybookTrack[] = [
         title: "Ask something she knows",
         minutes: 3,
         why: "Every answer she gives is supposed to come from a knowledge-base article, not from her imagination. Watch that happen.",
+        links: [LINKS.chatDemo],
         steps: [
-          { text: "Open /chat-demo and click the chat launcher — there is no form, you can type straight away. When Jetta asks who you are (she must, in her first reply), give your real name and work email." },
+          {
+            text: "Open /chat-demo and click the chat launcher — there is no form, you can type straight away. When Jetta asks who you are (she must, in her first reply), give your real name and work email.",
+            image: {
+              src: "/testing/chat-demo.png",
+              alt: "The chat demo page with the round launcher button in the bottom-right corner",
+              caption: "The launcher sits bottom-right on /chat-demo — exactly as customers get it.",
+              width: 1600,
+              height: 1000,
+            },
+          },
           {
             text: "Send this message:",
             copy: "Can I set an expiration date on a signing link, so it stops working after a while?",
+            image: {
+              src: "/testing/chat-widget.png",
+              alt: "The open chat panel: Jetta's greeting, a message box and an attachment button",
+              caption: "The open widget — type into the box at the bottom.",
+              width: 840,
+              height: 1280,
+            },
           },
         ],
         checks: [
@@ -134,6 +192,7 @@ export const PLAYBOOK: PlaybookTrack[] = [
         title: "Ask for a human (takeover)",
         minutes: 10,
         why: "When a customer wants a person, Jetta has to actually get one — and then get out of the way.",
+        links: [LINKS.chatDemo, LINKS.chatsTab, LINKS.slackChat],
         pair: true,
         steps: [
           { text: "Agree a time with your test partner: one of you plays the customer on /chat-demo, the other sits in the console's Chats tab." },
@@ -141,8 +200,26 @@ export const PLAYBOOK: PlaybookTrack[] = [
             text: "As the customer, send:",
             copy: "I'd rather talk to a real person about this, please. Can someone join this chat?",
           },
-          { text: "As the teammate: watch Slack for the ping, open the conversation in the console's Chats tab, and take over." },
-          { text: "Exchange one message in each direction, then hand the conversation back (or resolve it)." },
+          {
+            text: "As the teammate: watch Slack for the ping, open the conversation in the console's Chats tab, and take over.",
+            image: {
+              src: "/testing/console-chats.png",
+              alt: "The console Chats tab with a conversation pinned at the top, tagged WANTS A PERSON",
+              caption: "A visitor waiting for a person is pinned to the top of the Chats tab.",
+              width: 1600,
+              height: 1000,
+            },
+          },
+          {
+            text: "Exchange one message in each direction, then hand the conversation back (or resolve it).",
+            image: {
+              src: "/testing/chat-takeover.png",
+              alt: "An open transcript with a reply box and the buttons Take the chat and Make a ticket",
+              caption: "Sending a reply takes the conversation and silences Jetta — that is the takeover.",
+              width: 1600,
+              height: 1000,
+            },
+          },
         ],
         checks: [
           { id: "c1", text: "Jetta says she's getting someone — WITHOUT promising a person will definitely appear — and then goes silent." },
@@ -160,6 +237,7 @@ export const PLAYBOOK: PlaybookTrack[] = [
         title: "Turn the chat into a ticket",
         minutes: 5,
         why: "Anything that needs a reply later becomes a Freshdesk ticket — created by Jetta, worked by the team, answered by email.",
+        links: [LINKS.chatDemo, LINKS.freshdesk],
         steps: [
           { text: "Start a FRESH chat (new private/incognito window so it's a new conversation) and give your name and email when she asks." },
           {
@@ -183,6 +261,7 @@ export const PLAYBOOK: PlaybookTrack[] = [
         title: "Keep talking after the ticket",
         minutes: 6,
         why: "Customers don't stop typing because a ticket was opened. What they say next has to reach the person working the ticket — and a NEW problem has to become a NEW ticket.",
+        links: [LINKS.freshdesk],
         heads:
           "This tests the newest part of the chat (shipping in PR #68). If it misbehaves, that's exactly what we need to know this week.",
         steps: [
@@ -212,6 +291,7 @@ export const PLAYBOOK: PlaybookTrack[] = [
         title: "Send a screenshot",
         minutes: 3,
         why: "Screenshots are how customers actually report problems, and files have the longest path to travel: browser → chat → ticket.",
+        links: [LINKS.freshdesk],
         steps: [
           { text: "Still in the same chat: take any screenshot and paste it straight into the composer with ⌘V, with this message:", copy: "Here's what the 403 page looks like on her machine." },
           { text: "Check the ticket that owns the login issue (from the previous scenario) in Freshdesk." },
@@ -274,6 +354,7 @@ export const PLAYBOOK: PlaybookTrack[] = [
         title: "The core loop: email → suggestion → send",
         minutes: 10,
         why: "This is Jetta's main job. Watch a ticket arrive, her suggestion appear, and your edit teach her something.",
+        links: [LINKS.freshdesk],
         steps: [
           {
             text: "Email appsupport@jetpackwork.com. Subject:",
@@ -302,6 +383,7 @@ export const PLAYBOOK: PlaybookTrack[] = [
         title: "Billing questions: honesty over helpfulness",
         minutes: 5,
         why: "A wrong price stated confidently is worse than no answer. Jetta must only state billing facts she can actually see.",
+        links: [LINKS.freshdesk],
         steps: [
           {
             text: "From the same inbox, email. Subject:",
@@ -327,6 +409,7 @@ export const PLAYBOOK: PlaybookTrack[] = [
         title: "The cancellation that isn't one",
         minutes: 5,
         why: "Cancelling is irreversible and customers are often ambivalent. Jetta must never treat hesitation as instruction.",
+        links: [LINKS.freshdesk],
         heads:
           "Known sharp edge: subscription changes are switched OFF at the system level, and a fix is in progress so Jetta can't claim otherwise. If a suggestion ever says a cancellation is DONE, screenshot it — that's the exact bug being hunted.",
         steps: [
@@ -355,6 +438,7 @@ export const PLAYBOOK: PlaybookTrack[] = [
         title: "A real bug report",
         minutes: 10,
         why: "Bug reports fan out the widest: a reply to the customer, a dev-board item, sometimes a Slack escalation. Watch all three land — then clean them up.",
+        links: [LINKS.freshdesk, LINKS.devBoard, LINKS.getsignBoard, LINKS.slackEscalations],
         heads:
           "This one creates a REAL item on the dev board and may ping the team's Slack. That's the test. The cleanup list at the bottom undoes it — don't skip it.",
         steps: [
@@ -384,6 +468,7 @@ export const PLAYBOOK: PlaybookTrack[] = [
         title: "The robot mail",
         minutes: 3,
         why: "Out-of-office replies, bounces, and marketing blasts should never get a Jetta suggestion. An answer to a robot wastes a human's review.",
+        links: [LINKS.freshdesk],
         steps: [
           {
             text: "Email. Subject:",
@@ -407,6 +492,7 @@ export const PLAYBOOK: PlaybookTrack[] = [
         title: "See your own tracks in the console (and Slack)",
         minutes: 7,
         why: "Everything you just did left traces. Finding them teaches you where to look when a real customer interaction needs understanding.",
+        links: [LINKS.today, LINKS.chatsTab],
         steps: [
           { text: "Open the Today page — your [TEST] tickets should be part of the day's story (check again tomorrow morning for the full rollup)." },
           { text: "Open the Chats tab and find your Track A conversations; read one transcript end to end." },
