@@ -488,6 +488,91 @@ export async function addPlusOne(
   return { url: itemUrl(itemId, product), filesAttached };
 }
 
+// ── Playbook cleanup ───────────────────────────────────────────────
+
+/** A dev-board item the test playbook created, found by its [TEST] name. */
+export interface TestDevItem {
+  id: string;
+  name: string;
+  boardId: string;
+  url: string;
+}
+
+const TEST_MARKER = "[TEST]";
+
+/**
+ * Every item on either dev board whose NAME carries the [TEST] marker — the
+ * marker the playbook rules make testers put in their subjects, which
+ * createDevItem copies into the item title. Used by /testing's auto-cleanup
+ * to offer exactly these for deletion and nothing else.
+ *
+ * Filtered here rather than via monday's contains_text rule: the boards are
+ * small (one page), and doing the match in code keeps the delete-side guard
+ * and the scan using the identical predicate.
+ */
+export async function listTestDevItems(): Promise<TestDevItem[]> {
+  if (!config.monday.live) return [];
+  const boards = [config.monday.boardIds.jetpackapps, config.monday.boardIds.getsign].filter(
+    (b): b is string => !!b,
+  );
+  const data = await gql<{
+    boards: { id: string; items_page: { items: { id: string; name: string }[] } }[];
+  }>(
+    `query ($boards: [ID!]) {
+      boards(ids: $boards) {
+        id
+        items_page(limit: 200) { items { id name } }
+      }
+    }`,
+    { boards },
+  ).catch(() => null);
+
+  return (data?.boards ?? []).flatMap((b) =>
+    b.items_page.items
+      .filter((i) => i.name.includes(TEST_MARKER))
+      .map((i) => ({
+        id: i.id,
+        name: i.name,
+        boardId: b.id,
+        url: `${config.monday.accountUrl}/boards/${b.id}/pulses/${i.id}`,
+      })),
+  );
+}
+
+/**
+ * Delete ONE dev-board item, and only a [TEST] one. The name is re-fetched
+ * and re-checked here rather than trusted from the caller: deletion is the
+ * single irreversible write in this file, so the guard lives next to the
+ * mutation, not in whoever assembled the list.
+ */
+export async function deleteTestDevItem(itemId: string): Promise<{ deleted: boolean; reason?: string }> {
+  if (!config.monday.live) {
+    console.log(`[stub] delete_item ${itemId}`);
+    return { deleted: false, reason: "monday is stubbed in this environment" };
+  }
+  if (!config.monday.allowWrites) {
+    console.log(`[MONDAY_ALLOW_WRITES=false] would delete item ${itemId} — no write made.`);
+    return { deleted: false, reason: "monday writes are disabled" };
+  }
+  if (!/^\d+$/.test(itemId)) return { deleted: false, reason: "not a monday item id" };
+
+  const check = await gql<{ items: { id: string; name: string }[] }>(
+    `query ($item: [ID!]) { items(ids: $item) { id name } }`,
+    { item: [itemId] },
+  ).catch(() => null);
+  const name = check?.items?.[0]?.name;
+  if (!name) return { deleted: false, reason: "item not found" };
+  if (!name.includes(TEST_MARKER)) {
+    return { deleted: false, reason: `"${name}" does not carry ${TEST_MARKER} — refusing to delete` };
+  }
+
+  await gql<{ delete_item: { id: string } }>(
+    `mutation ($item: ID!) { delete_item(item_id: $item) { id } }`,
+    { item: itemId },
+  );
+  return { deleted: true };
+}
+
 // Trial extension + discounts moved to lib/tools/monday-monetization.ts — they
 // use the Marketplace monetization API (app collaborator token), not the
 // board GraphQL client above.

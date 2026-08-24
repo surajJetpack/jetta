@@ -1,24 +1,42 @@
 /**
- * The interactive half of /testing.
+ * The interactive half of /testing — a one-scenario-at-a-time wizard.
+ *
+ * The playbook used to render as one long scroll of fourteen cards, which read
+ * as an exam. Now there is an overview (pick any scenario, see everyone's
+ * progress) and a focused view showing exactly one scenario, with prev/next,
+ * arrow-key navigation, and the cleanup as the final stop of the walk.
  *
  * Everything a tester ticks is saved immediately under their own login (the
  * API takes the username from the session, so nobody can tick for a teammate)
  * and optimistically in the UI — running scenarios in a coffee break must
  * never feel like filling in a form. Failure notes are the one text field,
  * and only appear once a scenario is marked failed.
+ *
+ * The cleanup stop carries the auto-cleanup: scan first (GET, read-only, shows
+ * the exact list), then clean (POST). The tester always sees what will be
+ * touched before anything irreversible happens.
  */
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import {
+  ArrowLeft,
+  ArrowRight,
   Check,
+  Circle,
   CircleCheck,
   CircleX,
   Copy,
   ExternalLink,
   Info,
+  ListChecks,
+  Loader2,
   PartyPopper,
+  Play,
+  RotateCw,
+  Sparkles,
   Users,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -34,10 +52,24 @@ import {
   PLAYBOOK_CLEANUP,
   PLAYBOOK_RULES,
   totalScenarios,
+  type PlaybookLink,
   type PlaybookProgress,
   type PlaybookScenario,
+  type PlaybookTrack,
   type ScenarioProgress,
 } from "@/lib/test-playbook";
+
+/** One screen of the wizard: a scenario, or the final cleanup stop. */
+type Stop =
+  | { kind: "scenario"; track: PlaybookTrack; scenario: PlaybookScenario; nthInTrack: number }
+  | { kind: "cleanup" };
+
+const STOPS: Stop[] = [
+  ...PLAYBOOK.flatMap((track) =>
+    track.scenarios.map((scenario, i): Stop => ({ kind: "scenario", track, scenario, nthInTrack: i + 1 })),
+  ),
+  { kind: "cleanup" },
+];
 
 /** Copy-to-clipboard block for the exact texts a tester sends. */
 function CopyText({ text }: { text: string }) {
@@ -73,6 +105,18 @@ function ProgressBar({ done, total }: { done: number; total: number }) {
   );
 }
 
+/** A "have this open" link — always a new tab, so the run in progress survives. */
+function LinkButton({ link }: { link: PlaybookLink }) {
+  const external = link.href.startsWith("http");
+  return (
+    <Button asChild variant="outline" size="sm" className="h-7 px-2 text-xs">
+      <Link href={link.href} target="_blank" rel={external ? "noreferrer" : undefined}>
+        {link.label} <ExternalLink className="size-3" />
+      </Link>
+    </Button>
+  );
+}
+
 export default function PlaybookContent({
   user,
   initialMine,
@@ -83,6 +127,8 @@ export default function PlaybookContent({
   others: { name: string; done: number }[];
 }) {
   const [mine, setMine] = useState<PlaybookProgress>(initialMine);
+  /** null = overview, otherwise an index into STOPS. */
+  const [at, setAt] = useState<number | null>(null);
   const total = totalScenarios();
   const done = Object.entries(mine).filter(([id, s]) => id !== "cleanup" && s.outcome).length;
 
@@ -119,6 +165,102 @@ export default function PlaybookContent({
     save(scenario, { checks: [...checks] });
   };
 
+  /** Where "Continue" goes: the first scenario without an outcome, else cleanup. */
+  const nextUndone = useMemo(() => {
+    const i = STOPS.findIndex((s) => s.kind === "scenario" && !mine[s.scenario.id]?.outcome);
+    return i === -1 ? STOPS.length - 1 : i;
+  }, [mine]);
+
+  // Arrow keys move between stops — but never while someone is typing a note.
+  useEffect(() => {
+    if (at === null) return;
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && /^(input|textarea|select)$/i.test(t.tagName)) return;
+      if (e.key === "ArrowRight" && at < STOPS.length - 1) setAt(at + 1);
+      if (e.key === "ArrowLeft") setAt(at === 0 ? null : at - 1);
+      if (e.key === "Escape") setAt(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [at]);
+
+  // A new stop starts at the top of the page, like turning a page.
+  useEffect(() => {
+    if (at !== null) window.scrollTo({ top: 0 });
+  }, [at]);
+
+  if (at === null) {
+    return (
+      <Overview
+        user={user}
+        mine={mine}
+        others={others}
+        done={done}
+        total={total}
+        nextUndone={nextUndone}
+        onGo={setAt}
+      />
+    );
+  }
+
+  const stop = STOPS[at];
+  return (
+    <div className="space-y-4">
+      <WizardHeader at={at} mine={mine} onGo={setAt} />
+      {stop.kind === "scenario" ? (
+        <ScenarioView
+          key={stop.scenario.id}
+          stop={stop}
+          progress={mine[stop.scenario.id]}
+          onCheck={(c) => toggleCheck(stop.scenario.id, c)}
+          onOutcome={(o) => save(stop.scenario.id, { outcome: o })}
+          onNote={(note) => save(stop.scenario.id, { note })}
+        />
+      ) : (
+        <CleanupView
+          mine={mine}
+          done={done}
+          total={total}
+          onCheck={(c) => toggleCheck("cleanup", c)}
+          onTickAll={(ids) => {
+            const merged = new Set([...(mine["cleanup"]?.checks ?? []), ...ids]);
+            save("cleanup", { checks: [...merged] });
+          }}
+        />
+      )}
+      <WizardFooter at={at} stop={stop} mine={mine} onGo={setAt} />
+    </div>
+  );
+}
+
+// ── Overview ───────────────────────────────────────────────────────
+
+function outcomeIcon(progress?: ScenarioProgress) {
+  if (progress?.outcome === "pass") return <CircleCheck className="size-4 shrink-0 text-primary" />;
+  if (progress?.outcome === "fail") return <CircleX className="size-4 shrink-0 text-destructive" />;
+  return <Circle className="size-4 shrink-0 text-muted-foreground/40" />;
+}
+
+function Overview({
+  user,
+  mine,
+  others,
+  done,
+  total,
+  nextUndone,
+  onGo,
+}: {
+  user: string;
+  mine: PlaybookProgress;
+  others: { name: string; done: number }[];
+  done: number;
+  total: number;
+  nextUndone: number;
+  onGo: (i: number) => void;
+}) {
+  const nextStop = STOPS[nextUndone];
+  const cleanupTicked = (mine["cleanup"]?.checks ?? []).length;
   return (
     <div className="space-y-6">
       {/* Scoreboard */}
@@ -141,10 +283,20 @@ export default function PlaybookContent({
             )}
           </div>
           <ProgressBar done={done} total={total} />
-          <p className="text-xs text-muted-foreground">
-            Everything you tick is saved under your login as you go — stop anytime, pick up later,
-            swap tracks with your teammate for a second pass.
-          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button onClick={() => onGo(nextUndone)}>
+              <Play className="size-4" />
+              {done === 0
+                ? "Start testing"
+                : nextStop.kind === "cleanup"
+                  ? "Finish up — cleanup"
+                  : `Continue — ${nextStop.scenario.title}`}
+            </Button>
+            <p className="text-xs text-muted-foreground">
+              One scenario at a time. Everything you tick is saved as you go — stop anytime, pick
+              up later, swap tracks with your teammate for a second pass.
+            </p>
+          </div>
         </CardContent>
       </Card>
 
@@ -171,62 +323,60 @@ export default function PlaybookContent({
               {track.label}
             </SectionHeader>
             <p className="max-w-prose text-sm text-muted-foreground">{track.intro}</p>
-            <p className="max-w-prose text-sm">
-              {track.where}{" "}
-              {track.id === "chat" && (
-                <Link
-                  href="/chat-demo"
-                  target="_blank"
-                  className="inline-flex items-center gap-1 font-medium text-primary underline underline-offset-2"
-                >
-                  Open the demo page <ExternalLink className="size-3" />
-                </Link>
-              )}
-            </p>
-            {trackDone === track.scenarios.length && (
-              <Alert>
-                <PartyPopper className="size-4" />
-                <AlertTitle>Track complete</AlertTitle>
-                <AlertDescription>
-                  Every scenario has an outcome. Don&apos;t forget the cleanup list at the bottom.
-                </AlertDescription>
-              </Alert>
-            )}
-            {track.scenarios.map((s, i) => (
-              <Scenario
-                key={s.id}
-                index={i + 1}
-                scenario={s}
-                progress={mine[s.id]}
-                onCheck={(c) => toggleCheck(s.id, c)}
-                onOutcome={(o) => save(s.id, { outcome: o })}
-                onNote={(note) => save(s.id, { note })}
-              />
-            ))}
+            <Card>
+              <CardContent className="divide-y p-0">
+                {track.scenarios.map((s, i) => {
+                  const stopIndex = STOPS.findIndex(
+                    (st) => st.kind === "scenario" && st.scenario.id === s.id,
+                  );
+                  return (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onClick={() => onGo(stopIndex)}
+                      className="flex w-full cursor-pointer items-center gap-3 px-4 py-2.5 text-left text-sm transition-colors first:rounded-t-xl last:rounded-b-xl hover:bg-muted/50"
+                    >
+                      {outcomeIcon(mine[s.id])}
+                      <span className="w-4 shrink-0 text-xs font-semibold text-muted-foreground">{i + 1}</span>
+                      <span className="min-w-0 flex-1 truncate font-medium">{s.title}</span>
+                      {s.pair && (
+                        <span className="inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                          <Users className="size-3" /> both of you
+                        </span>
+                      )}
+                      <span className="shrink-0 text-xs text-muted-foreground">~{s.minutes} min</span>
+                      <ArrowRight className="size-3.5 shrink-0 text-muted-foreground/60" />
+                    </button>
+                  );
+                })}
+              </CardContent>
+            </Card>
           </section>
         );
       })}
 
-      {/* Cleanup */}
+      {/* Cleanup entry */}
       <section className="space-y-3">
-        <SectionHeader meta={`${(mine["cleanup"]?.checks ?? []).length}/${PLAYBOOK_CLEANUP.length}`}>
+        <SectionHeader meta={`${cleanupTicked}/${PLAYBOOK_CLEANUP.length}`}>
           Cleanup — leave no trace
         </SectionHeader>
         <Card>
-          <CardContent className="space-y-2 pt-4">
-            <p className="text-sm text-muted-foreground">
-              The tests touched real systems on purpose. This puts them back the way you found them.
-            </p>
-            {PLAYBOOK_CLEANUP.map((c) => (
-              <label key={c.id} className="flex cursor-pointer items-start gap-2 text-sm">
-                <Checkbox
-                  className="mt-0.5"
-                  checked={(mine["cleanup"]?.checks ?? []).includes(c.id)}
-                  onCheckedChange={() => toggleCheck("cleanup", c.id)}
-                />
-                <span>{c.text}</span>
-              </label>
-            ))}
+          <CardContent className="p-0">
+            <button
+              type="button"
+              onClick={() => onGo(STOPS.length - 1)}
+              className="flex w-full cursor-pointer items-center gap-3 rounded-xl px-4 py-2.5 text-left text-sm transition-colors hover:bg-muted/50"
+            >
+              <ListChecks className="size-4 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 flex-1">
+                The tests touched real systems on purpose — this puts them back. Jetta can now do
+                most of it for you.
+              </span>
+              <span className="inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium text-primary">
+                <Sparkles className="size-3" /> auto-cleanup
+              </span>
+              <ArrowRight className="size-3.5 shrink-0 text-muted-foreground/60" />
+            </button>
           </CardContent>
         </Card>
       </section>
@@ -234,21 +384,114 @@ export default function PlaybookContent({
   );
 }
 
-function Scenario({
-  index,
-  scenario,
+// ── Wizard chrome ──────────────────────────────────────────────────
+
+function WizardHeader({
+  at,
+  mine,
+  onGo,
+}: {
+  at: number;
+  mine: PlaybookProgress;
+  onGo: (i: number | null) => void;
+}) {
+  const stop = STOPS[at];
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <Button variant="ghost" size="sm" className="-ml-2 h-7 px-2 text-xs" onClick={() => onGo(null)}>
+          <ArrowLeft className="size-3.5" /> All scenarios
+        </Button>
+        <p className="text-xs text-muted-foreground">
+          {stop.kind === "scenario" ? (
+            <>
+              <span className="font-medium text-foreground">{stop.track.label}</span> · scenario{" "}
+              {at + 1} of {STOPS.length - 1}
+            </>
+          ) : (
+            <span className="font-medium text-foreground">Last stop — cleanup</span>
+          )}
+        </p>
+      </div>
+      {/* One dot per stop: where you are, what passed, what failed. */}
+      <div className="flex items-center gap-1">
+        {STOPS.map((s, i) => {
+          const progress = s.kind === "scenario" ? mine[s.scenario.id] : undefined;
+          const label =
+            s.kind === "scenario" ? `${i + 1}. ${s.scenario.title}` : "Cleanup — leave no trace";
+          return (
+            <button
+              key={i}
+              type="button"
+              title={label}
+              aria-label={label}
+              aria-current={i === at ? "step" : undefined}
+              onClick={() => onGo(i)}
+              className={cn(
+                "h-1.5 flex-1 cursor-pointer rounded-full transition-all",
+                progress?.outcome === "pass" && "bg-primary",
+                progress?.outcome === "fail" && "bg-destructive",
+                !progress?.outcome && "bg-muted",
+                s.kind === "cleanup" && "max-w-8 bg-muted",
+                i === at && "ring-2 ring-ring/50",
+              )}
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function WizardFooter({
+  at,
+  stop,
+  mine,
+  onGo,
+}: {
+  at: number;
+  stop: Stop;
+  mine: PlaybookProgress;
+  onGo: (i: number | null) => void;
+}) {
+  const hasOutcome = stop.kind === "scenario" && !!mine[stop.scenario.id]?.outcome;
+  const last = at === STOPS.length - 1;
+  const nextIsCleanup = !last && STOPS[at + 1].kind === "cleanup";
+  return (
+    <div className="flex items-center justify-between gap-2 border-t pt-3">
+      <Button variant="outline" size="sm" onClick={() => onGo(at === 0 ? null : at - 1)}>
+        <ArrowLeft className="size-4" /> Previous
+      </Button>
+      <p className="hidden text-xs text-muted-foreground sm:block">← → keys work too</p>
+      {last ? (
+        <Button variant="outline" size="sm" onClick={() => onGo(null)}>
+          Back to overview
+        </Button>
+      ) : (
+        <Button variant={hasOutcome ? "default" : "outline"} size="sm" onClick={() => onGo(at + 1)}>
+          {nextIsCleanup ? "Cleanup" : "Next"} <ArrowRight className="size-4" />
+        </Button>
+      )}
+    </div>
+  );
+}
+
+// ── Scenario view ──────────────────────────────────────────────────
+
+function ScenarioView({
+  stop,
   progress,
   onCheck,
   onOutcome,
   onNote,
 }: {
-  index: number;
-  scenario: PlaybookScenario;
+  stop: Extract<Stop, { kind: "scenario" }>;
   progress?: ScenarioProgress;
   onCheck: (checkId: string) => void;
   onOutcome: (outcome: "pass" | "fail" | null) => void;
   onNote: (note: string) => void;
 }) {
+  const { scenario, track, nthInTrack } = stop;
   const outcome = progress?.outcome;
   const checks = progress?.checks ?? [];
   const [note, setNote] = useState(progress?.note ?? "");
@@ -258,7 +501,7 @@ function Scenario({
       <CardHeader className="pb-2">
         <CardTitle className="flex flex-wrap items-center gap-2 text-base">
           <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground">
-            {index}
+            {nthInTrack}
           </span>
           {scenario.title}
           <span className="text-xs font-normal text-muted-foreground">~{scenario.minutes} min</span>
@@ -279,8 +522,20 @@ function Scenario({
           )}
         </CardTitle>
         <p className="text-sm text-muted-foreground">{scenario.why}</p>
+        <p className="text-xs text-muted-foreground">{track.where}</p>
       </CardHeader>
       <CardContent className="space-y-3">
+        {scenario.links && scenario.links.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
+              Have open
+            </span>
+            {scenario.links.map((l) => (
+              <LinkButton key={l.href} link={l} />
+            ))}
+          </div>
+        )}
+
         {scenario.heads && (
           <Alert>
             <Info className="size-4" />
@@ -295,7 +550,36 @@ function Scenario({
               <li key={i} className="space-y-1.5 text-sm">
                 <span className="mr-1.5 font-semibold text-muted-foreground">{i + 1}.</span>
                 {step.text}
+                {step.link && (
+                  <span className="ml-1.5 inline-flex align-middle">
+                    <LinkButton link={step.link} />
+                  </span>
+                )}
                 {step.copy && <CopyText text={step.copy} />}
+                {step.image && (
+                  <figure
+                    className={cn(
+                      "overflow-hidden rounded-lg border bg-muted/30",
+                      // Portrait shots (the widget panel) would fill the screen at
+                      // text width — keep them thumbnail-sized instead.
+                      step.image.height > step.image.width ? "max-w-3xs" : "max-w-xl",
+                    )}
+                  >
+                    <Image
+                      src={step.image.src}
+                      alt={step.image.alt}
+                      width={step.image.width}
+                      height={step.image.height}
+                      className="h-auto w-full"
+                      unoptimized={step.image.src.endsWith(".gif")}
+                    />
+                    {step.image.caption && (
+                      <figcaption className="border-t px-3 py-1.5 text-xs text-muted-foreground">
+                        {step.image.caption}
+                      </figcaption>
+                    )}
+                  </figure>
+                )}
               </li>
             ))}
           </ol>
@@ -357,5 +641,292 @@ function Scenario({
         )}
       </CardContent>
     </Card>
+  );
+}
+
+// ── Cleanup view ───────────────────────────────────────────────────
+
+interface CleanupScanResult {
+  tickets: { id: string; subject: string; status: string; url: string }[];
+  chats: { id: string; visitor: string; status: string }[];
+  monday: { id: string; name: string; url: string }[];
+  notes: string[];
+}
+interface CleanupRunResult {
+  tickets: { id: string; subject: string; ok: boolean }[];
+  chats: { id: string; ok: boolean }[];
+  monday: { id: string; name: string; ok: boolean; reason?: string }[];
+  notes: string[];
+}
+
+function CleanupView({
+  mine,
+  done,
+  total,
+  onCheck,
+  onTickAll,
+}: {
+  mine: PlaybookProgress;
+  done: number;
+  total: number;
+  onCheck: (checkId: string) => void;
+  onTickAll: (ids: string[]) => void;
+}) {
+  const ticked = mine["cleanup"]?.checks ?? [];
+  return (
+    <div className="space-y-4">
+      {done === total && total > 0 && (
+        <Alert>
+          <PartyPopper className="size-4" />
+          <AlertTitle>Every scenario has an outcome — you&apos;re done testing</AlertTitle>
+          <AlertDescription>
+            One last thing: the tests touched real systems on purpose. Run the auto-cleanup below,
+            then tick off whatever it couldn&apos;t reach.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      <AutoCleanup onTickAll={onTickAll} />
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">The checklist — leave no trace</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Auto-cleanup ticks the first three when it finds nothing left. The Slack one is always
+            yours: only you know which thread your bug report escalated to.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {PLAYBOOK_CLEANUP.map((c) => (
+            <label key={c.id} className="flex cursor-pointer items-start gap-2 text-sm">
+              <Checkbox
+                className="mt-0.5"
+                checked={ticked.includes(c.id)}
+                onCheckedChange={() => onCheck(c.id)}
+              />
+              <span>{c.text}</span>
+            </label>
+          ))}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function AutoCleanup({ onTickAll }: { onTickAll: (ids: string[]) => void }) {
+  const [phase, setPhase] = useState<"idle" | "scanning" | "scanned" | "cleaning" | "done">("idle");
+  const [scan, setScan] = useState<CleanupScanResult | null>(null);
+  const [report, setReport] = useState<CleanupRunResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const doScan = async () => {
+    setPhase("scanning");
+    setError(null);
+    setReport(null);
+    try {
+      const res = await fetch("/api/playbook/cleanup");
+      if (!res.ok) throw new Error(`scan failed (${res.status})`);
+      setScan((await res.json()) as CleanupScanResult);
+      setPhase("scanned");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setPhase("idle");
+    }
+  };
+
+  const doClean = async () => {
+    setPhase("cleaning");
+    setError(null);
+    try {
+      const res = await fetch("/api/playbook/cleanup", { method: "POST" });
+      if (!res.ok) throw new Error(`cleanup failed (${res.status})`);
+      const r = (await res.json()) as CleanupRunResult;
+      setReport(r);
+      setPhase("done");
+      // Tick only the boxes whose whole category actually came clean.
+      const ids: string[] = [];
+      if (r.tickets.every((t) => t.ok)) ids.push("cu-tickets");
+      if (r.chats.every((c) => c.ok)) ids.push("cu-chats");
+      if (r.monday.every((m) => m.ok)) ids.push("cu-monday");
+      if (ids.length) onTickAll(ids);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setPhase("scanned");
+    }
+  };
+
+  const found = scan ? scan.tickets.length + scan.chats.length + scan.monday.length : 0;
+
+  return (
+    <Card className="border-primary/30">
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Sparkles className="size-4 text-primary" /> Auto-cleanup
+        </CardTitle>
+        <p className="text-sm text-muted-foreground">
+          Scans for what the tests left behind — open [TEST] tickets, your demo chats, [TEST]
+          dev-board items — shows you the list, and only cleans when you say so.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {error && (
+          <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+
+        {(phase === "idle" || phase === "scanning") && (
+          <Button onClick={doScan} disabled={phase === "scanning"}>
+            {phase === "scanning" ? <Loader2 className="size-4 animate-spin" /> : <RotateCw className="size-4" />}
+            {phase === "scanning" ? "Scanning…" : "Scan for leftovers"}
+          </Button>
+        )}
+
+        {phase !== "idle" && phase !== "scanning" && scan && !report && (
+          <>
+            {found === 0 ? (
+              <Alert>
+                <CircleCheck className="size-4" />
+                <AlertTitle>Nothing left behind</AlertTitle>
+                <AlertDescription>
+                  No open [TEST] tickets, no unresolved demo chats, no [TEST] board items. Run the
+                  scan again after your last scenario if you keep testing.
+                </AlertDescription>
+              </Alert>
+            ) : (
+              <ScanList scan={scan} />
+            )}
+            {scan.notes.map((n, i) => (
+              <p key={i} className="text-xs text-muted-foreground">
+                ⚠ {n}
+              </p>
+            ))}
+            <div className="flex flex-wrap items-center gap-2">
+              {found > 0 && (
+                <Button onClick={doClean} disabled={phase === "cleaning"}>
+                  {phase === "cleaning" ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
+                  {phase === "cleaning" ? "Cleaning up…" : `Clean up ${found} item${found === 1 ? "" : "s"}`}
+                </Button>
+              )}
+              {found === 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onTickAll(["cu-tickets", "cu-chats", "cu-monday"])}
+                >
+                  <Check className="size-4" /> Tick the boxes for me
+                </Button>
+              )}
+              <Button variant="ghost" size="sm" onClick={doScan} disabled={phase === "cleaning"}>
+                <RotateCw className="size-3.5" /> Rescan
+              </Button>
+            </div>
+          </>
+        )}
+
+        {phase === "done" && report && (
+          <>
+            <Alert>
+              <CircleCheck className="size-4" />
+              <AlertTitle>Cleanup done</AlertTitle>
+              <AlertDescription>
+                <ul className="mt-1 space-y-0.5 text-sm">
+                  <li>
+                    {report.tickets.filter((t) => t.ok).length}/{report.tickets.length} [TEST]
+                    tickets closed
+                  </li>
+                  <li>
+                    {report.chats.filter((c) => c.ok).length}/{report.chats.length} test chats
+                    resolved
+                  </li>
+                  <li>
+                    {report.monday.filter((m) => m.ok).length}/{report.monday.length} [TEST] board
+                    items deleted
+                  </li>
+                </ul>
+              </AlertDescription>
+            </Alert>
+            {report.notes.map((n, i) => (
+              <p key={i} className="text-xs text-muted-foreground">
+                ⚠ {n}
+              </p>
+            ))}
+            <Button variant="ghost" size="sm" onClick={doScan}>
+              <RotateCw className="size-3.5" /> Scan again
+            </Button>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ScanList({ scan }: { scan: CleanupScanResult }) {
+  return (
+    <div className="space-y-2 text-sm">
+      {scan.tickets.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
+            Tickets to close
+          </p>
+          <ul className="mt-1 space-y-0.5">
+            {scan.tickets.map((t) => (
+              <li key={t.id} className="flex items-center gap-2">
+                <Circle className="size-2 shrink-0 fill-current text-muted-foreground/50" />
+                <a
+                  href={t.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="truncate font-medium underline underline-offset-2"
+                >
+                  #{t.id} {t.subject}
+                </a>
+                <span className="shrink-0 text-xs text-muted-foreground">{t.status}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {scan.chats.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
+            Chats to resolve
+          </p>
+          <ul className="mt-1 space-y-0.5">
+            {scan.chats.map((c) => (
+              <li key={c.id} className="flex items-center gap-2">
+                <Circle className="size-2 shrink-0 fill-current text-muted-foreground/50" />
+                <Link href={`/chats/${c.id}`} target="_blank" className="truncate font-medium underline underline-offset-2">
+                  {c.visitor}
+                </Link>
+                <span className="shrink-0 text-xs text-muted-foreground">{c.status}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {scan.monday.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
+            Dev-board items to delete
+          </p>
+          <ul className="mt-1 space-y-0.5">
+            {scan.monday.map((m) => (
+              <li key={m.id} className="flex items-center gap-2">
+                <Circle className="size-2 shrink-0 fill-current text-muted-foreground/50" />
+                <a
+                  href={m.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="truncate font-medium underline underline-offset-2"
+                >
+                  {m.name}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
   );
 }
