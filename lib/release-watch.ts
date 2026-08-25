@@ -41,9 +41,13 @@ export const RELEASE_WATCHES: ReleaseWatch[] = [
     id: "getsign-board-view",
     name: "GetSign board view",
     description:
-      "The new GetSign BOARD VIEW inside monday.com — GetSign added as a view/tab on a monday board. " +
-      'Customers say "board view", "the new view", "GetSign view", "GetSign tab on my board", ' +
-      '"added GetSign to the board", or describe setting up workflows/templates from a view on the board.',
+      "The NEWLY RELEASED GetSign board view — the redesigned view/tab experience on a monday board. " +
+      "Count it ONLY when the customer clearly signals the new experience: they call the view new, redesigned " +
+      'or recently added ("the new view", "the new GetSign tab", "since the update the view changed"), contrast ' +
+      "it with the old interface, or ask about adding/setting up the new board view itself. " +
+      "GetSign has ALWAYS lived on monday boards — do NOT count routine GetSign work that happens to involve a " +
+      "board: sending from an item, templates, placeholders, signer columns, automations, generated documents. " +
+      "Those are the old product unless the customer says otherwise.",
     since: "2026-08-01",
     active: true,
   },
@@ -51,9 +55,11 @@ export const RELEASE_WATCHES: ReleaseWatch[] = [
     id: "getsign-mcp",
     name: "GetSign MCP (AI assistant)",
     description:
-      "The new GetSign MCP server — using GetSign through an AI assistant (Claude, ChatGPT or another agent) " +
-      'instead of the UI. Customers say "MCP", "Claude", "AI assistant", "AI integration", "chatbot", ' +
-      '"connect GetSign to Claude", or describe sending signature requests / creating workflows by talking to an AI.',
+      "The NEWLY RELEASED GetSign MCP server — driving GetSign FROM an AI assistant (Claude, ChatGPT or " +
+      'another agent): connecting GetSign to an AI, or sending signature requests / creating workflows by ' +
+      'talking to one. Customers say "MCP", "connect to Claude", "use GetSign from my AI assistant". ' +
+      "Do NOT count mentions of OUR support chat or support bot — a customer talking TO an AI about a GetSign " +
+      "problem is not using the MCP. Only count customers USING an AI assistant to operate GetSign.",
     since: "2026-08-01",
     active: true,
   },
@@ -111,7 +117,7 @@ export function releaseWatchPrompt(watches: ReleaseWatch[]): string {
   if (!watches.length) return "";
   return `
 
-Release watch — recently shipped features we are collecting customer feedback on. If (and ONLY if) the ticket is genuinely about one of these, fill the "release" field; otherwise set it to null. Mentioning the product alone does not count — the message must touch the specific feature.
+Release watch — recently shipped features we are collecting customer feedback on. If (and ONLY if) the ticket is genuinely about one of these, fill the "release" field; otherwise set it to null. Mentioning the product alone does not count — the message must touch the specific NEW feature, and each entry below says what does NOT count. This feeds a product manager's read of the release: a false match pollutes it, so when unsure, null.
 ${watches.map((w) => `- id "${w.id}": ${w.description}`).join("\n")}
 Kind: "how-to" (asking how to use it), "bug" (it misbehaves), "confusion" (unsure what it is or does), "feature-request" (asking it to do something it doesn't), "praise", "other".
 Quote: one short line in the customer's own words — no names, emails or ticket numbers.`;
@@ -138,6 +144,17 @@ export async function recordReleaseMention(m: ReleaseMention): Promise<void> {
   const r = client();
   if (r) await r.hset(MENTIONS_KEY, { [field]: m });
   else memMentions.set(field, m);
+}
+
+/**
+ * Wipe the mention store. Exists because the sweep can only ADD or update
+ * entries — a classifier made stricter after a bad run cannot un-record its
+ * old false positives, so a rebuild is wipe-then-sweep.
+ */
+export async function clearReleaseMentions(): Promise<void> {
+  const r = client();
+  if (r) await r.del(MENTIONS_KEY);
+  memMentions.clear();
 }
 
 /** All stored mentions for the currently active watches, newest first. */

@@ -272,6 +272,37 @@ const daysSince = (ms: number) => Math.floor((Date.now() - ms) / 86_400_000);
  */
 function ReleaseWatchCard({ releases }: { releases: ReleaseSection[] }) {
   const now = useNow();
+  const [rebuilding, setRebuilding] = useState(false);
+  const [rebuildNote, setRebuildNote] = useState<string | null>(null);
+
+  /**
+   * Wipe the mention store and resweep history through the classifier. The
+   * escape hatch for a matching change: live tagging can only add entries, so
+   * stricter rules need a rebuild to shed old false positives. Takes a minute
+   * or two — the sweep reruns the light model over every ticket since the
+   * watch start.
+   */
+  const rebuild = async () => {
+    setRebuilding(true);
+    setRebuildNote(null);
+    try {
+      const res = await fetch("/api/admin/release-watch", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ reset: true }),
+      });
+      if (!res.ok) throw new Error(`rebuild failed (${res.status})`);
+      const r = (await res.json()) as { ticketsScanned: number; ticketHits: number; chatHits: number };
+      setRebuildNote(
+        `Rescanned ${r.ticketsScanned} tickets — ${r.ticketHits + r.chatHits} genuine mentions. Refresh to see the list.`,
+      );
+    } catch (e) {
+      setRebuildNote(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRebuilding(false);
+    }
+  };
+
   return (
     <Card>
       <CardHeader>
@@ -279,12 +310,19 @@ function ReleaseWatchCard({ releases }: { releases: ReleaseSection[] }) {
           <Rocket className="size-4 text-primary" aria-hidden />
           New releases — what customers are saying
         </CardTitle>
+        <CardAction>
+          <Button variant="ghost" size="sm" onClick={rebuild} disabled={rebuilding}>
+            <RotateCw className={rebuilding ? "size-3.5 animate-spin" : "size-3.5"} />
+            {rebuilding ? "Rescanning history…" : "Rebuild from history"}
+          </Button>
+        </CardAction>
       </CardHeader>
       <CardContent className="space-y-2">
         <p className="text-xs text-muted-foreground">
           Every ticket and chat is read for mentions of these at triage time. How-to and confusion
           are documentation findings; bugs and feature asks are product ones.
         </p>
+        {rebuildNote && <p className="text-xs font-medium text-primary">{rebuildNote}</p>}
         {releases.map((r) => {
           const quietDays = r.lastMentionAt ? daysSince(r.lastMentionAt) : null;
           const dormant = r.total === 0 || (quietDays !== null && quietDays > 14);
