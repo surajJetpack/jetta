@@ -128,11 +128,18 @@ export default function PlaybookContent({
   user,
   initialMine,
   team,
+  isAdmin,
 }: {
   user: string;
   initialMine: PlaybookProgress;
-  /** Everyone's progress, keyed by console username — includes the viewer. */
+  /**
+   * Progress keyed by console username — includes the viewer. For general
+   * users the server sends ONLY their own entry (teammates' detail is
+   * admin-only); the isAdmin flag just keeps the section from rendering as
+   * an empty shell for them.
+   */
   team: Record<string, PlaybookProgress>;
+  isAdmin: boolean;
 }) {
   const [mine, setMine] = useState<PlaybookProgress>(initialMine);
   /** null = overview, otherwise an index into STOPS. */
@@ -220,7 +227,7 @@ export default function PlaybookContent({
     <div className="space-y-4">
       <WizardHeader at={at} mine={mine} onGo={setAt} />
       {stop.kind === "intro" ? (
-        <IntroView user={user} mine={mine} team={team} onGo={setAt} />
+        <IntroView user={user} mine={mine} team={team} isAdmin={isAdmin} onGo={setAt} />
       ) : stop.kind === "scenario" ? (
         <ScenarioView
           key={stop.scenario.id}
@@ -327,11 +334,13 @@ function IntroView({
   user,
   mine,
   team,
+  isAdmin,
   onGo,
 }: {
   user: string;
   mine: PlaybookProgress;
   team: Record<string, PlaybookProgress>;
+  isAdmin: boolean;
   onGo: (i: number) => void;
 }) {
   const cleanupTicked = (mine["cleanup"]?.checks ?? []).length;
@@ -418,7 +427,7 @@ function IntroView({
         </Card>
       </section>
 
-      <TeamResults user={user} mine={mine} team={team} onGo={onGo} />
+      {isAdmin && <TeamResults user={user} mine={mine} team={team} onGo={onGo} />}
     </div>
   );
 }
@@ -432,9 +441,9 @@ function scenarioCode(track: PlaybookTrack, nth: number): string {
 
 /**
  * Everyone's per-scenario outcomes side by side, failure notes included.
- * Visible to every signed-in user — the same philosophy as the scoreboard:
- * shared progress is most of the motivation, and a failure someone else
- * already wrote up is a scenario you don't have to guess about.
+ * Admin-only since 2026-08-25 (and the server withholds teammates' detail
+ * from general users regardless of what renders): testers see their own run;
+ * whoever runs the team reads the room.
  */
 function TeamResults({
   user,

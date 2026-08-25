@@ -519,6 +519,13 @@ const TICKET_TRACK: PlaybookTrack = {
 export const PLAYBOOK: PlaybookTrack[] = [CHAT_TRACK];
 export const PARKED_TRACKS: PlaybookTrack[] = [TICKET_TRACK];
 
+/**
+ * Console accounts that are not playbook testers (PM/stakeholder logins) —
+ * kept out of rosters, scoreboards and team results everywhere they are
+ * built. Hiding them here does not touch their console access.
+ */
+export const PLAYBOOK_NON_TESTERS: ReadonlySet<string> = new Set(["ravi", "sujata"]);
+
 /** Every checkable id in the playbook — scenario checks + outcome + cleanup. */
 export function scenarioIds(): Set<string> {
   const ids = new Set<string>();
