@@ -107,6 +107,7 @@ interface ReleaseSection {
   id: string;
   name: string;
   since: string;
+  releaseDate: string | null;
   total: number;
   byKind: Record<string, number>;
   lastMentionAt: number | null;
@@ -340,9 +341,10 @@ function ReleaseWatchCard({ releases }: { releases: ReleaseSection[] }) {
                     </StatusChip>
                   ))}
                   <span>
+                    {/* The ship date when we know it; the scan-window start when we don't. */}
                     {r.total === 0
-                      ? `no mentions · watching since ${r.since}`
-                      : `${r.total} since ${r.since}${quietDays !== null && quietDays > 14 ? ` · quiet ${quietDays}d` : ""}`}
+                      ? `no mentions · ${r.releaseDate ? `released ${r.releaseDate}` : `watching since ${r.since}`}`
+                      : `${r.total} mention${r.total === 1 ? "" : "s"} · ${r.releaseDate ? `released ${r.releaseDate}` : `watching since ${r.since}`}${quietDays !== null && quietDays > 14 ? ` · quiet ${quietDays}d` : ""}`}
                   </span>
                 </>
               }
