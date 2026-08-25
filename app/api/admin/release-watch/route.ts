@@ -18,6 +18,7 @@ import { listConversations, transcriptText } from "@/lib/chat-store";
 import {
   activeReleaseWatches,
   classifyReleaseMention,
+  clearReleaseMentions,
   listReleaseMentions,
   recordReleaseMention,
 } from "@/lib/release-watch";
@@ -57,6 +58,12 @@ export async function POST(req: NextRequest) {
   if (!adminAuthorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const watches = activeReleaseWatches();
   if (!watches.length) return NextResponse.json({ error: "no active release watches" }, { status: 400 });
+
+  // reset: wipe before sweeping. The sweep alone cannot remove entries a
+  // previously looser classifier recorded — a rebuild is the only way to
+  // apply stricter matching retroactively.
+  const body = (await req.json().catch(() => ({}))) as { reset?: boolean };
+  if (body.reset) await clearReleaseMentions();
 
   const from = [...watches.map((w) => w.since)].sort()[0];
   const to = new Date().toISOString().slice(0, 10);
@@ -108,6 +115,7 @@ export async function POST(req: NextRequest) {
   });
 
   const summary = {
+    reset: !!body.reset,
     from,
     to,
     ticketsScanned: tickets.length,
@@ -126,4 +134,17 @@ export async function POST(req: NextRequest) {
     data: summary,
   });
   return NextResponse.json(summary);
+}
+
+/** Wipe the mention store without resweeping. */
+export async function DELETE(req: NextRequest) {
+  if (!adminAuthorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  await clearReleaseMentions();
+  await logOpsEvent({
+    level: "info",
+    event: "release_watch.cleared",
+    source: "console",
+    actor: "api",
+  });
+  return NextResponse.json({ ok: true });
 }
