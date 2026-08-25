@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { gate, parseUsers } from "@/lib/console-auth";
 import { allPlaybookProgress, getPlaybookProgress } from "@/lib/kv";
+import { PLAYBOOK_NON_TESTERS } from "@/lib/test-playbook";
 import { PageHeader } from "@/components/jetta/page-header";
 import PlaybookContent from "./playbook-content";
 
@@ -14,7 +15,7 @@ export const dynamic = "force-dynamic";
  * everyone's, which is most of the motivation.
  */
 export default async function TestingPage() {
-  const { locked, user } = await gate();
+  const { locked, user, isAdmin } = await gate();
   if (locked) redirect("/login?next=%2Ftesting");
   const saved = await allPlaybookProgress().catch(() => ({}) as Record<string, never>);
   const mine = saved[user] ?? (await getPlaybookProgress(user).catch(() => ({})));
@@ -24,6 +25,8 @@ export default async function TestingPage() {
   const team: Record<string, typeof mine> = {};
   for (const name of parseUsers().keys()) team[name] = saved[name] ?? {};
   for (const [name, progress] of Object.entries(saved)) team[name] = progress;
+  // Non-testers (PM/stakeholder logins) would sit at 0/N forever — noise.
+  for (const name of PLAYBOOK_NON_TESTERS) if (name !== user) delete team[name];
   team[user] = mine;
   return (
     <>
@@ -31,7 +34,15 @@ export default async function TestingPage() {
         title="Test Jetta"
         description="Play the customer, watch what she does, and learn how she does it. About 45 minutes, one scenario at a time."
       />
-      <PlaybookContent user={user} initialMine={mine} team={team} />
+      <PlaybookContent
+        user={user}
+        initialMine={mine}
+        // Teammates' detail is admin-only, and the trim happens HERE so a
+        // general user's browser never even receives it — the client check
+        // is presentation, this is the enforcement.
+        team={isAdmin ? team : { [user]: mine }}
+        isAdmin={isAdmin}
+      />
     </>
   );
 }

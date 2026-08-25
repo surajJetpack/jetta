@@ -13,23 +13,27 @@ import {
   savePlaybookProgress,
   allPlaybookProgress,
 } from "@/lib/kv";
-import { scenarioIds, type ScenarioProgress } from "@/lib/test-playbook";
+import { PLAYBOOK_NON_TESTERS, scenarioIds, type ScenarioProgress } from "@/lib/test-playbook";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const { locked, user } = await gate();
+  const { locked, user, isAdmin } = await gate();
   if (locked) return NextResponse.json({ error: "Sign in first." }, { status: 401 });
   const everyone = await allPlaybookProgress();
   return NextResponse.json({
     user,
     mine: everyone[user] ?? {},
-    others: Object.entries(everyone)
-      .filter(([name]) => name !== user)
-      .map(([name, progress]) => ({
-        name,
-        done: Object.values(progress).filter((s) => s.outcome).length,
-      })),
+    // Teammates' results are admin-only (2026-08-25), and non-tester logins
+    // never appear — same rules the /testing page applies.
+    others: isAdmin
+      ? Object.entries(everyone)
+          .filter(([name]) => name !== user && !PLAYBOOK_NON_TESTERS.has(name))
+          .map(([name, progress]) => ({
+            name,
+            done: Object.values(progress).filter((s) => s.outcome).length,
+          }))
+      : [],
   });
 }
 
