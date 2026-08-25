@@ -26,6 +26,13 @@ import * as fastspring from "./tools/fastspring";
 import * as monday from "./tools/monday";
 import { getKnownTopics, recordTopicUse } from "./kv";
 import { normalizeTopic } from "./topics";
+import {
+  activeReleaseWatches,
+  recordReleaseMention,
+  releaseMentionSchema,
+  releaseWatchPrompt,
+  type ReleaseMentionKind,
+} from "./release-watch";
 
 // Context-diet caps for the replayed conversation (lib/tools/freshdesk.ts has
 // the equivalent caps for the get_ticket_details tool result).
@@ -178,11 +185,13 @@ Topic — a short label for what the ticket is ABOUT, used to spot issues trendi
  * real one.
  */
 function triageSystem(knownTopics: string[]): string {
-  if (!knownTopics.length) return TRIAGE_SYSTEM;
-  return `${TRIAGE_SYSTEM}
+  const topicsPart = knownTopics.length
+    ? `
 
 Topics already in use, most common first. If one of these fits the ticket, reuse it EXACTLY rather than inventing a near-synonym. Only coin a new label when none of them describes the ticket:
-${knownTopics.map((t) => `- ${t}`).join("\n")}`;
+${knownTopics.map((t) => `- ${t}`).join("\n")}`
+    : "";
+  return `${TRIAGE_SYSTEM}${topicsPart}${releaseWatchPrompt(activeReleaseWatches())}`;
 }
 
 export type IntakeType = "customer_query" | "auto_reply" | "marketing" | "spam" | "other";
@@ -196,6 +205,8 @@ export interface TicketTriage {
   intake: IntakeType;
   /** Canonical theme label, or undefined when triage failed / produced noise. */
   topic?: string;
+  /** Set when the message touches a tracked release (lib/release-watch.ts). */
+  release?: { watch: string; kind: ReleaseMentionKind; quote: string } | null;
 }
 
 const APP_VALUES = [
@@ -229,6 +240,7 @@ export async function triageTicket(
   usageSink?: TaskUsage[],
 ): Promise<TicketTriage> {
   try {
+    const watches = activeReleaseWatches();
     const { object, usage } = await generateObject({
       model: getModel("light"),
       schema: z.object({
@@ -237,6 +249,9 @@ export async function triageTicket(
         app: z.enum(APP_VALUES).describe("The specific app the ticket is about"),
         complexity: z.enum(["simple", "standard"]),
         topic: z.string().describe("2-4 lowercase words naming what the ticket is about"),
+        // Only meaningful while a release watch is active — with none, the
+        // field degenerates to a constant null (its prompt fragment is gone).
+        release: watches.length ? releaseMentionSchema(watches) : z.null(),
       }),
       system: triageSystem(await knownTopics()),
       prompt: `Subject: ${subject}\n\n${description.slice(0, 2000)}`,
@@ -348,6 +363,22 @@ export async function buildContext(
   // hint/keyword value and only reporting takes the model's fallback.
   const app: AppProduct =
     appProduct !== "unknown" ? appProduct : triage.app;
+
+  // A release-watch hit goes straight to the mention store (fire-and-forget —
+  // feedback capture must never delay or fail a run). Keyed per (watch,
+  // ticket), so the re-triage on every customer reply updates, not duplicates.
+  if (triage.release && triage.intake === "customer_query") {
+    void recordReleaseMention({
+      watchId: triage.release.watch,
+      ticketId,
+      channel,
+      subject: ticket.subject,
+      kind: triage.release.kind,
+      quote: triage.release.quote,
+      app: app !== "unknown" ? app : undefined,
+      at: Date.now(),
+    }).catch((e) => console.warn("recordReleaseMention failed:", e));
+  }
 
   return {
     channel,
