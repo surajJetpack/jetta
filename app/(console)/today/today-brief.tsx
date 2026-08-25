@@ -10,6 +10,7 @@ import {
   MessageSquare,
   ArrowRight,
   RotateCw,
+  Rocket,
   Siren,
   Sparkles,
   TriangleAlert,
@@ -94,9 +95,27 @@ interface WorklistItem {
   runs: number;
   status: string | null;
 }
+interface ReleaseMentionRow extends Ref {
+  ticketId: string;
+  subject: string;
+  kind: string;
+  quote: string;
+  app: string | null;
+  at: number;
+}
+interface ReleaseSection {
+  id: string;
+  name: string;
+  since: string;
+  total: number;
+  byKind: Record<string, number>;
+  lastMentionAt: number | null;
+  mentions: ReleaseMentionRow[];
+}
 interface Brief {
   generatedAt: number;
   windowHours: number;
+  releases: ReleaseSection[];
   summary: { arrived: number; answered: number; waiting: number; escalated: number; reopened: number };
   byApp: { app: string; count: number }[];
   worklist: WorklistItem[];
@@ -230,6 +249,102 @@ function WorklistRow({ item, why }: { item: WorklistItem; why: string | null }) 
  * different clock, and mixing them in made the morning read a mixed pile with
  * no single spine.
  */
+/** Chip colour per mention kind — bugs read as bad, praise as good. */
+const KIND_TONE: Record<string, "draft" | "in_review" | "published" | "archived" | "stale"> = {
+  bug: "stale",
+  confusion: "draft",
+  "how-to": "in_review",
+  "feature-request": "archived",
+  praise: "published",
+  other: "archived",
+};
+const KIND_ORDER = ["bug", "confusion", "how-to", "feature-request", "praise", "other"];
+
+/** Days since a unix-ms timestamp, floored. */
+const daysSince = (ms: number) => Math.floor((Date.now() - ms) / 86_400_000);
+
+/**
+ * Customer voice on newly shipped features — written for the product manager,
+ * not the support queue: what people ask, in their own words, split into
+ * docs/UX findings (how-to, confusion), engineering (bug) and roadmap
+ * (feature-request). Rolling since each watch started, never day-scoped.
+ * A watch quiet for two weeks collapses instead of leaving the page.
+ */
+function ReleaseWatchCard({ releases }: { releases: ReleaseSection[] }) {
+  const now = useNow();
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Rocket className="size-4 text-primary" aria-hidden />
+          New releases — what customers are saying
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        <p className="text-xs text-muted-foreground">
+          Every ticket and chat is read for mentions of these at triage time. How-to and confusion
+          are documentation findings; bugs and feature asks are product ones.
+        </p>
+        {releases.map((r) => {
+          const quietDays = r.lastMentionAt ? daysSince(r.lastMentionAt) : null;
+          const dormant = r.total === 0 || (quietDays !== null && quietDays > 14);
+          return (
+            <StepCard
+              key={r.id}
+              collapsible
+              defaultOpen={!dormant}
+              title={r.name}
+              meta={
+                <>
+                  {KIND_ORDER.filter((k) => (r.byKind[k] ?? 0) > 0).map((k) => (
+                    <StatusChip key={k} tone={KIND_TONE[k] ?? "archived"}>
+                      {k.replace("-", " ")} {r.byKind[k]}
+                    </StatusChip>
+                  ))}
+                  <span>
+                    {r.total === 0
+                      ? `no mentions · watching since ${r.since}`
+                      : `${r.total} since ${r.since}${quietDays !== null && quietDays > 14 ? ` · quiet ${quietDays}d` : ""}`}
+                  </span>
+                </>
+              }
+            >
+              {r.total === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  Nobody has written in about this yet — either it&apos;s landing smoothly or nobody
+                  has found it. Silence here is adoption signal, not a broken filter.
+                </p>
+              ) : (
+                <ul className="space-y-1.5">
+                  {r.mentions.map((m) => (
+                    <li key={m.ticketId} className="space-y-0.5 text-sm">
+                      <p>“{m.quote}”</p>
+                      <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+                        <StatusChip tone={KIND_TONE[m.kind] ?? "archived"}>
+                          {m.kind.replace("-", " ")}
+                        </StatusChip>
+                        <TicketRef item={m} />
+                        {m.app && <span>{appName(m.app)}</span>}
+                        {/* Mentions timestamp in ms; fmtAgo speaks unix seconds. */}
+                        <span>{fmtAgo(Math.floor(m.at / 1000), now)}</span>
+                      </p>
+                    </li>
+                  ))}
+                  {r.total > r.mentions.length && (
+                    <li className="text-xs text-muted-foreground">
+                      …and {r.total - r.mentions.length} more.
+                    </li>
+                  )}
+                </ul>
+              )}
+            </StepCard>
+          );
+        })}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function TodayBrief() {
   const [brief, setBrief] = useState<Brief | null>(null);
   const [loading, setLoading] = useState(true);
@@ -621,6 +736,9 @@ export default function TodayBrief() {
               )}
             </CardContent>
           </Card>
+
+          {/* ── New releases — customer voice, for product ──────── */}
+          {brief.releases.length > 0 && <ReleaseWatchCard releases={brief.releases} />}
 
           {/* ── ③ What would help ───────────────────────────────── */}
           <Card>

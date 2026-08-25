@@ -22,6 +22,12 @@ import { topicTrends, ticketRecords, type TopicTrend, type TicketRecord } from "
 import { yesterdayKey } from "./daily-overview";
 import { listConversations, getConversation } from "./chat-store";
 import { getTicketDetails, isTerminalStatus } from "./tools/freshdesk";
+import {
+  activeReleaseWatches,
+  listReleaseMentions,
+  RELEASE_MENTION_KINDS,
+  type ReleaseMentionKind,
+} from "./release-watch";
 
 const HOUR_S = 3600;
 const WINDOW_HOURS = 24;
@@ -203,7 +209,7 @@ export type TodayBrief = Awaited<ReturnType<typeof buildTodayBrief>>;
 
 /** Assemble the whole brief. Read-only; safe to call from any admin route. */
 export async function buildTodayBrief() {
-  const [outcomes, candidateLearnings, monet, kbCounts, published, yesterday, conversations] =
+  const [outcomes, candidateLearnings, monet, kbCounts, published, yesterday, conversations, releaseMentions] =
     await Promise.all([
       getOutcomes(1000),
       // Reply drafts are deliberately absent. The console review queue is not the
@@ -224,6 +230,9 @@ export async function buildTodayBrief() {
       // the only worklist input that isn't a ticket. A store blip must not take
       // the whole brief down with it.
       listConversations(100).catch(() => []),
+      // Customer voice on newly shipped features — the PM section. A store
+      // blip degrades it to "no mentions", which the zero-state copy covers.
+      listReleaseMentions().catch(() => []),
     ]);
 
   const waitingChats = conversations.filter((c) => c.status === "waiting_human");
@@ -422,9 +431,41 @@ export async function buildTodayBrief() {
     return group(a) === 2 ? b.quietHours - a.quietHours : a.quietHours - b.quietHours;
   });
 
+  // ── Release watch — customer voice for the product manager ───────
+  // Rolling since each watch's start date, NOT day-scoped: a release section
+  // that resets every midnight shows zeros most mornings and trains the
+  // reader to skip it. Mentions are tagged at triage time (lib/release-watch.ts).
+  const releases = activeReleaseWatches().map((w) => {
+    const ms = releaseMentions.filter((m) => m.watchId === w.id);
+    const byKind = Object.fromEntries(
+      RELEASE_MENTION_KINDS.map((k): [ReleaseMentionKind, number] => [
+        k,
+        ms.filter((m) => m.kind === k).length,
+      ]),
+    ) as Record<ReleaseMentionKind, number>;
+    return {
+      id: w.id,
+      name: w.name,
+      since: w.since,
+      total: ms.length,
+      byKind,
+      lastMentionAt: ms[0]?.at ?? null,
+      mentions: ms.slice(0, 8).map((m) => ({
+        ticketId: m.ticketId,
+        subject: m.subject,
+        kind: m.kind,
+        quote: m.quote,
+        app: m.app ?? null,
+        at: m.at,
+        ...refFor(m.ticketId, m.channel),
+      })),
+    };
+  });
+
   return {
     generatedAt: Date.now(),
     windowHours: WINDOW_HOURS,
+    releases,
     summary: {
       arrived: arrivedTickets.length,
       answered,
