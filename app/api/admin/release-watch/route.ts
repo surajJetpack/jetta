@@ -15,12 +15,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { adminAuthorized } from "@/lib/auth";
 import { searchTickets, getTicketDetails } from "@/lib/tools/freshdesk";
 import { listConversations, transcriptText } from "@/lib/chat-store";
+import { triageTicket } from "@/lib/context";
 import {
   activeReleaseWatches,
-  classifyReleaseMention,
   clearReleaseMentions,
   listReleaseMentions,
   recordReleaseMention,
+  verifyReleaseEvidence,
 } from "@/lib/release-watch";
 import { logOpsEvent } from "@/lib/events";
 
@@ -74,8 +75,14 @@ export async function POST(req: NextRequest) {
   let ticketHits = 0;
   const ticketFailures = await sweep(tickets, async (t) => {
     const details = await getTicketDetails(t.id);
-    const release = await classifyReleaseMention(details.subject, details.description);
-    if (!release) return;
+    // The SAME call live tagging runs — one classifier, one behavior. Its
+    // intake field keeps marketing blasts and auto-replies out, and the
+    // evidence check discards any tag whose feature phrase isn't literally
+    // in the message.
+    const triage = await triageTicket(details.subject, details.description);
+    const release = triage.release;
+    if (!release || triage.intake !== "customer_query") return;
+    if (!verifyReleaseEvidence(release.evidence, `${details.subject}\n${details.description}`)) return;
     ticketHits += 1;
     await recordReleaseMention({
       watchId: release.watch,
@@ -99,8 +106,11 @@ export async function POST(req: NextRequest) {
   let chatHits = 0;
   const chatFailures = await sweep(conversations, async (c) => {
     const firstAsk = c.messages.find((m) => m.author === "visitor")?.text ?? "Live chat";
-    const release = await classifyReleaseMention(firstAsk.slice(0, 200), transcriptText(c));
-    if (!release) return;
+    const transcript = transcriptText(c);
+    const triage = await triageTicket(firstAsk.slice(0, 200), transcript);
+    const release = triage.release;
+    if (!release || triage.intake !== "customer_query") return;
+    if (!verifyReleaseEvidence(release.evidence, transcript)) return;
     chatHits += 1;
     await recordReleaseMention({
       watchId: release.watch,

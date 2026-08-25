@@ -15,10 +15,8 @@
  * a rerun of triage on the same ticket overwrites rather than duplicates.
  */
 import { Redis } from "@upstash/redis";
-import { generateObject } from "ai";
 import { z } from "zod";
 import { config } from "./config";
-import { getModel } from "./llm";
 
 export interface ReleaseWatch {
   /** Stable id — also the value triage writes, so keep it short and unspaced. */
@@ -107,9 +105,34 @@ export function releaseMentionSchema(watches: ReleaseWatch[]) {
       quote: z
         .string()
         .describe("ONE short line in the customer's own words saying what they asked or hit"),
+      evidence: z
+        .string()
+        .describe(
+          "The EXACT phrase, copied VERBATIM from the customer's message, that names the new feature " +
+            '(e.g. "board view", "MCP", "connect to Claude"). If no such phrase exists in the message, ' +
+            "the whole release field must be null.",
+        ),
     })
     .nullable()
     .describe("Set ONLY when the message genuinely touches a tracked release; otherwise null");
+}
+
+const normEvidence = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
+
+/**
+ * Does the model's evidence phrase actually appear in the message?
+ *
+ * The hard guard behind the soft instructions: on 2026-08-25 the production
+ * light model tagged three plain GetSign bugs as MCP mentions — quotes fine,
+ * attribution invented. A model can be sloppy about "is this the feature?",
+ * but it cannot fake a verbatim phrase against a contains-check. Dropping a
+ * paraphrased-but-real match is the acceptable cost: this feeds a PM's read
+ * of a release, where precision beats recall.
+ */
+export function verifyReleaseEvidence(evidence: string, source: string): boolean {
+  const e = normEvidence(evidence);
+  if (e.length < 3) return false;
+  return normEvidence(source).includes(e);
 }
 
 /** Prompt fragment describing the active watches, appended to the triage system. */
@@ -119,8 +142,10 @@ export function releaseWatchPrompt(watches: ReleaseWatch[]): string {
 
 Release watch — recently shipped features we are collecting customer feedback on. If (and ONLY if) the ticket is genuinely about one of these, fill the "release" field; otherwise set it to null. Mentioning the product alone does not count — the message must touch the specific NEW feature, and each entry below says what does NOT count. This feeds a product manager's read of the release: a false match pollutes it, so when unsure, null.
 ${watches.map((w) => `- id "${w.id}": ${w.description}`).join("\n")}
+Never tag marketing emails, newsletters, our own product announcements, or auto-replies — only genuine customer messages count.
 Kind: "how-to" (asking how to use it), "bug" (it misbehaves), "confusion" (unsure what it is or does), "feature-request" (asking it to do something it doesn't), "praise", "other".
-Quote: one short line in the customer's own words — no names, emails or ticket numbers.`;
+Quote: one short line in the customer's own words — no names, emails or ticket numbers.
+Evidence: copy the customer's exact words naming the feature, verbatim. It is checked mechanically against the message — a paraphrase fails and discards the tag.`;
 }
 
 // ── Storage ─────────────────────────────────────────────────────────
@@ -169,26 +194,8 @@ export async function listReleaseMentions(): Promise<ReleaseMention[]> {
     .sort((a, b) => b.at - a.at);
 }
 
-/**
- * Standalone classifier for the backfill: same detector the triage call runs,
- * without the rest of triage. Returns null on no match or any failure — a
- * backfill must skip quietly, never crash the sweep.
- */
-export async function classifyReleaseMention(
-  subject: string,
-  body: string,
-): Promise<{ watch: string; kind: ReleaseMentionKind; quote: string } | null> {
-  const watches = activeReleaseWatches();
-  if (!watches.length) return null;
-  try {
-    const { object } = await generateObject({
-      model: getModel("light"),
-      schema: z.object({ release: releaseMentionSchema(watches) }),
-      system: `You read one customer support message and decide whether it touches a recently shipped feature.${releaseWatchPrompt(watches)}`,
-      prompt: `Subject: ${subject}\n\n${body.slice(0, 3000)}`,
-    });
-    return object.release;
-  } catch {
-    return null;
-  }
-}
+// The backfill deliberately has no standalone classifier: it runs the SAME
+// triageTicket call (lib/context.ts) as live tagging, so the intake filter
+// (marketing/auto-reply → never a mention) and the evidence check apply
+// identically on both paths. Two classifiers drifted apart within a day of
+// shipping — the marketing blast only the backfill tagged proved the point.

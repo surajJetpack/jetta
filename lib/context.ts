@@ -31,6 +31,7 @@ import {
   recordReleaseMention,
   releaseMentionSchema,
   releaseWatchPrompt,
+  verifyReleaseEvidence,
   type ReleaseMentionKind,
 } from "./release-watch";
 
@@ -206,7 +207,7 @@ export interface TicketTriage {
   /** Canonical theme label, or undefined when triage failed / produced noise. */
   topic?: string;
   /** Set when the message touches a tracked release (lib/release-watch.ts). */
-  release?: { watch: string; kind: ReleaseMentionKind; quote: string } | null;
+  release?: { watch: string; kind: ReleaseMentionKind; quote: string; evidence: string } | null;
 }
 
 const APP_VALUES = [
@@ -367,7 +368,13 @@ export async function buildContext(
   // A release-watch hit goes straight to the mention store (fire-and-forget —
   // feedback capture must never delay or fail a run). Keyed per (watch,
   // ticket), so the re-triage on every customer reply updates, not duplicates.
-  if (triage.release && triage.intake === "customer_query") {
+  // The evidence check is the hard gate: the model's claimed feature phrase
+  // must literally appear in the message, or the tag is discarded.
+  if (
+    triage.release &&
+    triage.intake === "customer_query" &&
+    verifyReleaseEvidence(triage.release.evidence, `${ticket.subject}\n${ticket.description}`)
+  ) {
     void recordReleaseMention({
       watchId: triage.release.watch,
       ticketId,
