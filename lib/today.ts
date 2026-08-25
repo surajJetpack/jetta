@@ -447,6 +447,7 @@ export async function buildTodayBrief() {
       id: w.id,
       name: w.name,
       since: w.since,
+      releaseDate: w.releaseDate ?? null,
       total: ms.length,
       byKind,
       lastMentionAt: ms[0]?.at ?? null,

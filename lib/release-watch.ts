@@ -29,8 +29,17 @@ export interface ReleaseWatch {
    * it for a reader who has never seen the release notes.
    */
   description: string;
-  /** Counting starts here ("watching since"), not necessarily the ship date. */
+  /**
+   * Scan window start — where the backfill begins reading history. Kept a
+   * little EARLIER than the ship date on purpose: customers who ask about a
+   * feature before it launches (saw the announcement, staged rollout) are
+   * exactly the voice a PM wants, and a window cut at the ship date deletes
+   * them. Observed live: the first genuine board-view question (#14037)
+   * arrived two days before the Aug 19 release.
+   */
   since: string;
+  /** Actual ship date, shown on the card. Omit when unknown. */
+  releaseDate?: string;
   active: boolean;
 }
 
@@ -47,6 +56,7 @@ export const RELEASE_WATCHES: ReleaseWatch[] = [
       "board: sending from an item, templates, placeholders, signer columns, automations, generated documents. " +
       "Those are the old product unless the customer says otherwise.",
     since: "2026-08-01",
+    releaseDate: "2026-08-19",
     active: true,
   },
   {
