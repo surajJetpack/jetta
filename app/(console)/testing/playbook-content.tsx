@@ -59,12 +59,19 @@ import {
   type ScenarioProgress,
 } from "@/lib/test-playbook";
 
-/** One screen of the wizard: a scenario, or the final cleanup stop. */
+/**
+ * One screen of the wizard: the intro (rules, what you'll test, team results),
+ * a scenario, or the final cleanup stop. The overview outside the wizard is
+ * deliberately just a scoreboard and a Start button — everything else lives
+ * inside the flow so there is exactly one thing to click.
+ */
 type Stop =
+  | { kind: "intro" }
   | { kind: "scenario"; track: PlaybookTrack; scenario: PlaybookScenario; nthInTrack: number }
   | { kind: "cleanup" };
 
 const STOPS: Stop[] = [
+  { kind: "intro" },
   ...PLAYBOOK.flatMap((track) =>
     track.scenarios.map((scenario, i): Stop => ({ kind: "scenario", track, scenario, nthInTrack: i + 1 })),
   ),
@@ -166,11 +173,15 @@ export default function PlaybookContent({
     save(scenario, { checks: [...checks] });
   };
 
-  /** Where "Continue" goes: the first scenario without an outcome, else cleanup. */
+  /**
+   * Where the big button goes: the intro on a fresh start, otherwise the first
+   * scenario without an outcome, else cleanup.
+   */
   const nextUndone = useMemo(() => {
+    if (done === 0) return 0;
     const i = STOPS.findIndex((s) => s.kind === "scenario" && !mine[s.scenario.id]?.outcome);
     return i === -1 ? STOPS.length - 1 : i;
-  }, [mine]);
+  }, [mine, done]);
 
   // Arrow keys move between stops — but never while someone is typing a note.
   useEffect(() => {
@@ -195,7 +206,6 @@ export default function PlaybookContent({
     return (
       <Overview
         user={user}
-        mine={mine}
         team={team}
         done={done}
         total={total}
@@ -209,7 +219,9 @@ export default function PlaybookContent({
   return (
     <div className="space-y-4">
       <WizardHeader at={at} mine={mine} onGo={setAt} />
-      {stop.kind === "scenario" ? (
+      {stop.kind === "intro" ? (
+        <IntroView user={user} mine={mine} team={team} onGo={setAt} />
+      ) : stop.kind === "scenario" ? (
         <ScenarioView
           key={stop.scenario.id}
           stop={stop}
@@ -245,7 +257,6 @@ function outcomeIcon(progress?: ScenarioProgress) {
 
 function Overview({
   user,
-  mine,
   team,
   done,
   total,
@@ -253,7 +264,6 @@ function Overview({
   onGo,
 }: {
   user: string;
-  mine: PlaybookProgress;
   team: Record<string, PlaybookProgress>;
   done: number;
   total: number;
@@ -261,7 +271,6 @@ function Overview({
   onGo: (i: number) => void;
 }) {
   const nextStop = STOPS[nextUndone];
-  const cleanupTicked = (mine["cleanup"]?.checks ?? []).length;
   const others = Object.entries(team)
     .filter(([name]) => name !== user)
     .map(([name, progress]) => ({
@@ -293,20 +302,41 @@ function Overview({
           <div className="flex flex-wrap items-center gap-2">
             <Button onClick={() => onGo(nextUndone)}>
               <Play className="size-4" />
-              {done === 0
+              {nextStop.kind === "intro"
                 ? "Start testing"
                 : nextStop.kind === "cleanup"
                   ? "Finish up — cleanup"
                   : `Continue — ${nextStop.scenario.title}`}
             </Button>
             <p className="text-xs text-muted-foreground">
-              One scenario at a time. Everything you tick is saved as you go — stop anytime, pick
-              up later, swap tracks with your teammate for a second pass.
+              One scenario at a time. Everything you tick is saved as you go — stop anytime and
+              pick up later.
             </p>
           </div>
         </CardContent>
       </Card>
 
+    </div>
+  );
+}
+
+// ── Intro stop ─────────────────────────────────────────────────────
+
+/** First page of the wizard: the rules, what you'll be testing, and how the team is doing. */
+function IntroView({
+  user,
+  mine,
+  team,
+  onGo,
+}: {
+  user: string;
+  mine: PlaybookProgress;
+  team: Record<string, PlaybookProgress>;
+  onGo: (i: number) => void;
+}) {
+  const cleanupTicked = (mine["cleanup"]?.checks ?? []).length;
+  return (
+    <div className="space-y-6">
       {/* Rules of the game */}
       <Alert>
         <Info className="size-4" />
@@ -545,13 +575,15 @@ function WizardHeader({
     <div className="space-y-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <Button variant="ghost" size="sm" className="-ml-2 h-7 px-2 text-xs" onClick={() => onGo(null)}>
-          <ArrowLeft className="size-3.5" /> All scenarios
+          <ArrowLeft className="size-3.5" /> Overview
         </Button>
         <p className="text-xs text-muted-foreground">
-          {stop.kind === "scenario" ? (
+          {stop.kind === "intro" ? (
+            <span className="font-medium text-foreground">Before you start</span>
+          ) : stop.kind === "scenario" ? (
             <>
-              <span className="font-medium text-foreground">{stop.track.label}</span> · scenario{" "}
-              {at + 1} of {STOPS.length - 1}
+              <span className="font-medium text-foreground">{stop.track.label}</span> · scenario {at}{" "}
+              of {STOPS.length - 2}
             </>
           ) : (
             <span className="font-medium text-foreground">Last stop — cleanup</span>
@@ -563,7 +595,11 @@ function WizardHeader({
         {STOPS.map((s, i) => {
           const progress = s.kind === "scenario" ? mine[s.scenario.id] : undefined;
           const label =
-            s.kind === "scenario" ? `${i + 1}. ${s.scenario.title}` : "Cleanup — leave no trace";
+            s.kind === "intro"
+              ? "Before you start"
+              : s.kind === "scenario"
+                ? `${i}. ${s.scenario.title}`
+                : "Cleanup — leave no trace";
           return (
             <button
               key={i}
@@ -577,7 +613,7 @@ function WizardHeader({
                 progress?.outcome === "pass" && "bg-primary",
                 progress?.outcome === "fail" && "bg-destructive",
                 !progress?.outcome && "bg-muted",
-                s.kind === "cleanup" && "max-w-8 bg-muted",
+                s.kind !== "scenario" && "max-w-8 bg-muted",
                 i === at && "ring-2 ring-ring/50",
               )}
             />
@@ -599,7 +635,8 @@ function WizardFooter({
   mine: PlaybookProgress;
   onGo: (i: number | null) => void;
 }) {
-  const hasOutcome = stop.kind === "scenario" && !!mine[stop.scenario.id]?.outcome;
+  const hasOutcome =
+    stop.kind === "intro" || (stop.kind === "scenario" && !!mine[stop.scenario.id]?.outcome);
   const last = at === STOPS.length - 1;
   const nextIsCleanup = !last && STOPS[at + 1].kind === "cleanup";
   return (
@@ -614,7 +651,8 @@ function WizardFooter({
         </Button>
       ) : (
         <Button variant={hasOutcome ? "default" : "outline"} size="sm" onClick={() => onGo(at + 1)}>
-          {nextIsCleanup ? "Cleanup" : "Next"} <ArrowRight className="size-4" />
+          {stop.kind === "intro" ? "Start" : nextIsCleanup ? "Cleanup" : "Next"}{" "}
+          <ArrowRight className="size-4" />
         </Button>
       )}
     </div>
