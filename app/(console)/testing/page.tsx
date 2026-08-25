@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { gate } from "@/lib/console-auth";
-import { getPlaybookProgress, allPlaybookProgress } from "@/lib/kv";
+import { allPlaybookProgress, getPlaybookProgress } from "@/lib/kv";
 import { PageHeader } from "@/components/jetta/page-header";
 import PlaybookContent from "./playbook-content";
 
@@ -18,19 +18,13 @@ export default async function TestingPage() {
   if (locked) redirect("/login?next=%2Ftesting");
   const everyone = await allPlaybookProgress().catch(() => ({}) as Record<string, never>);
   const mine = everyone[user] ?? (await getPlaybookProgress(user).catch(() => ({})));
-  const others = Object.entries(everyone)
-    .filter(([name]) => name !== user)
-    .map(([name, progress]) => ({
-      name,
-      done: Object.values(progress).filter((s) => s.outcome).length,
-    }));
   return (
     <>
       <PageHeader
         title="Test Jetta"
         description="Play the customer, watch what she does, and learn how she does it. Two tracks, about 45 minutes each."
       />
-      <PlaybookContent user={user} initialMine={mine} others={others} />
+      <PlaybookContent user={user} initialMine={mine} team={everyone} />
     </>
   );
 }

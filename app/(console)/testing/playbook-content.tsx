@@ -120,11 +120,12 @@ function LinkButton({ link }: { link: PlaybookLink }) {
 export default function PlaybookContent({
   user,
   initialMine,
-  others,
+  team,
 }: {
   user: string;
   initialMine: PlaybookProgress;
-  others: { name: string; done: number }[];
+  /** Everyone's progress, keyed by console username — includes the viewer. */
+  team: Record<string, PlaybookProgress>;
 }) {
   const [mine, setMine] = useState<PlaybookProgress>(initialMine);
   /** null = overview, otherwise an index into STOPS. */
@@ -195,7 +196,7 @@ export default function PlaybookContent({
       <Overview
         user={user}
         mine={mine}
-        others={others}
+        team={team}
         done={done}
         total={total}
         nextUndone={nextUndone}
@@ -245,7 +246,7 @@ function outcomeIcon(progress?: ScenarioProgress) {
 function Overview({
   user,
   mine,
-  others,
+  team,
   done,
   total,
   nextUndone,
@@ -253,7 +254,7 @@ function Overview({
 }: {
   user: string;
   mine: PlaybookProgress;
-  others: { name: string; done: number }[];
+  team: Record<string, PlaybookProgress>;
   done: number;
   total: number;
   nextUndone: number;
@@ -261,6 +262,12 @@ function Overview({
 }) {
   const nextStop = STOPS[nextUndone];
   const cleanupTicked = (mine["cleanup"]?.checks ?? []).length;
+  const others = Object.entries(team)
+    .filter(([name]) => name !== user)
+    .map(([name, progress]) => ({
+      name,
+      done: Object.entries(progress).filter(([id, s]) => id !== "cleanup" && s.outcome).length,
+    }));
   return (
     <div className="space-y-6">
       {/* Scoreboard */}
@@ -380,7 +387,145 @@ function Overview({
           </CardContent>
         </Card>
       </section>
+
+      <TeamResults user={user} mine={mine} team={team} onGo={onGo} />
     </div>
+  );
+}
+
+// ── Team results ───────────────────────────────────────────────────
+
+/** Short label a teammate would say out loud: "A3", "B1". */
+function scenarioCode(track: PlaybookTrack, nth: number): string {
+  return `${track.id === "chat" ? "A" : "B"}${nth}`;
+}
+
+/**
+ * Everyone's per-scenario outcomes side by side, failure notes included.
+ * Visible to every signed-in user — the same philosophy as the scoreboard:
+ * shared progress is most of the motivation, and a failure someone else
+ * already wrote up is a scenario you don't have to guess about.
+ */
+function TeamResults({
+  user,
+  mine,
+  team,
+  onGo,
+}: {
+  user: string;
+  mine: PlaybookProgress;
+  team: Record<string, PlaybookProgress>;
+  onGo: (i: number) => void;
+}) {
+  // The viewer's column reads from live state, so ticking outcomes updates
+  // the grid without a reload; teammates' columns are the server snapshot.
+  const progressFor = (name: string): PlaybookProgress => (name === user ? mine : (team[name] ?? {}));
+  const users = [user, ...Object.keys(team).filter((n) => n !== user).sort()];
+  const scenarioStops = STOPS.filter((s): s is Extract<Stop, { kind: "scenario" }> => s.kind === "scenario");
+
+  const failures = users.flatMap((name) =>
+    scenarioStops
+      .filter((s) => progressFor(name)[s.scenario.id]?.outcome === "fail")
+      .map((s) => ({
+        name,
+        code: scenarioCode(s.track, s.nthInTrack),
+        title: s.scenario.title,
+        note: progressFor(name)[s.scenario.id]?.note,
+        stopIndex: STOPS.indexOf(s),
+      })),
+  );
+
+  return (
+    <section className="space-y-3">
+      <SectionHeader meta={users.length === 1 ? "only you so far" : `${users.length} testers`}>
+        Team results
+      </SectionHeader>
+      <Card>
+        <CardContent className="space-y-3 pt-4">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs text-muted-foreground">
+                  <th className="pb-2 pr-3 font-medium">Scenario</th>
+                  {users.map((name) => (
+                    <th key={name} className="pb-2 pr-3 text-center font-medium whitespace-nowrap">
+                      {name}
+                      {name === user && <span className="text-muted-foreground/60"> (you)</span>}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {scenarioStops.map((s) => (
+                  <tr key={s.scenario.id} className="border-t">
+                    <td className="py-1.5 pr-3">
+                      <button
+                        type="button"
+                        onClick={() => onGo(STOPS.indexOf(s))}
+                        className="flex cursor-pointer items-baseline gap-2 text-left hover:underline"
+                      >
+                        <span className="w-6 shrink-0 text-xs font-semibold text-muted-foreground">
+                          {scenarioCode(s.track, s.nthInTrack)}
+                        </span>
+                        <span className="truncate">{s.scenario.title}</span>
+                      </button>
+                    </td>
+                    {users.map((name) => {
+                      const outcome = progressFor(name)[s.scenario.id]?.outcome;
+                      return (
+                        <td key={name} className="py-1.5 pr-3 text-center">
+                          {outcome === "pass" ? (
+                            <CircleCheck className="inline size-4 text-primary" aria-label="passed" />
+                          ) : outcome === "fail" ? (
+                            <CircleX className="inline size-4 text-destructive" aria-label="failed" />
+                          ) : (
+                            <Circle className="inline size-3 text-muted-foreground/30" aria-label="not run" />
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+                <tr className="border-t text-xs text-muted-foreground">
+                  <td className="py-1.5 pr-3">Cleanup ticked</td>
+                  {users.map((name) => (
+                    <td key={name} className="py-1.5 pr-3 text-center">
+                      {(progressFor(name)["cleanup"]?.checks ?? []).length}/{PLAYBOOK_CLEANUP.length}
+                    </td>
+                  ))}
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          {failures.length > 0 && (
+            <div className="space-y-1.5 border-t pt-3">
+              <p className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
+                What failed, in the tester&apos;s words
+              </p>
+              {failures.map((f, i) => (
+                <p key={i} className="text-sm">
+                  <CircleX className="mr-1.5 inline size-3.5 text-destructive" />
+                  <b>{f.name}</b> ·{" "}
+                  <button
+                    type="button"
+                    onClick={() => onGo(f.stopIndex)}
+                    className="cursor-pointer font-medium hover:underline"
+                  >
+                    {f.code} {f.title}
+                  </button>
+                  {f.note ? (
+                    <span className="text-muted-foreground"> — “{f.note}”</span>
+                  ) : (
+                    <span className="text-muted-foreground/70"> — no note yet</span>
+                  )}
+                </p>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </section>
   );
 }
 
