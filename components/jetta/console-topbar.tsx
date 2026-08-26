@@ -39,14 +39,18 @@ export function ConsoleTopbar({
       <CommandPalette isAdmin={isAdmin} freshdeskDomain={freshdeskDomain() ?? ""} />
 
       <div className="ml-auto flex shrink-0 items-center gap-1.5">
-        <div className="hidden items-center gap-1.5 md:flex">
-          {headline.map((h) => (
-            <Tooltip key={h.label}>
-              <TooltipTrigger asChild>
-                {/* Deep-link to the card that explains it, not the top of the
-                    page. An anchor also keeps the chip useful while already on
-                    /system, where a link to /system did visibly nothing. */}
-                {isAdmin ? (
+        {/* Deployment-state chips are admin-only: they describe configuration
+            only an admin can change, and their deep-link target (/system) is
+            an admin page. General users would get an amber badge they can
+            neither act on nor read more about. */}
+        {isAdmin && (
+          <div className="hidden items-center gap-1.5 md:flex">
+            {headline.map((h) => (
+              <Tooltip key={h.label}>
+                <TooltipTrigger asChild>
+                  {/* Deep-link to the card that explains it, not the top of the
+                      page. An anchor also keeps the chip useful while already on
+                      /system, where a link to /system did visibly nothing. */}
                   <Link
                     href={h.anchor ? `/system#${h.anchor}` : "/system"}
                     aria-label={`${h.label}: ${h.state} — open on System`}
@@ -54,16 +58,12 @@ export function ConsoleTopbar({
                   >
                     <Signal tone={h.tone}>{h.state}</Signal>
                   </Link>
-                ) : (
-                  <span aria-label={`${h.label}: ${h.state}`}>
-                    <Signal tone={h.tone}>{h.state}</Signal>
-                  </span>
-                )}
-              </TooltipTrigger>
-              <TooltipContent className="max-w-xs">{h.meaning}</TooltipContent>
-            </Tooltip>
-          ))}
-        </div>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs">{h.meaning}</TooltipContent>
+              </Tooltip>
+            ))}
+          </div>
+        )}
 
         {user !== "dev" && (
           <span className="hidden text-xs text-muted-foreground sm:inline">{user}</span>

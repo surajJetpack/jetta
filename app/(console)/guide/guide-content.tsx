@@ -129,12 +129,16 @@ export default function GuideContent({ isAdmin }: { isAdmin: boolean }) {
             </p>
           </StepCard>
 
-          <StepCard title="Worth documenting">
-            <p className="text-sm">
-              The week&apos;s unresolved tickets grouped <b>by theme</b>, worst-covered first, so one
-              article closes a whole group rather than a single ticket.
-            </p>
-          </StepCard>
+          {/* The section itself is admin-only on /today, so only admins should
+              read about it here. */}
+          {isAdmin && (
+            <StepCard title="Worth documenting">
+              <p className="text-sm">
+                The week&apos;s unresolved tickets grouped <b>by theme</b>, worst-covered first, so one
+                article closes a whole group rather than a single ticket.
+              </p>
+            </StepCard>
+          )}
         </CardContent>
       </Card>
 

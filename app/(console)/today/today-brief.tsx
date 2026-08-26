@@ -385,7 +385,7 @@ function ReleaseWatchCard({ releases }: { releases: ReleaseSection[] }) {
   );
 }
 
-export default function TodayBrief() {
+export default function TodayBrief({ isAdmin }: { isAdmin: boolean }) {
   const [brief, setBrief] = useState<Brief | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -802,6 +802,11 @@ export default function TodayBrief() {
           </Card>
 
           {/* ── Document next ───────────────────────────────────── */}
+          {/* Admin-only: deciding what gets documented is the admin's call
+              (publishing is admin-gated), so the prompt list is noise for
+              everyone else. Display preference, not a permission — the data
+              is the same /api/admin/today payload every user already gets. */}
+          {isAdmin && (
           <Card>
             <CardHeader>
               <CardTitle>Worth documenting</CardTitle>
@@ -857,6 +862,7 @@ export default function TodayBrief() {
               )}
             </CardContent>
           </Card>
+          )}
         </>
       )}
     </div>
