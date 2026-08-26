@@ -12,6 +12,12 @@ function env(name: string): string | undefined {
   return v && v.length > 0 ? v : undefined;
 }
 
+/** Join comma-separated env values, skipping unset ones; undefined if all unset. */
+function joinCsv(...parts: (string | undefined)[]): string | undefined {
+  const v = parts.filter(Boolean).join(",");
+  return v.length > 0 ? v : undefined;
+}
+
 /** Read a required var; throws at call time (not import time) if missing. */
 export function requireEnv(name: string): string {
   const v = env(name);
@@ -353,8 +359,10 @@ export const config = {
   /**
    * Console logins: "user:pass,user:pass" (first colon splits, so passwords may
    * contain colons). Unset = dev-open console, matching the old unset-secret rule.
+   * CONSOLE_USERS_EXTRA is appended so logins can be added without reading back
+   * the (Vercel-sensitive, write-only) CONSOLE_USERS value.
    */
-  consoleUsers: env("CONSOLE_USERS"),
+  consoleUsers: joinCsv(env("CONSOLE_USERS"), env("CONSOLE_USERS_EXTRA")),
   /**
    * Console usernames with admin rights. Everyone else in CONSOLE_USERS is a
    * general user. Deliberately an env var and not a console setting: a role
