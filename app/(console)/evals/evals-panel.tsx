@@ -47,12 +47,19 @@ interface ReplyEvaluation {
 
 interface EvalStats {
   windowDays: number;
+  /** Real draft decisions only — mined comparisons are counted separately. */
   total: number;
   byRating: { good: number; partial: number; bad: number };
   editRate: number;
   discardRate: number;
   tagCounts: Record<string, number>;
   byProduct: Record<string, { good: number; partial: number; bad: number }>;
+  mined: {
+    total: number;
+    byRating: { good: number; partial: number; bad: number };
+    tagCounts: Record<string, number>;
+    byProduct: Record<string, { good: number; partial: number; bad: number }>;
+  };
 }
 
 interface Learning {
@@ -68,6 +75,21 @@ interface Learning {
   reinforcedCount: number;
   supersedes?: string;
   rationale?: string;
+}
+
+/** Tag frequency chips, most frequent first. */
+function TagChips({ counts }: { counts: Record<string, number> }) {
+  const entries = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  if (!entries.length) return null;
+  return (
+    <div className="mt-3 flex flex-wrap gap-1.5">
+      {entries.map(([tag, n]) => (
+        <StatusChip key={tag} tone="draft">
+          {tag} ×{n}
+        </StatusChip>
+      ))}
+    </div>
+  );
 }
 
 function RatingIcon({ rating }: { rating: ReplyEvaluation["rating"] }) {
@@ -225,7 +247,13 @@ export default function EvalsPanel({ freshdeskDomain }: { freshdeskDomain: strin
         </CardHeader>
         <CardContent>
           {stats === null && <Skeleton className="h-10 w-full" />}
-          {stats && (
+          {stats && stats.total === 0 && (
+            <p className="text-sm text-muted-foreground">
+              No draft decisions in the last {stats.windowDays} days — no suggestion was sent, edited, or
+              discarded on a ticket in that window.
+            </p>
+          )}
+          {stats && stats.total > 0 && (
             <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
               <div className="rounded-lg border bg-muted/40 p-3">
                 <div className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">Decisions</div>
@@ -261,15 +289,23 @@ export default function EvalsPanel({ freshdeskDomain }: { freshdeskDomain: strin
               </div>
             </div>
           )}
-          {stats && Object.keys(stats.tagCounts).length > 0 && (
-            <div className="mt-3 flex flex-wrap gap-1.5">
-              {Object.entries(stats.tagCounts)
-                .sort((a, b) => b[1] - a[1])
-                .map(([tag, n]) => (
-                  <StatusChip key={tag} tone="draft">
-                    {tag} ×{n}
-                  </StatusChip>
-                ))}
+          {stats && <TagChips counts={stats.tagCounts} />}
+          {/*
+            Mined rows are offline draft-vs-human comparisons, and mining only
+            keeps the divergences — so they get their own line rather than
+            being averaged into the decision rates above.
+          */}
+          {stats && stats.mined.total > 0 && (
+            <div className="mt-4 border-t pt-3">
+              <div className="flex flex-wrap items-baseline gap-x-2">
+                <span className="text-sm font-medium">Mined from human replies</span>
+                <span className="font-mono text-sm font-semibold">{stats.mined.total}</span>
+                <span className="text-xs text-muted-foreground">
+                  {stats.mined.byRating.partial} close · {stats.mined.byRating.bad} diverged — offline
+                  comparisons, not draft decisions
+                </span>
+              </div>
+              <TagChips counts={stats.mined.tagCounts} />
             </div>
           )}
         </CardContent>
