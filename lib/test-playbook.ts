@@ -342,9 +342,8 @@ const CHAT_TRACK: PlaybookTrack = {
 };
 
 /**
- * Email tickets — PARKED. Not shown on /testing for now (the chat track is the
- * one the team is running); kept so it can be switched back on by adding it to
- * PLAYBOOK. Progress saved against its ids stays in KV untouched.
+ * Email tickets — the second track. Jetta proposes, a human sends: everything
+ * here happens on a Freshdesk ticket rather than in the widget.
  */
 const TICKET_TRACK: PlaybookTrack = {
   id: "ticket",
@@ -515,9 +514,8 @@ const TICKET_TRACK: PlaybookTrack = {
   ],
 };
 
-/** What /testing shows. Add TICKET_TRACK back here to un-park the email track. */
-export const PLAYBOOK: PlaybookTrack[] = [CHAT_TRACK];
-export const PARKED_TRACKS: PlaybookTrack[] = [TICKET_TRACK];
+/** What /testing shows — both tracks, chat first. */
+export const PLAYBOOK: PlaybookTrack[] = [CHAT_TRACK, TICKET_TRACK];
 
 /**
  * Console accounts that are not playbook testers (PM/stakeholder logins) —
