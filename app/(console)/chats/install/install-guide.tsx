@@ -198,7 +198,7 @@ export async function mountJettaChat() {
     var q = new URLSearchParams(location.search);
     window.JettaChatConfig = {
       surface: "wordpress",
-      autoOpen: true,                       // this page IS the chat
+      inline: true,                         // this page IS the chat: no launcher
       visitor: {
         app: q.get("app") || undefined,     // which app the button belongs to
         mondaySessionToken: q.get("token") || undefined,  // proves the account
@@ -388,8 +388,11 @@ export async function openSupport() {
           <Step n={2} title="Paste this into it">
             <Snippet code={supportPageSnippet} />
             <p className="text-[11px] text-muted-foreground">
-              <code>autoOpen</code> means the visitor lands in the conversation instead of hunting for a
-              bubble on an otherwise empty page.
+              <code>inline: true</code> fills the window — no launcher, no badge, always open, because on
+              a page whose only job is the chat a bubble is furniture in front of the one thing there.
+              Pass a selector instead (<code>inline: &quot;#chat-here&quot;</code>) to drop it into your own
+              layout. If the page already carries another chat widget, delete that script: two widgets is
+              two conversations, and the visitor cannot tell which one anybody is reading.
             </p>
           </Step>
           <Step n={3} title="Point the Support button at it">

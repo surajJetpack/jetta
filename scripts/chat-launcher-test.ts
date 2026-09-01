@@ -85,6 +85,7 @@ function boot(
   const script = makeEl("script");
   script.src = "https://jetta.example.com/jettachat.js";
   const body = makeEl("body");
+  const inlineHost = makeEl("div");
   const doc = {
     currentScript: script,
     readyState: "complete",
@@ -96,6 +97,10 @@ function boot(
       created.push(el);
       return el;
     },
+    // Inline mode looks its container up by selector. Only "#chat-here"
+    // exists in this stub — everything else returns null, which is the case
+    // the fallback below is about.
+    querySelector: (sel: string) => (sel === "#chat-here" ? inlineHost : null),
     addEventListener: () => {},
   };
   const frameWindow = { postMessage: () => {} };
@@ -145,7 +150,8 @@ function boot(
   const root = created.find((e) => e.attrs["data-jettachat"] !== undefined)!;
   const send = (data: Record<string, unknown>) =>
     onMessage?.({ origin: "https://jetta.example.com", source: frameWindow, data });
-  return { launcher, icon, label, root, frame, send, store };
+  const panel = root.children[0];
+  return { launcher, icon, label, root, panel, frame, send, store, body, inlineHost };
 }
 
 function main() {
@@ -275,6 +281,68 @@ function main() {
     "placement applies on a first view, before any brand is known",
     coldMoved.root.style.left === "20px" && coldMoved.root.style.right === "auto",
     `left=${coldMoved.root.style.left} right=${coldMoved.root.style.right}`,
+  );
+
+  /*
+   * Inline mode: the page IS the chat.
+   *
+   * A "chat with us" page, or the support page a monday app's button opens,
+   * has no other content to float above — so the launcher is the one thing in
+   * the way of the only thing there. These pin the three parts of that: no
+   * launcher in the document, the panel fills rather than floats, and the
+   * frame is told, so it can drop a close button that would close onto
+   * nothing.
+   */
+  const inlineFull = boot(null, 1280, { inline: true });
+  check(
+    "inline: no launcher in the document",
+    !inlineFull.root.children.includes(inlineFull.launcher) &&
+      !inlineFull.root.children.some((c) => c.children.includes(inlineFull.launcher)),
+  );
+  check(
+    "inline: the panel fills instead of floating",
+    /width:100%/.test(inlineFull.panel.style.cssText) &&
+      !/display:none/.test(inlineFull.panel.style.cssText),
+    inlineFull.panel.style.cssText,
+  );
+  check(
+    "inline: fills the viewport when no container is named",
+    /position:fixed/.test(inlineFull.root.style.cssText) && /inset:0/.test(inlineFull.root.style.cssText),
+    inlineFull.root.style.cssText,
+  );
+  check(
+    "inline: mounts on the body",
+    inlineFull.body.children.includes(inlineFull.root),
+  );
+
+  const inlineHosted = boot(null, 1280, { inline: "#chat-here" });
+  check(
+    "inline with a selector: mounts inside that element, not the body",
+    inlineHosted.inlineHost.children.includes(inlineHosted.root) &&
+      !inlineHosted.body.children.includes(inlineHosted.root),
+  );
+  check(
+    "inline with a selector: sits in the page's flow rather than over it",
+    /position:relative/.test(inlineHosted.root.style.cssText),
+    inlineHosted.root.style.cssText,
+  );
+
+  /*
+   * The container that isn't there. A theme change, a typo, a page that
+   * renders its markup late — and the selector matches nothing. Vanishing is
+   * the wrong answer on a support page: the corner launcher is not what was
+   * asked for, but it still lets someone ask their question.
+   */
+  const inlineMissing = boot(null, 1280, { inline: "#not-on-this-page" });
+  check(
+    "a selector that matches nothing falls back to the corner widget",
+    inlineMissing.body.children.includes(inlineMissing.root) &&
+      /position:fixed;bottom:/.test(inlineMissing.root.style.cssText),
+    inlineMissing.root.style.cssText,
+  );
+  check(
+    "…and the fallback has its launcher back",
+    inlineMissing.root.children.some((c) => c.children.includes(inlineMissing.launcher)),
   );
 
   // Nothing passed = nothing changed, or every existing embed moves.

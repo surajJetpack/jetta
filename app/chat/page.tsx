@@ -122,6 +122,16 @@ interface InitPayload {
   pageUrl?: string;
   /** Whether the panel is showing right now — only the parent knows. */
   open?: boolean;
+  /**
+   * True when this frame IS the page — a "chat with us" page, or the support
+   * page a monday app's button opens — rather than a panel floating over one.
+   *
+   * The only thing it changes here is the close button: inline there is
+   * nothing to close back to, and a control that does nothing is worse than
+   * no control. Standalone (`/chat` opened directly, with no parent at all)
+   * counts too, which is what the fallback below settles.
+   */
+  inline?: boolean;
 }
 
 /** How long to wait for the embedding page before assuming we're standalone. */
@@ -179,6 +189,12 @@ export default function ChatWidgetPage() {
   // Two-step, because one stray click would otherwise wipe a transcript the
   // visitor is mid-way through reading.
   const [confirmNew, setConfirmNew] = useState(false);
+  /**
+   * Starts true and is corrected by the handshake, rather than the other way
+   * round: with no parent the init never arrives, and that IS the standalone
+   * case — so the default has to be the one that needs no message.
+   */
+  const [inline, setInline] = useState(true);
   // Copy and colour come from the console, so changing "Jetpack Apps support"
   // no longer needs a deploy. Defaults match the shipped settings so the widget
   // renders sensibly even if this request fails.
@@ -267,6 +283,7 @@ export default function ChatWidgetPage() {
       // first message, and the monday surface never needed it — the embedding
       // app supplies identity from its SDK, which is still passed through here.
       initRef.current = init;
+      setInline(init.inline ?? false);
 
       // Two attempts at most: a stored session that outlived its transcript
       // (410) is dropped and retried as a fresh one, so the visitor never sees
@@ -704,7 +721,15 @@ export default function ChatWidgetPage() {
 
   return (
     <div
-      className="relative flex h-dvh flex-col bg-white text-neutral-900"
+      /*
+       * Inline the frame is as wide as the browser, and a conversation set in
+       * 1200px lines is unreadable — so the whole column centres and caps.
+       * In a 380px panel the cap can never bind, but stating it there would
+       * only invite someone to wonder why.
+       */
+      className={`relative flex h-dvh flex-col bg-white text-neutral-900${
+        inline ? " mx-auto w-full max-w-3xl" : ""
+      }`}
       onDragEnter={(e) => {
         if (!ui.attachmentsEnabled || !session) return;
         e.preventDefault();
@@ -779,15 +804,17 @@ export default function ChatWidgetPage() {
               </button>
             )
           )}
-          <button
-            onClick={() => post("jettachat:close")}
-            aria-label="Close chat"
-            className="rounded p-1 text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-700"
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M18 6 6 18M6 6l12 12" />
-            </svg>
-          </button>
+          {!inline && (
+            <button
+              onClick={() => post("jettachat:close")}
+              aria-label="Close chat"
+              className="rounded p-1 text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-700"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M18 6 6 18M6 6l12 12" />
+              </svg>
+            </button>
+          )}
         </div>
       </header>
 

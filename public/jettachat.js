@@ -20,6 +20,21 @@
  *     visitor: { mondayAccountSlug: "acme", app: "vlookup", email: "a@b.com" },
  *   };
  *
+ * A PAGE THAT IS THE CHAT — a "Chat with us" page, or a support page a monday
+ * app's button opens — wants no launcher at all:
+ *
+ *   window.JettaChatConfig = {
+ *     inline: true,             // fill the window
+ *     // …or mount it in your own layout:
+ *     inline: "#chat-here",     // fill this element
+ *   };
+ *
+ * Inline means: no launcher, no badge, always open. The page already decided
+ * the visitor wants to talk — a bubble they have to find first is furniture in
+ * the way of the one thing there. A selector that matches nothing falls back
+ * to the ordinary corner widget, because a support page with a launcher is
+ * survivable and one with no chat at all is not.
+ *
  * WHERE THE LAUNCHER SITS is settable per embed, because only the embedding
  * page knows what else is in that corner:
  *
@@ -187,8 +202,20 @@
     }
   }
 
+  /**
+   * Inline mode, resolved once: the container to fill, or null for the normal
+   * corner widget.
+   *
+   * `true` means the viewport. A string is a selector, looked up at mount time
+   * rather than now — the script may be in <head>, and the container is in the
+   * body it has not parsed yet.
+   */
+  var inlineTarget = config.inline === true ? "viewport" : (typeof config.inline === "string" && config.inline) || null;
+  var inline = !!inlineTarget;
+
   // ── UI ───────────────────────────────────────────────────────────
-  var open = false;
+  // Inline starts open: there is no launcher to open it with.
+  var open = inline;
   var unread = 0;
   // Set the moment the visitor closes the panel themselves. Someone who has
   // just dismissed the chat has answered the question; re-opening on a timer
@@ -197,8 +224,13 @@
 
   var root = document.createElement("div");
   root.setAttribute("data-jettachat", "");
-  root.style.cssText =
-    "position:fixed;bottom:" + EDGE_Y + "px;right:" + EDGE_X + "px;z-index:2147483000;";
+  root.style.cssText = inline
+    ? // In a container: fill it, and stay in the page's own flow. Filling the
+      // viewport is the same thing against the window instead.
+      (inlineTarget === "viewport"
+        ? "position:fixed;inset:0;z-index:2147483000;"
+        : "position:relative;width:100%;height:100%;")
+    : "position:fixed;bottom:" + EDGE_Y + "px;right:" + EDGE_X + "px;z-index:2147483000;";
 
   // The one piece of real CSS the loader owns. Keyframes cannot be written as
   // inline styles, and a reply arriving in the corner of a page someone is
@@ -213,7 +245,12 @@
   (document.head || document.documentElement).appendChild(motion);
 
   var panel = document.createElement("div");
-  panel.style.cssText = [
+  panel.style.cssText = inline
+    ? // No shadow, no radius, no slide-in: it is not floating over anything,
+      // and an entrance animation on a page whose whole job is this is a
+      // flourish the visitor waits through.
+      "width:100%;height:100%;overflow:hidden;background:#fff;display:block;opacity:1"
+    : [
     // The cap subtracts the launcher, the gap and whatever the page pushed the
     // widget up by — otherwise a raised launcher opens a panel that runs off
     // the top of a short app view.
@@ -224,7 +261,7 @@
     "box-shadow:0 12px 48px rgba(0,0,0,.18)",
     "display:none;margin-bottom:12px",
     "opacity:0;transform:translateY(8px);transition:opacity .18s ease,transform .18s ease",
-  ].join(";");
+      ].join(";");
 
   var frame = document.createElement("iframe");
   frame.src = origin + "/chat" + (product ? "?product=" + encodeURIComponent(product) : "");
@@ -327,8 +364,15 @@
     // value for every surface the brand is on, and the page is the only party
     // that knows this particular corner is already occupied.
     var left = SIDE ? SIDE === "left" : brand.launcherPosition === "left";
-    root.style.right = left ? "auto" : EDGE_X + "px";
-    root.style.left = left ? EDGE_X + "px" : "auto";
+    // Not inline: there is no corner to sit in, and writing an edge here undoes
+    // the fill. (paintLauncher is not called on mount in inline mode, but the
+    // brand message calls it again when the console's settings arrive — which
+    // is how a full-page chat quietly collapsed to a 300px column on the right
+    // the first time this shipped.)
+    if (!inline) {
+      root.style.right = left ? "auto" : EDGE_X + "px";
+      root.style.left = left ? EDGE_X + "px" : "auto";
+    }
     launcher.style.float = left ? "left" : "right";
     launcherWrap.style.float = left ? "left" : "right";
     // The pill grows inward, away from the edge it is anchored to, so a long
@@ -378,8 +422,14 @@
   launcherWrap.appendChild(badge);
 
   root.appendChild(panel);
-  root.appendChild(launcherWrap);
-  paintLauncher();
+  // The launcher and its badge exist as objects either way — paintLauncher and
+  // the brand handler write to them, and guarding every one of those writes
+  // would be a dozen new branches to get wrong. They simply never enter the
+  // document in inline mode.
+  if (!inline) {
+    root.appendChild(launcherWrap);
+    paintLauncher();
+  }
 
   // The count belongs in the accessible name, because the badge itself is a
   // visual: a screen reader tabbing to the button should hear what the red
@@ -413,6 +463,10 @@
   }
 
   function setOpen(next) {
+    // Inline has no closed state. The frame's own close button is hidden (it
+    // is told below), but a stray "close" — an old cached frame, a keyboard
+    // shortcut — must not blank the page out.
+    if (inline) return;
     open = next;
     paintAria();
     paintLabel();
@@ -462,6 +516,9 @@
           visitor: visitor,
           pageUrl: location.href,
           open: open,
+          // So the frame can drop its close button: there is nothing to close
+          // back to, and a dead control is worse than no control.
+          inline: inline,
         },
         origin,
       );
@@ -512,8 +569,28 @@
   });
 
   function mount() {
-    document.body.appendChild(root);
-    if (config.autoOpen) setOpen(true);
+    var host = null;
+    if (inline && inlineTarget !== "viewport") {
+      try {
+        host = document.querySelector(inlineTarget);
+      } catch {
+        host = null; // a malformed selector is a typo, not a reason to vanish
+      }
+      if (!host) {
+        // Fall back rather than disappear: a corner launcher on a page that
+        // wanted a full one still lets someone ask their question.
+        inline = false;
+        root.style.cssText =
+          "position:fixed;bottom:" + EDGE_Y + "px;right:" + EDGE_X + "px;z-index:2147483000;";
+        panel.style.cssText +=
+          ";width:380px;height:560px;max-width:calc(100vw - 40px);border-radius:16px;box-shadow:0 12px 48px rgba(0,0,0,.18);display:none;margin-bottom:12px";
+        root.appendChild(launcherWrap);
+        paintLauncher();
+        open = false;
+      }
+    }
+    (host || document.body).appendChild(root);
+    if (!inline && config.autoOpen) setOpen(true);
   }
 
   // Rotating a phone into landscape crosses the width threshold above, and a
