@@ -765,9 +765,28 @@ function contextBlock(ctx: ConversationContext, profile: Profile): string {
       );
     }
     if (ctx.chat.mondayAccountSlug) {
-      // The trial/discount tools normally have to ask the customer for this.
+      /*
+       * The trial/discount tools normally have to ask the customer for this —
+       * and how far the slug may be trusted depends on where it came from.
+       *
+       * Signed, or inside the app: monday's own session token, verified here
+       * against the app's client secret, is monday saying who this is. An
+       * unsigned slug from a monday app VIEW is nearly as good in practice —
+       * the widget is running inside the customer's own logged-in app, and
+       * faking it means tampering with your own session in devtools. Both keep
+       * the behaviour that shipped: use it, don't ask.
+       *
+       * Anywhere else, it is a string the page handed us. A standalone support
+       * page opened from a link is a URL anyone can edit, so acting on its slug
+       * would let one customer raise a discount request against another's
+       * account. The claim is still worth showing — it is useful, and usually
+       * true — with the one instruction that makes a wrong one harmless.
+       */
+      const trusted = ctx.chat.mondayAccountVerified || ctx.chat.surface === "monday";
       lines.push(
-        `monday account: ${ctx.chat.mondayAccountSlug} (from the embedding page — use it directly for trial/discount requests; do NOT ask the customer for their monday URL).`,
+        trusted
+          ? `monday account: ${ctx.chat.mondayAccountSlug} (${ctx.chat.mondayAccountVerified ? "VERIFIED — monday signed it" : "from the embedding app view"} — use it directly for trial/discount requests; do NOT ask the customer for their monday URL).`
+          : `monday account: ${ctx.chat.mondayAccountSlug} (CLAIMED by the page they are chatting from, and NOT proven — a support link's parameters are typed by whoever holds the link. Fine for orienting yourself. Before any trial or discount request, confirm with them that this is their account.)`,
       );
     }
   }

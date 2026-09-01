@@ -176,6 +176,66 @@ export async function mountJettaChat() {
   document.body.appendChild(s);
 }`;
 
+  /*
+   * A standalone support PAGE, for a "Support" button inside a monday app.
+   *
+   * The widget's normal job is to sit in the corner of a page someone came to
+   * for another reason. This is the opposite: the page has no other job, so it
+   * opens straight into the conversation.
+   *
+   * The token is the point. A support URL is public — every query parameter on
+   * it was typed by whoever holds the link — and Jetta ACTS on the monday
+   * account slug, raising trial and discount requests against it without
+   * asking. So the account is not passed as text: the app hands over monday's
+   * own signed session token, our server checks it against the app's client
+   * secret, and the slug, the account id and which app they came from are read
+   * out of the claims. Name and email ride along as hints, exactly as good as
+   * something typed into the chat, which is what they would otherwise be.
+   */
+  const supportPageSnippet = `<!-- On the WordPress support page, before </body> -->
+<script>
+  (function () {
+    var q = new URLSearchParams(location.search);
+    window.JettaChatConfig = {
+      surface: "wordpress",
+      autoOpen: true,                       // this page IS the chat
+      visitor: {
+        app: q.get("app") || undefined,     // which app the button belongs to
+        mondaySessionToken: q.get("token") || undefined,  // proves the account
+        name: q.get("name") || undefined,   // hints; Jetta asks if absent
+        email: q.get("email") || undefined
+      }
+    };
+    // Take the token back out of the address bar, so it is not in history,
+    // in a referrer, or in whatever analytics the theme loads.
+    var app = q.get("app");
+    history.replaceState(null, "", location.pathname + (app ? "?app=" + encodeURIComponent(app) : ""));
+  })();
+</script>
+<script src="${baseUrl}/jettachat.js" defer></script>`;
+
+  const supportButtonSnippet = `import mondaySdk from "monday-sdk-js";
+
+const monday = mondaySdk();
+const SUPPORT_PAGE = "https://YOUR-SITE.com/support";
+
+/** Wire this to the Support button in your app view. */
+export async function openSupport() {
+  // Signed by monday with your app's client secret, and short-lived — Jetta
+  // verifies it server-side, so the account cannot be faked by editing the URL.
+  const session = await monday.get("sessionToken");
+  // Name and email are a courtesy: they save Jetta asking. They prove nothing.
+  const me = await monday.api("query { me { name email } }");
+
+  const url = new URL(SUPPORT_PAGE);
+  url.searchParams.set("app", "vlookup");
+  url.searchParams.set("token", session.data);
+  if (me.data?.me?.name) url.searchParams.set("name", me.data.me.name);
+  if (me.data?.me?.email) url.searchParams.set("email", me.data.me.email);
+
+  window.open(url.toString(), "_blank", "noopener");
+}`;
+
   return (
     <div className="space-y-5">
       <Card>
@@ -304,6 +364,55 @@ export async function mountJettaChat() {
             <em>and</em> <code>https://*.monday.com</code>. The browser checks the framing rule against every
             ancestor of the chat, and inside monday your view is itself in a frame — list only your own host and
             the launcher opens onto nothing.
+          </p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>A support page for a monday app</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <p className="text-sm text-muted-foreground">
+            For a <b>Support</b> button in an app view that should open a full page rather than a corner
+            panel. The page can live anywhere you like — a WordPress page on your own domain is the easy
+            choice, and it keeps the conversation across a refresh, because the session is stored on that
+            domain.
+          </p>
+          <Step n={1} title="Make the page, and allow it">
+            <p className="text-sm text-muted-foreground">
+              Any page will do — an empty one is fine, since the chat fills it. Add its address to{" "}
+              <b>Sites allowed to embed the chat</b> in Settings, the same as any other embed.
+            </p>
+          </Step>
+          <Step n={2} title="Paste this into it">
+            <Snippet code={supportPageSnippet} />
+            <p className="text-[11px] text-muted-foreground">
+              <code>autoOpen</code> means the visitor lands in the conversation instead of hunting for a
+              bubble on an otherwise empty page.
+            </p>
+          </Step>
+          <Step n={3} title="Point the Support button at it">
+            <Snippet code={supportButtonSnippet} />
+            <p className="text-[11px] text-muted-foreground">
+              <code>monday.api</code> needs the <code>me:read</code> scope, the same one the in-view embed
+              uses. If you skip it, Jetta simply asks for a name and email in the chat.
+            </p>
+          </Step>
+          <Step n={4} title="Add the app's client secret">
+            <p className="text-sm text-muted-foreground">
+              Set <code>MONDAY_CLIENT_SECRET_VLOOKUP</code> (and the same for any other app whose button
+              you wire up) from that app&apos;s monday developer page. Without it the token cannot be
+              checked, and the chat still works — it just starts anonymous, with Jetta asking who they
+              are, and no account attached.
+            </p>
+          </Step>
+          <p className="text-[11px] text-muted-foreground">
+            Why the token rather than just putting the account slug in the link: Jetta uses that slug to
+            raise trial and discount requests <em>without asking</em>. On a link anyone can edit, that
+            would let one customer ask for a discount on another&apos;s account. A verified token is
+            monday saying who this is; an unverified slug is now shown to Jetta as a claim, with an
+            instruction to confirm it before acting.
           </p>
         </CardContent>
       </Card>

@@ -406,6 +406,7 @@ export async function buildContext(
           return {
           surface: chatConv.surface,
           mondayAccountSlug: chatConv.visitor.mondayAccountSlug,
+          mondayAccountVerified: chatConv.visitor.mondayAccountVerified,
           pageUrl: chatConv.pageUrl,
           handoffEnabled: chatSettings.handoffEnabled,
           // Resolved through the conversation's own brand, because a brand

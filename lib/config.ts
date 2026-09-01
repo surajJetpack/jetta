@@ -289,6 +289,32 @@ export const config = {
     //   planIds            — comma-separated plan ids (first is the default target)
     // Apps without an entry (or missing token/appId) fail closed in
     // lib/tools/monday-monetization.ts.
+    /**
+     * Per-app monday CLIENT SECRETS, for verifying session tokens (the JWT a
+     * monday app view hands out with `monday.get("sessionToken")`).
+     *
+     * Keyed by AppProduct and read by convention — `MONDAY_CLIENT_SECRET_VLOOKUP`,
+     * `MONDAY_CLIENT_SECRET_TRACKMY` and so on — so adding an app is one env
+     * var and no code. GetSign's already exists for the monetization webhooks
+     * and is reused rather than duplicated.
+     *
+     * An app with no secret here simply cannot be verified: its visitors chat
+     * anonymously, which is what happens today. Nothing fails.
+     */
+    appClientSecrets: Object.fromEntries(
+      [
+        "vlookup",
+        "trackmy",
+        "extract",
+        "jobflows",
+        "smartcolumns",
+        "jetscan",
+        "pivotreports",
+        "triggerly",
+        "getsign",
+      ].map((app) => [app, env(`MONDAY_CLIENT_SECRET_${app.toUpperCase()}`)]),
+    ) as Record<string, string | undefined>,
+
     monetization: {
       stores: {
         getsign: {
