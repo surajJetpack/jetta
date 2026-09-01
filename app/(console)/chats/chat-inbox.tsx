@@ -106,9 +106,9 @@ const NO_APP = "unknown";
  * `app` is stamped by the run (the embed's `data-app` if the snippet set one,
  * otherwise triage reading what they actually asked about); `visitor.app` is
  * the raw embed value and covers conversations that arrived before the stamp
- * existed. Neither means the chat came in before either — those group under
- * "Not attributed" rather than being hidden, because a filter that silently
- * drops rows is worse than one that admits what it does not know.
+ * existed. A chat with neither predates both and groups under "Other apps"
+ * rather than being hidden, because a filter that silently drops rows is worse
+ * than one that admits what it does not know.
  */
 function appOf(c: Conv): string {
   return c.app || c.visitor.app || NO_APP;
@@ -383,12 +383,24 @@ export default function ChatInbox({
       if (!c.messages.length) continue;
       counts.set(appOf(c), (counts.get(appOf(c)) ?? 0) + 1);
     }
+    // The catch-all sits at the bottom whatever its count — it is where you
+    // look when the named ones did not have it, not a peer of them.
     return [...counts.entries()]
-      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .sort(
+        (a, b) =>
+          Number(a[0] === NO_APP) - Number(b[0] === NO_APP) ||
+          b[1] - a[1] ||
+          a[0].localeCompare(b[0]),
+      )
       .map(([value, count]) => ({
         value,
         count,
-        label: value === NO_APP ? "Not attributed" : appName(value),
+        // "Other apps", not the "Unattributed" the rest of the console uses: on
+        // this page the bucket is a place to look, and everything in it IS one
+        // of the apps — nobody has told us which. The reporting surfaces keep
+        // the honest word, because there an unattributed row is a measurement
+        // problem rather than a shelf.
+        label: value === NO_APP ? "Other apps" : appName(value),
       }));
   }, [list]);
 
