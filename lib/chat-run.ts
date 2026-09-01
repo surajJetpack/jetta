@@ -179,9 +179,12 @@ export async function runChatTurn(conversationId: string, messageId: string): Pr
      * and thrown away, leaving the console with an `app` field only the GetSign
      * and monday embeds ever filled in. Fire-and-forget: it is a reporting
      * field, and the visitor is waiting on the answer, not on this.
+     *
+     * `setConversationApp` rather than a patch, because a label is not
+     * activity — see the note on it in lib/chat-store.ts.
      */
     if (ctx.app && ctx.app !== "unknown" && ctx.app !== current?.app) {
-      void store.updateConversation(conversationId, { app: ctx.app });
+      void store.setConversationApp(conversationId, ctx.app);
     }
 
     const messages = buildMessages(ctx.ticket, "jettachat");

@@ -27,7 +27,14 @@ import { Redis } from "@upstash/redis";
 import { config } from "./config";
 import { getChatSettings } from "./chat-settings";
 import { textWithAttachments } from "./chat-files";
-import type { ChatAttachment, ChatConversation, ChatMessage, ChatSurface, ChatVisitor } from "./types";
+import type {
+  AppProduct,
+  ChatAttachment,
+  ChatConversation,
+  ChatMessage,
+  ChatSurface,
+  ChatVisitor,
+} from "./types";
 
 let redis: Redis | null = null;
 function client(): Redis | null {
@@ -216,9 +223,35 @@ type ConversationPatch = Partial<
     | "lastTicketSyncAt"
     | "humanRequestedAt"
     | "humanAgent"
-    | "app"
   >
 > & { visitor?: Partial<ChatVisitor> };
+
+/**
+ * Stamp which app a conversation is about, without touching anything else.
+ *
+ * Deliberately NOT `updateConversation({ app })`: that function refreshes
+ * `lastActivityAt` on every patch, which is right for a status change and
+ * wrong for this. The app is a reporting label, not activity — bumping the
+ * clock would float a months-old chat to the top of the inbox, and worse,
+ * reset `isStale`, so a visitor returning with a completely different problem
+ * would be dropped back into the old thread they can never get out of. The
+ * backfill would have done that to every conversation it touched, at once.
+ *
+ * "unknown" is never written: a turn that could not tell which app it is has
+ * learned nothing, and must not erase what an earlier one worked out.
+ */
+export async function setConversationApp(
+  conversationId: string,
+  app: AppProduct,
+): Promise<void> {
+  if (!app || app === "unknown") return;
+  await withConversationLock(conversationId, async () => {
+    const conv = await getConversation(conversationId);
+    if (!conv || conv.app === app) return;
+    conv.app = app;
+    await save(conv);
+  });
+}
 
 /** Patch conversation-level fields (status, ticket link, learned identity). */
 export async function updateConversation(
@@ -273,9 +306,6 @@ async function updateConversationLocked(
   // keep the previous person's name on a conversation they had left.
   if ("humanRequestedAt" in patch) conv.humanRequestedAt = patch.humanRequestedAt;
   if ("humanAgent" in patch) conv.humanAgent = patch.humanAgent;
-  // Never back to "unknown": a later turn that could not tell which app this is
-  // has learned nothing, and must not erase what an earlier one worked out.
-  if (patch.app && patch.app !== "unknown") conv.app = patch.app;
   if (patch.ticketId) conv.ticketId = patch.ticketId;
   if (patch.previousTicketIds) conv.previousTicketIds = patch.previousTicketIds;
   if (patch.visitor) conv.visitor = { ...conv.visitor, ...patch.visitor };

@@ -18,9 +18,15 @@
  * Safe to re-run: conversations that already carry an app are left alone, and
  * "unknown" is never written — an outcome that could not tell which app it was
  * has nothing to teach the conversation.
+ *
+ * It also leaves `lastActivityAt` alone (that is what `setConversationApp` is
+ * for). Stamping through the ordinary patch path would refresh it on every
+ * conversation at once — floating months-old chats to the top of the inbox and
+ * resetting the staleness clock that stops a returning visitor being dropped
+ * back into an old thread.
  */
 import { getOutcomes } from "../lib/kv";
-import { listConversations, updateConversation } from "../lib/chat-store";
+import { listConversations, setConversationApp } from "../lib/chat-store";
 import { appName, type AppProduct } from "../lib/types";
 
 const COMMIT = process.argv.includes("--commit");
@@ -61,7 +67,7 @@ async function main() {
 
   let written = 0;
   for (const { c, app } of todo) {
-    await updateConversation(c.id, { app: app as AppProduct });
+    await setConversationApp(c.id, app as AppProduct);
     written++;
   }
   console.log(`\nStamped ${written} conversation${written === 1 ? "" : "s"}.`);
