@@ -275,7 +275,7 @@ export const config = {
       getsign: env("MONDAY_BOARD_ID_GETSIGN"),
     },
     // Explicit opt-in, independent of STUB_MODE/MONDAY_LIVE: creating items or
-    // posting +1 updates on the real boards requires this to be "true". Search
+    // posting their context on the real boards requires this to be "true". Search
     // (read-only) is unaffected and follows MONDAY_LIVE as usual.
     allowWrites: env("MONDAY_ALLOW_WRITES") === "true",
     // Account subdomain for deep links, e.g. https://jetpackteam.monday.com

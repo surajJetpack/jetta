@@ -125,7 +125,7 @@
   <table>
     <tr><th>System</th><th class="wrap2">Tools</th><th>Status</th></tr>
     <tr><td>Freshdesk</td><td class="wrap2">get_ticket_details, search_knowledge_base, reply_to_ticket, add_private_note, close_ticket</td><td><span class="pill live">live</span></td></tr>
-    <tr><td>monday.com</td><td class="wrap2">search_dev_board, create_dev_item, add_plus_one</td><td><span class="pill live">live</span></td></tr>
+    <tr><td>monday.com</td><td class="wrap2">search_dev_board, create_dev_item</td><td><span class="pill live">live</span></td></tr>
     <tr><td>monday.com</td><td class="wrap2">extend_trial, apply_platform_discount</td><td><span class="pill stub">needs Marketplace app creds</span></td></tr>
     <tr><td>Slack</td><td class="wrap2">send_escalation, notify_partner_manager</td><td><span class="pill live">live (outbound)</span></td></tr>
     <tr><td>FastSpring</td><td class="wrap2">get_fastspring_account, get_invoice_url, apply_discount, cancel_subscription</td><td><span class="pill stub">stubbed</span></td></tr>
@@ -134,7 +134,7 @@
 
   <h2 id="workflows"><span class="n">5</span>Support workflows</h2>
   <h3>Technical issue</h3>
-  <p>Search the KB first → if an article resolves it, answer with the steps + link and ask the user to confirm → if not, ask targeted diagnostics → on a confirmed bug, check the Dev board: <strong>existing item</strong> → +1 and tell the user it's tracked; <strong>no item</strong> → create one + escalate to Slack. The internal monday link goes in the <em>private note</em>, never to the customer.</p>
+  <p>Search the KB first → if an article resolves it, answer with the steps + link and ask the user to confirm → if not, ask targeted diagnostics → on a confirmed bug, check the Dev board: <strong>strong match on an open item</strong> → read its comments and tell the user it's tracked; <strong>anything looser</strong> → create an item + escalate to Slack, naming any possible duplicate in the private note for a human to merge. The internal monday link goes in the <em>private note</em>, never to the customer.</p>
   <h3>Escalation</h3>
   <p>Escalates to <code>#jetta-escalations</code> when: no KB answer after two turns, the user asks for a human, or it needs account-level debugging she can't do. The Slack message always carries the ticket URL, account URL, a summary, and what she already tried.</p>
   <h3>Knowledge Loop (how she learns)</h3>

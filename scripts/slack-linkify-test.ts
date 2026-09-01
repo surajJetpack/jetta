@@ -37,19 +37,19 @@ check(
 );
 check(
   'dev board item "Title" (<id>) — the form the model actually favours',
-  linkifyMondayIds('the open Dev board item "TrackMy not updating after bulk update" (12757964338), which I have +1d', {
+  linkifyMondayIds('the open Dev board item "TrackMy not updating after bulk update" (12757964338), which I have linked', {
     devBoardId: DEV_BOARD,
   }),
   // The author's parentheses survive — the rewrite links the id in place
   // rather than restructuring the sentence around it.
-  `the open Dev board item "TrackMy not updating after bulk update" (<${OURS}/boards/${DEV_BOARD}/pulses/12757964338|12757964338>), which I have +1d`,
+  `the open Dev board item "TrackMy not updating after bulk update" (<${OURS}/boards/${DEV_BOARD}/pulses/12757964338|12757964338>), which I have linked`,
 );
 check(
   "dev board item: Unquoted Title (<id>)",
-  linkifyMondayIds("Added +1 to existing dev board item: VLookUp Template not working (11735712226).", {
+  linkifyMondayIds("Filed alongside existing dev board item: VLookUp Template not working (11735712226).", {
     devBoardId: DEV_BOARD,
   }),
-  `Added +1 to existing dev board item: VLookUp Template not working (<${OURS}/boards/${DEV_BOARD}/pulses/11735712226|11735712226>).`,
+  `Filed alongside existing dev board item: VLookUp Template not working (<${OURS}/boards/${DEV_BOARD}/pulses/11735712226|11735712226>).`,
 );
 check(
   "an unquoted run-on that mentions a board is NOT claimed as an item",

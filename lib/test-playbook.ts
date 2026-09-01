@@ -458,12 +458,12 @@ const TICKET_TRACK: PlaybookTrack = {
       ],
       checks: [
         { id: "c1", text: "The suggested reply to the customer acknowledges the bug and asks something useful or sets expectations — WITHOUT promising a fix date or naming an engineer." },
-        { id: "c2", text: "On the dev board: either a new [TEST] item with the repro steps, or a +1 on an existing matching item — not a blind duplicate of something already tracked." },
+        { id: "c2", text: "On the dev board: a new [TEST] item with the repro steps, in the board's client-reported group. If an item for the same bug already existed, her private note should say so — but the report still gets filed." },
         { id: "c3", text: "Internal links (the board item, the escalation) appear ONLY in the private note — never in the suggested customer reply." },
       ],
       how: [
-        "For a bug, Jetta searches the dev board BEFORE writing anything: if the issue is already tracked she adds a +1 with this customer's evidence (the team prioritises by +1 count), and only files a new item when nothing matches. Your attachments travel with it, so engineering gets the evidence without a round-trip.",
-        "There are guards you can't see from here: she can't +1 the same item twice from one ticket, and can't count the customer who created an item as a second report. The visible discipline — internal links stay in the note — is yours to verify.",
+        "For a bug, Jetta searches the dev board BEFORE writing anything. Only a strong, still-open match stops her filing; anything looser gets filed anyway with the possible duplicate named in her private note, because a human can merge two items and nobody can unpick a report attached to the wrong bug. Your attachments travel with it, so engineering gets the evidence without a round-trip.",
+        "The search is deliberately strict, so \"no match\" is a normal outcome and not a miss. The visible discipline — the item lands in the client-reported group, internal links stay in the note — is yours to verify.",
       ],
     },
     {

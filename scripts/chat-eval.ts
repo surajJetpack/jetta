@@ -18,7 +18,7 @@
  *   --only <id|class>   run a single scenario, or one class
  *   --limit <n>         first n scenarios
  *   --live-slack        actually post handoff pings and escalations to Slack
- *   --allow-board-writes  let create_dev_item/add_plus_one hit the real board
+ *   --allow-board-writes  let create_dev_item hit the real board
  *   --json              machine-readable report (for before/after diffing)
  *   --min-grounded <x>  exit 1 below this grounded rate
  *   --min-tools <x>     exit 1 below this tool-accuracy rate
@@ -34,9 +34,9 @@
  * Slack and the monday board are stubbed by default, and this is deliberate
  * rather than timid. What the eval measures is whether Jetta CHOSE the right
  * tool with the right arguments, and that is in the trace either way. Firing
- * them for real would ping colleagues twenty-four times and inflate the impact
- * counts engineering prioritises against — an unfixable write, since a "+1" has
- * no undo. Pass --live-slack / --allow-board-writes to opt back in.
+ * them for real would ping colleagues twenty-four times and leave two dozen
+ * invented bugs on a board people work from. Pass --live-slack /
+ * --allow-board-writes to opt back in.
  */
 const args = process.argv.slice(2);
 const MODE = (args[0] ?? "run") as "run" | "judge" | "report" | "cleanup";

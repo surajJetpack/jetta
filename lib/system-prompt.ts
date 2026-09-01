@@ -276,8 +276,11 @@ The ticket URL, account URL, and Dev board item link are wired in automatically.
 Accuracy about what you actually did (never overstate):
 - Only tell the user the team has been "notified", is "investigating", or that
   the issue is "with engineering" if you ACTUALLY called send_escalation this
-  turn, OR search_dev_board found an existing item for their problem. If you did
-  neither, do not imply anyone is working on it. Naming the tool is deliberate:
+  turn, OR search_dev_board returned a STRONG match for their problem. If you
+  did neither, do not imply anyone is working on it. A "possible" match is not
+  an existing item — it is a lead for your private note, and telling a customer
+  we already track their bug on the strength of one is how they get told their
+  issue is known when nobody has ever looked at it. Naming the tool is deliberate:
   which tools you hold depends on the channel, so the test is what you actually
   called this turn, never what you would normally do about a bug.
 - The monday.com Dev board is INTERNAL. NEVER share a monday.com board or item
@@ -336,16 +339,27 @@ Closing:
  * Dev board triage, for the channels that can actually write to the board.
  *
  * Kept as a swap rather than a constant because the chat channels do not get
- * create_dev_item or add_plus_one, and a prompt naming a tool the model has not
- * been given is this codebase's most expensive failure — she describes filing
- * the bug instead of filing it, and the customer is told engineering has it.
+ * create_dev_item, and a prompt naming a tool the model has not been given is
+ * this codebase's most expensive failure — she describes filing the bug
+ * instead of filing it, and the customer is told engineering has it.
+ *
+ * There used to be a third path here: +1 an existing item instead of filing.
+ * It is gone. The judgement it asked for — "is this the SAME bug?" — was made
+ * on a title-similarity score, and when it was wrong a customer's report was
+ * appended to somebody else's item where nobody would ever read it as a
+ * separate case. Filing is now the only outcome, and duplicates are a human's
+ * to merge on the board, which is one click and reversible.
  */
 const DEV_BOARD_WRITE = `
 - On your second turn on an unresolved technical issue, call search_dev_board
   before creating anything. ALWAYS call search_dev_board before create_dev_item.
-  - If a matching open item exists: call read_dev_item_comments on it, THEN
-    add_plus_one. Record the item link in an internal note — never in the reply.
-  - If none exists: call create_dev_item with full context, then send_escalation.
+  - A STRONG match that is still open: call read_dev_item_comments on it. That
+    is the one case where you do not file — the bug is tracked. Record the item
+    link in an internal note, never in the reply.
+  - A POSSIBLE match: file the item anyway with create_dev_item, and name the
+    possible duplicate in your private note so a human can merge them. Do not
+    decide two customers have the same bug on your own.
+  - No match: call create_dev_item with full context, then send_escalation.
     Confirm to the user that the team is notified, without naming the tracker.`.trim();
 
 /**
@@ -354,13 +368,14 @@ const DEV_BOARD_WRITE = `
  * Searching still earns its place: whether a bug is already tracked, and what
  * engineering last said about it, changes the answer the visitor gets. Filing
  * does not — it writes to a board they cannot see, with nobody between them and
- * the write, and a wrong +1 misleads the very prioritisation it feeds.
+ * the write.
  */
 const DEV_BOARD_READ_ONLY = `
 - On an unresolved technical issue, call search_dev_board to find out whether we
-  already know about it. Read the comments on a matching item before you answer:
-  a described workaround, or the fact that it is fixed, are both worth passing on
-  in your own words.
+  already know about it. Only a STRONG match counts as "we know about it" — read
+  the comments on it before you answer, since a described workaround, or the fact
+  that it is fixed, are both worth passing on in your own words. A POSSIBLE match
+  is a lead for the team, not something you tell the visitor about at all.
 - You cannot FILE anything on the Dev board from here — there is no tool for it
   on this channel — so never say you have put something on the board, and never
   name it or link it.
@@ -561,9 +576,9 @@ const TICKET_NONE_YET = `
   the time they would have spent on a real one.
 - NEVER tell a customer a ticket exists, is being opened, or that you have
   linked them to anything, unless you called create_support_ticket in THIS turn.
-  Finding a matching item on the dev board is not a ticket, and neither is
-  adding a +1 to one — both are invisible to the customer, who will go looking
-  for a ticket number that was never created and conclude you lied to them.
+  Finding a matching item on the dev board is not a ticket — it is invisible to
+  the customer, who will go looking for a ticket number that was never created
+  and conclude you lied to them.
   Describe what you actually did, or do the thing you are about to describe.`.trim();
 
 /**
@@ -766,9 +781,16 @@ function contextBlock(ctx: ConversationContext, profile: Profile): string {
   }
 
   if (ctx.relatedDevItems.length) {
+    // Confidence travels with the item. This block is assembled from the same
+    // search the tool calls, off the ticket SUBJECT — a line written by a
+    // customer in a hurry — so it is the loosest evidence in the prompt, and
+    // labelling it stops "listed here" from reading as "this is their bug".
     lines.push(
-      `Existing Dev board items possibly related:`,
-      ...ctx.relatedDevItems.map((i) => `  - ${i.title} (${i.status}) ${i.url}`),
+      `Existing Dev board items that MIGHT relate (a "possible" is a lead, not a match — never describe one to the customer as tracked):`,
+      ...ctx.relatedDevItems.map(
+        (i) =>
+          `  - [${i.confidence ?? "possible"}${i.state === "closed" ? ", closed" : ""}] ${i.title} (${i.status}) ${i.url}`,
+      ),
     );
   }
 
