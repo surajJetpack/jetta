@@ -130,6 +130,54 @@ async function main() {
   check("conversation A's token does not open conversation B", !store.verifyToken(idB, tokenA));
   check("the token is not the id in disguise", tokenA !== idA && !tokenA.includes(idA));
 
+  // ── App attribution ──────────────────────────────────────────────
+  //
+  // The app is a reporting LABEL. Writing one must not look like the visitor
+  // said something: `lastActivityAt` orders the inbox and drives `isStale`,
+  // which is what stops someone returning weeks later with a different problem
+  // from being dropped back into a thread they cannot get out of. The backfill
+  // stamps every conversation at once, so a clock bump here is not a cosmetic
+  // bug — it would resurrect the lot.
+  section("App attribution");
+  {
+    const conv = await store.createConversation({
+      surface: "wordpress",
+      visitor: { name: "Attribution", email: "attr@example.com" },
+    });
+    check("a conversation with no data-app starts unattributed", conv.app === undefined);
+
+    // A pause, so a bump would differ by milliseconds rather than landing in
+    // the same one and passing by luck.
+    const before = conv.lastActivityAt;
+    await new Promise((r) => setTimeout(r, 5));
+
+    await store.setConversationApp(conv.id, "vlookup");
+    const after = await store.getConversation(conv.id);
+    check("the app is stamped", after?.app === "vlookup");
+    check("…without touching lastActivityAt", after?.lastActivityAt === before);
+    // The contrast that makes the check mean something: an ordinary patch DOES
+    // move the clock, and that is correct — it is what the app stamp must not
+    // borrow.
+    await new Promise((r) => setTimeout(r, 5));
+    await store.updateConversation(conv.id, { status: "resolved" });
+    check(
+      "…while an ordinary patch still does",
+      (await store.getConversation(conv.id))?.lastActivityAt !== before,
+    );
+
+    await store.setConversationApp(conv.id, "unknown");
+    check(
+      "…and 'unknown' never overwrites what was worked out",
+      (await store.getConversation(conv.id))?.app === "vlookup",
+    );
+
+    const pinned = await store.createConversation({
+      surface: "monday",
+      visitor: { name: "Pinned", email: "pin@example.com", app: "getsign" },
+    });
+    check("an embed's data-app is seeded at creation", pinned.app === "getsign");
+  }
+
   // ── Origin allowlist ─────────────────────────────────────────────
   //
   // This decides who may embed the widget. A rule that is too loose is a
