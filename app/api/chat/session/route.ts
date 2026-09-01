@@ -14,6 +14,7 @@ import { channelUnavailable, chatJson, preflight } from "@/lib/chat-http";
 import * as store from "@/lib/chat-store";
 import { getChatSettings } from "@/lib/chat-settings";
 import { profileForRequest } from "@/lib/profiles";
+import { verifyMondaySessionToken } from "@/lib/monday-session-token";
 import type { AppProduct, ChatSurface } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -88,6 +89,23 @@ export async function POST(req: NextRequest) {
   // blank). Identity that DOES arrive here — the monday embed's SDK context,
   // or a resumed init — is still taken, and a malformed email is dropped
   // rather than fatal: a bad address from an embed must not block the chat.
+  /*
+   * A signed monday session token, when the page that opened us had one.
+   *
+   * This is the difference between "they say they are on acme.monday.com" and
+   * monday saying it. The standalone support page is a public URL — anything
+   * in its query string was typed by whoever holds the link — and the prompt
+   * hands the account slug straight to the trial and discount tools. So the
+   * slug (and the account and user ids, and which app they came from) are
+   * taken from the token's claims or not at all; the page's own version is
+   * dropped when a token is present and never trusted for those fields when
+   * one is not.
+   *
+   * The token itself is deliberately not stored: it is a short-lived
+   * credential, and what we need from it is three fields and a yes.
+   */
+  const mondaySession = verifyMondaySessionToken(str("mondaySessionToken"));
+
   const name = str("name")?.trim().slice(0, 120);
   const rawEmail = str("email")?.trim().slice(0, 200);
   const email = rawEmail && /^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(rawEmail) ? rawEmail : undefined;
@@ -98,9 +116,13 @@ export async function POST(req: NextRequest) {
     visitor: {
       name,
       email,
-      mondayAccountSlug: str("mondayAccountSlug")?.slice(0, 120),
-      mondayAccountId: str("mondayAccountId")?.slice(0, 60),
-      mondayUserId: str("mondayUserId")?.slice(0, 60),
+      mondayAccountSlug: mondaySession?.accountSlug ?? str("mondayAccountSlug")?.slice(0, 120),
+      mondayAccountId: mondaySession?.accountId ?? str("mondayAccountId")?.slice(0, 60),
+      mondayUserId: mondaySession?.userId ?? str("mondayUserId")?.slice(0, 60),
+      // Whether the three fields above are monday's word or the page's. The
+      // prompt says different things about the account depending on this, so
+      // it travels with the conversation rather than being re-derived.
+      mondayAccountVerified: mondaySession ? true : undefined,
       // A visitor on GetSign's own site is a GetSign visitor, whatever the
       // install snippet says. This is the pin the whole GetSign profile hangs
       // on: `conversationToTicket` turns `app` into `productHint`, which
@@ -108,7 +130,9 @@ export async function POST(req: NextRequest) {
       // are settled before the first message is even read. Deliberately a
       // fallback, not an override: a monday app view knows better than an
       // origin does.
-      app: (str("app") ?? originApp) as AppProduct | undefined,
+      // A verified token names the app that issued it — the only source here
+      // that cannot be edited by hand.
+      app: (mondaySession?.app ?? str("app") ?? originApp) as AppProduct | undefined,
     },
   });
 

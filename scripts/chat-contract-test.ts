@@ -1027,6 +1027,40 @@ async function main() {
     !/monday account:/i.test(sitePrompt) && !/inside the customer's monday\.com account/i.test(sitePrompt),
   );
 
+  /*
+   * The same slug, arriving three ways, must not be described three times the
+   * same. A support page opened from a monday button is a PUBLIC URL: its
+   * parameters are typed by whoever holds the link, and the slug is the field
+   * Jetta acts on — trial and discount requests go against it without asking.
+   * A verified session token, or the app view itself, earns that. A link does
+   * not.
+   */
+  const linkPrompt = await buildSystemPrompt(
+    promptCtx({ surface: "wordpress", mondayAccountSlug: "someone-elses-team", handoffEnabled: true }),
+  );
+  check(
+    "a slug from a support LINK is marked unproven",
+    /CLAIMED/.test(linkPrompt) && /NOT proven/i.test(linkPrompt),
+  );
+  check(
+    "…and does not carry the do-not-ask licence",
+    !/do NOT ask the customer for their monday URL/.test(linkPrompt),
+    "an unverified link would be able to move somebody else's subscription",
+  );
+  const verifiedPrompt = await buildSystemPrompt(
+    promptCtx({
+      surface: "wordpress",
+      mondayAccountSlug: "acme",
+      mondayAccountVerified: true,
+      handoffEnabled: true,
+    }),
+  );
+  check(
+    "…while a VERIFIED token does, on the very same surface",
+    /VERIFIED/.test(verifiedPrompt) &&
+      /do NOT ask the customer for their monday URL/.test(verifiedPrompt),
+  );
+
   // ── Silence is a bug ─────────────────────────────────────────────
   //
   // Every exit path from a run either sends something or opens a ticket. With

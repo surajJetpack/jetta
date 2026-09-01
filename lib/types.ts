@@ -228,6 +228,17 @@ export interface ChatVisitor {
   mondayAccountSlug?: string;
   mondayAccountId?: string;
   mondayUserId?: string;
+  /**
+   * True when the three fields above came from a monday session token this
+   * server verified, rather than from whatever the embedding page said.
+   *
+   * It matters because the slug is ACTED ON: the prompt tells Jetta to use it
+   * for trial and discount requests without asking. That is safe inside a
+   * monday app view and unsafe on a public support URL, where the slug is
+   * whatever the visitor typed — so the prompt says different things about a
+   * verified account and a claimed one. See lib/monday-session-token.ts.
+   */
+  mondayAccountVerified?: boolean;
   /** Which app the view is embedded in — a direct AppProduct signal. */
   app?: AppProduct;
 }
@@ -346,6 +357,8 @@ export interface ConversationContext {
   chat?: {
     surface: ChatSurface;
     mondayAccountSlug?: string;
+    /** Whether that slug is monday's word or the embedding page's. */
+    mondayAccountVerified?: boolean;
     pageUrl?: string;
     /**
      * Whether a person can actually be fetched into this conversation. Drives
