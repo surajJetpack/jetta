@@ -13,6 +13,8 @@ import { ConfirmButton } from "@/components/jetta/confirm-button";
 import { StatusChip, type ChipTone } from "@/components/jetta/status-chip";
 import { EmptyState } from "@/components/jetta/empty-state";
 import { RelativeTime } from "@/components/jetta/relative-time";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { appName } from "@/lib/types";
 import { usePolling } from "@/lib/use-polling";
 import { armChime, chimeEnabled, playChime, setChimeEnabled, subscribeChime } from "@/components/jetta/chime";
 
@@ -68,6 +70,8 @@ interface Conv {
   ticketId?: string;
   /** Earlier tickets this conversation opened, oldest first. */
   previousTicketIds?: string[];
+  /** Which app the conversation is about — the embed's pin, else triage's read. */
+  app?: string;
   visitor: { name?: string; email?: string; mondayAccountSlug?: string; app?: string };
   /** Which brand skin the visitor saw — annotated server-side (lib/profiles). */
   brandKey?: "main" | "getsign";
@@ -90,6 +94,25 @@ const LABELS: Record<Conv["status"], string> = {
 };
 
 type Filter = "needs_human" | "all" | "open" | "ticketed";
+
+/** Sentinel for "every app" — Radix Select has no empty-string value. */
+const ALL_APPS = "__all__";
+/** …and for the chats nothing has attributed yet, which are worth their own view. */
+const NO_APP = "unknown";
+
+/**
+ * Which app a conversation is about.
+ *
+ * `app` is stamped by the run (the embed's `data-app` if the snippet set one,
+ * otherwise triage reading what they actually asked about); `visitor.app` is
+ * the raw embed value and covers conversations that arrived before the stamp
+ * existed. Neither means the chat came in before either — those group under
+ * "Not attributed" rather than being hidden, because a filter that silently
+ * drops rows is worse than one that admits what it does not know.
+ */
+function appOf(c: Conv): string {
+  return c.app || c.visitor.app || NO_APP;
+}
 
 /**
  * The chat inbox.
@@ -126,6 +149,12 @@ export default function ChatInbox({
   const detail = fetched && fetched.id === selectedId ? fetched : null;
   const attachmentCount = detail?.messages.reduce((n, m) => n + (m.attachments?.length ?? 0), 0) ?? 0;
   const [filter, setFilter] = useState<Filter>("all");
+  const [app, setApp] = useState<string>(ALL_APPS);
+  // Shared by the list and the counts above it: a "Needs a person · 1" badge
+  // that counts a visitor the app filter is hiding sends you clicking after a
+  // row that will not be there. The sidebar's own waiting badge stays global,
+  // so nobody is lost by narrowing this view.
+  const inApp = useCallback((c: Conv) => app === ALL_APPS || appOf(c) === app, [app]);
   const [query, setQuery] = useState("");
   const [text, setText] = useState("");
   const [ticketSubject, setTicketSubject] = useState("");
@@ -325,6 +354,7 @@ export default function ChatInbox({
           : filter === "open"
             ? c.status === "open"
             : c.status === "ticketed";
+
     // Anyone waiting for a person floats to the top whatever the sort — that is
     // the only row on this page with someone actually sitting there.
     //
@@ -332,15 +362,37 @@ export default function ChatInbox({
     // the widget and left without typing, which is not a conversation but IS
     // worth counting, so the total is shown under the list.
     return list
-      .filter((c) => c.messages.length > 0 && matches(c) && inFilter(c))
+      .filter((c) => c.messages.length > 0 && matches(c) && inFilter(c) && inApp(c))
       .sort(
         (a, b) =>
           Number(b.status === "waiting_human") - Number(a.status === "waiting_human") ||
           Date.parse(b.lastActivityAt) - Date.parse(a.lastActivityAt),
       );
-  }, [list, query, filter]);
+  }, [list, query, filter, inApp]);
 
-  const waiting = list.filter((c) => c.status === "waiting_human").length;
+  /*
+   * One option per app that actually appears, commonest first, each with its
+   * count — a fixed list of all nine apps would offer eight empty views on a
+   * quiet week. Counted before the app filter is applied (so the numbers do
+   * not collapse to the selection) but after the search and status filters, so
+   * they describe the list you are looking at.
+   */
+  const appOptions = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const c of list) {
+      if (!c.messages.length) continue;
+      counts.set(appOf(c), (counts.get(appOf(c)) ?? 0) + 1);
+    }
+    return [...counts.entries()]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(([value, count]) => ({
+        value,
+        count,
+        label: value === NO_APP ? "Not attributed" : appName(value),
+      }));
+  }, [list]);
+
+  const waiting = list.filter((c) => c.status === "waiting_human" && inApp(c)).length;
   const abandoned = list.filter((c) => c.messages.length === 0).length;
   const mine = detail?.status === "human";
 
@@ -358,6 +410,23 @@ export default function ChatInbox({
               className="h-9 pl-8 text-xs"
             />
           </div>
+          {/* Only worth showing once there is a choice to make: with a single
+              app on the board the control is a label that filters nothing. */}
+          {appOptions.length > 1 && (
+            <Select value={app} onValueChange={setApp}>
+              <SelectTrigger size="sm" className="w-full text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL_APPS}>All apps</SelectItem>
+                {appOptions.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>
+                    {o.label} · {o.count}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
           <div className="flex flex-wrap gap-1">
             {(
               [
@@ -399,7 +468,8 @@ export default function ChatInbox({
           <div className="max-h-[70dvh] space-y-1.5 overflow-y-auto pr-1">
             {visible.length === 0 && (
               <p className="px-1 py-6 text-center text-xs text-muted-foreground">
-                Nothing here{query ? " matches that search" : ""}.
+                Nothing here{query ? " matches that search" : ""}
+                {app !== ALL_APPS ? ` for ${appOptions.find((o) => o.value === app)?.label ?? app}` : ""}.
               </p>
             )}
             {visible.map((c) => {
@@ -440,6 +510,14 @@ export default function ChatInbox({
                       <span className="text-[10px] tabular-nums text-muted-foreground">#{c.ticketId}</span>
                     )}
                     {c.humanAgent && <span className="text-[10px] text-muted-foreground">{c.humanAgent}</span>}
+                    {/* Named on the row, not just in the filter: otherwise the
+                        only way to check what a chat was attributed to is to
+                        filter by each app in turn and see where it lands. */}
+                    {appOf(c) !== NO_APP && (
+                      <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">
+                        {appName(appOf(c))}
+                      </span>
+                    )}
                   </div>
                 </button>
               );

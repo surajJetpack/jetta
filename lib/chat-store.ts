@@ -101,6 +101,9 @@ export async function createConversation(init: NewConversation): Promise<ChatCon
     status: "open",
     surface: init.surface,
     pageUrl: init.pageUrl,
+    // The embed's own claim, when it made one. Everything else is filled in by
+    // the first run, which knows what the visitor actually asked about.
+    app: init.visitor.app && init.visitor.app !== "unknown" ? init.visitor.app : undefined,
     visitor: init.visitor,
     messages: [],
   };
@@ -213,6 +216,7 @@ type ConversationPatch = Partial<
     | "lastTicketSyncAt"
     | "humanRequestedAt"
     | "humanAgent"
+    | "app"
   >
 > & { visitor?: Partial<ChatVisitor> };
 
@@ -269,6 +273,9 @@ async function updateConversationLocked(
   // keep the previous person's name on a conversation they had left.
   if ("humanRequestedAt" in patch) conv.humanRequestedAt = patch.humanRequestedAt;
   if ("humanAgent" in patch) conv.humanAgent = patch.humanAgent;
+  // Never back to "unknown": a later turn that could not tell which app this is
+  // has learned nothing, and must not erase what an earlier one worked out.
+  if (patch.app && patch.app !== "unknown") conv.app = patch.app;
   if (patch.ticketId) conv.ticketId = patch.ticketId;
   if (patch.previousTicketIds) conv.previousTicketIds = patch.previousTicketIds;
   if (patch.visitor) conv.visitor = { ...conv.visitor, ...patch.visitor };
