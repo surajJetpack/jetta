@@ -201,6 +201,32 @@ export async function searchDevBoard(symptom: string, product: Product): Promise
     }));
 }
 
+/**
+ * Which group a customer-reported bug belongs in, by group TITLE.
+ *
+ * Without this the mutation sends no `group_id` and monday drops the item in
+ * the board's TOP group — which on the GetSign board is "Current tasks", a
+ * group of work already in flight. Every item Jetta filed there had to be
+ * dragged into "Client reported Field Issues" by hand. (The jetpackapps board
+ * is unaffected: its top group is already "Bugs and Field Issues".)
+ *
+ * Matched by title in priority order rather than pinned to a group id in
+ * config: the two boards use the SAME ids for different groups — `new_group`
+ * is "Client reported Field Issues" on GetSign and "Bugs and Field Issues" on
+ * Dev Tasks — so an id is only meaningful next to its board, while the titles
+ * say what the group is for. A board that matches nothing (a test board) falls
+ * through to monday's default, exactly as before.
+ */
+const FIELD_ISSUE_GROUP_TITLES = [/client reported/, /field issue/, /^bugs?\b/];
+
+function pickGroupId(groups: { id: string; title: string }[] | undefined): string | undefined {
+  for (const pattern of FIELD_ISSUE_GROUP_TITLES) {
+    const hit = (groups ?? []).find((g) => pattern.test(g.title.trim().toLowerCase()));
+    if (hit) return hit.id;
+  }
+  return undefined;
+}
+
 export interface CreateDevItemInput {
   title: string;
   product: Product;
@@ -233,16 +259,24 @@ export async function createDevItem(input: CreateDevItemInput): Promise<CreatedD
 
   const board = boardIdFor(input.product);
 
-  // Discover the board's columns so we can populate structured fields by title,
-  // adapting to whatever board is configured (test board or real bug tracker).
+  // Discover the board's columns and groups so we can populate structured
+  // fields by title and land the item in the right group, adapting to whatever
+  // board is configured (test board or real bug tracker).
   const meta = await gql<{
-    boards: { columns: { id: string; title: string; type: string }[] }[];
-  }>(`query ($board: [ID!]) { boards(ids: $board) { columns { id title type } } }`, {
-    board: [board],
-  }).catch(() => null);
+    boards: {
+      columns: { id: string; title: string; type: string }[];
+      groups: { id: string; title: string }[];
+    }[];
+  }>(
+    `query ($board: [ID!]) {
+      boards(ids: $board) { columns { id title type } groups { id title } }
+    }`,
+    { board: [board] },
+  ).catch(() => null);
   const cols = meta?.boards?.[0]?.columns ?? [];
   const find = (type: string, kw: RegExp) =>
     cols.find((c) => c.type === type && kw.test(c.title.toLowerCase()))?.id;
+  const groupId = pickGroupId(meta?.boards?.[0]?.groups);
 
   const cv: Record<string, unknown> = {};
   const stepsCol = find("long_text", /step|repro/);
@@ -258,11 +292,19 @@ export async function createDevItem(input: CreateDevItemInput): Promise<CreatedD
     cv[tixCol] = { url: input.freshdeskTicketUrl, text: "Freshdesk ticket" };
   }
 
+  // `group_id` is omitted rather than sent as null when no group matched —
+  // monday then applies its own default (the board's top group), which is the
+  // behaviour this function had before.
   const data = await gql<{ create_item: { id: string; name: string } }>(
-    `mutation ($board: ID!, $name: String!, $cv: JSON!) {
-      create_item(board_id: $board, item_name: $name, column_values: $cv) { id name }
+    `mutation ($board: ID!, $name: String!, $cv: JSON!${groupId ? ", $group: String!" : ""}) {
+      create_item(
+        board_id: $board
+        item_name: $name
+        column_values: $cv
+        ${groupId ? "group_id: $group" : ""}
+      ) { id name }
     }`,
-    { board, name: input.title, cv: JSON.stringify(cv) },
+    { board, name: input.title, cv: JSON.stringify(cv), ...(groupId ? { group: groupId } : {}) },
   );
   const id = data.create_item.id;
 
