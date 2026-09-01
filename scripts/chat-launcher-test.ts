@@ -40,6 +40,9 @@ interface El {
   removeAttribute(k: string): void;
   addEventListener(): void;
   onerror?: () => void;
+  onclick?: (e?: unknown) => void;
+  onmouseenter?: () => void;
+  onmouseleave?: () => void;
 }
 
 function makeEl(tagName: string): El {
@@ -79,6 +82,7 @@ function boot(
 ) {
   const created: El[] = [];
   const store: Record<string, string> = {};
+  const timeouts: { fn: () => void; ms: number }[] = [];
   if (cachedBrand) store["jettachat.brand"] = JSON.stringify(cachedBrand);
   let onMessage: ((e: { origin: string; source: unknown; data: Record<string, unknown> }) => void) | null = null;
 
@@ -132,8 +136,15 @@ function boot(
     Math,
     console,
     requestAnimationFrame: (fn: () => void) => fn(),
-    setTimeout,
-    clearTimeout,
+    // Recorded, not run: the loader schedules real time (the close animation,
+    // the hidden launcher's half-hour reappearance) and a test that waits is a
+    // test nobody runs. A check invokes the callback by hand when the passage
+    // of time is the thing under test.
+    setTimeout: (fn: () => void, ms: number) => {
+      timeouts.push({ fn, ms });
+      return timeouts.length;
+    },
+    clearTimeout: () => {},
     encodeURIComponent,
   };
   (sandbox.window as Record<string, unknown>).window = sandbox.window;
@@ -151,7 +162,7 @@ function boot(
   const send = (data: Record<string, unknown>) =>
     onMessage?.({ origin: "https://jetta.example.com", source: frameWindow, data });
   const panel = root.children[0];
-  return { launcher, icon, label, root, panel, frame, send, store, body, inlineHost };
+  return { launcher, icon, label, root, panel, frame, send, store, body, inlineHost, timeouts, win: sandbox.window as unknown };
 }
 
 function main() {
@@ -355,25 +366,58 @@ function main() {
 
   // ── monday's corner is already taken ─────────────────────────────
   //
-  // monday's own AI sidekick is a floating circle in the same corner at the
-  // same size, so at the usual 20px Jetta's launcher sits completely
+  // monday's own AI sidekick is a floating circle in the bottom-right at the
+  // same size, so at the usual spot Jetta's launcher sits completely
   // underneath it — and no z-index of ours can help, because we are in an
   // iframe on their page. A monday app view that says nothing about placement
-  // must therefore NOT get the 20px default; it gets stacked above.
+  // therefore defaults to the OTHER corner: bottom-left, at the ordinary
+  // 20px, because on the left there is nothing to lift clear of.
   const sidekick = boot({ accentColor: "#2563eb" }, 1280, { surface: "monday" });
   check(
-    "a monday app view lifts the launcher clear of the sidekick by default",
-    sidekick.root.style.cssText.includes("bottom:88px"),
-    sidekick.root.style.cssText,
+    "a monday app view defaults to the bottom-left corner",
+    sidekick.root.style.left === "20px" && sidekick.root.style.right === "auto",
+    `left=${sidekick.root.style.left} right=${sidekick.root.style.right}`,
   );
   check(
-    "and the lift is vertical, so it works in either corner",
-    sidekick.root.style.right === "20px",
-    `right=${sidekick.root.style.right}`,
+    "and sits on the bottom edge — no dead space under a launcher with nothing to clear",
+    sidekick.root.style.cssText.includes("bottom:20px"),
+    sidekick.root.style.cssText,
+  );
+  // A monday launcher put back on the right — by the embed or by the console —
+  // is sharing the corner with the sidekick again, so the 88px lift returns
+  // with it.
+  const backRight = boot({ accentColor: "#2563eb" }, 1280, {
+    surface: "monday",
+    launcher: { position: "right" },
+  });
+  check(
+    "a monday launcher forced right lifts clear of the sidekick",
+    backRight.root.style.cssText.includes("bottom:88px") && backRight.root.style.right === "20px",
+    backRight.root.style.cssText,
+  );
+  // The side can arrive LATE — the console's brand message repaints the
+  // launcher — and the lift has to follow the side both ways, or a launcher
+  // flipped right at runtime slides under the sidekick.
+  const flipped = boot(null, 1280, { surface: "monday" });
+  check("before the console speaks, monday sits bottom-left at the edge", flipped.root.style.cssText.includes("bottom:20px"));
+  flipped.send({ type: "jettachat:brand", brand: { launcherPosition: "right" } });
+  check(
+    "a console flip to the right brings the sidekick lift with it",
+    flipped.root.style.right === "20px" && flipped.root.style.bottom === "88px",
+    `right=${flipped.root.style.right} bottom=${flipped.root.style.bottom}`,
+  );
+  flipped.send({ type: "jettachat:brand", brand: { launcherPosition: "left" } });
+  check(
+    "and flipping back to the left takes the dead space away again",
+    flipped.root.style.left === "20px" && flipped.root.style.bottom === "20px",
+    `left=${flipped.root.style.left} bottom=${flipped.root.style.bottom}`,
   );
   // The default is a default, not a policy: an app view with its own furniture
-  // still decides.
-  const ownIdea = boot({ accentColor: "#2563eb" }, 1280, { surface: "monday", launcher: { offsetY: 20 } });
+  // still decides — an explicit offsetY wins on either side.
+  const ownIdea = boot({ accentColor: "#2563eb" }, 1280, {
+    surface: "monday",
+    launcher: { position: "right", offsetY: 20 },
+  });
   check(
     "a monday page that asks for the bottom edge still gets it",
     ownIdea.root.style.cssText.includes("bottom:20px"),
@@ -455,6 +499,53 @@ function main() {
     bBadge.style.display === "none",
     bBadge.style.display,
   );
+
+  // ── The visitor can put the launcher away ──────────────────────────
+  //
+  // A × on the launcher, revealed on hover/focus, hides the whole thing for
+  // this page view. Nothing persists — the next load starts fresh — and two
+  // things bring it back sooner: half an hour, and a reply, because a reply
+  // nobody can see helps nobody.
+  const h = boot({ accentColor: "#2563eb" });
+  const hWrap = h.root.children[1]!;
+  const hHide = hWrap.children[2]!;
+  check("the × exists on the launcher wrap", hHide?.tagName === "button" && hHide.attrs["aria-label"] === "Hide chat");
+  check("the × starts invisible — it appears on hover, not by default", hHide.style.cssText.includes("opacity:0"));
+  hWrap.onmouseenter?.();
+  check("hovering the launcher reveals the ×", hHide.style.opacity === "1", `opacity=${hHide.style.opacity}`);
+  hHide.onclick?.();
+  check("clicking the × hides the launcher", hWrap.style.display === "none", `display=${hWrap.style.display}`);
+  const reappear = h.timeouts.find((t) => t.ms === 30 * 60 * 1000);
+  check("a half-hour reappearance is scheduled", !!reappear);
+  // Auto-open must respect the firmer no: the visitor removed the button, so
+  // nothing may open the panel over the page they cleared it from.
+  h.send({ type: "jettachat:autoopen" });
+  check(
+    "auto-open is refused while the launcher is hidden",
+    h.panel.style.display !== "block",
+    `panel display=${h.panel.style.display}`,
+  );
+  // A reply arriving while hidden is the one thing that overrides the hiding —
+  // badge on, so it is obvious why the button came back.
+  h.send({ type: "jettachat:unread" });
+  const hBadge = hWrap.children[1]!;
+  check(
+    "a reply brings a hidden launcher back with the badge on",
+    hWrap.style.display === "" && hBadge.textContent === "1" && hBadge.style.display === "block",
+    `display=${JSON.stringify(hWrap.style.display)} badge=${JSON.stringify(hBadge.textContent)}`,
+  );
+  // And the timer route: hide again, then let the recorded half-hour fire.
+  hHide.onclick?.();
+  check("hidden again for the timer check", hWrap.style.display === "none");
+  h.timeouts.filter((t) => t.ms === 30 * 60 * 1000).pop()?.fn();
+  check("the half-hour timer brings the launcher back", hWrap.style.display === "", `display=${JSON.stringify(hWrap.style.display)}`);
+  // The host page's own "open the chat" button outranks an old hiding — a
+  // monday app that opens the chat from its own UI must not open it over an
+  // invisible launcher the visitor can't close back to.
+  hHide.onclick?.();
+  check("hidden once more", hWrap.style.display === "none");
+  (h.win as { JettaChat: { open: () => void } }).JettaChat.open();
+  check("JettaChat.open() brings the launcher back with the panel", hWrap.style.display === "", `display=${JSON.stringify(hWrap.style.display)}`);
 
   // The loader can only paint what the frame tells it. That half lives in
   // React and cannot be booted here, so it is asserted against its source —

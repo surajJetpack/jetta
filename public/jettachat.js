@@ -39,9 +39,11 @@
  * page knows what else is in that corner:
  *
  *   window.JettaChatConfig = {
- *     // Optional. Defaults: 20px from each edge — but 88px from the bottom on
- *     // surface "monday", which is already occupied by monday's AI sidekick.
- *     launcher: { position: "left", offsetX: 20, offsetY: 88 },
+ *     // Optional. Defaults: bottom-right, 20px from each edge. On surface
+ *     // "monday" the default side is LEFT — the bottom-right corner is
+ *     // occupied by monday's AI sidekick — and a monday launcher put back on
+ *     // the right is lifted 88px to stack above the sidekick instead.
+ *     launcher: { position: "right", offsetX: 20, offsetY: 88 },
  *   };
  *
  * This exists for the case a console setting cannot answer. The side is a
@@ -50,6 +52,10 @@
  * collided with belongs to the parent page. That is also why moving is the
  * only fix available: the launcher lives in an iframe, so no z-index of ours
  * can stack above the host's own floating UI, whatever value it carries.
+ *
+ * The launcher also carries a small × (shown on hover or focus) that hides it
+ * for this page view. Nothing is persisted: it returns on the next page load,
+ * after 30 minutes, or immediately — badge on — when a reply arrives.
  *
  * The loader owns three things the iframe can't: the launcher button, the
  * session in localStorage (third-party storage inside the iframe is blocked in
@@ -89,30 +95,54 @@
    * setting in charge.
    */
   var placement = config.launcher || {};
-  /**
-   * How high the launcher sits when the page hasn't said.
-   *
-   * 20px everywhere, except inside a monday app view — where that corner is
-   * not ours. monday puts its own AI sidekick there, a floating circle at the
-   * same size in the same spot, and at 20px Jetta's launcher lands completely
-   * underneath it: invisible, unclickable, and indistinguishable from a widget
-   * that failed to load. Nothing on our side can win that fight with a
-   * z-index, because we are in an iframe on their page.
-   *
-   * 88px stacks Jetta a full launcher height (56px) plus a gap above the
-   * sidekick rather than beside it — which works whichever corner the app puts
-   * us in, and is the same offset the install guide has always recommended for
-   * clearing a bottom bar. A page that knows its own furniture still overrides
-   * it by passing `offsetY`.
-   */
-  var DEFAULT_EDGE_Y = surface === "monday" ? 88 : 20;
   function edge(v, fallback) {
     var n = Number(v);
     return isFinite(n) && n >= 0 ? Math.min(n, 240) : fallback;
   }
   var EDGE_X = edge(placement.offsetX, 20);
-  var EDGE_Y = edge(placement.offsetY, DEFAULT_EDGE_Y);
   var SIDE = placement.position === "left" || placement.position === "right" ? placement.position : null;
+  // A vertical offset the page actually passed always wins. null means nobody
+  // said — the case the side-aware default in edgeY exists for.
+  var EXPLICIT_Y = (function () {
+    var n = Number(placement.offsetY);
+    return isFinite(n) && n >= 0 ? Math.min(n, 240) : null;
+  })();
+
+  /**
+   * Which side the launcher sits on: the page's word, else the console's,
+   * else bottom-left inside a monday app view and bottom-right everywhere
+   * else.
+   *
+   * monday defaults LEFT because the bottom-right corner is not ours there —
+   * monday's own AI sidekick is a floating circle at the same size in the same
+   * spot, and at 20px Jetta's launcher lands completely underneath it:
+   * invisible, unclickable, and indistinguishable from a widget that failed to
+   * load. Nothing on our side can win that fight with a z-index, because we
+   * are in an iframe on their page. The other corner is simply empty.
+   */
+  function resolveLeft() {
+    if (SIDE) return SIDE === "left";
+    if (brand.launcherPosition === "left" || brand.launcherPosition === "right") {
+      return brand.launcherPosition === "left";
+    }
+    return surface === "monday";
+  }
+
+  /**
+   * How high the launcher sits, given the side it resolved to.
+   *
+   * 20px everywhere — except a monday launcher that ends up on the RIGHT
+   * after all (a console setting, an embed override), which still needs to
+   * stack a launcher height plus a gap above the sidekick it is sharing that
+   * corner with. On the left there is nothing to clear, so the same lift
+   * would just be dead space under the button. The side can arrive late (the
+   * console's brand message), so this is resolved on every paint rather than
+   * once at load.
+   */
+  function edgeY(left) {
+    if (EXPLICIT_Y !== null) return EXPLICIT_Y;
+    return surface === "monday" && !left ? 88 : 20;
+  }
 
   /**
    * Which brand this page belongs to.
@@ -230,7 +260,7 @@
       (inlineTarget === "viewport"
         ? "position:fixed;inset:0;z-index:2147483000;"
         : "position:relative;width:100%;height:100%;")
-    : "position:fixed;bottom:" + EDGE_Y + "px;right:" + EDGE_X + "px;z-index:2147483000;";
+    : "position:fixed;bottom:" + edgeY(resolveLeft()) + "px;right:" + EDGE_X + "px;z-index:2147483000;";
 
   // The one piece of real CSS the loader owns. Keyframes cannot be written as
   // inline styles, and a reply arriving in the corner of a page someone is
@@ -255,7 +285,7 @@
     // widget up by — otherwise a raised launcher opens a panel that runs off
     // the top of a short app view.
     "width:380px;height:560px;max-width:calc(100vw - 40px);max-height:calc(100vh - " +
-      (100 + EDGE_Y) +
+      (100 + edgeY(resolveLeft())) +
       "px)",
     "border-radius:16px;overflow:hidden;background:#fff",
     "box-shadow:0 12px 48px rgba(0,0,0,.18)",
@@ -363,7 +393,7 @@
     // The embedding page outranks the console here. The brand setting is one
     // value for every surface the brand is on, and the page is the only party
     // that knows this particular corner is already occupied.
-    var left = SIDE ? SIDE === "left" : brand.launcherPosition === "left";
+    var left = resolveLeft();
     // Not inline: there is no corner to sit in, and writing an edge here undoes
     // the fill. (paintLauncher is not called on mount in inline mode, but the
     // brand message calls it again when the console's settings arrive — which
@@ -372,6 +402,11 @@
     if (!inline) {
       root.style.right = left ? "auto" : EDGE_X + "px";
       root.style.left = left ? EDGE_X + "px" : "auto";
+      // The lift is side-aware and the side may have changed on this very
+      // call — a monday launcher the console just flipped to the right needs
+      // its 88px back, and one flipped to the left needs it gone.
+      root.style.bottom = edgeY(left) + "px";
+      panel.style.maxHeight = "calc(100vh - " + (100 + edgeY(left)) + "px)";
     }
     launcher.style.float = left ? "left" : "right";
     launcherWrap.style.float = left ? "left" : "right";
@@ -383,6 +418,9 @@
     // just swapped ends with the label.
     badge.style.right = left ? "auto" : "-2px";
     badge.style.left = left ? "-2px" : "auto";
+    // The × takes the corner the badge isn't using.
+    hideBtn.style.right = left ? "-6px" : "auto";
+    hideBtn.style.left = left ? "auto" : "-6px";
     paintLabel();
   }
 
@@ -420,6 +458,82 @@
   launcherWrap.style.cssText = "position:relative;float:right;";
   launcherWrap.appendChild(launcher);
   launcherWrap.appendChild(badge);
+
+  /**
+   * The visitor can put the launcher away.
+   *
+   * A × revealed on hover or keyboard focus — a permanent × on a 56px circle
+   * reads as "something here is broken". Hiding is deliberately weaker than
+   * never: nothing is persisted, so the button is back on the next page load,
+   * and a timer brings it back after half an hour in the same view — someone
+   * who said "not now" was not saying "never", and a launcher gone for good
+   * is a support channel gone for good. A reply arriving while hidden brings
+   * it straight back with the badge on: the visitor who asked for a human and
+   * then tidied the bubble away is exactly the one who must see the answer.
+   *
+   * Hover-only means the × is effectively out of reach on touch — accepted:
+   * on a phone an accidental always-there × next to a 56px target would hide
+   * the chat far more often than anyone means to.
+   */
+  var hidden = false;
+  var HIDE_REAPPEAR_MS = 30 * 60 * 1000;
+  var reappearTimer = null;
+
+  var hideBtn = document.createElement("button");
+  hideBtn.type = "button";
+  hideBtn.setAttribute("aria-label", "Hide chat");
+  hideBtn.innerHTML =
+    '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M1 1l8 8M9 1l-8 8"/></svg>';
+  hideBtn.style.cssText = [
+    "position:absolute;top:-6px;width:22px;height:22px;border-radius:50%;border:0;cursor:pointer;padding:0",
+    "background:#404040;color:#fff",
+    "display:flex;align-items:center;justify-content:center",
+    "box-shadow:0 2px 8px rgba(0,0,0,.25)",
+    "opacity:0;pointer-events:none;transition:opacity .12s ease",
+  ].join(";");
+  launcherWrap.appendChild(hideBtn);
+
+  function revealHideButton(show) {
+    // Never while the panel is open: the × under discussion hides the closed
+    // launcher, and offering it beside an open conversation reads as a second,
+    // scarier close button.
+    var can = show && !open && !hidden;
+    hideBtn.style.opacity = can ? "1" : "0";
+    hideBtn.style.pointerEvents = can ? "auto" : "none";
+  }
+  launcherWrap.onmouseenter = function () {
+    revealHideButton(true);
+  };
+  launcherWrap.onmouseleave = function () {
+    revealHideButton(false);
+  };
+  launcherWrap.addEventListener("focusin", function () {
+    revealHideButton(true);
+  });
+  launcherWrap.addEventListener("focusout", function () {
+    revealHideButton(false);
+  });
+
+  function setHidden(next) {
+    hidden = next;
+    launcherWrap.style.display = hidden ? "none" : "";
+    revealHideButton(false);
+    if (reappearTimer) {
+      clearTimeout(reappearTimer);
+      reappearTimer = null;
+    }
+    if (hidden) {
+      reappearTimer = setTimeout(function () {
+        setHidden(false);
+      }, HIDE_REAPPEAR_MS);
+    }
+  }
+  hideBtn.onclick = function (e) {
+    // The × sits over the wrap, not the launcher, but be explicit: this click
+    // must never double as "open the chat".
+    if (e && e.stopPropagation) e.stopPropagation();
+    setHidden(true);
+  };
 
   root.appendChild(panel);
   // The launcher and its badge exist as objects either way — paintLauncher and
@@ -470,6 +584,7 @@
     open = next;
     paintAria();
     paintLabel();
+    revealHideButton(false);
     // Tell the frame. It holds the transcript and the read cursor, but it
     // renders whether or not anyone can see it — visibility is a fact only
     // this side of the iframe boundary knows.
@@ -541,6 +656,10 @@
       }
     } else if (msg.type === "jettachat:unread") {
       if (!open) {
+        // A reply nobody can see helps nobody. The visitor who hid the
+        // launcher after asking for a human is exactly the one this brings
+        // back — badge on, so it is obvious why it returned.
+        if (hidden) setHidden(false);
         // A count is the frame's recount on page load — replies that arrived
         // while the visitor was on another page never fired a live event, so
         // the badge would otherwise reset to zero on every navigation. No
@@ -559,6 +678,7 @@
       // not to interrupt someone.
       if (open) return; // already reading it
       if (dismissed) return; // they closed it — that was an answer
+      if (hidden) return; // they put the button itself away — a firmer answer
       if (autoOpenedRecently()) return; // not twice in a day
       // Not on phones. The panel is most of a small screen, so opening it
       // unasked hides the page the visitor came for.
@@ -581,7 +701,7 @@
         // wanted a full one still lets someone ask their question.
         inline = false;
         root.style.cssText =
-          "position:fixed;bottom:" + EDGE_Y + "px;right:" + EDGE_X + "px;z-index:2147483000;";
+          "position:fixed;bottom:" + edgeY(resolveLeft()) + "px;right:" + EDGE_X + "px;z-index:2147483000;";
         panel.style.cssText +=
           ";width:380px;height:560px;max-width:calc(100vw - 40px);border-radius:16px;box-shadow:0 12px 48px rgba(0,0,0,.18);display:none;margin-bottom:12px";
         root.appendChild(launcherWrap);
@@ -607,6 +727,9 @@
   // its own UI, or hand us identity it learns after load).
   window.JettaChat = {
     open: function () {
+      // The host page asked by name; a launcher the visitor hid earlier
+      // should be back when they close what they asked for.
+      setHidden(false);
       setOpen(true);
     },
     close: function () {

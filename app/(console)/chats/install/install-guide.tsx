@@ -155,11 +155,11 @@ export async function mountJettaChat() {
   const { me, account } = res.data;
 
   window.JettaChatConfig = {
-    // Also lifts the launcher 88px off the bottom, clear of monday's AI
-    // sidekick — pass launcher.offsetY to put it somewhere else.
+    // On this surface the launcher defaults to the BOTTOM-LEFT corner —
+    // bottom-right belongs to monday's AI sidekick inside an app view. Pass
+    // launcher: { position, offsetX, offsetY } only to put it somewhere else;
+    // a launcher sent back to the right is lifted 88px above the sidekick.
     surface: "monday",
-    // Bottom-right belongs to monday inside an app view.
-    launcher: { position: "left" },
     visitor: {
       name: me.name,
       email: me.email,
@@ -351,13 +351,13 @@ export async function openSupport() {
             <code>app</code> to whichever product the view belongs to so tickets are attributed correctly.
           </p>
           <p className="text-[11px] text-muted-foreground">
-            <b>The corner is already monday&apos;s.</b> Their AI sidekick is a floating circle in the same
-            spot at the same size, so <code>surface: &quot;monday&quot;</code> now anchors the launcher{" "}
-            <code>88px</code> up by default — a launcher height plus a gap above it — and stacks rather than
-            sits beside it, so it clears either corner. Pass your own{" "}
-            <code>launcher: {"{ position: \"left\", offsetY: 88 }"}</code> to override: it outranks the side
-            set in Settings, which is per brand and would move the website too. z-index is no help — the
-            widget is in an iframe, so it can never stack above monday&apos;s own floating buttons.
+            <b>The bottom-right corner is already monday&apos;s.</b> Their AI sidekick is a floating circle
+            there at the same size, so <code>surface: &quot;monday&quot;</code> anchors the launcher{" "}
+            <b>bottom-left</b> by default, flush with the usual <code>20px</code> edge. A launcher sent back
+            to the right — by a <code>launcher: {"{ position: \"right\" }"}</code> override or the side set in
+            Settings — is lifted <code>88px</code> to stack above the sidekick instead of under it. The embed
+            override outranks Settings, which is per brand and would move the website too. z-index is no
+            help — the widget is in an iframe, so it can never stack above monday&apos;s own floating buttons.
           </p>
           <p className="text-[11px] text-muted-foreground">
             Two origins go on the allowed list, not one: the host your app view is served from{" "}
