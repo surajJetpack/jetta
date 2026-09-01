@@ -139,6 +139,23 @@ export interface DevBoardItem {
   priority?: string;
   /** The board's "Last Updated" stamp, as monday renders it. */
   updatedAt?: string;
+  /**
+   * How sure the search is that this item IS the caller's issue.
+   *
+   * "strong" — the same problem, said in different words.
+   * "possible" — enough overlap to be worth a human's glance, and nothing more.
+   *
+   * Present on search results, absent on items carried around for other
+   * reasons. It exists because the search used to return loose candidates with
+   * no signal at all, and everything downstream read "returned" as "matched".
+   */
+  confidence?: "strong" | "possible";
+  /** The overlap score behind `confidence`, 0-1. For logs and debugging. */
+  matchScore?: number;
+  /** Whether the board still has this in flight, from its group. */
+  state?: "open" | "closed";
+  /** The board group the item sits in ("Client reported Field Issues"). */
+  group?: string;
 }
 
 /** Where the current interaction originated. */

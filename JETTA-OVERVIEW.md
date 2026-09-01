@@ -30,7 +30,7 @@ resolution sent? → scheduleFollowUp() (24h)
 |---|---|---|
 | **Agent loop** | Provider-agnostic multi-step tool loop; reads `signals` to detect a logged resolution | `lib/agent.ts`, `lib/llm.ts` |
 | **System prompt** | Persona, voice, and mandatory decision rules (confidence, grounding, escalation, closing). Behavior changes happen here, not in code | `lib/system-prompt.ts` |
-| **Tools (13)** | Freshdesk (get ticket, search KB, reply, private note, close) · FastSpring (account, invoice, discount, cancel) · monday (search/create dev item, +1, trial, discount) · Slack (escalate, partnerships) | `lib/tools/*` |
+| **Tools (13)** | Freshdesk (get ticket, search KB, reply, private note, close) · FastSpring (account, invoice, discount, cancel) · monday (search/create dev item, trial, discount) · Slack (escalate, partnerships) | `lib/tools/*` |
 | **RAG grounding** | Semantic search over Upstash Vector: GetSign KB + full Freshdesk Solutions + approved Knowledge-Loop articles. Keyword fallback when vector is off | `lib/vector.ts`, `lib/knowledge/*` |
 | **Follow-up cron** | Daily: customer replied → re-run agent; silent → closing note + resolve | `app/api/cron/followup/route.ts` |
 | **Analytics / learning** | Records every outcome; surfaces deflection rate + a "gap list" of tickets Jetta couldn't close → the document-next queue → Knowledge Loop → new KB → RAG | `app/api/admin/stats/route.ts`, `lib/kv.ts` |

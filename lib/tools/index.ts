@@ -29,7 +29,7 @@ import { searchPublishedKb } from "../knowledge/dynamic-kb";
 import { vectorEnabled, queryVector, type VectorHit } from "../vector";
 import { rerankHits } from "../rerank";
 import { profileFor } from "../profiles";
-import { recordKbHits, markEventSeen, clearEscalation } from "../kv";
+import { recordKbHits, clearEscalation } from "../kv";
 import { submitMonetApproval } from "../monetization-approvals";
 
 /** Standard trial extension length Jetta grants — fixed policy, not customer-chosen. */
@@ -78,8 +78,8 @@ export function buildTools(
   // relevant chat console for chats, the Freshdesk ticket otherwise.
   const interactionUrl = (id: string) =>
     isChat ? chatClient.conversationUrl(id) : ticketUrl(id);
-  // Set by create_dev_item/add_plus_one so send_escalation can attach the Dev
-  // board item link automatically, the same way ticket/account URLs are.
+  // Set by create_dev_item so send_escalation can attach the Dev board item
+  // link automatically, the same way ticket/account URLs are.
   let mondayItemUrl: string | undefined;
 
   /**
@@ -697,7 +697,7 @@ export function buildTools(
     // ── monday.com ──
     search_dev_board: tool({
       description:
-        "Search the Dev board for open items matching the error/symptom. ALWAYS call before create_dev_item. Returns matching item id, title, status, and URL.",
+        "Search the Dev board for items matching the error/symptom. ALWAYS call before create_dev_item. Every hit carries a `confidence`: \"strong\" means it IS this issue in different words; \"possible\" means an overlap worth your glance and NOTHING more — do not treat a possible match as the same bug, do not tell the customer it is already tracked, and file a new item anyway (a human can merge them; you cannot un-merge). `state` says whether the board still has it in flight. An empty result is a normal, useful answer.",
       inputSchema: z.object({ symptom: z.string().describe("Short description of the error/symptom.") }),
       // Mapped explicitly rather than passed through: searchDevBoard also
       // returns who the item is assigned to, and this toolset writes to
@@ -711,13 +711,15 @@ export function buildTools(
             title: i.title,
             status: i.status,
             url: i.url,
+            confidence: i.confidence,
+            state: i.state,
           })),
         ),
     }),
 
     read_dev_item_comments: tool({
       description:
-        "Read the comments engineering has left on a Dev board item. Call this BEFORE add_plus_one on an existing item — it may already be fixed, or a dev may have asked for information you can collect from the customer now. STRICTLY INTERNAL: these are engineers talking to each other. Never quote them, never name an engineer, and never repeat a version, date or sprint from them to the customer.",
+        "Read the comments engineering has left on a Dev board item. Call this on a strong match from search_dev_board before you answer — it may already be fixed, or a dev may have asked for information you can collect from the customer now. STRICTLY INTERNAL: these are engineers talking to each other. Never quote them, never name an engineer, and never repeat a version, date or sprint from them to the customer.",
       inputSchema: z.object({ item_id: z.string().describe("Dev board item id, digits only.") }),
       execute: async ({ item_id }) => {
         const item = await monday.getItemUpdates(item_id, 10).catch(() => null);
@@ -750,9 +752,7 @@ export function buildTools(
      * A judged eval of ten chat conversations called create_dev_item six
      * times, twice for a bare "ok 👍". With MONDAY_ALLOW_WRITES armed that is
      * six real items and six Slack pings from ten chats, filed autonomously on
-     * an endpoint any anonymous visitor can reach, and add_plus_one has no
-     * undo at all — the team prioritises by +1 count, so a wrong one is worse
-     * than none.
+     * an endpoint any anonymous visitor can reach.
      *
      * The escalation path from a chat is create_support_ticket: it is visible
      * to the customer, it can be replied to, and a person reads it before
@@ -765,7 +765,7 @@ export function buildTools(
       : {
     create_dev_item: tool({
       description:
-        "Create a new Dev board item with full context. Only after search_dev_board finds no existing master item.",
+        "Create a new Dev board item with full context. Call search_dev_board first: skip creating ONLY when it returned a strong match that is still open — anything less than that, file the item and mention the possible duplicate in your private note, because a human can merge two items and nobody can unpick a report attached to the wrong bug.",
       inputSchema: z.object({
         title: z.string(),
         error_description: z.string(),
@@ -787,51 +787,6 @@ export function buildTools(
       },
     }),
 
-    add_plus_one: tool({
-      description:
-        "Add a +1 note to an existing Dev board item when a DIFFERENT customer reports the same issue. Do NOT call this for the customer whose report created the item — that double-counts one person as two and inflates the apparent impact of the bug. The team prioritises by +1 count, so a wrong +1 is worse than no +1.",
-      inputSchema: z.object({
-        item_id: z.string(),
-        symptom: z
-          .string()
-          .describe(
-            "One line on what THIS customer actually saw, in their terms. The assignee may have no Freshdesk access, so this is all they get — 'bulk-uploaded tracking IDs never update' not 'same issue'.",
-          ),
-      }),
-      execute: async ({ item_id, symptom }) => {
-        const boardId = monday.boardIdFor(ctx.product);
-        const url = `${config.monday.accountUrl}/boards/${boardId}/pulses/${item_id}`;
-        mondayItemUrl = url;
-        if (dry) return `[dry-run] would add +1 to Dev board item ${item_id}. INTERNAL item URL (private note only): ${url}`;
-        if (!ticketId) return "No active ticket — cannot attribute a +1.";
-
-        // Guard 1: is this the ticket that created the item? Jetta's own
-        // search_dev_board surfaces the item its current ticket spawned, and
-        // the model reads that as a match. Observed on item 12757964338: one
-        // ticket +1'd its own item, twice.
-        if (await monday.itemMentionsTicket(item_id, ticketId)) {
-          return `That Dev item already references this same ticket (#${ticketId}) — it is this customer's own report, not a second one. No +1 was added. Do not call add_plus_one again for this item; link it in your private note instead.`;
-        }
-
-        // Guard 2: one +1 per (ticket, item), ever. Without this, every
-        // customer reply on a linked ticket fires another webhook run and
-        // another +1 — the same pair posted twice 62 minutes apart.
-        const fresh = await markEventSeen(`plusone:${ticketId}:${item_id}`, 180 * 86400);
-        if (!fresh) {
-          return `A +1 from this ticket is already recorded on that Dev item. Nothing further was added — mention the link in your private note instead.`;
-        }
-
-        const r = await monday.addPlusOne({
-          itemId: item_id,
-          ticketUrl: interactionUrl(ticketId),
-          product: ctx.product,
-          symptom,
-          accountLabel: requesterEmail ?? ctx.account?.accountId ?? undefined,
-          attachments: await customerAttachments(),
-        });
-        return `Added +1 to the Dev board item.${filesNote(r.filesAttached)} INTERNAL item URL — put in the private note ONLY, never the customer reply: ${r.url}`;
-      },
-    }),
         }),
 
     extend_trial: tool({

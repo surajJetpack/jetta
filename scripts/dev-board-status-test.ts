@@ -3,8 +3,9 @@
  *
  *   npx tsx --env-file=.env.local scripts/dev-board-status-test.ts
  *
- * Read-only — searches only, no writes (unlike scripts/monday-search.ts, which
- * posts a +1). This exists because the field was hardcoded: `status: "open"`
+ * Read-only, as is scripts/monday-search.ts next to it — that one probes what
+ * the matcher matches, this one what it reports. This exists because the field
+ * was hardcoded: `status: "open"`
  * for every item, on both boards, forever. Nothing failed, no error was logged,
  * and the value arrived in the ticket agent's prompt and in Slack answers
  * looking exactly like the facts around it that were true.

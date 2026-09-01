@@ -634,8 +634,8 @@ async function main() {
    * Dev board writes are off this channel, and the PROMPT has to move with the
    * toolset. A judged run called create_dev_item six times in ten chats, twice
    * for a bare "ok 👍" — with MONDAY_ALLOW_WRITES armed those are real board
-   * items and real Slack pings, filed from an endpoint any visitor can reach,
-   * and add_plus_one has no undo. Both halves are checked here because getting
+   * items and real Slack pings, filed from an endpoint any visitor can reach.
+   * Both halves are checked here because getting
    * only one of them right is worse than neither: a prompt still ordering a tool
    * that is gone makes her DESCRIBE filing the bug, and the customer is told
    * engineering has it.
@@ -643,7 +643,7 @@ async function main() {
   const ticketChannelTools = Object.keys(
     buildTools({ ...(postTicketCtx as unknown as Record<string, unknown>), channel: "freshdesk", chat: undefined } as never, {} as never),
   );
-  for (const t of ["create_dev_item", "add_plus_one"]) {
+  for (const t of ["create_dev_item"]) {
     check(`${t} is not offered on chat`, !postTicketTools.includes(t));
     check(`…but is still there off chat`, ticketChannelTools.includes(t));
   }
@@ -671,7 +671,7 @@ async function main() {
   for (const [label, pr] of [["pre-ticket", preTicketPrompt], ["post-ticket", postTicketPrompt]] as const) {
     check(
       `the ${label} prompt never orders a dev-board write`,
-      !/create_dev_item|add_plus_one/.test(pr),
+      !/create_dev_item/.test(pr),
       "the prompt still names a tool this channel does not have",
     );
     check(

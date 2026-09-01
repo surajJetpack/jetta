@@ -1,5 +1,5 @@
 /**
- * monday.com tool client — Dev board search / create / +1 (board GraphQL API,
+ * monday.com tool client — Dev board search / create (board GraphQL API,
  * board-scoped MONDAY_API_TOKEN).
  *
  * Marketplace monetization (trial extension + discounts) lives in
@@ -135,6 +135,141 @@ function pickColumn(
   return undefined;
 }
 
+/**
+ * Words that say nothing about WHICH bug this is.
+ *
+ * The matcher this replaces kept every token longer than two characters and
+ * called an item a match on ONE shared token, so "the", "not", "issue" and
+ * "monday" all voted — and on a board where every row is a monday app bug,
+ * those are true of everything. Run over the real boards, the old rule
+ * returned five "matches" for "Billing: I was charged twice this month" and
+ * five more for "How do I add a column to my board?".
+ *
+ * Deliberately NOT stripped: board, item, column, template, webhook and the
+ * other domain nouns. They read as generic and are the opposite — "column
+ * values not syncing" and "email not sending" are different bugs precisely
+ * because of them.
+ */
+const STOPWORDS = new Set(
+  (
+    "the and for with from this that they them their was were has have had not but are you your our " +
+    "its when what why how all any can cant could did does doing get gets got into just like need needs " +
+    "now one only out over see some still such than then there these those too use used using very " +
+    "will would after again also been being because before both each few more most other same should " +
+    "under until while about which who whom where " +
+    // Support vocabulary — true of nearly every row on a bug board.
+    "issue issues problem problems error errors bug bugs fail fails failed failing broken break breaks " +
+    "work works working help please support ticket tickets customer customers user users account accounts " +
+    "app apps application monday getsign jetpack jetpackapps"
+  ).split(" "),
+);
+
+/** Group titles that mean the work is finished, not in flight. */
+const CLOSED_GROUP = /done|deployed|archive|shipped|released/;
+
+/**
+ * Group titles that hold wishes rather than faults. An item here can be a
+ * lead ("someone asked for this"), never a confident duplicate of a customer's
+ * broken workflow: "Failed to send document for signature" scores 0.86 against
+ * the backlog's "As a user I would like to send document for approval", and
+ * they are not the same thing at all.
+ */
+const FEATURE_GROUP = /feature|enhancement|backlog|coming up|idea|wish/;
+
+/** Above this, two descriptions are the same issue. */
+const STRONG_MATCH = 0.65;
+/** Above this, worth a human's glance; below it, not worth surfacing at all. */
+const POSSIBLE_MATCH = 0.5;
+/** Fewer shared distinctive words than this is a coincidence, not a match. */
+const MIN_SHARED_TERMS = 2;
+
+/**
+ * Distinctive words in a piece of text: lowercased, split on non-alphanumerics,
+ * three characters or more, stopwords dropped, trailing plural "s" removed so
+ * "documents" and "document" count as one term.
+ */
+function terms(text: string): Set<string> {
+  const out = new Set<string>();
+  for (const raw of text.toLowerCase().split(/[^a-z0-9]+/)) {
+    if (raw.length < 3 || STOPWORDS.has(raw)) continue;
+    out.add(raw.length > 3 && raw.endsWith("s") && !raw.endsWith("ss") ? raw.slice(0, -1) : raw);
+  }
+  return out;
+}
+
+/**
+ * How alike two bug descriptions are, 0 to 1 — Sørensen–Dice over distinctive
+ * terms. It measures OVERLAP rather than "shares a word", so a long symptom
+ * that happens to brush a short item title scores low instead of scoring a hit.
+ *
+ * Terms found in the item's body but not its title count half: a terse title
+ * with a detailed description is a real duplicate worth catching, and the body
+ * is also where a dozen unrelated words live.
+ */
+function similarity(q: Set<string>, title: Set<string>, body: Set<string>): number {
+  if (!q.size || !title.size) return 0;
+  let hits = 0;
+  for (const t of q) hits += title.has(t) ? 1 : body.has(t) ? 0.5 : 0;
+  return Math.min(1, (2 * hits) / (q.size + title.size));
+}
+
+/** How many of `q`'s terms appear anywhere in the item. */
+function sharedTerms(q: Set<string>, title: Set<string>, body: Set<string>): number {
+  let n = 0;
+  for (const t of q) if (title.has(t) || body.has(t)) n++;
+  return n;
+}
+
+/** What one item scored against a symptom, when it scored enough to matter. */
+export interface DevItemMatch {
+  confidence: "strong" | "possible";
+  score: number;
+  /** Distinctive words the two descriptions have in common. */
+  shared: number;
+}
+
+/**
+ * Score one dev item against a symptom, or return null when it is not worth
+ * surfacing at all.
+ *
+ * Pure and exported so the thresholds can be tested without a board
+ * (scripts/dev-board-match-test.ts) — the decision it encodes is "does this
+ * customer's problem already have an item", and getting it wrong in either
+ * direction costs: a false match buries a new report on someone else's bug, a
+ * missed one duplicates work.
+ */
+export function matchDevItem(
+  symptom: string,
+  item: { title: string; body?: string; group?: string },
+): DevItemMatch | null {
+  const q = terms(symptom);
+  if (q.size < MIN_SHARED_TERMS) return null;
+  const title = terms(item.title);
+  const body = terms(item.body ?? "");
+  const shared = sharedTerms(q, title, body);
+  const score = similarity(q, title, body);
+  if (shared < MIN_SHARED_TERMS || score < POSSIBLE_MATCH) return null;
+  const feature = FEATURE_GROUP.test((item.group ?? "").toLowerCase());
+  return {
+    confidence: score >= STRONG_MATCH && !feature ? "strong" : "possible",
+    score: Number(score.toFixed(2)),
+    shared,
+  };
+}
+
+/**
+ * Find the dev items that might be this customer's problem, with an explicit
+ * confidence on each.
+ *
+ * The confidence is the point. A search that hands back five loose candidates
+ * and leaves the model to decide is how a customer's new bug got attached to
+ * somebody else's month-old item — the model reads "returned by the search" as
+ * "this is the one". Now a hit has to clear a real overlap bar AND share at
+ * least two distinctive words, and what comes back says whether it is the same
+ * issue ("strong") or merely worth a look ("possible"). Nothing below that
+ * surfaces at all: no match is a perfectly good answer and the safe one, since
+ * the alternative is filing a fresh item that a human can merge.
+ */
 export async function searchDevBoard(symptom: string, product: Product): Promise<DevBoardItem[]> {
   if (!config.monday.live) {
     if (/mapping|map|column/i.test(symptom)) {
@@ -147,26 +282,36 @@ export async function searchDevBoard(symptom: string, product: Product): Promise
           assignee: "Dev (stub)",
           priority: "Medium",
           updatedAt: "2026-08-01 09:00:00 UTC",
+          confidence: "strong",
+          matchScore: 1,
+          state: "open",
+          group: "Bugs and Field Issues",
         },
       ];
     }
     return [];
   }
 
-  // Fetch board items and score by token overlap with the symptom. monday's
-  // native contains_text is a strict substring match on the full phrase, which
-  // misses near-matches (e.g. "signed document syncing" vs "...not syncing...")
-  // — and missing an existing item would make Jetta file a duplicate.
+  // Fetch board items and score them here rather than through monday's
+  // contains_text rule, which is a strict substring match on the full phrase
+  // and misses near-matches ("signed document syncing" vs "...not syncing...").
   const board = boardIdFor(product);
   const data = await gql<{
     boards: {
-      items_page: { items: { id: string; name: string; column_values: MondayColumnValue[] }[] };
+      items_page: {
+        items: {
+          id: string;
+          name: string;
+          group: { title: string } | null;
+          column_values: MondayColumnValue[];
+        }[];
+      };
     }[];
   }>(
     `query ($board: [ID!]) {
       boards(ids: $board) {
         items_page(limit: 100) {
-          items { id name column_values { text type column { title } } }
+          items { id name group { title } column_values { text type column { title } } }
         }
       }
     }`,
@@ -174,31 +319,46 @@ export async function searchDevBoard(symptom: string, product: Product): Promise
   ).catch(() => null);
 
   const items = data?.boards?.[0]?.items_page?.items ?? [];
-  const terms = symptom
-    .toLowerCase()
-    .split(/[^a-z0-9]+/)
-    .filter((t) => t.length > 2);
-  if (!terms.length) return [];
 
-  return items
+  const scored = items
     .map((i) => {
-      const name = i.name.toLowerCase();
-      const score = terms.reduce((s, t) => s + (name.includes(t) ? 1 : 0), 0);
-      return { i, score };
+      const groupTitle = i.group?.title?.trim() ?? "";
+      const match = matchDevItem(symptom, {
+        title: i.name,
+        // Only the free-text columns: link columns hold ticket and account
+        // URLs, whose words belong to no bug in particular.
+        body: (i.column_values ?? [])
+          .filter((c) => c.type === "long_text" || c.type === "text")
+          .map((c) => c.text ?? "")
+          .join(" "),
+        group: groupTitle,
+      });
+      return { i, groupTitle, match, closed: CLOSED_GROUP.test(groupTitle.toLowerCase()) };
     })
-    .filter((s) => s.score > 0)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 5)
-    .map(({ i }) => ({
-      id: i.id,
-      title: i.name,
-      status: pickColumn(i.column_values, "status", PROGRESS_COLUMN_TITLES) ?? "unknown",
-      url: itemUrl(i.id, product),
-      // "Reporter" is a people column too, so the title is what separates them.
-      assignee: pickColumn(i.column_values, "people", ["developer", "assignee", "owner"]),
-      priority: pickColumn(i.column_values, "status", ["priority"]),
-      updatedAt: pickColumn(i.column_values, "last_updated", ["last updated"]),
-    }));
+    .filter((r): r is typeof r & { match: DevItemMatch } => r.match !== null)
+    // Same issue first, then live work over finished work, then by overlap.
+    .sort(
+      (a, b) =>
+        Number(b.match.confidence === "strong") - Number(a.match.confidence === "strong") ||
+        Number(a.closed) - Number(b.closed) ||
+        b.match.score - a.match.score,
+    )
+    .slice(0, 3);
+
+  return scored.map(({ i, groupTitle, match, closed }) => ({
+    id: i.id,
+    title: i.name,
+    status: pickColumn(i.column_values, "status", PROGRESS_COLUMN_TITLES) ?? "unknown",
+    url: itemUrl(i.id, product),
+    // "Reporter" is a people column too, so the title is what separates them.
+    assignee: pickColumn(i.column_values, "people", ["developer", "assignee", "owner"]),
+    priority: pickColumn(i.column_values, "status", ["priority"]),
+    updatedAt: pickColumn(i.column_values, "last_updated", ["last updated"]),
+    confidence: match.confidence,
+    matchScore: match.score,
+    state: closed ? "closed" : "open",
+    group: groupTitle || undefined,
+  }));
 }
 
 export interface CreateDevItemInput {
@@ -290,39 +450,6 @@ export async function createDevItem(input: CreateDevItemInput): Promise<CreatedD
   );
 
   return { id, title: input.title, status: "New", url: itemUrl(id, input.product), filesAttached };
-}
-
-/**
- * Does this dev item already reference this ticket?
- *
- * The guard against Jetta "+1"-ing an item with the very ticket that created
- * it. `createDevItem` writes "Freshdesk ticket: <url>" into the item's first
- * update, and humans filing bugs paste the ticket link the same way — so one
- * scan of the updates and column text catches both.
- *
- * Matches the ticket id only in ticket-shaped contexts (`/tickets/13894`,
- * `#13894`); a bare number would collide with account ids, order numbers, and
- * anything else in a bug report. Fails OPEN (returns false) — a monday read
- * blip should not block a legitimate +1.
- */
-export async function itemMentionsTicket(itemId: string, ticketId: string): Promise<boolean> {
-  if (!config.monday.live) return false;
-  const data = await gql<{
-    items: { updates: { body: string }[]; column_values: { text: string | null }[] }[];
-  }>(
-    `query ($ids: [ID!]) {
-      items(ids: $ids) { updates(limit: 50) { body } column_values { text } }
-    }`,
-    { ids: [itemId] },
-  ).catch(() => null);
-  if (!data?.items?.[0]) return false;
-
-  const haystack = [
-    ...data.items[0].updates.map((u) => u.body ?? ""),
-    ...data.items[0].column_values.map((c) => c.text ?? ""),
-  ].join("\n");
-  const id = ticketId.replace(/^#/, "");
-  return new RegExp(`(/tickets/|#)${id}\\b`).test(haystack);
 }
 
 /**
@@ -434,58 +561,6 @@ export async function getItemUpdates(
           .map((r) => ({ at: r.created_at, author: r.creator?.name ?? "unknown", text: clean(r.text_body) })),
       })),
   };
-}
-
-export interface PlusOneInput {
-  itemId: string;
-  /** Deep link to the interaction (Freshdesk ticket or chat transcript). */
-  ticketUrl: string;
-  product: Product;
-  /** One line on what this customer actually saw — the +1's whole payload. */
-  symptom: string;
-  /** Who reported it, for a dev who can't open the ticket link. */
-  accountLabel?: string;
-  attachments?: AttachmentFile[];
-}
-
-/**
- * Add a "+1 / me too" note to an existing dev item, with this reporter's own
- * screenshots — a second user's evidence often shows the case the first didn't.
- *
- * The body carries the symptom and the account, not just a link: the assignee
- * on the Dev board may have no Freshdesk access at all, in which case a bare
- * ticket URL tells them precisely nothing (observed on item 12757964338).
- */
-export async function addPlusOne(
-  input: PlusOneInput,
-): Promise<{ url: string; filesAttached: string[] }> {
-  const { itemId, ticketUrl, product, symptom, accountLabel, attachments = [] } = input;
-  const files = attachments.length ? ` (+${attachments.length} file${attachments.length === 1 ? "" : "s"})` : "";
-  const body = [
-    "+1 — another customer hit this.",
-    `Symptom: ${symptom}`,
-    accountLabel ? `Reported by: ${accountLabel}` : "",
-    `Freshdesk ticket: ${ticketUrl}`,
-  ]
-    .filter(Boolean)
-    .join("\n");
-
-  if (!config.monday.live) {
-    console.log(`[stub] +1 on item ${itemId}${files}:\n${body}`);
-    return { url: itemUrl(itemId, product), filesAttached: [] };
-  }
-  if (!config.monday.allowWrites) {
-    console.log(
-      `[MONDAY_ALLOW_WRITES=false] would +1 item ${itemId}${files} — no write made.\n${body}`,
-    );
-    return { url: itemUrl(itemId, product), filesAttached: [] };
-  }
-  const update = await gql<{ create_update: { id: string } }>(
-    `mutation ($item: ID!, $body: String!) { create_update(item_id: $item, body: $body) { id } }`,
-    { item: itemId, body },
-  );
-  const filesAttached = await attachFilesToUpdate(update.create_update.id, attachments);
-  return { url: itemUrl(itemId, product), filesAttached };
 }
 
 // ── Playbook cleanup ───────────────────────────────────────────────

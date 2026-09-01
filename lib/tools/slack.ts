@@ -264,7 +264,7 @@ function bulletize(text: string): string {
 export interface EscalationInput {
   freshdeskTicketUrl: string;
   userAccountUrl: string;
-  /** Dev board item URL, when create_dev_item/add_plus_one ran earlier this turn. Internal channel only. */
+  /** Dev board item URL, when create_dev_item ran earlier this turn. Internal channel only. */
   mondayItemUrl?: string;
   /** Scannable one-liner naming the failure — the only thing most readers see. */
   headline: string;

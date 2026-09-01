@@ -159,7 +159,7 @@ export function capabilityRows(): StatusRow[] {
       tone: config.monday.allowWrites ? "on" : "off",
       state: config.monday.allowWrites ? "ARMED" : "DRY RUN",
       meaning: config.monday.allowWrites
-        ? "Creating items and posting +1 updates happens for real, with no approval step."
+        ? "Creating items and posting their context happens for real, with no approval step."
         : "Board searches work; every write is simulated.",
       setting: "MONDAY_ALLOW_WRITES",
     },
