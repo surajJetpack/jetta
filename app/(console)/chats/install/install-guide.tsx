@@ -247,14 +247,24 @@ export async function mountJettaChat() {
               <b>Chats</b> in this console.
             </p>
           </Step>
-          <Step n={4} title="On getsign.io, name the app">
+          <Step n={4} title="Name the app the page belongs to">
             <Snippet code={getsignTag} />
             <p className="text-[11px] text-muted-foreground">
-              <code>data-app=&quot;getsign&quot;</code> switches the widget to the GetSign skin from{" "}
-              <b>Settings → What the visitor sees → GetSign</b>, and scopes answers to the GetSign
-              knowledge base — the other apps&apos; articles are not retrievable there. A page served
-              from getsign.io gets this even without the attribute; set it anyway, so the behaviour
-              is readable from the snippet rather than inferred from the domain.
+              <code>data-app</code> is how a chat gets attributed, and it is the only source that
+              cannot be wrong — without it the app is inferred from what the visitor asks about,
+              which reads a billing question as no app at all. It also drives the per-app filter in{" "}
+              <b>Chats</b>. Use the app&apos;s key:{" "}
+              <code>getsign</code>, <code>vlookup</code>, <code>trackmy</code>, <code>extract</code>,{" "}
+              <code>jobflows</code>, <code>smartcolumns</code>, <code>jetscan</code>,{" "}
+              <code>pivotreports</code>, <code>triggerly</code>.
+            </p>
+            <p className="text-[11px] text-muted-foreground">
+              <code>data-app=&quot;getsign&quot;</code> does one thing more: it switches the widget to
+              the GetSign skin from <b>Settings → What the visitor sees → GetSign</b> and scopes
+              answers to the GetSign knowledge base — the other apps&apos; articles are not
+              retrievable there. A page served from getsign.io gets that even without the attribute;
+              set it anyway, so the behaviour is readable from the snippet rather than inferred from
+              the domain.
             </p>
           </Step>
         </CardContent>

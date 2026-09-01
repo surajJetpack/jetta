@@ -170,6 +170,20 @@ export async function runChatTurn(conversationId: string, messageId: string): Pr
     // rollout gate for this channel is JETTACHAT_LIVE, which stops traffic at
     // the door rather than halfway through a conversation.
 
+    /*
+     * Stamp which app this conversation is about, once we know.
+     *
+     * `ctx.app` is the same precedence the rest of the system reports on —
+     * the embed's `data-app` when the snippet set one, triage's reading of the
+     * conversation when it did not — and it was being computed on every turn
+     * and thrown away, leaving the console with an `app` field only the GetSign
+     * and monday embeds ever filled in. Fire-and-forget: it is a reporting
+     * field, and the visitor is waiting on the answer, not on this.
+     */
+    if (ctx.app && ctx.app !== "unknown" && ctx.app !== current?.app) {
+      void store.updateConversation(conversationId, { app: ctx.app });
+    }
+
     const messages = buildMessages(ctx.ticket, "jettachat");
     /*
      * While the visitor is anonymous, the system-prompt rule alone is not

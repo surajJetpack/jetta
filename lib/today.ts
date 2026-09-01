@@ -368,7 +368,10 @@ export async function buildTodayBrief() {
       external: false,
       subject: "Waiting for a person in live chat",
       topic: null,
-      app: c.visitor.app ?? "unknown",
+      // The stamped app first: `visitor.app` is only ever set by an embed that
+      // passed `data-app`, so reading it alone reported most chats as
+      // unattributed even after triage had worked out which app they were about.
+      app: c.app ?? c.visitor.app ?? "unknown",
       at,
       ageHours: age(at),
       // A waiting visitor is by definition mid-conversation.

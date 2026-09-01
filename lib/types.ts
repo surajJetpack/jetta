@@ -258,6 +258,19 @@ export interface ChatConversation {
   surface: ChatSurface;
   /** Page the widget was opened on — useful context and abuse triage. */
   pageUrl?: string;
+  /**
+   * Which app this conversation is ABOUT — the best answer available, not the
+   * embed's claim. `visitor.app` is what the install snippet said (ground truth
+   * when present, absent on every embed that predates `data-app`); this is that
+   * when we have it, and triage's reading of what the visitor actually asked
+   * about when we don't. Stamped by the run, so it appears once Jetta has
+   * answered and never regresses to "unknown" afterwards.
+   *
+   * It exists so the console can filter chats per app. Deriving it in the UI
+   * instead would mean every surface re-implementing the precedence and
+   * drifting from it — the same trap `chatBrandKey` was written to close.
+   */
+  app?: AppProduct;
   visitor: ChatVisitor;
   messages: ChatMessage[];
   /**
