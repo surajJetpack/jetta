@@ -25,6 +25,7 @@
 import crypto from "node:crypto";
 import { Redis } from "@upstash/redis";
 import { config } from "./config";
+import { bumpDataVersion } from "./data-version";
 import { vectorEnabled, upsertDocs, deleteDocs, queryVector } from "./vector";
 import type { KbScope } from "./profiles";
 
@@ -300,9 +301,11 @@ async function persist(
     p.lpush(auditKey(a.id), opts.audit);
     p.ltrim(auditKey(a.id), 0, ARTICLE_AUDIT_CAP - 1);
     await p.exec();
+    await bumpDataVersion("kb");
     return;
   }
   memArts.set(a.id, a);
+  await bumpDataVersion("kb");
   if (opts.snapshot) {
     const list = memVers.get(a.id) ?? [];
     list.unshift(opts.snapshot);
@@ -501,6 +504,7 @@ export async function deleteArticle(id: string, actor: string): Promise<boolean>
   if (prev.state === "published" && vectorEnabled()) {
     await deleteDocs([id]).catch(() => {});
   }
+  await bumpDataVersion("kb");
   return true;
 }
 

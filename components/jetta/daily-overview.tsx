@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Alert, AlertAction, AlertTitle } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusChip } from "@/components/jetta/status-chip";
+import { useDataVersion } from "@/lib/use-data-version";
 
 interface Insight {
   headline: string;
@@ -67,6 +68,9 @@ export default function DailyOverview() {
   useEffect(() => {
     load();
   }, [load]);
+  // The 6:10 cron writes yesterday's rollup; Regenerate in another tab writes
+  // it again. Either way the numbers on screen are stale until this fires.
+  useDataVersion(["daily"], load);
 
   // Newest-first from the API; the most recent completed day leads the section.
   const day = rollups?.[0] ?? null;

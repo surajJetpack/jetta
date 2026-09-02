@@ -11,6 +11,7 @@
  */
 import { Redis } from "@upstash/redis";
 import { config } from "./config";
+import { bumpDataVersion } from "./data-version";
 import { log } from "./logger";
 import type { Gap, ModelTokenStat } from "./analytics";
 import type { PlaybookProgress } from "./test-playbook";
@@ -372,10 +373,12 @@ export async function recordOutcome(e: OutcomeEvent): Promise<void> {
   if (r) {
     await r.lpush(OUTCOMES_KEY, e);
     await r.ltrim(OUTCOMES_KEY, 0, 999);
+    await bumpDataVersion("today");
     return;
   }
   memOutcomes.unshift(e);
   if (memOutcomes.length > 1000) memOutcomes.length = 1000;
+  await bumpDataVersion("today");
 }
 
 export async function getOutcomes(limit = 200): Promise<OutcomeEvent[]> {
@@ -403,10 +406,12 @@ export async function replaceOutcomes(events: OutcomeEvent[]): Promise<void> {
       const chunk = capped.slice(i, i + 100);
       if (chunk.length) await r.rpush(OUTCOMES_KEY, ...chunk);
     }
+    await bumpDataVersion("today");
     return;
   }
   memOutcomes.length = 0;
   memOutcomes.push(...capped);
+  await bumpDataVersion("today");
 }
 
 // ── /today AI briefing cache ───────────────────────────────────────
@@ -963,9 +968,11 @@ export async function saveDailyRollup(rollup: DailyRollup): Promise<void> {
   const r = client();
   if (r) {
     await r.set(dailyKey(rollup.date), rollup, { ex: DAILY_TTL });
+    await bumpDataVersion("daily");
     return;
   }
   memDaily.set(rollup.date, rollup);
+  await bumpDataVersion("daily");
 }
 
 export async function getDailyRollup(date: string): Promise<DailyRollup | null> {

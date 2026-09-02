@@ -5,6 +5,7 @@ import Link from "next/link";
 import { diffWords } from "diff";
 import { Check, ChevronDown, ChevronRight, FileText, Pencil, Trash2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useDataVersion } from "@/lib/use-data-version";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StepCard, TraceIO } from "@/components/jetta/step-card";
@@ -142,6 +143,9 @@ export default function KbReview() {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- async fetch; state set after await, not synchronously
     load();
   }, [load]);
+  // New drafts arrive from the eval loop and the site-sync cron, not from
+  // anything this page does — refresh when the KB store moves.
+  useDataVersion(["kb"], load);
 
   return (
     <Card>

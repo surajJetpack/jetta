@@ -19,6 +19,7 @@ import {
 import { displayTopic } from "@/lib/topics";
 import { appName } from "@/lib/types";
 import { fmtAgo, fmtDateTime, useNow } from "@/lib/format";
+import { useDataVersion } from "@/lib/use-data-version";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertAction, AlertTitle } from "@/components/ui/alert";
@@ -429,6 +430,13 @@ export default function TodayBrief({ isAdmin }: { isAdmin: boolean }) {
     load();
     loadInsight();
   }, [load, loadInsight]);
+  // The brief is built from run outcomes and yesterday's rollup — refresh when
+  // either is written (a run landing, the 6:10 cron, a manual regenerate).
+  // Numbers only, NOT loadInsight: the insight route regenerates the LLM
+  // narrative whenever the brief's fingerprint moved, so auto-refetching it
+  // here would buy a generation per run per open tab. The narrative keeps its
+  // own freshness model (fingerprint cache + the rewrite button).
+  useDataVersion(["today", "daily"], load);
 
   const refresh = () => {
     setLoading(true);
