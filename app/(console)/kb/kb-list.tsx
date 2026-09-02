@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Plus, RefreshCw, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { fmtDate, fmtDuration } from "@/lib/format";
+import { useDataVersion } from "@/lib/use-data-version";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -143,6 +144,9 @@ export default function KbList() {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- async fetch; state set after await, not synchronously
     load();
   }, [load]);
+  // The 5am site-sync cron, a bulk action in another tab, a backfill script —
+  // re-list when the store actually changed, not on a timer.
+  useDataVersion(["kb"], load);
 
   const shown = useMemo(() => {
     const needle = f.q.toLowerCase();

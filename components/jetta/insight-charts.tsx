@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -13,6 +13,7 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart";
 import { bucketByDay, rollingRate } from "@/lib/series";
+import { useDataVersion } from "@/lib/use-data-version";
 
 interface EvalRow {
   at: number;
@@ -65,16 +66,20 @@ export default function InsightCharts() {
   const [evals, setEvals] = useState<EvalRow[] | null>(null);
   const [daily, setDaily] = useState<DailyTokens[] | null>(null);
 
-  useEffect(() => {
-    (async () => {
-      const [e, s] = await Promise.all([
-        fetch("/api/admin/evals", { cache: "no-store" }).then((x) => x.json()),
-        fetch("/api/admin/stats", { cache: "no-store" }).then((x) => x.json()),
-      ]);
-      setEvals((e.evaluations ?? []).map((x: { at: number; rating: EvalRow["rating"] }) => ({ at: x.at, rating: x.rating })));
-      setDaily(s.daily ?? []);
-    })();
+  const load = useCallback(async () => {
+    const [e, s] = await Promise.all([
+      fetch("/api/admin/evals", { cache: "no-store" }).then((x) => x.json()),
+      fetch("/api/admin/stats", { cache: "no-store" }).then((x) => x.json()),
+    ]);
+    setEvals((e.evaluations ?? []).map((x: { at: number; rating: EvalRow["rating"] }) => ({ at: x.at, rating: x.rating })));
+    setDaily(s.daily ?? []);
   }, []);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- async fetch; state set after await, not synchronously
+    load();
+  }, [load]);
+  // Both series move when runs land (outcomes) or the rollup cron writes.
+  useDataVersion(["today", "daily"], load);
 
   if (evals === null || daily === null) {
     return (
