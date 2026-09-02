@@ -477,3 +477,51 @@ export function messagesSince(conv: ChatConversation, sinceIso: string | undefin
 export function conversationAttachments(conv: ChatConversation): ChatAttachment[] {
   return conv.messages.flatMap((m) => m.attachments ?? []);
 }
+
+// ── Wipe ───────────────────────────────────────────────────────────
+
+/**
+ * Delete every conversation and all its working keys — the pre-launch reset.
+ *
+ * Everything is enumerated from the index, then the index itself goes, then a
+ * SCAN sweeps the working-key prefixes for strays (pending uploads, rate
+ * counters, a lock whose conversation already expired). The scan patterns are
+ * deliberately narrower than `jetta:chat:*`: that pattern would also match
+ * `jetta:chat:settings`, which is live channel configuration and must survive.
+ *
+ * Blob attachments are NOT deleted here — they live in Vercel Blob, not Redis.
+ * Callers that mean "everything" pair this with `deleteAllFiles()`.
+ */
+export async function wipeAllConversations(): Promise<{ conversations: number; strayKeys: number }> {
+  const r = client();
+  if (!r) {
+    const n = memChats.size;
+    memChats.clear();
+    memFlags.clear();
+    return { conversations: n, strayKeys: 0 };
+  }
+
+  const ids = (await r.zrange<string[]>(CHAT_INDEX, 0, -1)) ?? [];
+  for (const id of ids) {
+    await r.del(convKey(id), runKey(id), turnKey(id), lockKey(id), `jetta:chat:uploads:${id}`);
+  }
+  await r.del(CHAT_INDEX);
+
+  // `upload*` covers pending uploads, per-conversation counters and the upload
+  // rate keys; `rate:*` covers the message rate keys. All are recreatable
+  // ephemera, so a fresh start zeroes them too.
+  let strayKeys = 0;
+  for (const match of ["jetta:chat:upload*", "jetta:chat:rate:*"]) {
+    let cursor = "0";
+    do {
+      const [next, keys] = await r.scan(cursor, { match, count: 200 });
+      cursor = String(next);
+      if (keys.length) {
+        await r.del(...keys);
+        strayKeys += keys.length;
+      }
+    } while (cursor !== "0");
+  }
+
+  return { conversations: ids.length, strayKeys };
+}

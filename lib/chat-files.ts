@@ -453,6 +453,29 @@ export async function collectForHandoff(conv: {
  * minutes, so this trades a case that does not happen for a rule that is
  * simple to reason about.
  */
+/**
+ * Delete every stored chat file, regardless of age — the pre-launch reset's
+ * counterpart to `wipeAllConversations`. Prefix-scoped to `chat/`, so nothing
+ * else that might share the blob store can be caught by it.
+ */
+export async function deleteAllFiles(): Promise<{ deleted: number }> {
+  if (!config.blob.token) return { deleted: 0 };
+  let cursor: string | undefined;
+  let deleted = 0;
+
+  do {
+    const page = await list({ prefix: "chat/", cursor, limit: 1000, token: config.blob.token });
+    const names = page.blobs.map((b) => b.pathname);
+    if (names.length) {
+      await deleteFiles(names);
+      deleted += names.length;
+    }
+    cursor = page.hasMore ? page.cursor : undefined;
+  } while (cursor);
+
+  return { deleted };
+}
+
 export async function pruneExpiredFiles(retentionDays: number): Promise<{ deleted: number }> {
   if (!config.blob.token) return { deleted: 0 };
   const cutoff = Date.now() - Math.max(1, retentionDays) * 86400_000;
