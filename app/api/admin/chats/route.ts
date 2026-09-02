@@ -13,6 +13,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminActor, adminAuthorized } from "@/lib/auth";
 import * as store from "@/lib/chat-store";
+import { deleteAllFiles } from "@/lib/chat-files";
 import { openTicketForConversation, suggestedSubject } from "@/lib/chat-ticket";
 import { logOpsEvent } from "@/lib/events";
 import { chatBrandKey } from "@/lib/profiles";
@@ -209,4 +210,42 @@ export async function POST(req: NextRequest) {
   }
 
   return NextResponse.json({ error: "unknown action" }, { status: 400 });
+}
+
+/**
+ * Wipe the whole chat store: every conversation, every working key, every
+ * stored attachment. Built for the pre-launch reset — a channel going live
+ * should start from an empty inbox, not one full of team test runs.
+ *
+ * Deliberately all-or-nothing and behind an explicit `?confirm=everything`:
+ * a per-conversation delete would invite casual use on a live channel, and
+ * this is not a moderation tool. Channel settings are untouched.
+ */
+export async function DELETE(req: NextRequest) {
+  if (!adminAuthorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  if (req.nextUrl.searchParams.get("confirm") !== "everything") {
+    return NextResponse.json(
+      { error: "This deletes every conversation and attachment. Pass ?confirm=everything to mean it." },
+      { status: 400 },
+    );
+  }
+  const actor = adminActor(req) ?? "console";
+
+  const wiped = await store.wipeAllConversations();
+  const files = await deleteAllFiles();
+
+  await logOpsEvent({
+    level: "warn",
+    event: "chat.store_wiped",
+    source: "console",
+    actor,
+    data: { conversations: wiped.conversations, strayKeys: wiped.strayKeys, files: files.deleted },
+  });
+
+  return NextResponse.json({
+    ok: true,
+    conversations: wiped.conversations,
+    strayKeys: wiped.strayKeys,
+    files: files.deleted,
+  });
 }
