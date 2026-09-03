@@ -18,7 +18,12 @@ import * as freshdesk from "./freshdesk";
 import * as freshchat from "./freshchat";
 import * as jettachat from "./jettachat";
 import * as chatStoreForTools from "../chat-store";
-import { openTicketForConversation, routeTicketUpdate, suggestedSubject } from "../chat-ticket";
+import {
+  judgeSecondTicket,
+  openTicketForConversation,
+  routeTicketUpdate,
+  suggestedSubject,
+} from "../chat-ticket";
 import * as chatFiles from "../chat-files";
 import * as fastspring from "./fastspring";
 import * as monday from "./monday";
@@ -419,8 +424,19 @@ export function buildTools(
                 .describe(
                   "What the customer needs and what you already established or ruled out, in a short paragraph for the agent picking this up.",
                 ),
+              // Required only once a ticket exists: making the model write down
+              // WHY this is a different problem is the cheapest check there is.
+              // If the honest answer is "same issue, more detail", the field is
+              // hard to fill in and add_to_ticket is the obvious way out.
+              separate_issue_reason: ctx.chat?.ticketId
+                ? z
+                    .string()
+                    .describe(
+                      "This conversation ALREADY has a ticket. Say what that ticket is about and what makes this a DIFFERENT problem — one a different person would work, or that would be closed on its own. If it is the same issue with more detail (a screenshot, a new symptom, an answer to your question), do not call this: use add_to_ticket.",
+                    )
+                : z.string().optional().describe("Leave empty — this conversation has no ticket yet."),
             }),
-            execute: async ({ email, subject, summary }) => {
+            execute: async ({ email, subject, summary, separate_issue_reason }) => {
               if (!ticketId) return "No active conversation to escalate.";
               // Basic shape check only — a typo'd address is better than none,
               // but a sentence in the email field would create a broken ticket.
@@ -441,17 +457,54 @@ export function buildTools(
               if (conv.ticketId && !ctx.chat?.ticketId) {
                 return "Someone on the team just opened a ticket for this conversation, so no second one was created. Tell the customer their question is with the team and they'll get a reply by email — do not mention a ticket number.";
               }
+              // The model chose a second ticket over add_to_ticket. That choice
+              // is allowed — one ticket per ISSUE — but it is checked, because
+              // it has been wrong before (see judgeSecondTicket): a second ticket
+              // whose subject reads like the first, or that exists only to carry
+              // a screenshot, is the same issue and goes back to the note path.
+              if (conv.ticketId) {
+                const verdict = judgeSecondTicket({
+                  existingSubject: conv.ticketSubject,
+                  requestedSubject: subject,
+                  fresh: chatStoreForTools.messagesSince(conv, conv.lastTicketSyncAt ?? conv.ticketedAt),
+                });
+                if (verdict.kind === "same_issue") {
+                  await events.logOpsEvent({
+                    level: "warn",
+                    event: "chat.duplicate_ticket_blocked",
+                    source: "jettachat",
+                    ticketId,
+                    data: {
+                      existingTicket: conv.ticketId,
+                      requestedSubject: subject,
+                      reason: verdict.reason,
+                      separateIssueReason: separate_issue_reason?.slice(0, 300),
+                    },
+                  });
+                  return verdict.reason === "subject"
+                    ? `Not created: "${subject}" names the same problem as the ticket this conversation already has (#${conv.ticketId}). Call add_to_ticket with what is new instead — the customer's latest messages and any files go with it. Do not tell the customer a new ticket was opened.`
+                    : `Not created: since the ticket was opened the customer has sent a file with almost no new text. That is more detail on the issue already ticketed (#${conv.ticketId}), not a new problem. Call add_to_ticket with what is new — the file goes with it. Do not tell the customer a new ticket was opened.`;
+                }
+              }
               // Shared with the console's convert button, so a ticket carries
               // the same transcript, files and back-link however it was made.
               const created = await openTicketForConversation(conv, {
                 email: email.trim(),
                 subject,
-                summary,
+                summary: [
+                  summary,
+                  conv.ticketId && separate_issue_reason?.trim()
+                    ? `Separate from ticket #${conv.ticketId}: ${separate_issue_reason.trim()}`
+                    : "",
+                ]
+                  .filter(Boolean)
+                  .join("\n\n"),
                 productHint: ctx.appProduct,
               });
               await chatStoreForTools.updateConversation(ticketId, {
                 status: "ticketed",
                 ticketId: created.id,
+                ticketSubject: subject,
                 // Where the transcript Freshdesk just received ends. It comes
                 // from openTicketForConversation because only that function saw
                 // the snapshot it sent — anything the visitor typed during the
@@ -545,9 +598,10 @@ export function buildTools(
                 // The whole transcript and every file, not just the delta: a
                 // fresh ticket has to stand on its own, and the agent picking
                 // it up has none of the history the closed one carried.
+                const replacementSubject = suggestedSubject({ ...conv, messages: fresh });
                 const reopened = await openTicketForConversation(conv, {
                   email: route.email,
-                  subject: suggestedSubject({ ...conv, messages: fresh }),
+                  subject: replacementSubject,
                   summary: [
                     `Follow-up from a live chat, after ticket #${conv.ticketId} was ${status}.`,
                     note.trim(),
@@ -562,6 +616,7 @@ export function buildTools(
                 }
                 await chatStoreForTools.updateConversation(ticketId, {
                   ticketId: reopened.id,
+                  ticketSubject: replacementSubject,
                   ticketedAt: new Date().toISOString(),
                   // The replacement carries the FULL transcript, so nothing is
                   // outstanding against it — the mark goes to the end of what

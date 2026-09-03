@@ -578,8 +578,71 @@ async function main() {
    * unreachable Freshdesk as "closed" would open a duplicate ticket for every
    * chat update during an outage. Null must mean note.
    */
-  const { routeTicketUpdate } = await import("../lib/chat-ticket");
+  const { routeTicketUpdate, judgeSecondTicket } = await import("../lib/chat-ticket");
   const HAS_EMAIL = "someone@example.com";
+
+  /*
+   * One ticket per issue, checked in code.
+   *
+   * Tickets #14245 and #14246 (2026-08-28) were opened two minutes apart from
+   * one chat for one 403 login problem; the second existed to carry a
+   * screenshot. Both signals that case left behind must trip the guard, and
+   * the genuinely separate issue from the same chat (#14244, an invoice
+   * address change) must not.
+   */
+  const msg = (text: string, files = 0) => ({
+    id: "m",
+    author: "visitor" as const,
+    text,
+    createdAt: "2026-08-28T01:33:00Z",
+    attachments: Array.from({ length: files }, (_, i) => ({
+      id: `f${i}`,
+      name: "shot.png",
+      contentType: "image/png",
+      size: 1,
+      pathname: "p",
+    })),
+  });
+  check(
+    "a second ticket whose subject reads like the first is the same issue",
+    judgeSecondTicket({
+      existingSubject: "403 error on login for colleague account",
+      requestedSubject: "403 error on login — colleague unable to access account",
+      fresh: [msg("Here is what she sees when she tries to log in this morning, same as before")],
+    }).kind === "same_issue",
+  );
+  check(
+    "a screenshot with a line of text is more detail, not a new issue",
+    judgeSecondTicket({
+      existingSubject: undefined,
+      requestedSubject: "Colleague cannot log in",
+      fresh: [msg("here's the screenshot", 1)],
+    }).kind === "same_issue",
+  );
+  check(
+    "a different problem from the same chat still gets its own ticket",
+    judgeSecondTicket({
+      existingSubject: "Invoices addressed to parent company",
+      requestedSubject: "403 error on login for colleague account",
+      fresh: [msg("Also, unrelated — my colleague gets a 403 error page when she tries to log in since this morning.")],
+    }).kind === "allow",
+  );
+  check(
+    "one shared generic word does not make two subjects one issue",
+    judgeSecondTicket({
+      existingSubject: "Question about my invoice",
+      requestedSubject: "Question about the login page",
+      fresh: [msg("Separate thing: the login page shows an error for my colleague, screenshot attached.", 1)],
+    }).kind === "allow",
+  );
+  check(
+    "a new problem explained alongside a file is allowed",
+    judgeSecondTicket({
+      existingSubject: "Timeline not syncing",
+      requestedSubject: "Duplicate items created by automation",
+      fresh: [msg("While you look at that — a different thing: our automation is creating duplicate items every morning, see the attached screenshot of the board.", 1)],
+    }).kind === "allow",
+  );
   check("a live ticket gets a note", routeTicketUpdate("open", HAS_EMAIL).kind === "note");
   check(
     "a ticket waiting on the customer is still live",

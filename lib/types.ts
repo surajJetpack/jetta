@@ -292,6 +292,12 @@ export interface ChatConversation {
    */
   ticketId?: string;
   /**
+   * Subject the active ticket was opened with. The duplicate guard compares a
+   * requested second ticket against it: a subject that reads like this one is
+   * the same issue, and belongs on the ticket as a note.
+   */
+  ticketSubject?: string;
+  /**
    * Tickets this conversation opened earlier, oldest first.
    *
    * A chat can raise two genuinely separate problems — support widgets invite
