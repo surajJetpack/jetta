@@ -542,11 +542,13 @@ const JETTACHAT_RULES = `
  * The escalation rules while this conversation still has no ticket.
  *
  * Lifted out of JETTACHAT_RULES so the post-ticket state can replace them
- * wholesale rather than contradict them. Every bullet here names a tool that
- * is genuinely absent once a ticket exists, and a prompt that instructs the
- * model to call a tool it has not been given produces the worst failure this
- * channel has: she describes the action instead of taking it, and the customer
- * is told a ticket was opened that was not.
+ * wholesale rather than contradict them. A prompt that instructs the model to
+ * call a tool it has not been given produces the worst failure this channel
+ * has: she describes the action instead of taking it, and the customer is told
+ * a ticket was opened that was not. Note that create_support_ticket is NOT
+ * absent post-ticket — it stays for a genuinely separate issue — so
+ * TICKET_ALREADY_OPEN draws the same-issue line in prose, and
+ * judgeSecondTicket in lib/chat-ticket.ts checks it in code.
  */
 const TICKET_NONE_YET = `
 - create_support_ticket is your escalation path. Use it when: the KB has no

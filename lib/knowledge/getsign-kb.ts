@@ -67,9 +67,9 @@ const CURATED: KbArticle[] = [
   {
     title: "Document Signing Links — shareable, no-login signing",
     url: "https://getsign.io/capabilities/document-signing-link/",
-    keywords: ["link", "signing link", "share", "url", "external", "revoke", "expire", "public"],
+    keywords: ["link", "signing link", "share", "url", "external", "revoke", "expire", "expiry", "expiration date", "public"],
     source: "getsign.io",
-    body: `Document signing links are secure, shareable URLs for any document — good for public forms, external signers, or mass outreach. Recipients sign instantly with no account or login. Each link is unique and secure; you control its lifecycle and can revoke access at any time. One document can go to multiple signers via individual links, each tracked separately. Share via email, messaging, embedded forms, or websites. Real-time board updates show who signed, timestamps, and pending status. Links stay active until explicitly disabled. Handles high volume (100+ acknowledgments at once). Included at no extra cost if your plan includes GetSign capabilities.`,
+    body: `Document signing links are secure, shareable URLs for any document — good for public forms, external signers, or mass outreach. Recipients sign instantly with no account or login. Each link is unique and secure; you control its lifecycle and can revoke access at any time. You can also set an expiration date when sending a signing link: once it expires, signers can no longer open the document, and you can reset the process and send a fresh request with or without a new expiry. Links without an expiry stay active until you disable them. One document can go to multiple signers via individual links, each tracked separately. Share via email, messaging, embedded forms, or websites. Real-time board updates show who signed, timestamps, and pending status. Handles high volume (100+ acknowledgments at once). Included at no extra cost if your plan includes GetSign capabilities.`,
   },
   {
     title: "Payment Collection — sign and pay via Stripe",

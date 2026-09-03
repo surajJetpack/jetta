@@ -218,6 +218,7 @@ type ConversationPatch = Partial<
     ChatConversation,
     | "status"
     | "ticketId"
+    | "ticketSubject"
     | "previousTicketIds"
     | "ticketedAt"
     | "lastTicketSyncAt"
@@ -307,6 +308,7 @@ async function updateConversationLocked(
   if ("humanRequestedAt" in patch) conv.humanRequestedAt = patch.humanRequestedAt;
   if ("humanAgent" in patch) conv.humanAgent = patch.humanAgent;
   if (patch.ticketId) conv.ticketId = patch.ticketId;
+  if (patch.ticketSubject) conv.ticketSubject = patch.ticketSubject;
   if (patch.previousTicketIds) conv.previousTicketIds = patch.previousTicketIds;
   if (patch.visitor) conv.visitor = { ...conv.visitor, ...patch.visitor };
   conv.lastActivityAt = nowIso();

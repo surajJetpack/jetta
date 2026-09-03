@@ -127,11 +127,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const ticketSubject = (subject ?? "").trim() || suggestedSubject(conv);
     let created;
     try {
       created = await openTicketForConversation(conv, {
         email,
-        subject: (subject ?? "").trim() || suggestedSubject(conv),
+        subject: ticketSubject,
         summary: (text ?? "").trim() || "Converted from a live chat by the support team.",
         actor,
       });
@@ -158,6 +159,7 @@ export async function POST(req: NextRequest) {
     await store.updateConversation(conversationId, {
       status: "ticketed",
       ticketId: created.id,
+      ticketSubject,
       lastTicketSyncAt: created.syncMark,
     });
 

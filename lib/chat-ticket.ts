@@ -20,7 +20,7 @@ import { transcriptText } from "./chat-store";
 import { transcriptHtml } from "./chat-transcript-html";
 import { getChatSettings, publicSettings } from "./chat-settings";
 import { conversationUrl } from "./tools/jettachat";
-import type { AppProduct, ChatConversation } from "./types";
+import type { AppProduct, ChatConversation, ChatMessage } from "./types";
 
 export interface OpenTicketOptions {
   /** Requester address. Checked by the caller; used verbatim. */
@@ -183,6 +183,117 @@ export function routeTicketUpdate(
   if (!status || !freshdesk.isTerminalStatus(status)) return { kind: "note" };
   const trimmed = email?.trim();
   return trimmed ? { kind: "replace", status, email: trimmed } : { kind: "needs_email", status };
+}
+
+/*
+ * Is a SECOND ticket for this conversation really a second issue?
+ *
+ * Once a chat has a ticket the model holds both create_support_ticket and
+ * add_to_ticket, and the one-ticket-per-issue rule lives in prose. Prose lost:
+ * tickets #14245 and #14246 were opened two minutes apart from one chat, for
+ * one 403 login problem — the second one existed only to carry a screenshot,
+ * and its own back-link note named the first. So the judgement is checked
+ * here too, on the two signals that case left behind, and a match sends the
+ * model back to add_to_ticket, which carries the same messages and files as a
+ * note on the ticket that already exists.
+ *
+ * Pure, like routeTicketUpdate, so the contract suite can pin the thresholds.
+ * Two rules, either of which is enough:
+ *
+ *  - The requested subject names the same problem as the ticket's. Compared on
+ *    content words only — stopwords and the words every support subject shares
+ *    ("error", "issue", "getsign") are dropped first, so "Question about my
+ *    invoice" and "Question about the login page" do NOT match, while "403 on
+ *    login for colleague" and "403 login — colleague can't access" do.
+ *  - Since the ticket was last pushed to, the visitor sent a file and barely
+ *    any text. "Here's the screenshot" is more detail, not a new issue. A
+ *    genuinely new problem comes with a sentence explaining it.
+ *
+ * False positives cost a note on a ticket that should have been its own
+ * thread; the team can split it. False negatives cost the duplicate above.
+ * The prompt's own tie-break — "if you are unsure, it is the same issue" —
+ * points the same way.
+ */
+
+/** Dice score over stemmed content words at or above which two subjects are one problem. */
+export const SAME_ISSUE_SUBJECT_SCORE = 0.5;
+/** ...and at least this many content words in common, so one shared word cannot decide. */
+export const SAME_ISSUE_MIN_SHARED_WORDS = 2;
+/** With a file attached, fewer typed words than this since the last push is "here it is", not a new issue. */
+export const SAME_ISSUE_MAX_WORDS_WITH_FILE = 10;
+
+const SUBJECT_NOISE = new Set([
+  // stopwords
+  "a", "an", "the", "and", "or", "but", "of", "to", "in", "on", "at", "for", "from", "with", "by",
+  "about", "into", "is", "are", "was", "were", "be", "been", "it", "its", "my", "our", "your", "their",
+  "his", "her", "this", "that", "these", "those", "i", "we", "you", "they", "me", "us", "can", "cant",
+  "cannot", "not", "no", "do", "does", "did", "have", "has", "had", "when", "how", "why", "what", "re",
+  // words every support subject shares — they say "support", not which problem
+  "question", "questions", "issue", "issues", "problem", "problems", "error", "errors", "help", "request",
+  "support", "urgent", "working", "work", "works", "need", "needs", "please", "getsign", "monday", "com",
+  "app", "apps", "jetpack", "jetpackapps", "chat",
+]);
+
+/** Crude stem so "syncing" / "sync" / "synced" count as one word. */
+function stem(w: string): string {
+  if (w.length <= 4) return w;
+  return w.replace(/(ing|ed|es|s)$/, "");
+}
+
+/** The words of a subject that actually name its problem. */
+export function subjectContentWords(subject: string): string[] {
+  return subject
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .split(/\s+/)
+    .filter((w) => w && !SUBJECT_NOISE.has(w))
+    .map(stem);
+}
+
+export type SecondTicketVerdict =
+  | { kind: "allow" }
+  | { kind: "same_issue"; reason: "subject" | "file_only" };
+
+export function judgeSecondTicket(input: {
+  /** Subject the active ticket was opened with; absent on conversations ticketed before it was stored. */
+  existingSubject: string | undefined;
+  requestedSubject: string;
+  /** Messages since the last push to the active ticket (the same delta add_to_ticket would carry). */
+  fresh: ChatMessage[];
+}): SecondTicketVerdict {
+  if (input.existingSubject) {
+    const a = subjectContentWords(input.existingSubject);
+    const b = subjectContentWords(input.requestedSubject);
+    if (a.length && b.length) {
+      const pool = new Map<string, number>();
+      for (const w of a) pool.set(w, (pool.get(w) ?? 0) + 1);
+      let shared = 0;
+      for (const w of b) {
+        const n = pool.get(w) ?? 0;
+        if (n > 0) {
+          shared++;
+          pool.set(w, n - 1);
+        }
+      }
+      const score = (2 * shared) / (a.length + b.length);
+      if (score >= SAME_ISSUE_SUBJECT_SCORE && shared >= SAME_ISSUE_MIN_SHARED_WORDS) {
+        return { kind: "same_issue", reason: "subject" };
+      }
+    }
+  }
+
+  const visitor = input.fresh.filter((m) => m.author === "visitor" && !m.system);
+  const files = visitor.reduce((n, m) => n + (m.attachments?.length ?? 0), 0);
+  if (files > 0) {
+    const typed = visitor
+      .map((m) => m.text.trim())
+      .join(" ")
+      .split(/\s+/)
+      .filter(Boolean).length;
+    if (typed < SAME_ISSUE_MAX_WORDS_WITH_FILE) return { kind: "same_issue", reason: "file_only" };
+  }
+
+  return { kind: "allow" };
 }
 
 /**
