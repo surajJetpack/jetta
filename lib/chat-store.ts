@@ -162,12 +162,27 @@ async function withConversationLock<T>(id: string, fn: () => Promise<T>): Promis
   return await fn();
 }
 
+/**
+ * A conversation earns its place in the index with its first message.
+ *
+ * The widget opens a session the moment a page loads, before anyone has
+ * decided to talk, so most conversations ever created hold nothing. They must
+ * still be stored — the visitor's tab resumes them by id, and the stream polls
+ * them — but they are not chats, and indexing them meant every page view on a
+ * busy site pushed a real conversation out of the newest-100 window the
+ * console reads. Observed on getsign.io the day it went live: 96 of the 100
+ * indexed entries were empty and the inbox showed four chats.
+ */
+const isIndexable = (conv: ChatConversation) => conv.messages.length > 0;
+
 /** Persist and re-index. Every write refreshes the retention TTL. */
 async function save(conv: ChatConversation): Promise<void> {
   const r = client();
   if (r) {
     await r.set(convKey(conv.id), conv, { ex: await ttlSeconds() });
-    await r.zadd(CHAT_INDEX, { score: Date.parse(conv.lastActivityAt), member: conv.id });
+    if (isIndexable(conv)) {
+      await r.zadd(CHAT_INDEX, { score: Date.parse(conv.lastActivityAt), member: conv.id });
+    }
     return;
   }
   memChats.set(conv.id, conv);
@@ -340,22 +355,50 @@ export function isStale(conv: ChatConversation, idleHours: number): boolean {
   return Date.now() - last > Math.max(1, idleHours) * 3_600_000;
 }
 
-/** Newest-first conversation list for the console. */
+/**
+ * Newest-first list of conversations that hold at least one message.
+ *
+ * Reads the index in pages until `limit` real conversations are in hand or
+ * the index runs out, so noise never shortens the list the console sees. Two
+ * kinds of entry are dropped from the index as they are met: ones whose
+ * document has expired (the document's TTL runs out before the index entry
+ * does), and empty conversations indexed before `save` stopped indexing them.
+ * The second is what heals a store that filled up with page-load sessions —
+ * one read of the inbox and they are gone.
+ *
+ * Bounded so a pathological index cannot turn one page view into thousands of
+ * reads: at most MAX_PAGES pages of `limit` ids.
+ */
 export async function listConversations(limit = 100): Promise<ChatConversation[]> {
   const r = client();
   if (r) {
-    const ids = await r.zrange<string[]>(CHAT_INDEX, 0, limit - 1, { rev: true });
-    if (!ids.length) return [];
-    const raw = await Promise.all(ids.map((id) => r.get<ChatConversation>(convKey(id))));
-    // Conversations expire before the index entry does; prune as we read.
+    const MAX_PAGES = 10;
     const live: ChatConversation[] = [];
-    for (let i = 0; i < ids.length; i++) {
-      if (raw[i]) live.push(raw[i]!);
-      else await r.zrem(CHAT_INDEX, ids[i]);
+    let offset = 0;
+    for (let page = 0; page < MAX_PAGES && live.length < limit; page++) {
+      const ids = await r.zrange<string[]>(CHAT_INDEX, offset, offset + limit - 1, { rev: true });
+      if (!ids.length) break;
+      const raw = await Promise.all(ids.map((id) => r.get<ChatConversation>(convKey(id))));
+      let pruned = 0;
+      for (let i = 0; i < ids.length && live.length < limit; i++) {
+        const conv = raw[i];
+        if (conv && isIndexable(conv)) live.push(conv);
+        else {
+          await r.zrem(CHAT_INDEX, ids[i]);
+          pruned++;
+        }
+      }
+      // A pruned entry no longer occupies a position, so the next page starts
+      // after the entries that were kept, not after everything that was read.
+      offset += ids.length - pruned;
+      if (ids.length < limit) break; // index exhausted
     }
     return live;
   }
-  return [...memChats.values()].sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt)).slice(0, limit);
+  return [...memChats.values()]
+    .filter(isIndexable)
+    .sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt))
+    .slice(0, limit);
 }
 
 // ── Short-lived run state (typing indicator + debounce) ────────────
@@ -503,7 +546,19 @@ export async function wipeAllConversations(): Promise<{ conversations: number; s
     return { conversations: n, strayKeys: 0 };
   }
 
-  const ids = (await r.zrange<string[]>(CHAT_INDEX, 0, -1)) ?? [];
+  const ids = new Set((await r.zrange<string[]>(CHAT_INDEX, 0, -1)) ?? []);
+  // Empty conversations are stored but never indexed (see `save`), so the
+  // index alone would leave every page-load session behind. Conversation keys
+  // are `jetta:chat:<uuid>`; the scan is filtered by that shape so the
+  // settings, run, turn, lock and upload keys under the same prefix are left
+  // alone (the ephemeral ones are swept below, settings are kept on purpose).
+  const UUID = /^jetta:chat:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  let cursor = "0";
+  do {
+    const [next, keys] = await r.scan(cursor, { match: "jetta:chat:*", count: 200 });
+    cursor = String(next);
+    for (const key of keys) if (UUID.test(key)) ids.add(key.slice("jetta:chat:".length));
+  } while (cursor !== "0");
   for (const id of ids) {
     await r.del(convKey(id), runKey(id), turnKey(id), lockKey(id), `jetta:chat:uploads:${id}`);
   }
@@ -514,7 +569,7 @@ export async function wipeAllConversations(): Promise<{ conversations: number; s
   // ephemera, so a fresh start zeroes them too.
   let strayKeys = 0;
   for (const match of ["jetta:chat:upload*", "jetta:chat:rate:*"]) {
-    let cursor = "0";
+    cursor = "0";
     do {
       const [next, keys] = await r.scan(cursor, { match, count: 200 });
       cursor = String(next);
@@ -525,5 +580,5 @@ export async function wipeAllConversations(): Promise<{ conversations: number; s
     } while (cursor !== "0");
   }
 
-  return { conversations: ids.length, strayKeys };
+  return { conversations: ids.size, strayKeys };
 }
