@@ -125,11 +125,21 @@ export const SITES: SiteConfig[] = [
     /*
      * `workflow` and `form` are deliberately NOT crawled.
      *
-     * The 2026-09 site redesign turned both into programmatic SEO surfaces:
-     * 1380 /workflow/ pages and 488 /form/ pages, against a getsign corpus of
-     * ~170 curated articles. They are template/landing permutations, not
-     * support content — ingesting them would bury the answers Jetta needs
-     * under an order of magnitude of near-duplicate text.
+     * The site redesign turned both into programmatic SEO surfaces: 1380
+     * /workflow/ pages and 488 /form/ pages, against a getsign corpus of ~80
+     * curated articles. They are template/landing permutations, not support
+     * content — ingesting them would bury the answers Jetta needs under an
+     * order of magnitude of near-duplicate text.
+     *
+     * Nothing has actually been ingested: these are page-builder pages whose
+     * WP REST `content.rendered` is EMPTY (verified across 100 of each), so
+     * MIN_BODY_CHARS already dropped every one. That is the point. The only
+     * thing standing between the retrieval corpus and 500 junk articles (the
+     * fetchType page cap) was an incidental 200-character filter, and whether
+     * a page builder populates `content.rendered` is a WordPress plugin
+     * setting nobody here controls. Excluding the post types makes it a
+     * decision instead of an accident — and stops fetching 500 empty records
+     * every morning.
      *
      * `workflow` used to be in this list, from when the post type held a
      * handful of real pages. `form` never was, and must not be added.
