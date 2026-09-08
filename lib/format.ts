@@ -1,6 +1,6 @@
 /** Client-safe display helpers shared across console components. */
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 
 /** "480ms" under a second, "12.3s" from one second up. */
 export function fmtDuration(ms: number | undefined | null): string {
@@ -109,6 +109,27 @@ export function fmtDateTime(at: number | string): string {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+/** Module scope so the reference is stable — a new fn each render resubscribes. */
+const subscribeNever = () => () => {};
+
+/**
+ * False on the server and through the hydrating render, true forever after.
+ *
+ * The escape hatch for markup whose SHAPE depends on the viewer's clock or
+ * zone. `suppressHydrationWarning` is not that hatch: it excuses a differing
+ * text node or attribute on one element, and nothing deeper. The moment a
+ * zone decides whether an element exists at all — a day divider, a timestamp,
+ * an avatar on a run boundary — server and client disagree structurally,
+ * React throws, and it discards the whole subtree to recover.
+ *
+ * So render the zone-independent shape first and let the clock in afterwards.
+ * The cost is one extra client render and times that arrive a frame late; the
+ * alternative is shipping the viewer's zone to the server on every request.
+ */
+export function useHydrated(): boolean {
+  return useSyncExternalStore(subscribeNever, () => true, () => false);
 }
 
 /**

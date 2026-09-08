@@ -15,7 +15,7 @@ import { EmptyState } from "@/components/jetta/empty-state";
 import { RelativeTime } from "@/components/jetta/relative-time";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { appName } from "@/lib/types";
-import { dayKey, fmtDateTime, fmtDayLabel, fmtTime, localZone, useNow } from "@/lib/format";
+import { dayKey, fmtDateTime, fmtDayLabel, fmtTime, localZone, useHydrated, useNow } from "@/lib/format";
 import { usePolling } from "@/lib/use-polling";
 import { armChime, chimeEnabled, playChime, setChimeEnabled, subscribeChime } from "@/components/jetta/chime";
 
@@ -121,13 +121,16 @@ function appOf(c: Conv): string {
  * A leaf that owns its own clock, like `RelativeTime`: "Today" goes stale at
  * midnight on an inbox somebody left open overnight, and ticking down here
  * re-renders one line rather than the whole two-pane view.
+ *
+ * No `suppressHydrationWarning`: the caller renders dividers only once
+ * hydrated, so there is no server text for this to disagree with.
  */
 function DayDivider({ at }: { at: string }) {
   const now = useNow(60_000);
   return (
     <div className="flex items-center gap-2 py-2" role="separator">
       <span className="h-px flex-1 bg-border" />
-      <span className="text-[10px] tracking-wide text-muted-foreground uppercase" suppressHydrationWarning>
+      <span className="text-[10px] tracking-wide text-muted-foreground uppercase">
         {fmtDayLabel(at, now)}
       </span>
       <span className="h-px flex-1 bg-border" />
@@ -175,6 +178,18 @@ export default function ChatInbox({
    * holding — and the guess is silent when it is wrong.
    */
   const zone = localZone();
+  /*
+   * Everything below that reads a clock is gated on this.
+   *
+   * The transcript is server-rendered — `fetched` is seeded from `initial`, so
+   * loading /chats?c=<id> directly paints the bubbles on the server, in the
+   * SERVER's zone. Day dividers and run boundaries then come out differently
+   * on a viewer in another zone, which is a structural mismatch rather than a
+   * textual one: React throws and regenerates the pane. Observed as an avatar
+   * on one side and a spacer on the other, either side of a midnight that only
+   * exists in one of the two zones.
+   */
+  const hydrated = useHydrated();
   const attachmentCount = detail?.messages.reduce((n, m) => n + (m.attachments?.length ?? 0), 0) ?? 0;
   const [filter, setFilter] = useState<Filter>("all");
   const [app, setApp] = useState<string>(ALL_APPS);
@@ -608,13 +623,14 @@ export default function ChatInbox({
                 </p>
               </div>
               <div className="ml-auto flex shrink-0 items-center gap-1.5">
-                <span
-                  className="text-[11px] text-muted-foreground"
-                  title={`Transcript times are in your own zone${zone.name ? ` (${zone.name})` : ""}. The transcript on the Freshdesk ticket is in UTC.`}
-                  suppressHydrationWarning
-                >
-                  times in {zone.short}
-                </span>
+                {hydrated && (
+                  <span
+                    className="text-[11px] text-muted-foreground"
+                    title={`Transcript times are in your own zone${zone.name ? ` (${zone.name})` : ""}. The transcript on the Freshdesk ticket is in UTC.`}
+                  >
+                    times in {zone.short}
+                  </span>
+                )}
                 <StatusChip tone={TONES[detail.status]}>{LABELS[detail.status]}</StatusChip>
                 {detail.ticketId && (
                   // Freshdesk, not here. This used to link to /chats/<this
@@ -663,7 +679,7 @@ export default function ChatInbox({
                  */
                 const prev = arr[i - 1];
                 const divider =
-                  !prev || dayKey(prev.createdAt) !== dayKey(m.createdAt) ? (
+                  hydrated && (!prev || dayKey(prev.createdAt) !== dayKey(m.createdAt)) ? (
                     <DayDivider at={m.createdAt} />
                   ) : null;
 
@@ -690,7 +706,10 @@ export default function ChatInbox({
                   next.authorName !== m.authorName ||
                   // Midnight ends a run too, or the divider would split a run
                   // whose only timestamp is stranded on the far side of it.
-                  dayKey(next.createdAt) !== dayKey(m.createdAt);
+                  // Gated: this clause decides whether the gutter holds a face
+                  // or a spacer, and midnight is not in the same place for the
+                  // server as it is for the reader.
+                  (hydrated && dayKey(next.createdAt) !== dayKey(m.createdAt));
                 const gutter = !runEnds ? (
                   <span className="size-6 shrink-0" aria-hidden />
                 ) : m.author === "visitor" ? (
@@ -761,7 +780,7 @@ export default function ChatInbox({
                         </div>
                         {m.author === "agent" && gutter}
                       </div>
-                      {runEnds && (
+                      {hydrated && runEnds && (
                         <p
                           className={[
                             "mt-0.5 text-[10px] tabular-nums text-muted-foreground",
@@ -775,7 +794,6 @@ export default function ChatInbox({
                              when a thing was actually said, so this is the wall
                              clock, with the full date on hover. */
                           title={`${fmtDateTime(m.createdAt)}${zone.short ? ` ${zone.short}` : ""}`}
-                          suppressHydrationWarning
                         >
                           {fmtTime(m.createdAt)}
                         </p>
