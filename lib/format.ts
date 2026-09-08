@@ -1,6 +1,6 @@
 /** Client-safe display helpers shared across console components. */
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 
 /** "480ms" under a second, "12.3s" from one second up. */
 export function fmtDuration(ms: number | undefined | null): string {
@@ -28,6 +28,77 @@ export function fmtDate(at: number | string): string {
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
 
+/**
+ * Local wall-clock time of a unix-seconds or ISO timestamp — "2:30 PM" or
+ * "14:30", whichever the viewer's locale uses. `hour: "numeric"` rather than
+ * "2-digit" because "2:30 PM" beats "02:30 PM" in a 10px label.
+ */
+export function fmtTime(at: number | string): string {
+  const d = typeof at === "number" ? new Date(at * 1000) : new Date(at);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+}
+
+/**
+ * The viewer's own time zone: a short label to show ("PDT", "GMT+5:45") and
+ * the IANA name to put in a tooltip ("America/Los_Angeles").
+ *
+ * Both are read off the browser, so both differ between the server render and
+ * the client — whatever displays them needs `suppressHydrationWarning`, the
+ * same bargain `RelativeTime` makes.
+ *
+ * `short` falls back to the IANA name rather than to an empty string: a zone
+ * label that renders as nothing is worse than a long one, because the reader
+ * cannot tell a missing zone from a zone they misread.
+ */
+export function localZone(): { short: string; name: string } {
+  const name = Intl.DateTimeFormat().resolvedOptions().timeZone ?? "";
+  const parts = new Intl.DateTimeFormat(undefined, { timeZoneName: "short" }).formatToParts(
+    new Date(),
+  );
+  const short = parts.find((part) => part.type === "timeZoneName")?.value ?? "";
+  return { short: short || name, name };
+}
+
+/**
+ * Local calendar day of a timestamp ("2026-09-08"), for grouping.
+ *
+ * Built from the local date parts rather than `toISOString().slice(0, 10)`,
+ * which would be the UTC day: west of Greenwich that reads an evening message
+ * as tomorrow, and every day boundary then lands in the wrong place.
+ */
+export function dayKey(at: number | string): string {
+  const d = typeof at === "number" ? new Date(at * 1000) : new Date(at);
+  if (Number.isNaN(d.getTime())) return "";
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${mm}-${dd}`;
+}
+
+/**
+ * A date divider's label: "Today", "Yesterday", or "Mon, 8 Sep".
+ *
+ * Compares calendar days against a caller-supplied "now" rather than elapsed
+ * hours — 23:50 and 00:10 are twenty minutes and two days apart, and someone
+ * scanning a transcript wants the second answer.
+ */
+export function fmtDayLabel(at: number | string, nowMs: number): string {
+  const d = typeof at === "number" ? new Date(at * 1000) : new Date(at);
+  if (Number.isNaN(d.getTime())) return "";
+  const key = dayKey(d.getTime() / 1000);
+  if (key === dayKey(nowMs / 1000)) return "Today";
+  const yesterday = new Date(nowMs);
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (key === dayKey(yesterday.getTime() / 1000)) return "Yesterday";
+  return d.toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    // A chat from last year is rare, but a bare "Mon, 8 Sep" on one is a lie.
+    ...(d.getFullYear() === new Date(nowMs).getFullYear() ? {} : { year: "numeric" }),
+  });
+}
+
 /** Local date + time ("Jul 13, 2026, 14:30") of a unix-seconds or ISO timestamp. */
 export function fmtDateTime(at: number | string): string {
   const d = typeof at === "number" ? new Date(at * 1000) : new Date(at);
@@ -38,6 +109,27 @@ export function fmtDateTime(at: number | string): string {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+/** Module scope so the reference is stable — a new fn each render resubscribes. */
+const subscribeNever = () => () => {};
+
+/**
+ * False on the server and through the hydrating render, true forever after.
+ *
+ * The escape hatch for markup whose SHAPE depends on the viewer's clock or
+ * zone. `suppressHydrationWarning` is not that hatch: it excuses a differing
+ * text node or attribute on one element, and nothing deeper. The moment a
+ * zone decides whether an element exists at all — a day divider, a timestamp,
+ * an avatar on a run boundary — server and client disagree structurally,
+ * React throws, and it discards the whole subtree to recover.
+ *
+ * So render the zone-independent shape first and let the clock in afterwards.
+ * The cost is one extra client render and times that arrive a frame late; the
+ * alternative is shipping the viewer's zone to the server on every request.
+ */
+export function useHydrated(): boolean {
+  return useSyncExternalStore(subscribeNever, () => true, () => false);
 }
 
 /**

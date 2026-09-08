@@ -173,12 +173,15 @@ function blocks(text: string, fg: string): string {
 }
 
 /**
- * "18 Aug, 05:13 UTC" — fixed to UTC on purpose.
+ * "18 Aug, 05:13 UTC" — fixed to UTC on purpose, and the one surface that is.
  *
- * The widget shows no timestamps at all, because the visitor was there. A
- * transcript is evidence read later by someone who was not, and evidence that
- * renders differently depending on who opens it is worth less than evidence
- * that is merely inconvenient.
+ * The widget and the console transcript both show the reader their OWN zone,
+ * which is what a live conversation wants. This is not one: a ticket
+ * transcript is evidence read later by someone who was not there, often in
+ * another country, and evidence that renders differently depending on who
+ * opens it is worth less than evidence that is merely inconvenient. The
+ * console names its zone in the header for exactly this reason — so the two
+ * can be reconciled rather than silently disagreed with.
  */
 function stamp(iso: string): string {
   const d = new Date(iso);
