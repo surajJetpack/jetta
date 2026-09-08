@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Bell, BellOff, ExternalLink, Hand, Paperclip, Search, Send, Ticket as TicketIcon, Undo2 } from "lucide-react";
 import { ChatAvatar } from "@/components/jetta/chat-avatar";
@@ -15,6 +15,7 @@ import { EmptyState } from "@/components/jetta/empty-state";
 import { RelativeTime } from "@/components/jetta/relative-time";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { appName } from "@/lib/types";
+import { dayKey, fmtDateTime, fmtDayLabel, fmtTime, localZone, useNow } from "@/lib/format";
 import { usePolling } from "@/lib/use-polling";
 import { armChime, chimeEnabled, playChime, setChimeEnabled, subscribeChime } from "@/components/jetta/chime";
 
@@ -115,6 +116,26 @@ function appOf(c: Conv): string {
 }
 
 /**
+ * The "Today" / "8 Sep" rule between two days of one conversation.
+ *
+ * A leaf that owns its own clock, like `RelativeTime`: "Today" goes stale at
+ * midnight on an inbox somebody left open overnight, and ticking down here
+ * re-renders one line rather than the whole two-pane view.
+ */
+function DayDivider({ at }: { at: string }) {
+  const now = useNow(60_000);
+  return (
+    <div className="flex items-center gap-2 py-2" role="separator">
+      <span className="h-px flex-1 bg-border" />
+      <span className="text-[10px] tracking-wide text-muted-foreground uppercase" suppressHydrationWarning>
+        {fmtDayLabel(at, now)}
+      </span>
+      <span className="h-px flex-1 bg-border" />
+    </div>
+  );
+}
+
+/**
  * The chat inbox.
  *
  * Two panes because live chat is not archive-reading: you watch a list for
@@ -147,6 +168,13 @@ export default function ChatInbox({
   // react-hooks/set-state-in-effect and stops the PREVIOUS conversation
   // flashing up for a poll cycle after you click a different one.
   const detail = fetched && fetched.id === selectedId ? fetched : null;
+  /*
+   * Named next to the transcript because the transcript's times are local and
+   * the SAME conversation's Freshdesk transcript is fixed to UTC. Without the
+   * zone on screen, reconciling the two means guessing which one you are
+   * holding — and the guess is silent when it is wrong.
+   */
+  const zone = localZone();
   const attachmentCount = detail?.messages.reduce((n, m) => n + (m.attachments?.length ?? 0), 0) ?? 0;
   const [filter, setFilter] = useState<Filter>("all");
   const [app, setApp] = useState<string>(ALL_APPS);
@@ -580,6 +608,13 @@ export default function ChatInbox({
                 </p>
               </div>
               <div className="ml-auto flex shrink-0 items-center gap-1.5">
+                <span
+                  className="text-[11px] text-muted-foreground"
+                  title={`Transcript times are in your own zone${zone.name ? ` (${zone.name})` : ""}. The transcript on the Freshdesk ticket is in UTC.`}
+                  suppressHydrationWarning
+                >
+                  times in {zone.short}
+                </span>
                 <StatusChip tone={TONES[detail.status]}>{LABELS[detail.status]}</StatusChip>
                 {detail.ticketId && (
                   // Freshdesk, not here. This used to link to /chats/<this
@@ -617,24 +652,45 @@ export default function ChatInbox({
 
             <div className="flex-1 space-y-2 overflow-y-auto px-3 py-3">
               {detail.messages.map((m, i, arr) => {
+                /*
+                 * A divider wherever the calendar day turns over.
+                 *
+                 * Not decoration: a chat is not always one sitting. A ticketed
+                 * conversation keeps taking messages long after the first
+                 * answer, so two bubbles an inch apart can be days apart — and
+                 * a bare "09:14" with nothing to sit under is a worse answer
+                 * than no time at all.
+                 */
+                const prev = arr[i - 1];
+                const divider =
+                  !prev || dayKey(prev.createdAt) !== dayKey(m.createdAt) ? (
+                    <DayDivider at={m.createdAt} />
+                  ) : null;
+
                 if (m.system) {
                   return (
-                    <p key={m.id} className="py-1 text-center text-[11px] text-muted-foreground">
-                      {m.text}
-                    </p>
+                    <Fragment key={m.id}>
+                      {divider}
+                      <p className="py-1 text-center text-[11px] text-muted-foreground">{m.text}</p>
+                    </Fragment>
                   );
                 }
                 const human = m.via === "human";
                 // One face per run of consecutive same-speaker messages, on
                 // the run's last bubble; the rest get an equal-width spacer so
                 // bubbles stay aligned. Cheaper to read than a face per line.
+                // The timestamp rides the same boundary, so a burst of three
+                // messages reads as one turn with one clock against it.
                 const next = arr[i + 1];
                 const runEnds =
                   !next ||
                   next.system === true ||
                   next.author !== m.author ||
                   next.via !== m.via ||
-                  next.authorName !== m.authorName;
+                  next.authorName !== m.authorName ||
+                  // Midnight ends a run too, or the divider would split a run
+                  // whose only timestamp is stranded on the far side of it.
+                  dayKey(next.createdAt) !== dayKey(m.createdAt);
                 const gutter = !runEnds ? (
                   <span className="size-6 shrink-0" aria-hidden />
                 ) : m.author === "visitor" ? (
@@ -645,61 +701,87 @@ export default function ChatInbox({
                   <ChatAvatar kind="jetta" src={avatars[detail.brandKey ?? "main"]} />
                 );
                 return (
-                  <div
-                    key={m.id}
-                    className={
-                      m.author === "visitor"
-                        ? "flex items-end justify-start gap-1.5"
-                        : "flex items-end justify-end gap-1.5"
-                    }
-                  >
-                    {m.author === "visitor" && gutter}
-                    <div
-                      className={[
-                        "max-w-[78%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap",
-                        m.author === "visitor"
-                          ? "rounded-bl-sm bg-muted"
-                          : human
-                            ? "rounded-br-sm border border-primary/40 bg-primary/5"
-                            : "rounded-br-sm bg-primary/10",
-                      ].join(" ")}
-                    >
-                      {m.author === "agent" && (
-                        <p className="mb-0.5 text-[10px] tracking-wide text-muted-foreground uppercase">
-                          {human ? `${m.authorName ?? "Team"} · human` : "Jetta"}
-                        </p>
-                      )}
-                      {m.attachments?.map((a) => (
-                        <a
-                          key={a.id}
-                          href={consoleFileUrl(a.pathname)}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="mb-1.5 block overflow-hidden rounded-md border bg-background"
-                          title={`${a.name}${a.description ? ` — ${a.description}` : ""}`}
+                  <Fragment key={m.id}>
+                    {divider}
+                    {/* Bubble and time wrapped as one child, so the column's
+                        space-y-2 separates TURNS while the time stays tucked
+                        against the bubble it belongs to. */}
+                    <div>
+                      <div
+                        className={
+                          m.author === "visitor"
+                            ? "flex items-end justify-start gap-1.5"
+                            : "flex items-end justify-end gap-1.5"
+                        }
+                      >
+                        {m.author === "visitor" && gutter}
+                        <div
+                          className={[
+                            "max-w-[78%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap",
+                            m.author === "visitor"
+                              ? "rounded-bl-sm bg-muted"
+                              : human
+                                ? "rounded-br-sm border border-primary/40 bg-primary/5"
+                                : "rounded-br-sm bg-primary/10",
+                          ].join(" ")}
                         >
-                          {a.contentType.startsWith("image/") ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img src={consoleFileUrl(a.pathname)} alt={a.name} className="max-h-64 w-full object-contain" />
-                          ) : (
-                            <span className="flex items-center gap-1.5 px-2.5 py-2 text-xs">
-                              <Paperclip className="size-3.5" /> {a.name}
-                            </span>
+                          {m.author === "agent" && (
+                            <p className="mb-0.5 text-[10px] tracking-wide text-muted-foreground uppercase">
+                              {human ? `${m.authorName ?? "Team"} · human` : "Jetta"}
+                            </p>
                           )}
-                        </a>
-                      ))}
-                      {/* What Jetta was told the image showed. Shown to us and
-                          never to the visitor: it is the only way to tell a
-                          wrong answer from a wrong reading of the screenshot. */}
-                      {m.attachments?.some((a) => a.description) && (
-                        <p className="mb-1.5 border-l-2 border-muted-foreground/30 pl-2 text-[11px] text-muted-foreground italic">
-                          Jetta saw: {m.attachments.map((a) => a.description).filter(Boolean).join(" ")}
+                          {m.attachments?.map((a) => (
+                            <a
+                              key={a.id}
+                              href={consoleFileUrl(a.pathname)}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="mb-1.5 block overflow-hidden rounded-md border bg-background"
+                              title={`${a.name}${a.description ? ` — ${a.description}` : ""}`}
+                            >
+                              {a.contentType.startsWith("image/") ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img src={consoleFileUrl(a.pathname)} alt={a.name} className="max-h-64 w-full object-contain" />
+                              ) : (
+                                <span className="flex items-center gap-1.5 px-2.5 py-2 text-xs">
+                                  <Paperclip className="size-3.5" /> {a.name}
+                                </span>
+                              )}
+                            </a>
+                          ))}
+                          {/* What Jetta was told the image showed. Shown to us and
+                              never to the visitor: it is the only way to tell a
+                              wrong answer from a wrong reading of the screenshot. */}
+                          {m.attachments?.some((a) => a.description) && (
+                            <p className="mb-1.5 border-l-2 border-muted-foreground/30 pl-2 text-[11px] text-muted-foreground italic">
+                              Jetta saw: {m.attachments.map((a) => a.description).filter(Boolean).join(" ")}
+                            </p>
+                          )}
+                          {m.text}
+                        </div>
+                        {m.author === "agent" && gutter}
+                      </div>
+                      {runEnds && (
+                        <p
+                          className={[
+                            "mt-0.5 text-[10px] tabular-nums text-muted-foreground",
+                            /* Clear of the avatar gutter (a size-6 face plus
+                               the gap-1.5) so the time sits under the bubble's
+                               own edge rather than under the face. */
+                            m.author === "visitor" ? "ps-[30px] text-left" : "pe-[30px] text-right",
+                          ].join(" ")}
+                          /* Relative time is the LIST's job — "which chat has
+                             gone quiet". Inside a transcript the question is
+                             when a thing was actually said, so this is the wall
+                             clock, with the full date on hover. */
+                          title={`${fmtDateTime(m.createdAt)}${zone.short ? ` ${zone.short}` : ""}`}
+                          suppressHydrationWarning
+                        >
+                          {fmtTime(m.createdAt)}
                         </p>
                       )}
-                      {m.text}
                     </div>
-                    {m.author === "agent" && gutter}
-                  </div>
+                  </Fragment>
                 );
               })}
               <div ref={endRef} />
