@@ -107,6 +107,20 @@ function clamped(s: string, max: number): boolean {
   return s.replace(/\s+/g, " ").trim().length > max;
 }
 
+/**
+ * Escalations are pushed to the whole channel, not just whoever happens to be
+ * looking. A blocked customer waiting on the dev team is exactly what @channel
+ * is for, and the channel exists only for these. Slack parses the escaped
+ * `<!channel>` form from the message text — a literal "@channel" would post as
+ * plain words and notify nobody.
+ *
+ * Only messages the CHANNEL sees carry it: the top-level escalation and an
+ * urgent update (which is broadcast back out of its thread). A routine update
+ * stays a quiet thread reply, so following an issue never costs a notification
+ * per comment.
+ */
+const AT_CHANNEL = "<!channel>";
+
 const HEADLINE_MAX = 90;
 const QUESTION_MAX = 180;
 const FLAG_MAX = 100;
@@ -339,7 +353,9 @@ export async function sendEscalation(
   // parent two messages up already carries them. The Dev item does repeat: it
   // is often the thing that changed since the last post.
   const update = [
-    `${input.urgent ? ":rotating_light: *Urgent update" : ":arrows_counterclockwise: *Update"} — ${linkify(input.headline)}*`,
+    input.urgent
+      ? `${AT_CHANNEL} :rotating_light: *Urgent update — ${linkify(input.headline)}*`
+      : `:arrows_counterclockwise: *Update — ${linkify(input.headline)}*`,
     ...(input.mondayItemUrl ? [link(input.mondayItemUrl, "Dev item")] : []),
     `:question: ${question}`,
     "",
@@ -374,7 +390,7 @@ export async function sendEscalation(
     // clamp() would cut mid-link and leave broken markup in the channel, so the
     // headline is shortened before linking and the question falls back to its
     // plain form whenever it needs truncating (the thread carries it in full).
-    `:rotating_light: *${prefix}${linkify(clamp(input.headline, HEADLINE_MAX))}*`,
+    `${AT_CHANNEL} :rotating_light: *${prefix}${linkify(clamp(input.headline, HEADLINE_MAX))}*`,
     refs.join(" · "),
     `:question: ${clamped(input.question, QUESTION_MAX) ? clamp(input.question, QUESTION_MAX) : question}`,
   ].join("\n");

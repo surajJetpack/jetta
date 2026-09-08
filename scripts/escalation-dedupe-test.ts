@@ -72,6 +72,10 @@ async function main() {
   check("first escalation posts a parent + detail reply", posts.length === 2, `${posts.length} posts`);
   check("parent is top-level", posts[0]?.thread === null);
   check("detail is threaded under the parent", posts[1]?.thread === first.ts);
+  // The channel exists for these, and a blocked customer should not wait for
+  // someone to wander in and read it.
+  check("the parent pings the channel", posts[0]?.head.includes("<!channel>") === true, posts[0]?.head);
+  check("the detail reply does not ping again", posts[1]?.body.includes("<!channel>") === false);
   check(
     "the thread is remembered for the ticket",
     (await kv.getEscalationTs("13900")) === first.ts,
@@ -91,6 +95,8 @@ async function main() {
     posts[0]?.body.includes("Question from run 2?") === true,
   );
   check("a normal update stays in the thread", posts[0]?.broadcast === false);
+  // Following an issue must not cost a channel-wide ping per comment.
+  check("a normal update does not ping the channel", posts[0]?.body.includes("<!channel>") === false);
 
   // ── An urgent update is announced in the channel as well ──
   // A thread reply only reaches people already following it, and "customer is
@@ -102,6 +108,7 @@ async function main() {
   check("an urgent follow-up is broadcast to the channel", posts[0]?.broadcast === true);
   check("it stays attached to the thread", posts[0]?.thread === first.ts);
   check("and says it is urgent", posts[0]?.head.includes("Urgent update —") === true, posts[0]?.head);
+  check("an urgent follow-up pings the channel", posts[0]?.head.includes("<!channel>") === true, posts[0]?.head);
 
   // ── A different ticket is still its own escalation ──
   posts.length = 0;
