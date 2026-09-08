@@ -11,8 +11,9 @@
  * on every reload. The parent holds {conversationId, token} and hands it back
  * through the init handshake below.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChatMessage, ChatSurface, ChatVisitor } from "@/lib/types";
+import { dayKey, fmtDayLabel, fmtTime, useNow } from "@/lib/format";
 
 /** A file the visitor has attached but not yet sent. */
 interface StagedFile {
@@ -30,6 +31,27 @@ interface StagedFile {
 const MAX_STAGED = 4;
 
 /** Object URL for an image preview, remembered so it can be revoked later. */
+/**
+ * A date between two days of one conversation — "Today", "Yesterday", "8 Sep".
+ *
+ * Ruled rather than bare centred text, which is what a system line already
+ * looks like here: "Suraj joined the chat" and "Yesterday" are different kinds
+ * of statement, and at 10px grey they would otherwise be indistinguishable.
+ *
+ * Owns its clock so "Today" turns over at midnight in a widget left open,
+ * re-rendering one line rather than the whole thread.
+ */
+function DayDivider({ at }: { at: string }) {
+  const now = useNow(60_000);
+  return (
+    <div className="flex items-center gap-2 py-0.5" role="separator">
+      <span className="h-px flex-1 bg-neutral-200" />
+      <span className="text-[10px] tracking-wide text-neutral-400 uppercase">{fmtDayLabel(at, now)}</span>
+      <span className="h-px flex-1 bg-neutral-200" />
+    </div>
+  );
+}
+
 /**
  * Turn bare URLs in a message into links.
  *
@@ -845,91 +867,152 @@ export default function ChatWidgetPage() {
           </div>
         )}
 
-        {messages.map((m) => {
+        {messages.map((m, i, arr) => {
           const human = m.via === "human";
           const who = human ? (m.authorName ?? "Support") : ui.title;
+          /*
+           * A divider wherever the calendar day turns over.
+           *
+           * The widget used to show no times at all, on the reasoning that the
+           * visitor was there when it was said. That holds for one sitting and
+           * breaks the moment a conversation is resumed — the session survives
+           * a reload for the whole retention window, and a ticketed chat keeps
+           * taking messages for days. Someone coming back on Thursday was NOT
+           * there for Monday, and the bubbles look identical.
+           */
+          const prev = arr[i - 1];
+          const divider =
+            !prev || dayKey(prev.createdAt) !== dayKey(m.createdAt) ? (
+              <DayDivider at={m.createdAt} />
+            ) : null;
+          /*
+           * One time per TURN, on the run's last bubble.
+           *
+           * Not per message: this time sits on its own line under the bubble,
+           * where WhatsApp tucks it inside one — so a burst of three would
+           * cost three lines to say "8:29, 8:29, 8:30", and the panel is the
+           * narrowest surface Jetta has. Same rule the console transcript
+           * uses, which also keeps one conversation reading the same way on
+           * both sides of it.
+           *
+           * Midnight ends a run as well, or a run straddling it would be split
+           * by the divider with its only time stranded on the far side.
+           */
+          const next = arr[i + 1];
+          const runEnds =
+            !next ||
+            next.system === true ||
+            next.author !== m.author ||
+            next.via !== m.via ||
+            next.authorName !== m.authorName ||
+            dayKey(next.createdAt) !== dayKey(m.createdAt);
           // A system line ("X joined the chat") is neither side talking, so it
-          // is centred and quiet rather than dressed as a message.
+          // is centred and quiet rather than dressed as a message — and it
+          // carries no time of its own, being nobody's turn.
           if (m.system) {
             return (
-              <p key={m.id} className="py-1 text-center text-[11px] text-neutral-400">
-                {m.text}
-              </p>
+              <Fragment key={m.id}>
+                {divider}
+                <p className="py-1 text-center text-[11px] text-neutral-400">{m.text}</p>
+              </Fragment>
             );
           }
           return (
-            <div
-              key={m.id}
-              className={m.author === "visitor" ? "flex justify-end" : "flex items-end gap-2 justify-start"}
-            >
-              {m.author === "agent" &&
-                (human ? (
-                  // A person gets initials in the accent colour, not the bot's
-                  // face — the visitor should be able to see at a glance that
-                  // someone real is now typing.
-                  <span
-                    className="mb-0.5 flex size-6 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold text-white"
-                    style={{ backgroundColor: ui.accentColor }}
-                    aria-hidden
-                  >
-                    {who.slice(0, 2).toUpperCase()}
-                  </span>
-                ) : ui.avatarUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={ui.avatarUrl} alt="" className="mb-0.5 size-6 shrink-0 rounded-full object-cover" />
-                ) : (
-                  <span className="mb-0.5 size-6 shrink-0 rounded-full bg-neutral-200" aria-hidden />
-                ))}
-              <div className="max-w-[85%]">
-                {m.author === "agent" && (
-                  <p className="mb-0.5 text-[11px] text-neutral-500">{who}</p>
-                )}
-                {m.attachments?.map((a) => {
-                  const href = fileUrl(a.pathname);
-                  const isImage = a.contentType.startsWith("image/");
-                  return (
-                    <a
-                      key={a.id}
-                      href={href}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="mb-1 block overflow-hidden rounded-2xl border border-neutral-200"
-                      title={a.name}
-                    >
-                      {isImage ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={href}
-                          alt={a.name}
-                          className="max-h-56 w-full bg-neutral-50 object-contain"
-                        />
-                      ) : (
-                        <span className="flex items-center gap-2 bg-neutral-50 px-3 py-2 text-xs text-neutral-700">
-                          <FileIcon /> {a.name}
-                        </span>
-                      )}
-                    </a>
-                  );
-                })}
-                {m.text && (
-                  <div
-                    className={[
-                      "whitespace-pre-wrap rounded-2xl px-3.5 py-2 text-sm leading-relaxed",
-                      m.author === "visitor"
-                        ? "rounded-br-sm bg-neutral-900 text-white"
-                        : "rounded-bl-sm bg-neutral-100 text-neutral-900",
-                    ].join(" ")}
-                  >
-                    {linkify(
-                      m.text,
-                      m.author === "visitor"
-                        ? "underline underline-offset-2 decoration-white/50 hover:decoration-white"
-                        : "underline underline-offset-2 decoration-neutral-400 hover:decoration-neutral-900",
+            <Fragment key={m.id}>
+              {divider}
+              {/* Bubble and time wrapped as one child, so the column's
+                  space-y-3 separates MESSAGES while the time stays tucked
+                  against the bubble it belongs to — and so the row's items-end
+                  keeps aligning the avatar to the bubble rather than dropping
+                  it to the bottom of the timestamp. */}
+              <div>
+                <div
+                  className={m.author === "visitor" ? "flex justify-end" : "flex items-end gap-2 justify-start"}
+                >
+                  {m.author === "agent" &&
+                    (human ? (
+                      // A person gets initials in the accent colour, not the bot's
+                      // face — the visitor should be able to see at a glance that
+                      // someone real is now typing.
+                      <span
+                        className="mb-0.5 flex size-6 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold text-white"
+                        style={{ backgroundColor: ui.accentColor }}
+                        aria-hidden
+                      >
+                        {who.slice(0, 2).toUpperCase()}
+                      </span>
+                    ) : ui.avatarUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={ui.avatarUrl} alt="" className="mb-0.5 size-6 shrink-0 rounded-full object-cover" />
+                    ) : (
+                      <span className="mb-0.5 size-6 shrink-0 rounded-full bg-neutral-200" aria-hidden />
+                    ))}
+                  <div className="max-w-[85%]">
+                    {m.author === "agent" && (
+                      <p className="mb-0.5 text-[11px] text-neutral-500">{who}</p>
+                    )}
+                    {m.attachments?.map((a) => {
+                      const href = fileUrl(a.pathname);
+                      const isImage = a.contentType.startsWith("image/");
+                      return (
+                        <a
+                          key={a.id}
+                          href={href}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="mb-1 block overflow-hidden rounded-2xl border border-neutral-200"
+                          title={a.name}
+                        >
+                          {isImage ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={href}
+                              alt={a.name}
+                              className="max-h-56 w-full bg-neutral-50 object-contain"
+                            />
+                          ) : (
+                            <span className="flex items-center gap-2 bg-neutral-50 px-3 py-2 text-xs text-neutral-700">
+                              <FileIcon /> {a.name}
+                            </span>
+                          )}
+                        </a>
+                      );
+                    })}
+                    {m.text && (
+                      <div
+                        className={[
+                          "whitespace-pre-wrap rounded-2xl px-3.5 py-2 text-sm leading-relaxed",
+                          m.author === "visitor"
+                            ? "rounded-br-sm bg-neutral-900 text-white"
+                            : "rounded-bl-sm bg-neutral-100 text-neutral-900",
+                        ].join(" ")}
+                      >
+                        {linkify(
+                          m.text,
+                          m.author === "visitor"
+                            ? "underline underline-offset-2 decoration-white/50 hover:decoration-white"
+                            : "underline underline-offset-2 decoration-neutral-400 hover:decoration-neutral-900",
+                        )}
+                      </div>
                     )}
                   </div>
+                </div>
+                {/* No zone label, unlike the console: the visitor has just
+                    this one surface, and nothing to reconcile it against. */}
+                {runEnds && (
+                  <p
+                    className={[
+                      "mt-0.5 text-[10px] tabular-nums text-neutral-400",
+                      // Clear of the avatar gutter (size-6 plus gap-2) so the
+                      // time sits under the bubble's edge, not under the face.
+                      m.author === "visitor" ? "text-right" : "ps-8 text-left",
+                    ].join(" ")}
+                  >
+                    {fmtTime(m.createdAt)}
+                  </p>
                 )}
               </div>
-            </div>
+            </Fragment>
           );
         })}
 

@@ -129,7 +129,9 @@ widget is in an iframe on monday's page. Override it with
   onto a Freshdesk ticket is fixed to UTC on purpose: the same message reads as
   two different clock times depending on which surface you opened, and the
   label is there so you always know which one you are holding. The visitor's
-  widget shows no times at all.
+  widget shows times too, in the visitor's own zone and with the same day
+  dividers, but no zone label — they have only the one surface, so there is
+  nothing for them to reconcile it against.
 - **Ops events:** `chat.turn_superseded`, `chat.no_reply_sent`,
   `chat.rate_limited`, `chat.failed` in the `jetta:events` stream.
   `chat.no_reply_sent` is the one to watch — the loop ended with empty text and
