@@ -46,12 +46,19 @@ export async function GET(req: NextRequest) {
   const eventful =
     errors.length > 0 ||
     results.some(
-      (r) => r.created || r.updated || r.archived || r.skippedHumanEdited.length || r.flagged.length,
+      (r) =>
+        r.created ||
+        r.updated ||
+        r.archived ||
+        r.skippedNew ||
+        r.skippedHumanEdited.length ||
+        r.flagged.length,
     );
   if (eventful) {
     const lines = results.map(
       (r) =>
         `*${r.site}*: ${r.crawled} crawled · +${r.created} new · ${r.updated} updated · ${r.archived} archived` +
+        (r.skippedNew ? ` · ${r.skippedNew} new HELD BACK (creation guard)` : "") +
         (r.skippedHumanEdited.length ? ` · ${r.skippedHumanEdited.length} skipped (human-edited)` : "") +
         (r.flagged.length ? `\n:warning: ${r.flagged.join("; ")}` : ""),
     );
@@ -61,6 +68,7 @@ export async function GET(req: NextRequest) {
     const headline =
       `+${sum((r) => r.created)} new · ${sum((r) => r.updated)} updated · ` +
       `${sum((r) => r.archived)} archived` +
+      (sum((r) => r.skippedNew) ? ` · ${sum((r) => r.skippedNew)} held back` : "") +
       (flagged ? ` · :warning: ${flagged} flagged` : "") +
       (errors.length ? ` · :x: ${errors.length} site error(s)` : "");
     // Console only — KB sync is routine housekeeping, and pinging the

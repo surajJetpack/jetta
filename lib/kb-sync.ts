@@ -6,8 +6,11 @@
  * authoritative, same trust as the original seeds); CHANGED pages are updated
  * only when the stored article was never human-edited (human edits win, same
  * principle as kb-migrate); pages REMOVED from the site archive their article
- * (which drops it from the vector index). A mass-deletion guard skips all
- * archiving when a site returns suspiciously few pages (outage protection).
+ * (which drops it from the vector index). Two guards bracket that: a
+ * mass-DELETION guard skips archiving when a site returns suspiciously few
+ * pages (outage protection), and a mass-CREATION guard skips ingesting when one
+ * run would add a flood of them (a site turning a post type into programmatic
+ * SEO).
  *
  * Used by the daily cron (app/api/cron/kb-sync) and the CLI (scripts/kb-sync.ts).
  */
@@ -36,6 +39,21 @@ const BODY_CHARS = 8000;
 const MIN_BODY_CHARS = 200;
 /** Archive guard: skip archiving when the site returns < this share of stored articles. */
 const MASS_DELETE_GUARD = 0.7;
+/**
+ * Creation guard: skip creating when ONE run would add more than this many
+ * articles.
+ *
+ * The mirror of MASS_DELETE_GUARD, and the lesson of the getsign redesign. A
+ * marketing site can grow a post type by 1380 pages overnight — programmatic
+ * SEO is designed to do exactly that — and this sync auto-publishes new pages
+ * straight into the vector index. There was a brake on mass deletion and none
+ * on mass creation, which is the wrong way round: deleting is recoverable from
+ * version snapshots, whereas drowning the retrieval corpus degrades every
+ * answer until someone notices.
+ *
+ * Flag and let a human decide; `allowBulk` is the deliberate override.
+ */
+const MASS_CREATE_GUARD = 40;
 
 export interface SiteConfig {
   key: "jetpackapps" | "getsign";
@@ -104,7 +122,19 @@ export const SITES: SiteConfig[] = [
     base: "https://getsign.io",
     origin: "seed-getsign",
     source: "getsign.io",
-    postTypes: ["getting-started", "how-tos", "tutorial", "workflow", "posts", "pages"],
+    /*
+     * `workflow` and `form` are deliberately NOT crawled.
+     *
+     * The 2026-09 site redesign turned both into programmatic SEO surfaces:
+     * 1380 /workflow/ pages and 488 /form/ pages, against a getsign corpus of
+     * ~170 curated articles. They are template/landing permutations, not
+     * support content — ingesting them would bury the answers Jetta needs
+     * under an order of magnitude of near-duplicate text.
+     *
+     * `workflow` used to be in this list, from when the post type held a
+     * handful of real pages. `form` never was, and must not be added.
+     */
+    postTypes: ["getting-started", "how-tos", "tutorial", "posts", "pages"],
     autoUpdate: false,
     denylist: [
       /^\/$/,
@@ -114,6 +144,10 @@ export const SITES: SiteConfig[] = [
       /privacy|terms|legal/,
       /pricing\/?$/,
       /book-a-session/,
+      // Belt and braces for the two post types above: this also catches them
+      // if they ever surface under `pages`/`posts` instead of their own type.
+      /^\/workflow\//,
+      /^\/form\//,
     ],
     // Same category slugs kb-migrate registered for the original seed.
     categories: [
@@ -215,6 +249,8 @@ export interface SyncResult {
   site: string;
   crawled: number;
   created: number;
+  /** New pages the creation guard held back, awaiting a human decision. */
+  skippedNew: number;
   updated: number;
   archived: number;
   skippedHumanEdited: string[];
@@ -226,12 +262,16 @@ function neverHumanEdited(a: KbArticle): boolean {
   return CRAWLER_ACTORS.has(a.updatedBy ?? a.createdBy) || (a.version === 1 && CRAWLER_ACTORS.has(a.createdBy));
 }
 
-export async function syncSite(site: SiteConfig, opts: { dryRun?: boolean } = {}): Promise<SyncResult> {
+export async function syncSite(
+  site: SiteConfig,
+  opts: { dryRun?: boolean; allowBulk?: boolean } = {},
+): Promise<SyncResult> {
   const dry = opts.dryRun === true;
   const res: SyncResult = {
     site: site.key,
     crawled: 0,
     created: 0,
+    skippedNew: 0,
     updated: 0,
     archived: 0,
     skippedHumanEdited: [],
@@ -254,9 +294,23 @@ export async function syncSite(site: SiteConfig, opts: { dryRun?: boolean } = {}
   if (!dry) for (const c of site.categories) await upsertCategory(c);
 
   // ── New + changed ──
+  const newPages = pages.filter((p) => !storedByUrl.has(p.url));
+  const holdNew = !opts.allowBulk && newPages.length > MASS_CREATE_GUARD;
+  if (holdNew) {
+    res.flagged.push(
+      `${newPages.length} new pages in one run (guard: ${MASS_CREATE_GUARD}) — creation SKIPPED. ` +
+        `Check whether they belong in the KB, then re-run with --allow-bulk. ` +
+        `Examples: ${newPages.slice(0, 5).map((p) => p.url).join(", ")}`,
+    );
+  }
+
   for (const p of pages) {
     const existing = storedByUrl.get(p.url);
     if (!existing) {
+      if (holdNew) {
+        res.skippedNew++;
+        continue;
+      }
       res.created++;
       if (dry) continue;
       // Guard against id collisions with legacy slug(url)-i ids.
