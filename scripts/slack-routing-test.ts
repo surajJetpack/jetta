@@ -36,11 +36,15 @@ if (CONFIGURED) {
 
 let failures = 0;
 const sent: string[] = [];
+/** Full stubbed posts, body included — `sent` keeps only the channel line. */
+const posts: string[] = [];
 const realLog = console.log;
 console.log = (...args: unknown[]) => {
   const line = args.map(String).join(" ");
-  if (line.startsWith("[stub] slack →")) sent.push(line.split("\n")[0]!.replace("[stub] slack → ", ""));
-  else realLog(...args);
+  if (line.startsWith("[stub] slack →")) {
+    sent.push(line.split("\n")[0]!.replace("[stub] slack → ", ""));
+    posts.push(line);
+  } else realLog(...args);
 };
 
 function check(name: string, pass: boolean, detail?: string) {
@@ -63,6 +67,7 @@ async function main() {
   check("dev escalation → escalations", sent.every((c) => c.startsWith("#jetta-escalations")), sent.join(", "));
 
   sent.length = 0;
+  posts.length = 0;
   await slack.notifyChatHandoff({
     conversationId: "abc",
     visitor: "Someone",
@@ -71,6 +76,13 @@ async function main() {
     consoleUrl: "https://console",
   });
   check("visitor waiting → chat", sent.every((c) => c.startsWith("#jetta-chat")), sent.join(", "));
+  // The visitor is sitting there while Jetta stays silent, so this is the one
+  // routine notification that is allowed to interrupt everyone.
+  check(
+    "visitor waiting pings the channel",
+    posts.every((p) => p.includes("<!channel>")),
+    posts.join(" | "),
+  );
 
   sent.length = 0;
   await slack.requestMonetApproval({
@@ -84,8 +96,16 @@ async function main() {
   check("trial/discount approval → ops", sent.every((c) => c.startsWith("#jetta-ops")), sent.join(", "));
 
   sent.length = 0;
+  posts.length = 0;
   await slack.notifyKbSync("KB sync done", ["3 articles updated"]);
   check("daily KB report → ops", sent.every((c) => c.startsWith("#jetta-ops")), sent.join(", "));
+  // Routine operational noise must never interrupt a channel, or the pings
+  // that matter stop meaning anything.
+  check(
+    "daily KB report does not ping the channel",
+    posts.every((p) => !p.includes("<!channel>")),
+    posts.join(" | "),
+  );
 
   // The point of the split: nothing but dev work reaches the escalation channel.
   check("nothing else leaked into escalations", !sent.some((c) => c.startsWith("#jetta-escalations")), sent.join(", "));
@@ -99,6 +119,7 @@ async function main() {
 async function fallbackMode() {
   const slack = await import("../lib/tools/slack");
   sent.length = 0;
+  posts.length = 0;
   await slack.notifyChatHandoff({
     conversationId: "abc",
     visitor: "Someone",
@@ -111,6 +132,12 @@ async function fallbackMode() {
     "channels unset → falls back, nothing dropped",
     sent.length >= 2 && sent.every((c) => c.startsWith("#jetta-escalations")),
     sent.join(", "),
+  );
+  // A ping in the wrong room still beats no ping, so the fallback keeps it.
+  check(
+    "channels unset → the waiting visitor still pings",
+    posts.some((p) => p.includes("<!channel>")),
+    posts.join(" | "),
   );
 }
 

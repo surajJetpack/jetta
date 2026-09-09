@@ -499,9 +499,11 @@ export default function GuideContent({ isAdmin }: { isAdmin: boolean }) {
                   one that was gets skimmed with them. <b>System</b> shows whether Jetta is actually
                   in each channel and able to post; a channel she isn&apos;t in accepts nothing, and
                   the first symptom is a visitor waiting for a person who was announced to an empty
-                  room. Escalations ping <b>@channel</b> — a blocked customer shouldn&apos;t wait
-                  for someone to wander in and read it. Follow-ups stay quiet inside the thread
-                  unless Jetta marks them urgent.
+                  room. Escalations and a visitor asking for a person both ping <b>@channel</b> —
+                  neither should wait for someone to wander in and read it, and the visitor least of
+                  all, since Jetta goes silent the moment she asks for you. Follow-ups stay quiet
+                  inside the thread unless Jetta marks them urgent, and the daily reports never
+                  ping at all.
                 </p>
               </StepCard>
 

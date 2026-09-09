@@ -110,16 +110,26 @@ function clamped(s: string, max: number): boolean {
 }
 
 /**
- * Escalations are pushed to the whole channel, not just whoever happens to be
- * looking. A blocked customer waiting on the dev team is exactly what @channel
- * is for, and the channel exists only for these. Slack parses the escaped
- * `<!channel>` form from the message text — a literal "@channel" would post as
- * plain words and notify nobody.
+ * Some messages are pushed to the whole channel, not just whoever happens to
+ * be looking. Slack parses the escaped `<!channel>` form from the message text
+ * — a literal "@channel" would post as plain words and notify nobody.
  *
- * Only messages the CHANNEL sees carry it: the top-level escalation and an
- * urgent update (which is broadcast back out of its thread). A routine update
- * stays a quiet thread reply, so following an issue never costs a notification
- * per comment.
+ * Two things earn it, and both are a person waiting on us:
+ *
+ *   escalation          a customer blocked on the dev team
+ *   visitor in chat     someone sitting in front of a chat window, right now
+ *
+ * The chat handoff is the stronger case of the two. An escalation can wait for
+ * whoever reads the channel next; a visitor asked for a person and is watching
+ * an empty conversation while Jetta stays silent, and every minute of that is
+ * spent in front of them. Announcing it as an ordinary message meant it was
+ * found by whoever wandered in.
+ *
+ * Only messages the CHANNEL sees carry it: the top-level escalation, an urgent
+ * update (which is broadcast back out of its thread), and the chat handoff. A
+ * routine thread update stays quiet, so following an issue never costs a
+ * notification per comment — the failure mode that teaches people to mute the
+ * channel and undoes the whole point.
  */
 const AT_CHANNEL = "<!channel>";
 
@@ -559,6 +569,12 @@ export async function notifyDraftPending(input: {
  * are async dev work someone reads when they get to it, and this is a human
  * standing at the counter. Falls back to the escalation channel if no separate
  * one is configured — a ping in the wrong room beats no ping.
+ *
+ * Pings @channel for the same reason it is its own channel: the visitor is
+ * waiting while nobody is looking. Jetta has gone silent by this point, so
+ * nothing else is going to fill the gap, and the handoff reverts to her after
+ * SETTINGS.handoffTimeoutMinutes — a notification that arrives after that is
+ * a notification about a conversation somebody already gave up on.
  */
 export async function notifyChatHandoff(input: {
   conversationId: string;
@@ -569,7 +585,7 @@ export async function notifyChatHandoff(input: {
 }): Promise<void> {
   const channel = chatChannel();
   const text = [
-    `:wave: *A visitor is asking for a person* — ${input.visitor}`,
+    `${AT_CHANNEL} :wave: *A visitor is asking for a person* — ${input.visitor}`,
     `> ${clamp(input.lastMessage, 200)}`,
     `Why: ${clamp(input.reason, 140)}`,
     `<${input.consoleUrl}/chats/${input.conversationId}|Open the conversation> — Jetta has gone quiet and is waiting for you.`,
