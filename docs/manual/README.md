@@ -69,12 +69,15 @@ The work on this page that is actually yours. Each row carries a state, how many
 
 | State | What it means |
 |---|---|
+| **Needs your reply** | The last message on the ticket is the customer's. Someone owes them an answer. |
 | **Active** | The customer replied recently and may still be there. |
 | **Open** | Waiting on us. The ball is ours. |
 | **Reopened** | Jetta's answer didn't land and the customer came back. |
 | **Waiting on customer** | We've replied. A long silence here may just mean they dropped it. |
 
 **Reopened is the highest-signal item on the page.** It means the first answer already failed once.
+
+**Needs your reply** is read from the thread, not from the status someone set. So a row can say *needs your reply* and *waiting on customer* at once — that means the customer wrote back and nobody moved the status. Believe the thread.
 
 ### What's going wrong, and what would help
 

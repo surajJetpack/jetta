@@ -94,6 +94,7 @@ interface WorklistItem {
   quietHours: number;
   runs: number;
   status: string | null;
+  awaitingReply: boolean;
 }
 interface Brief {
   generatedAt: number;
@@ -196,6 +197,7 @@ function WorklistRow({ item, why }: { item: WorklistItem; why: string | null }) 
           <span className="font-mono text-xs">{item.label}</span>
           {waiting && <StatusChip tone="stale">waiting</StatusChip>}
           {reopened && <StatusChip tone="stale">reopened</StatusChip>}
+          {item.awaitingReply && <StatusChip tone="stale">needs your reply</StatusChip>}
           {!waiting && item.state === "active" && <StatusChip tone="in_review">active</StatusChip>}
         </span>
       }
@@ -207,10 +209,17 @@ function WorklistRow({ item, why }: { item: WorklistItem; why: string | null }) 
       }
       meta={
         <>
-          {/* The live Freshdesk status, not the one Jetta last recorded — a
-              ticket sitting on "waiting on customer" is not waiting on us. */}
+          {/* The live Freshdesk status, not the one Jetta last recorded. Grey
+              means "not waiting on us" — so it is only earned while the thread
+              agrees: a status of "waiting on customer" on a ticket the customer
+              has since written back to is stale, and the last public message
+              outranks the label an agent last set. */}
           {item.status && (
-            <StatusChip tone={item.status === "waiting on customer" ? "archived" : "in_review"}>
+            <StatusChip
+              tone={
+                item.status === "waiting on customer" && !item.awaitingReply ? "archived" : "in_review"
+              }
+            >
               {item.status}
             </StatusChip>
           )}

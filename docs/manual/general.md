@@ -71,10 +71,13 @@ This is your list. Each row carries a state, how many exchanges have happened, a
 
 | State | What it means |
 |---|---|
+| **Needs your reply** | The last message on the ticket is the customer's. Someone owes them an answer. |
 | **Active** | The customer replied recently and may still be there. |
 | **Open** | Waiting on us. The ball is ours. |
 | **Reopened** | Jetta's answer didn't land and the customer came back. |
 | **Waiting on customer** | We've replied. A long silence may just mean they dropped it. |
+
+**Needs your reply** is read from the thread itself, not from the status someone set — so a row showing both *needs your reply* and *waiting on customer* means the customer wrote back and nobody moved the status. Believe the thread.
 
 **Reopened is the highest-signal item on the page.** It means the first answer already failed once, so read the thread before replying again.
 
