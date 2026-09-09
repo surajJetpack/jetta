@@ -1,16 +1,21 @@
 /**
  * Do monday ids in escalation prose come out clickable?
  *
- *   npx tsx scripts/slack-linkify-test.ts
+ *   npx tsx --env-file=.env.local scripts/slack-linkify-test.ts
  *
  * The cases are real sentences copied out of #jetta-escalations, where the ids
- * were plain digits nobody could click. Deterministic — no network, no LLM.
+ * were plain digits nobody could click. Deterministic — no network, no LLM, but
+ * the env file IS required: without MONDAY_ACCOUNT_URL every expected link is
+ * built against an empty account slug and half the checks fail for that alone.
+ *
+ * The last section covers the opposite rule: a GetSign board-view URL is dead
+ * outside monday, so it gets reduced to its ids rather than linked.
  *
  * The half that matters most is what must NOT be linked: a board id guessed
  * against the wrong monday account is worse than the plain number, because it
  * looks authoritative and lands the reader in someone else's workspace.
  */
-import { linkifyMondayIds, devItemIdsIn } from "../lib/tools/slack";
+import { linkifyMondayIds, devItemIdsIn, stripBoardViewUrls } from "../lib/tools/slack";
 
 const DEV_BOARD = "2978633042";
 const OURS = "https://jetpackteam.monday.com";
@@ -179,6 +184,68 @@ check(
     devBoardId: DEV_BOARD,
   }),
   "Force Update is unresponsive and the recipe recreation only helps briefly.",
+);
+
+console.log("\n── board-view URLs are reduced to their ids ──");
+// A board-view link is dead outside the monday iframe, so it must never reach
+// the channel intact. postMessage runs this over EVERY message it sends.
+const VIEW = "https://board-view.getsign.io/?boardId=18423423108&boardViewId=279222446&instanceId=279222446";
+check(
+  "the full URL becomes the two ids",
+  stripBoardViewUrls(`The customer is on ${VIEW}`),
+  "The customer is on boardId 18423423108, instanceId 279222446",
+);
+check(
+  "the sentence's own punctuation survives",
+  stripBoardViewUrls(`Repro on ${VIEW}. Then reload.`),
+  "Repro on boardId 18423423108, instanceId 279222446. Then reload.",
+);
+check(
+  "Slack's escaped ampersands are handled",
+  stripBoardViewUrls(
+    "see https://board-view.getsign.io/?boardId=18423423108&amp;instanceId=279222446 for the view",
+  ),
+  "see boardId 18423423108, instanceId 279222446 for the view",
+);
+check(
+  "a Slack link keeps its label and loses its href",
+  stripBoardViewUrls(`<${VIEW}|the affected view> is blank`),
+  "the affected view (boardId 18423423108, instanceId 279222446) is blank",
+);
+check(
+  "an unlabelled Slack link is reduced too",
+  stripBoardViewUrls(`<${VIEW}>`),
+  "boardId 18423423108, instanceId 279222446",
+);
+check(
+  "boardViewId stands in when instanceId is absent",
+  stripBoardViewUrls("https://board-view.getsign.io/?boardId=18423423108&boardViewId=279222446"),
+  "boardId 18423423108, instanceId 279222446",
+);
+check(
+  "a board-view URL with no ids is still not left as a dead link",
+  stripBoardViewUrls("they opened https://board-view.getsign.io/ and saw nothing"),
+  "they opened the GetSign board view and saw nothing",
+);
+check(
+  "two links in one message are both reduced",
+  stripBoardViewUrls(
+    `${VIEW} and https://board-view.getsign.io/?boardId=999999999&instanceId=111111111`,
+  ),
+  "boardId 18423423108, instanceId 279222446 and boardId 999999999, instanceId 111111111",
+);
+check(
+  "the ids it emits are not then linked to a monday account",
+  // The live order: linkify first, strip second. "boardId 18423423108" must not
+  // read as "board <id>" to the board-linker, or the guard would hand back a
+  // link into a workspace nobody vouched for.
+  stripBoardViewUrls(linkifyMondayIds(`Account ${CUSTOMER}. Blank on ${VIEW}`, { devBoardId: DEV_BOARD })),
+  `Account ${CUSTOMER}. Blank on boardId 18423423108, instanceId 279222446`,
+);
+check(
+  "other getsign URLs are untouched",
+  stripBoardViewUrls("docs at https://www.getsign.io/help/board-view are fine"),
+  "docs at https://www.getsign.io/help/board-view are fine",
 );
 
 console.log(failed ? `\n${failed} FAILED\n` : "\nall checks passed\n");

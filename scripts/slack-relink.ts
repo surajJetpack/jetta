@@ -26,7 +26,7 @@
  * while the id itself sits in the parent — the same reason sendEscalation
  * resolves the account across the whole escalation rather than per field.
  */
-import { linkifyMondayIds } from "../lib/tools/slack";
+import { linkifyMondayIds, stripBoardViewUrls } from "../lib/tools/slack";
 import { boardIdFor } from "../lib/tools/monday";
 import { readFileSync } from "node:fs";
 import { config } from "../lib/config";
@@ -152,7 +152,9 @@ async function main() {
     console.log(`\n${thread[0]?.ts} — ${thread.length} message(s) in thread`);
 
     for (const m of thread) {
-      const linked = linkifyMondayIds(m.text, { devBoardId, accountUrl: context });
+      // Same order as the live path: strip after linkifying, so already-posted
+      // board-view links are reduced to their ids too.
+      const linked = stripBoardViewUrls(linkifyMondayIds(m.text, { devBoardId, accountUrl: context }));
       show(m.ts === thread[0].ts ? "parent" : `reply ${m.ts}`, m.text, linked);
       if (linked === m.text) continue;
       edited++;

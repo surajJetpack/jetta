@@ -50,10 +50,12 @@ let stubTs = 0;
  */
 async function postMessage(
   channel: string,
-  text: string,
+  rawText: string,
   threadTs?: string,
   broadcast = false,
 ): Promise<string> {
+  // The one place every Slack message passes through — see stripBoardViewUrls.
+  const text = stripBoardViewUrls(rawText);
   if (!config.slack.live) {
     const how = threadTs ? ` (thread ${threadTs}${broadcast ? ", broadcast" : ""})` : "";
     console.log(`[stub] slack → ${channel}${how}:\n${text}`);
@@ -107,6 +109,30 @@ function clamped(s: string, max: number): boolean {
   return s.replace(/\s+/g, " ").trim().length > max;
 }
 
+/**
+ * Some messages are pushed to the whole channel, not just whoever happens to
+ * be looking. Slack parses the escaped `<!channel>` form from the message text
+ * — a literal "@channel" would post as plain words and notify nobody.
+ *
+ * Two things earn it, and both are a person waiting on us:
+ *
+ *   escalation          a customer blocked on the dev team
+ *   visitor in chat     someone sitting in front of a chat window, right now
+ *
+ * The chat handoff is the stronger case of the two. An escalation can wait for
+ * whoever reads the channel next; a visitor asked for a person and is watching
+ * an empty conversation while Jetta stays silent, and every minute of that is
+ * spent in front of them. Announcing it as an ordinary message meant it was
+ * found by whoever wandered in.
+ *
+ * Only messages the CHANNEL sees carry it: the top-level escalation, an urgent
+ * update (which is broadcast back out of its thread), and the chat handoff. A
+ * routine thread update stays quiet, so following an issue never costs a
+ * notification per comment — the failure mode that teaches people to mute the
+ * channel and undoes the whole point.
+ */
+const AT_CHANNEL = "<!channel>";
+
 const HEADLINE_MAX = 90;
 const QUESTION_MAX = 180;
 const FLAG_MAX = 100;
@@ -114,6 +140,52 @@ const FLAG_MAX = 100;
 /** Slack `<url|label>` when we have a real URL, so long hrefs don't eat a line. */
 function link(url: string | undefined, label: string): string {
   return url && /^https?:\/\//.test(url) ? `<${url}|${label}>` : label;
+}
+
+/**
+ * Replace GetSign board-view URLs with the ids they carry.
+ *
+ * `https://board-view.getsign.io/?boardId=…&boardViewId=…&instanceId=…` only
+ * resolves inside the monday iframe that hosts the view. Pasted into Slack it
+ * renders as an ordinary link and opens to nothing — the worst kind of
+ * reference, because it reads as actionable. The ids are what a person can
+ * actually act on: they paste into monday's own search, and they are what an
+ * engineer needs to reproduce. So the link is stripped down to
+ * "boardId 18423423108, instanceId 279222446" and nothing is lost.
+ *
+ * Applied in `postMessage` rather than at each call site, so it holds for every
+ * message Jetta posts — escalations, DM answers, ops notifications alike —
+ * including ones written later by someone who never read this comment.
+ *
+ * Runs AFTER `linkifyMondayIds` for that reason too: the text it produces says
+ * "boardId", not "board", so the board-linker cannot then point those digits at
+ * a monday account we have no evidence for.
+ */
+const BOARD_VIEW_URL =
+  /<(https?:\/\/board-view\.getsign\.io[^>|\s]*)(?:\|([^>]*))?>|https?:\/\/board-view\.getsign\.io[^\s<>|)\]]*/gi;
+
+export function stripBoardViewUrls(text: string): string {
+  return text.replace(BOARD_VIEW_URL, (match, linked: string | undefined, label: string | undefined) => {
+    const url = linked ?? match;
+    // Trailing sentence punctuation is part of the sentence, not the URL, and
+    // must survive the rewrite. Only the bare form can pick it up.
+    const trail = linked ? "" : (/[.,;:!?]+$/.exec(url)?.[0] ?? "");
+    // `&amp;` because Slack escapes ampersands in message text.
+    const param = (name: string) => new RegExp(`[?&](?:amp;)?${name}=(\\d+)`, "i").exec(url)?.[1];
+    const ids = [
+      ["boardId", param("boardId")],
+      // boardViewId and instanceId are the same number in every link seen so
+      // far; if that ever diverges the instance is the one that identifies the
+      // view, so it wins and the other is dropped rather than doubling up.
+      ["instanceId", param("instanceId") ?? param("boardViewId")],
+    ].filter((pair): pair is [string, string] => !!pair[1]);
+    // A URL carrying no ids at all is not the parameterised view link this
+    // guards, but it is just as dead outside monday — name it and move on.
+    const ref = ids.length ? ids.map(([k, v]) => `${k} ${v}`).join(", ") : "the GetSign board view";
+    // A human label the model wrote around the link is worth keeping.
+    const kept = label && !/^https?:\/\//.test(label.trim()) ? `${label.trim()} (${ref})` : ref;
+    return `${kept}${trail}`;
+  });
 }
 
 /**
@@ -339,7 +411,9 @@ export async function sendEscalation(
   // parent two messages up already carries them. The Dev item does repeat: it
   // is often the thing that changed since the last post.
   const update = [
-    `${input.urgent ? ":rotating_light: *Urgent update" : ":arrows_counterclockwise: *Update"} — ${linkify(input.headline)}*`,
+    input.urgent
+      ? `${AT_CHANNEL} :rotating_light: *Urgent update — ${linkify(input.headline)}*`
+      : `:arrows_counterclockwise: *Update — ${linkify(input.headline)}*`,
     ...(input.mondayItemUrl ? [link(input.mondayItemUrl, "Dev item")] : []),
     `:question: ${question}`,
     "",
@@ -374,7 +448,7 @@ export async function sendEscalation(
     // clamp() would cut mid-link and leave broken markup in the channel, so the
     // headline is shortened before linking and the question falls back to its
     // plain form whenever it needs truncating (the thread carries it in full).
-    `:rotating_light: *${prefix}${linkify(clamp(input.headline, HEADLINE_MAX))}*`,
+    `${AT_CHANNEL} :rotating_light: *${prefix}${linkify(clamp(input.headline, HEADLINE_MAX))}*`,
     refs.join(" · "),
     `:question: ${clamped(input.question, QUESTION_MAX) ? clamp(input.question, QUESTION_MAX) : question}`,
   ].join("\n");
@@ -495,6 +569,12 @@ export async function notifyDraftPending(input: {
  * are async dev work someone reads when they get to it, and this is a human
  * standing at the counter. Falls back to the escalation channel if no separate
  * one is configured — a ping in the wrong room beats no ping.
+ *
+ * Pings @channel for the same reason it is its own channel: the visitor is
+ * waiting while nobody is looking. Jetta has gone silent by this point, so
+ * nothing else is going to fill the gap, and the handoff reverts to her after
+ * SETTINGS.handoffTimeoutMinutes — a notification that arrives after that is
+ * a notification about a conversation somebody already gave up on.
  */
 export async function notifyChatHandoff(input: {
   conversationId: string;
@@ -505,7 +585,7 @@ export async function notifyChatHandoff(input: {
 }): Promise<void> {
   const channel = chatChannel();
   const text = [
-    `:wave: *A visitor is asking for a person* — ${input.visitor}`,
+    `${AT_CHANNEL} :wave: *A visitor is asking for a person* — ${input.visitor}`,
     `> ${clamp(input.lastMessage, 200)}`,
     `Why: ${clamp(input.reason, 140)}`,
     `<${input.consoleUrl}/chats/${input.conversationId}|Open the conversation> — Jetta has gone quiet and is waiting for you.`,
@@ -691,7 +771,8 @@ export async function uploadFiles(
       files: ready,
       channel_id: channel,
       thread_ts: threadTs,
-      initial_comment: comment,
+      // The one text path that does not go through postMessage.
+      initial_comment: comment === undefined ? undefined : stripBoardViewUrls(comment),
     }),
   });
   const done = (await doneRes.json()) as { ok: boolean; error?: string };
