@@ -21,7 +21,7 @@ import { listArticles, countByState, type ArticleState } from "./kb-store";
 import { topicTrends, ticketRecords, type TopicTrend, type TicketRecord } from "./topics";
 import { yesterdayKey } from "./daily-overview";
 import { listConversations, getConversation } from "./chat-store";
-import { getTicketDetails, isTerminalStatus } from "./tools/freshdesk";
+import { awaitsOurReply, getTicketDetails, isTerminalStatus } from "./tools/freshdesk";
 
 const HOUR_S = 3600;
 const WINDOW_HOURS = 24;
@@ -62,23 +62,32 @@ const ACTIVE_WITHIN_H = 6;
  * and the ticket sits on the worklist until the lookback expires — 13945 was
  * closed in Freshdesk and top of the list.
  *
- * One GET per candidate, so it is cached: /today and the insight route each
- * build the brief, and a refresh must not mean a second round of calls.
+ * getTicketDetails is several requests per candidate (the ticket, the whole
+ * paginated thread, the contact), so it is cached: /today and the insight
+ * route each build the brief, and a refresh must not mean a second round.
+ *
+ * Since the thread is already on the wire, the same call answers "who wrote
+ * last" for free — see awaitsOurReply.
  */
 const STATUS_TTL_MS = 60_000;
-const statusCache = new Map<string, { at: number; status: string | null }>();
+interface LiveTicketState {
+  status: string | null;
+  awaitingReply: boolean;
+}
+const statusCache = new Map<string, { at: number; state: LiveTicketState }>();
 
-async function liveStatus(ticketId: string): Promise<string | null> {
+async function liveTicketState(ticketId: string): Promise<LiveTicketState> {
   const hit = statusCache.get(ticketId);
-  if (hit && Date.now() - hit.at < STATUS_TTL_MS) return hit.status;
+  if (hit && Date.now() - hit.at < STATUS_TTL_MS) return hit.state;
   // Fail open: an unreachable Freshdesk should leave the worklist stale, not
   // empty. Showing one resolved ticket is a smaller failure than hiding five
-  // live ones because an API call timed out.
-  const status = await getTicketDetails(ticketId)
-    .then((t) => t.status)
-    .catch(() => null);
-  statusCache.set(ticketId, { at: Date.now(), status });
-  return status;
+  // live ones because an API call timed out. awaitingReply fails CLOSED —
+  // a timeout must not invent a reply that is owed.
+  const state = await getTicketDetails(ticketId)
+    .then((t) => ({ status: t.status, awaitingReply: awaitsOurReply(t) }))
+    .catch(() => ({ status: null, awaitingReply: false }));
+  statusCache.set(ticketId, { at: Date.now(), state });
+  return state;
 }
 
 export interface WorklistItem {
@@ -106,6 +115,14 @@ export interface WorklistItem {
    * Null for chat conversations and when the lookup failed.
    */
   status: string | null;
+  /**
+   * The newest public message on the ticket came from the customer, so a reply
+   * is owed. Derived from the thread itself, NOT from `status` — a thread left
+   * on "waiting on customer" after they wrote back still reads true here.
+   * False for chat rows (their chat_waiting signal already says it) and when
+   * the Freshdesk lookup failed.
+   */
+  awaitingReply: boolean;
 }
 
 /**
@@ -343,6 +360,7 @@ export async function buildTodayBrief() {
       quietHours,
       runs: r.runs,
       status: null,
+      awaitingReply: false,
     };
   };
 
@@ -372,6 +390,10 @@ export async function buildTodayBrief() {
       // Chat status lives in the chat store and is already accurate — these
       // rows exist because the conversation says waiting_human.
       status: null,
+      // Left false on purpose. A waiting chat is of course waiting on us, but
+      // its chat_waiting signal already renders the "waiting" chip — setting
+      // this too would put two red chips saying the same thing on one row.
+      awaitingReply: false,
     };
   });
 
@@ -402,7 +424,7 @@ export async function buildTodayBrief() {
   const withStatus = await Promise.all(
     candidates.map(async (item) => {
       if (item.id.startsWith("chat:")) return item;
-      if (/^\d+$/.test(item.id)) return { ...item, status: await liveStatus(item.id) };
+      if (/^\d+$/.test(item.id)) return { ...item, ...(await liveTicketState(item.id)) };
       // A conversation id. Gone means deleted or expired past retention, and
       // the row would link to a dead page; ticketed means the Freshdesk ticket
       // is the live thread now and this row is a duplicate of it.

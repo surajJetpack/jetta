@@ -45,6 +45,33 @@ export function isTerminalStatus(status: string): boolean {
   return TERMINAL_STATUSES.has(status);
 }
 
+/**
+ * Does this ticket owe the customer a reply? True when the newest PUBLIC
+ * message came from them.
+ *
+ * A truer signal than the Freshdesk status, which is only as good as the last
+ * agent who remembered to set it: a thread parked on "waiting on customer"
+ * after the customer has since written back is exactly the row that gets
+ * missed on /today.
+ *
+ * Private notes are excluded on purpose. Jetta's drafts land as private notes
+ * (addPrivateNote), and a suggestion nobody sent is not a reply — counting it
+ * would mark the ticket as handled while the customer is still waiting.
+ *
+ * A ticket with no public replies at all is awaiting us: `description` holds
+ * the requester's opening message and never appears in `replies`.
+ */
+export function awaitsOurReply(ticket: Pick<Ticket, "replies">): boolean {
+  // Newest by timestamp rather than array order — the caller's slice is
+  // Freshdesk's ordering, and this predicate shouldn't depend on it holding.
+  let newest: TicketReply | null = null;
+  for (const r of ticket.replies) {
+    if (r.isPrivate) continue;
+    if (!newest || Date.parse(r.createdAt) > Date.parse(newest.createdAt)) newest = r;
+  }
+  return newest ? newest.author === "customer" : true;
+}
+
 function fdHeaders(): HeadersInit {
   // Freshdesk uses Basic auth: "<api_key>:X" base64-encoded.
   const token = Buffer.from(`${config.freshdesk.apiKey}:X`).toString("base64");

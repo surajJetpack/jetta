@@ -118,7 +118,10 @@ export default function GuideContent({ isAdmin }: { isAdmin: boolean }) {
             <p className="text-sm">
               The work on this page that is actually yours: escalations Jetta handed to the team, and
               tickets a customer <b>reopened</b> — Jetta&apos;s answer didn&apos;t land, which is the
-              highest-signal thing here.
+              highest-signal thing here. A row tagged{" "}
+              <StatusChip tone="stale">needs your reply</StatusChip> is one where the customer wrote
+              last, read from the thread rather than the Freshdesk status — so it can disagree with a
+              status still sitting on <i>waiting on customer</i>, and the thread is the one to believe.
               {isAdmin && (
                 <>
                   {" "}
