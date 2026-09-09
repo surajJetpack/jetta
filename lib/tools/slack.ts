@@ -50,10 +50,12 @@ let stubTs = 0;
  */
 async function postMessage(
   channel: string,
-  text: string,
+  rawText: string,
   threadTs?: string,
   broadcast = false,
 ): Promise<string> {
+  // The one place every Slack message passes through — see stripBoardViewUrls.
+  const text = stripBoardViewUrls(rawText);
   if (!config.slack.live) {
     const how = threadTs ? ` (thread ${threadTs}${broadcast ? ", broadcast" : ""})` : "";
     console.log(`[stub] slack → ${channel}${how}:\n${text}`);
@@ -128,6 +130,52 @@ const FLAG_MAX = 100;
 /** Slack `<url|label>` when we have a real URL, so long hrefs don't eat a line. */
 function link(url: string | undefined, label: string): string {
   return url && /^https?:\/\//.test(url) ? `<${url}|${label}>` : label;
+}
+
+/**
+ * Replace GetSign board-view URLs with the ids they carry.
+ *
+ * `https://board-view.getsign.io/?boardId=…&boardViewId=…&instanceId=…` only
+ * resolves inside the monday iframe that hosts the view. Pasted into Slack it
+ * renders as an ordinary link and opens to nothing — the worst kind of
+ * reference, because it reads as actionable. The ids are what a person can
+ * actually act on: they paste into monday's own search, and they are what an
+ * engineer needs to reproduce. So the link is stripped down to
+ * "boardId 18423423108, instanceId 279222446" and nothing is lost.
+ *
+ * Applied in `postMessage` rather than at each call site, so it holds for every
+ * message Jetta posts — escalations, DM answers, ops notifications alike —
+ * including ones written later by someone who never read this comment.
+ *
+ * Runs AFTER `linkifyMondayIds` for that reason too: the text it produces says
+ * "boardId", not "board", so the board-linker cannot then point those digits at
+ * a monday account we have no evidence for.
+ */
+const BOARD_VIEW_URL =
+  /<(https?:\/\/board-view\.getsign\.io[^>|\s]*)(?:\|([^>]*))?>|https?:\/\/board-view\.getsign\.io[^\s<>|)\]]*/gi;
+
+export function stripBoardViewUrls(text: string): string {
+  return text.replace(BOARD_VIEW_URL, (match, linked: string | undefined, label: string | undefined) => {
+    const url = linked ?? match;
+    // Trailing sentence punctuation is part of the sentence, not the URL, and
+    // must survive the rewrite. Only the bare form can pick it up.
+    const trail = linked ? "" : (/[.,;:!?]+$/.exec(url)?.[0] ?? "");
+    // `&amp;` because Slack escapes ampersands in message text.
+    const param = (name: string) => new RegExp(`[?&](?:amp;)?${name}=(\\d+)`, "i").exec(url)?.[1];
+    const ids = [
+      ["boardId", param("boardId")],
+      // boardViewId and instanceId are the same number in every link seen so
+      // far; if that ever diverges the instance is the one that identifies the
+      // view, so it wins and the other is dropped rather than doubling up.
+      ["instanceId", param("instanceId") ?? param("boardViewId")],
+    ].filter((pair): pair is [string, string] => !!pair[1]);
+    // A URL carrying no ids at all is not the parameterised view link this
+    // guards, but it is just as dead outside monday — name it and move on.
+    const ref = ids.length ? ids.map(([k, v]) => `${k} ${v}`).join(", ") : "the GetSign board view";
+    // A human label the model wrote around the link is worth keeping.
+    const kept = label && !/^https?:\/\//.test(label.trim()) ? `${label.trim()} (${ref})` : ref;
+    return `${kept}${trail}`;
+  });
 }
 
 /**
@@ -707,7 +755,8 @@ export async function uploadFiles(
       files: ready,
       channel_id: channel,
       thread_ts: threadTs,
-      initial_comment: comment,
+      // The one text path that does not go through postMessage.
+      initial_comment: comment === undefined ? undefined : stripBoardViewUrls(comment),
     }),
   });
   const done = (await doneRes.json()) as { ok: boolean; error?: string };
