@@ -25,6 +25,9 @@
 // script defines collides with the next one's.
 export {};
 
+// Type-only, so it is erased before the env fiddling below matters.
+import type { ChatConversation, ChatMessage } from "../lib/types";
+
 const USE_KV = process.argv.includes("--kv");
 
 // Set before ANY import: lib/config.ts snapshots process.env the first time it
@@ -1173,6 +1176,196 @@ async function main() {
     check("the concurrent status change survives", racedAfter!.status === "ticketed", racedAfter!.status);
     check("the concurrent ticket link survives", racedAfter!.ticketId === "99999");
   }
+
+  /*
+   * ── Follow-up decisions ─────────────────────────────────────────
+   *
+   * Every case here is a timing case, which is why the decision is a pure
+   * function and why this is the only place it can be tested: reproducing "the
+   * visitor has been quiet for 24 hours" through the store means waiting a day.
+   *
+   * The messages that must NEVER be sent are the point of most of these.
+   */
+  section("Follow-up decisions");
+  const followup = await import("../lib/chat-followup");
+  const thresholds = { followUpMinutes: 15, autoResolveHours: 24 };
+  const MIN = 60_000;
+  const T0 = Date.parse("2026-09-10T12:00:00.000Z");
+
+  /** A conversation whose turns are placed at minutes-before-T0. */
+  const convAt = (
+    turns: [ChatMessage["author"], number][],
+    extra: Partial<ChatConversation> = {},
+  ): ChatConversation => {
+    const messages: ChatMessage[] = turns.map(([author, minsAgo], i) => ({
+      id: `m${i}`,
+      author,
+      ...(author === "agent" ? { via: "jetta" as const } : {}),
+      text: author === "visitor" ? "my signing link expired" : "Here is what to try.",
+      createdAt: new Date(T0 - minsAgo * MIN).toISOString(),
+    }));
+    const lastAt = messages.length ? messages[messages.length - 1]!.createdAt : new Date(T0).toISOString();
+    return {
+      id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+      createdAt: new Date(T0 - 120 * MIN).toISOString(),
+      lastActivityAt: lastAt,
+      status: "open",
+      surface: "wordpress",
+      visitor: { name: "Ada", email: "ada@example.com" },
+      messages,
+      ...extra,
+    };
+  };
+  const decide = (c: ChatConversation) => followup.chatFollowUpAction(c, T0, thresholds);
+
+  // She answered and they went quiet. The threshold is a boundary, so both
+  // sides of it are pinned.
+  const quiet15 = convAt([["visitor", 20], ["agent", 19]]);
+  check("nudges once the visitor has been quiet for the threshold", decide(quiet15).kind === "nudge", decide(quiet15).kind);
+  const quiet14 = convAt([["visitor", 14], ["agent", 13]]);
+  check("does not nudge before the threshold", decide(quiet14).kind === "skip");
+
+  // Silence is measured from the VISITOR's last message. Her own nudge is the
+  // newest message in the transcript, and measuring from that would restart
+  // the clock she just started — nudging the same person every 15 minutes.
+  const alreadyNudged = convAt(
+    [["visitor", 40], ["agent", 39], ["agent", 2]],
+    { followUpAt: new Date(T0 - 2 * MIN).toISOString() },
+  );
+  const nudgedTwice = decide(alreadyNudged);
+  check(
+    "never nudges the same conversation twice",
+    nudgedTwice.kind === "skip" && nudgedTwice.reason === "already_judged",
+    JSON.stringify(nudgedTwice),
+  );
+  check(
+    "her own message does not reset the silence clock",
+    followup.lastVisitorAt(alreadyNudged) === T0 - 40 * MIN,
+  );
+
+  // The three messages that must never be sent.
+  const herTurn = convAt([["agent", 30], ["visitor", 25]]);
+  const herTurnCall = decide(herTurn);
+  check(
+    "says nothing when the visitor spoke last — she owes the reply",
+    herTurnCall.kind === "skip" && herTurnCall.reason === "her_turn",
+    JSON.stringify(herTurnCall),
+  );
+  const withPerson = convAt([["visitor", 30], ["agent", 29]], { status: "human", humanAgent: "suraj" });
+  check("never speaks over a colleague", decide(withPerson).kind === "skip");
+  const waitingForPerson = convAt([["visitor", 30], ["agent", 29]], {
+    status: "waiting_human",
+    humanRequestedAt: T0 - 29 * MIN,
+  });
+  const waitingCall = decide(waitingForPerson);
+  check(
+    "never resolves a visitor still waiting for a person",
+    waitingCall.kind === "skip" && waitingCall.reason === "waiting_for_a_person",
+    JSON.stringify(waitingCall),
+  );
+
+  // Page-load sessions: the widget opens one on every visit.
+  check("ignores a conversation with no visitor message", decide(convAt([])).kind === "skip");
+  check(
+    "leaves an already-resolved conversation alone",
+    decide(convAt([["visitor", 30], ["agent", 29]], { status: "resolved" })).kind === "skip",
+  );
+
+  // A ticket carries the issue and a colleague answers it by email: the chat
+  // finishes, but it is never spoken to.
+  const ticketedFresh = convAt([["visitor", 30], ["agent", 29]], {
+    status: "ticketed",
+    ticketId: "14246",
+  });
+  check("never nudges a ticketed conversation", decide(ticketedFresh).kind === "skip");
+  const ticketedOld = convAt([["visitor", 60 * 25], ["agent", 60 * 25 - 1]], {
+    status: "ticketed",
+    ticketId: "14246",
+  });
+  const ticketedCall = decide(ticketedOld);
+  check(
+    "resolves a long-silent ticketed conversation, quietly",
+    ticketedCall.kind === "resolve" && ticketedCall.reason === "ticketed",
+    JSON.stringify(ticketedCall),
+  );
+
+  const goneForGood = convAt([["visitor", 60 * 25], ["agent", 60 * 25 - 1]]);
+  const goneCall = decide(goneForGood);
+  check(
+    "resolves a conversation nobody came back to",
+    goneCall.kind === "resolve" && goneCall.reason === "no_reply",
+    JSON.stringify(goneCall),
+  );
+  // The backstop has to outrank the spent judgement, or a conversation she
+  // decided to leave alone would never finish.
+  const judgedAndGone = convAt([["visitor", 60 * 25], ["agent", 60 * 25 - 1]], {
+    followUpAt: new Date(T0 - 60 * 24 * MIN).toISOString(),
+  });
+  check("a judged conversation still resolves at the backstop", decide(judgedAndGone).kind === "resolve");
+
+  /*
+   * ── Resolving in the store ──────────────────────────────────────
+   *
+   * The hazard being pinned: `updateConversation` refreshes lastActivityAt on
+   * every patch, which would float a finished conversation to the top of the
+   * inbox and extend the window in which the visitor's widget resumes it.
+   */
+  section("Resolving in the store");
+  const toResolve = await newConv("Resolve", "resolve@example.com");
+  await store.appendMessage(toResolve.id, "visitor", "is this thing on?");
+  await store.appendMessage(toResolve.id, "agent", "It is.");
+  const beforeResolve = (await store.getConversation(toResolve.id))!.lastActivityAt;
+  const resolved = await store.resolveConversation(toResolve.id, "suraj");
+  check("resolving sets the status", resolved?.status === "resolved", resolved?.status);
+  check("resolving records who did it", resolved?.resolvedBy === "suraj", resolved?.resolvedBy);
+  check(
+    "resolving does NOT move the activity clock",
+    resolved?.lastActivityAt === beforeResolve,
+    `${beforeResolve} → ${resolved?.lastActivityAt}`,
+  );
+
+  const backInPlay = await store.reopenConversation(toResolve.id);
+  check("reopening returns it to Jetta", backInPlay?.status === "open", backInPlay?.status);
+  check("reopening clears the resolution stamp", !backInPlay?.resolvedAt && !backInPlay?.resolvedBy);
+
+  // A ticketed conversation must come back as `ticketed`, not `open`: the
+  // console filters and /today read the status, and demoting it would list it
+  // as unhandled and resurrect a row duplicating the Freshdesk ticket.
+  const ticketedConv = await newConv("Ticketed", "ticketed@example.com");
+  await store.appendMessage(ticketedConv.id, "visitor", "my invoice is wrong");
+  await store.updateConversation(ticketedConv.id, { status: "ticketed", ticketId: "14250" });
+  await store.resolveConversation(ticketedConv.id, "jetta");
+  const backToTicketed = await store.reopenConversation(ticketedConv.id);
+  check(
+    "a reopened ticketed conversation goes back to ticketed",
+    backToTicketed?.status === "ticketed",
+    backToTicketed?.status,
+  );
+
+  // Joining, sending, handing back or ticketing a resolved conversation makes
+  // it live again — a leftover "resolved by suraj" would be read as fact.
+  const rejoined = await newConv("Rejoined", "rejoin@example.com");
+  await store.appendMessage(rejoined.id, "visitor", "hello?");
+  await store.resolveConversation(rejoined.id, "suraj");
+  const joined = await store.updateConversation(rejoined.id, { status: "human", humanAgent: "sujata" });
+  check(
+    "taking over a resolved chat clears the resolution stamp",
+    joined?.status === "human" && !joined?.resolvedBy,
+    `${joined?.status} / ${joined?.resolvedBy}`,
+  );
+
+  // The sweep's candidate read is a score range over the index, not a slice of
+  // it: a resolved backlog must not be able to push the stale ones off the end.
+  const idleNow = await store.listIdleSince(Date.now() + 1000, 500);
+  check(
+    "listIdleSince finds conversations at or before the cutoff",
+    idleNow.some((c) => c.id === rejoined.id),
+    `${idleNow.length} returned`,
+  );
+  check(
+    "listIdleSince excludes anything newer than the cutoff",
+    (await store.listIdleSince(Date.parse("2020-01-01T00:00:00.000Z"), 500)).length === 0,
+  );
 
   // chat-store has no delete — conversations expire on their own TTL — so a
   // --kv run tidies up after itself here, directly against Redis.

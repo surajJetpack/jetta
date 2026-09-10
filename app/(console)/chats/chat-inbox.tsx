@@ -2,7 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Bell, BellOff, ExternalLink, Hand, Paperclip, Search, Send, Ticket as TicketIcon, Undo2 } from "lucide-react";
+import { Bell, BellOff, CheckCheck, ExternalLink, Hand, Paperclip, RotateCcw, Search, Send, Ticket as TicketIcon, Undo2 } from "lucide-react";
 import { ChatAvatar } from "@/components/jetta/chat-avatar";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -68,6 +68,8 @@ interface Conv {
   surface: string;
   pageUrl?: string;
   humanAgent?: string;
+  /** Who finished it — a console username, or "jetta" when she did. */
+  resolvedBy?: string;
   ticketId?: string;
   /** Earlier tickets this conversation opened, oldest first. */
   previousTicketIds?: string[];
@@ -94,7 +96,7 @@ const LABELS: Record<Conv["status"], string> = {
   resolved: "resolved",
 };
 
-type Filter = "needs_human" | "all" | "open" | "ticketed";
+type Filter = "needs_human" | "all" | "open" | "ticketed" | "resolved";
 
 /** Sentinel for "every app" — Radix Select has no empty-string value. */
 const ALL_APPS = "__all__";
@@ -312,7 +314,7 @@ export default function ChatInbox({
     router.replace(`/chats${q.size ? `?${q}` : ""}`, { scroll: false });
   };
 
-  const act = async (action: "join" | "send" | "release", body?: string) => {
+  const act = async (action: "join" | "send" | "release" | "resolve" | "reopen", body?: string) => {
     if (!detail) return;
     setBusy(true);
     try {
@@ -389,14 +391,25 @@ export default function ChatInbox({
       ]
         .filter(Boolean)
         .some((v) => String(v).toLowerCase().includes(q));
+    /*
+     * "All live" excludes resolved, which is why it is not called "All".
+     *
+     * A finished conversation has to leave the working view or the list only
+     * grows, and at ~10 chats a day a month of resolved chats would bury the
+     * three that need someone. But a pill labelled "All" that hides rows is
+     * the trap this file argues against elsewhere — so the label says what it
+     * does, and the resolved ones get a bucket of their own next to it.
+     */
     const inFilter = (c: Conv) =>
       filter === "all"
-        ? true
+        ? c.status !== "resolved"
         : filter === "needs_human"
           ? c.status === "waiting_human" || c.status === "human"
           : filter === "open"
             ? c.status === "open"
-            : c.status === "ticketed";
+            : filter === "resolved"
+              ? c.status === "resolved"
+              : c.status === "ticketed";
 
     // Anyone waiting for a person floats to the top whatever the sort — that is
     // the only row on this page with someone actually sitting there.
@@ -448,6 +461,11 @@ export default function ChatInbox({
   }, [list]);
 
   const waiting = list.filter((c) => c.status === "waiting_human" && inApp(c)).length;
+  // Counted the same way as `waiting`: after the app filter, so the number
+  // describes the bucket you would land in rather than the whole store.
+  const resolvedCount = list.filter(
+    (c) => c.status === "resolved" && c.messages.length > 0 && inApp(c),
+  ).length;
   const abandoned = list.filter((c) => c.messages.length === 0).length;
   const mine = detail?.status === "human";
 
@@ -488,7 +506,8 @@ export default function ChatInbox({
                 ["needs_human", waiting ? `Needs a person · ${waiting}` : "Needs a person"],
                 ["open", "With Jetta"],
                 ["ticketed", "Ticketed"],
-                ["all", "All"],
+                ["all", "All live"],
+                ["resolved", resolvedCount ? `Resolved · ${resolvedCount}` : "Resolved"],
               ] as [Filter, string][]
             ).map(([f, label]) => (
               <Button
@@ -632,6 +651,12 @@ export default function ChatInbox({
                   </span>
                 )}
                 <StatusChip tone={TONES[detail.status]}>{LABELS[detail.status]}</StatusChip>
+                {/* Whose decision it was. "jetta" here means she closed her own
+                    loop — either the customer confirmed the fix, or nobody came
+                    back and the follow-up sweep finished it. */}
+                {detail.status === "resolved" && detail.resolvedBy && (
+                  <span className="text-[11px] text-muted-foreground">by {detail.resolvedBy}</span>
+                )}
                 {detail.ticketId && (
                   // Freshdesk, not here. This used to link to /chats/<this
                   // conversation> — the page you were already on — while
@@ -836,6 +861,19 @@ export default function ChatInbox({
                 ) : (
                   <Button size="sm" variant="outline" disabled={busy} onClick={() => void act("release")}>
                     <Undo2 /> Hand back to Jetta
+                  </Button>
+                )}
+                {/* No confirmation dialog, unlike "Make a ticket": nothing
+                    leaves the building, the visitor is told nothing, and the
+                    button that undoes it takes its place. Their next message
+                    reopens it anyway. */}
+                {detail.status === "resolved" ? (
+                  <Button size="sm" variant="outline" disabled={busy} onClick={() => void act("reopen")}>
+                    <RotateCcw /> Reopen
+                  </Button>
+                ) : (
+                  <Button size="sm" variant="outline" disabled={busy} onClick={() => void act("resolve")}>
+                    <CheckCheck /> Resolve
                   </Button>
                 )}
                 {/* Hidden once ticketed. Jetta may open a second ticket for a

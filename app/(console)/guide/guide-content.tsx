@@ -238,6 +238,26 @@ export default function GuideContent({ isAdmin }: { isAdmin: boolean }) {
             </p>
           </StepCard>
 
+          <StepCard title="Finishing a chat">
+            <p className="text-sm">
+              <b>Resolve</b> files a conversation under{" "}
+              <StatusChip tone="archived">resolved</StatusChip> and out of <b>All live</b>. The
+              visitor is told nothing and nothing is deleted — the transcript stays here for the
+              retention window — and <b>Reopen</b> undoes it. A new message from the visitor
+              reopens it by itself, so the bucket never hides a conversation that is still going.
+            </p>
+            <p className="mt-1.5 text-sm">
+              <b>She finishes most of them herself.</b> Around <b>15 minutes</b> after her answer
+              she checks in once on a visitor who has gone quiet, and resolves the conversation if
+              nobody comes back within <b>24 hours</b> — or straight away, with no message, when the
+              transcript already says it was sorted. She will not check in when a colleague has the
+              chat, when a visitor is waiting for a person, when the visitor spoke last (that means
+              she owes the reply, and it stays under <b>With Jetta</b> for you to see), or on a
+              ticketed chat someone is answering by email — those resolve quietly, and the ticket is
+              untouched. Both clocks are on <b>/chats/settings</b>.
+            </p>
+          </StepCard>
+
           <StepCard title="When a chat becomes a new chat">
             <p className="text-sm">
               A visitor who comes back within <b>24 hours</b> picks up the same conversation; after

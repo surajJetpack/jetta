@@ -26,6 +26,7 @@ export async function GET(req: NextRequest) {
       live: config.jettachat.live,
       hasSecret: !!config.jettachat.secret,
       envOrigins: config.jettachat.allowedOrigins,
+      followUp: config.jettachat.followUp,
     },
   });
 }

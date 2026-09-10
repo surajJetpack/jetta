@@ -129,6 +129,33 @@ export interface ChatSettings {
   handoffChannel?: string;
 
   /**
+   * Whether Jetta chases a conversation that went quiet. ANDed with
+   * `JETTACHAT_FOLLOWUP` in env, which is the master arm — so this can switch
+   * the sweep off but never on, the same relationship `enabled` has with
+   * JETTACHAT_LIVE.
+   */
+  followUpEnabled: boolean;
+  /**
+   * Minutes of visitor silence after Jetta's answer before she checks in once.
+   *
+   * Short on purpose. On chat the alternative to a nudge is not a later nudge,
+   * it is nothing: the visitor closed the tab, and the only thing that brings
+   * them back is the widget's unread badge on their next page view. Fifteen
+   * minutes is long enough that someone reading her answer is not interrupted,
+   * short enough to still be the same visit.
+   */
+  followUpMinutes: number;
+  /**
+   * Hours of visitor silence before the conversation is resolved.
+   *
+   * Measured from the visitor's last message, not the last activity, so her own
+   * nudge does not restart the clock. Matches sessionIdleHours by default: past
+   * that point the widget would start them a new conversation anyway, so there
+   * is nothing left for this one to do.
+   */
+  autoResolveHours: number;
+
+  /**
    * Per-brand presentation overrides, keyed by brand profile (lib/profiles.ts).
    * A GetSign visitor should not be greeted by "Jetpack Apps support".
    *
@@ -298,6 +325,12 @@ export function defaultSettings(): ChatSettings {
      */
     handoffTimeoutMinutes: 1,
     handoffChannel: undefined,
+    // On by default, but inert until JETTACHAT_FOLLOWUP arms the channel — so
+    // the field is a switch someone can reach for, not a second thing to
+    // remember at rollout.
+    followUpEnabled: true,
+    followUpMinutes: 15,
+    autoResolveHours: 24,
   };
 }
 
@@ -366,6 +399,11 @@ export async function saveChatSettings(
   // exact failure the one-thread rule exists to prevent.
   next.sessionIdleHours = clamp(Number(next.sessionIdleHours), 1, 8760, current.sessionIdleHours);
   next.handoffTimeoutMinutes = clamp(Number(next.handoffTimeoutMinutes), 1, 120, current.handoffTimeoutMinutes);
+  // Floor of 5 minutes, which is also the sweep's own cadence: anything shorter
+  // is a promise the cron cannot keep, and a nudge that lands while someone is
+  // still reading the answer reads as impatience.
+  next.followUpMinutes = clamp(Number(next.followUpMinutes), 5, 1440, current.followUpMinutes);
+  next.autoResolveHours = clamp(Number(next.autoResolveHours), 1, 720, current.autoResolveHours);
   // 25 MB ceiling: Freshdesk refuses attachments above 20 MB, so anything
   // larger would upload fine and then fail silently at the hand-off — the one
   // moment the file was needed.

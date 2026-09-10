@@ -88,9 +88,15 @@ export async function replyToConversation(conversationId: string, body: string):
   if (!stored) throw new Error(`JettaChat conversation ${conversationId} not found — message not delivered.`);
 }
 
-/** Mark the conversation resolved. */
+/**
+ * Mark the conversation resolved.
+ *
+ * Through the store's own resolve rather than a status patch: that path stamps
+ * who resolved it and leaves the activity clock alone. See resolveConversation
+ * in lib/chat-store.ts for why the clock matters.
+ */
 export async function resolveConversation(conversationId: string): Promise<void> {
-  await store.updateConversation(conversationId, { status: "resolved" });
+  await store.resolveConversation(conversationId, "jetta");
 }
 
 /** Deep link to the transcript in Jetta's own console (for escalations). */

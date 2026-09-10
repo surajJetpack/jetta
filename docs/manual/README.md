@@ -130,20 +130,35 @@ That's also why `/drafts` isn't in the navigation.
 
 In the website widget, Jetta replies to visitors live with nobody reading first. This page is the compensating control for that. Skim the transcripts, reading for three things: a wrong fact, a confident answer to something that should have been escalated, or a tone we wouldn't use.
 
-The filters across the top are **Needs a person**, **With Jetta**, **Ticketed** and **All**.
+The filters across the top are **Needs a person**, **With Jetta**, **Ticketed**, **All live** and **Resolved**. "All live" is everything still going; a finished conversation moves to Resolved and out of the working view.
 
 ### Reading and taking over a conversation
 
 ![A transcript, with the reply box and controls](images/chats-transcript.webp)
 
-Pick a conversation and the transcript opens beside the list. Two controls matter:
+Pick a conversation and the transcript opens beside the list. Three controls matter:
 
 - **Take the chat** — you join the conversation. From then on you're typing to the visitor yourself and Jetta stops answering. Sending a message takes the conversation and silences Jetta, so don't type a note to yourself in there.
 - **Make a ticket** — opens a Freshdesk ticket carrying the whole transcript. The conversation becomes **Ticketed** and the two point at each other, so neither side is a dead end.
+- **Resolve** — files the conversation under **Resolved** and out of the live list. The visitor is told nothing and nothing is deleted; the transcript stays here for the retention window. **Reopen** takes its place if you change your mind, and a new message from the visitor reopens it by itself.
 
 A visitor who asks for a person moves to **Needs a person**, pins to the top, and pings Slack. The visitor always sees who is speaking, so a handover is never silent.
 
 Jetta opens tickets herself when she can't resolve something — the button is for when you decide before she does.
+
+### Chats that finish themselves
+
+Most chats end with the visitor simply not replying. Jetta closes those herself: about **15 minutes** after her answer she checks in once, and if nobody has come back **24 hours** later she marks the conversation **Resolved**. If the transcript already says it was sorted — "perfect, thanks" — she skips the check-in and resolves it there and then.
+
+Four things she will never do, so you can trust the bucket:
+
+- speak in a conversation a colleague has taken, or one where a visitor is waiting for a person;
+- check in when the visitor spoke last — that means *she* owes the reply, and it stays under **With Jetta** for someone to look at;
+- check in on a **Ticketed** chat, where a colleague is answering by email — those resolve quietly, and the ticket is untouched;
+- check in twice.
+
+Resolved by **jetta** in the transcript header means she made the call; your name means you did.
+
 
 ---
 

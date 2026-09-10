@@ -39,6 +39,9 @@ interface Settings {
   handoffEnabled: boolean;
   handoffTimeoutMinutes: number;
   handoffChannel?: string;
+  followUpEnabled: boolean;
+  followUpMinutes: number;
+  autoResolveHours: number;
   /** Per-brand overrides, edited on their own page. Absent = inherits this skin. */
   profiles?: { getsign?: Partial<Overlay> };
   updatedAt?: number;
@@ -65,7 +68,7 @@ type Overlay = Pick<
 >;
 interface Payload {
   settings: Settings;
-  env: { live: boolean; hasSecret: boolean; envOrigins: string[] };
+  env: { live: boolean; hasSecret: boolean; envOrigins: string[]; followUp: boolean };
 }
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
@@ -207,6 +210,25 @@ export default function ChatSettingsForm() {
                 </span>
               </span>
             </label>
+            <label className="flex items-start gap-2.5">
+              <Checkbox checked={form.followUpEnabled} onCheckedChange={(v) => set("followUpEnabled", !!v)} />
+              <span className="text-sm">
+                Let Jetta chase a chat that went quiet
+                <span className="block text-[11px] text-muted-foreground">
+                  She checks in once if a visitor stops replying, and marks the chat resolved when nobody
+                  comes back — or straight away, if the transcript says it was already sorted.
+                  {data.env.followUp ? (
+                    " Armed in the environment."
+                  ) : (
+                    <span className="text-amber-600 dark:text-amber-400">
+                      {" "}
+                      JETTACHAT_FOLLOWUP is not set, so nothing is sent whatever this says — that switch
+                      lives outside the console, like the chat&apos;s own.
+                    </span>
+                  )}
+                </span>
+              </span>
+            </label>
           </div>
 
           <Field
@@ -231,6 +253,28 @@ export default function ChatSettingsForm() {
               type="number"
               value={form.handoffTimeoutMinutes}
               onChange={(e) => set("handoffTimeoutMinutes", Number(e.target.value))}
+            />
+          </Field>
+          <Field
+            label="Check in on a quiet visitor after (minutes)"
+            hint="Counted from the visitor's last message, so her own check-in doesn't restart it. She only ever sends one, and never when a colleague has the chat or a ticket is already carrying it. Minimum 5."
+          >
+            <Input
+              type="number"
+              disabled={!form.followUpEnabled}
+              value={form.followUpMinutes}
+              onChange={(e) => set("followUpMinutes", Number(e.target.value))}
+            />
+          </Field>
+          <Field
+            label="Resolve a chat nobody came back to after (hours)"
+            hint="No message is sent — the chat just moves to the Resolved bucket. If the visitor writes again it reopens where they left off."
+          >
+            <Input
+              type="number"
+              disabled={!form.followUpEnabled}
+              value={form.autoResolveHours}
+              onChange={(e) => set("autoResolveHours", Number(e.target.value))}
             />
           </Field>
           <Field
