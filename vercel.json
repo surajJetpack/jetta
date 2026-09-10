@@ -14,6 +14,10 @@
       "schedule": "15 * * * *"
     },
     {
+      "path": "/api/cron/chat-followup",
+      "schedule": "*/5 * * * *"
+    },
+    {
       "path": "/api/cron/daily-overview",
       "schedule": "10 6 * * *"
     }

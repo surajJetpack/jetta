@@ -269,6 +269,87 @@ export async function setConversationApp(
   });
 }
 
+/**
+ * Mark a conversation resolved, without touching `lastActivityAt`.
+ *
+ * Deliberately NOT `updateConversation({ status: "resolved" })`, for the same
+ * reason `setConversationApp` exists: that function refreshes the activity
+ * clock on every patch, and both things that clock drives are wrong here. It
+ * would float a finished conversation to the TOP of the inbox — the one place
+ * it has no business being — and it would reset `isStale`, so resolving a chat
+ * would extend the window in which the visitor's widget resumes it. Finishing a
+ * conversation should make it more likely to expire, not less.
+ *
+ * `by` is a console username, or "jetta" when she resolved it herself.
+ */
+export async function resolveConversation(
+  conversationId: string,
+  by: string,
+): Promise<ChatConversation | null> {
+  return withConversationLock(conversationId, async () => {
+    const conv = await getConversation(conversationId);
+    if (!conv) return null;
+    if (conv.status === "resolved") return conv;
+    conv.status = "resolved";
+    conv.resolvedAt = nowIso();
+    conv.resolvedBy = by;
+    await save(conv);
+    return conv;
+  });
+}
+
+/**
+ * Record that the follow-up sweep has judged this conversation.
+ *
+ * Its own function, and not a `updateConversation({ followUpAt })`, for the
+ * reason resolveConversation is: that path refreshes `lastActivityAt`, and a
+ * judgement of "nothing to say here" would then float a dead conversation to
+ * the top of the inbox and extend the window in which the visitor's widget
+ * resumes it. Marking a decision is not activity — the same distinction
+ * `setConversationApp` draws about a label.
+ *
+ * Idempotent, and the FIRST judgement wins: this is the flag that stops a
+ * conversation being judged twice, so an overwrite would defeat it.
+ */
+export async function markFollowUpJudged(conversationId: string): Promise<void> {
+  await withConversationLock(conversationId, async () => {
+    const conv = await getConversation(conversationId);
+    if (!conv || conv.followUpAt) return;
+    conv.followUpAt = nowIso();
+    await save(conv);
+  });
+}
+
+/**
+ * Put a resolved conversation back in play.
+ *
+ * Back to `ticketed` when a ticket carries the issue, else `open` — the same
+ * precedence the handoff timeout and the console's hand-back use, and for the
+ * same reason: demoting a ticketed conversation to `open` would list it as
+ * unhandled and resurrect a /today row duplicating the Freshdesk ticket.
+ *
+ * Unlike resolving, this DOES bump the activity clock. The visitor just typed;
+ * on the reopen path `appendMessage` has already moved it, and a console reopen
+ * is someone picking the conversation back up, which is activity.
+ */
+export async function reopenConversation(
+  conversationId: string,
+): Promise<ChatConversation | null> {
+  return withConversationLock(conversationId, async () => {
+    const conv = await getConversation(conversationId);
+    if (!conv) return null;
+    conv.status = conv.ticketId ? "ticketed" : "open";
+    conv.resolvedAt = undefined;
+    conv.resolvedBy = undefined;
+    // The follow-up judgement is spent per conversation, and reopening does not
+    // refund it: a visitor who came back is being answered by her normally, and
+    // if they then go quiet again the 24h backstop still resolves the chat.
+    conv.lastActivityAt = nowIso();
+    await save(conv);
+    return conv;
+  });
+}
+
 /** Patch conversation-level fields (status, ticket link, learned identity). */
 export async function updateConversation(
   conversationId: string,
@@ -284,6 +365,19 @@ async function updateConversationLocked(
   const conv = await getConversation(conversationId);
   if (!conv) return null;
   if (patch.status) conv.status = patch.status;
+  /*
+   * Any status change away from `resolved` clears the resolution stamps.
+   *
+   * Every other path through this function can reach a resolved conversation:
+   * a colleague joins one, sends into one (which implies joining), hands it
+   * back, or turns it into a ticket. All of those make it live again, and a
+   * leftover "resolved by suraj, 3pm" on a live conversation is read as fact
+   * by the console and by anything reporting on it later.
+   */
+  if (patch.status && patch.status !== "resolved") {
+    conv.resolvedAt = undefined;
+    conv.resolvedBy = undefined;
+  }
   /*
    * Stamp the hand-off moment here rather than at the two call sites.
    *
@@ -329,6 +423,37 @@ async function updateConversationLocked(
   conv.lastActivityAt = nowIso();
   await save(conv);
   return conv;
+}
+
+/**
+ * Conversations whose last activity is at or before `cutoffMs` — the candidate
+ * set for the follow-up sweep.
+ *
+ * A score range over the index rather than a slice of it. `save` scores every
+ * conversation by `Date.parse(lastActivityAt)`, so "idle since" is exactly what
+ * this ZSET is sorted by and the read costs one round trip whatever the store
+ * holds. Mirrors the due-review read in lib/kb-store.ts.
+ *
+ * `listConversations(100)` would be the wrong tool: it is a newest-first window,
+ * so on a store carrying a few weeks of resolved chats the stale ones — the
+ * only ones the sweep wants — are precisely what falls off the end.
+ *
+ * Oldest first, so a run capped at MAX_PER_RUN works the longest-waiting
+ * conversations rather than an arbitrary slice. Documents that have expired out
+ * from under their index entry are skipped, not pruned: pruning belongs to the
+ * console read path, and a cron quietly rewriting the index is harder to trust.
+ */
+export async function listIdleSince(cutoffMs: number, limit = 200): Promise<ChatConversation[]> {
+  const r = client();
+  if (r) {
+    const ids = (await r.zrange<string[]>(CHAT_INDEX, 0, cutoffMs, { byScore: true })) ?? [];
+    const docs = await Promise.all(ids.slice(0, limit).map((id) => getConversation(id)));
+    return docs.filter((c): c is ChatConversation => !!c);
+  }
+  return [...memChats.values()]
+    .filter((c) => c.messages.length > 0 && Date.parse(c.lastActivityAt) <= cutoffMs)
+    .sort((a, b) => Date.parse(a.lastActivityAt) - Date.parse(b.lastActivityAt))
+    .slice(0, limit);
 }
 
 /**

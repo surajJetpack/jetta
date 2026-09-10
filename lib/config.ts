@@ -229,6 +229,17 @@ export const config = {
     uploadsPerHour: Number(env("JETTACHAT_UPLOADS_PER_HOUR") ?? "10"),
     /** Total uploads one conversation may make, including ones never sent. */
     uploadsPerConversation: Number(env("JETTACHAT_UPLOADS_PER_CONVERSATION") ?? "10"),
+    /**
+     * Master arm for the follow-up sweep: whether Jetta may message a visitor
+     * who went quiet, and resolve the chat when they never come back.
+     *
+     * Default OFF, and opt-in rather than opt-out, because this is the first
+     * thing in the system that writes to a customer with no trigger from the
+     * customer at all — every other message she sends answers something. The
+     * console's `followUpEnabled` is ANDed with this, so the channel settings
+     * can switch the sweep off but never on.
+     */
+    followUp: env("JETTACHAT_FOLLOWUP") === "true",
   },
 
   blob: {

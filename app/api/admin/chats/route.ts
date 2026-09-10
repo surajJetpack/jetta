@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
 
   const { conversationId, action, text, subject, notify } = (await req.json().catch(() => ({}))) as {
     conversationId?: string;
-    action?: "join" | "send" | "release" | "ticket";
+    action?: "join" | "send" | "release" | "ticket" | "resolve" | "reopen";
     text?: string;
     subject?: string;
     notify?: boolean;
@@ -186,6 +186,43 @@ export async function POST(req: NextRequest) {
       data: { freshdeskTicket: created.id, notified: notify !== false },
     });
     return NextResponse.json({ ok: true, ticketId: created.id, url: created.url });
+  }
+
+  if (action === "resolve") {
+    /*
+     * Finish the conversation. No confirmation step and no role check: any
+     * signed-in colleague who can reply to a visitor can say the visitor is
+     * done, and the button next to this one puts it straight back.
+     *
+     * The visitor is told nothing. Unlike the ticket hand-off — which changes
+     * where their answer will come from — this changes nothing they can see,
+     * and "this chat has been marked resolved" reads as being shown the door.
+     * Their next message reopens it regardless.
+     */
+    const updated = await store.resolveConversation(conversationId, actor);
+    await logOpsEvent({
+      level: "info",
+      event: "chat.resolved_by_human",
+      source: "console",
+      actor,
+      ticketId: conversationId,
+      data: { previousStatus: conv.status, freshdeskTicket: conv.ticketId },
+    });
+    return NextResponse.json({ ok: true, status: updated?.status ?? "resolved" });
+  }
+
+  if (action === "reopen") {
+    // Back to `ticketed` when a ticket carries the issue, else `open` — the
+    // same precedence the hand-back below uses, and for the same reason.
+    const updated = await store.reopenConversation(conversationId);
+    await logOpsEvent({
+      level: "info",
+      event: "chat.reopened_by_human",
+      source: "console",
+      actor,
+      ticketId: conversationId,
+    });
+    return NextResponse.json({ ok: true, status: updated?.status ?? "open" });
   }
 
   if (action === "release") {

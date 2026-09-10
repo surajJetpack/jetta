@@ -253,7 +253,12 @@ export interface ChatConversation {
    * waiting_human — a person has been asked for; Jetta is silent, a timer will
    *                 fall back to a ticket if nobody arrives
    * human         — a person is in the conversation; Jetta stays silent
-   * resolved      — done
+   * resolved      — done. Set by her close_ticket tool, by the console's
+   *                 Resolve button, or by the follow-up sweep when a visitor
+   *                 never came back. NOT permanent: a new visitor message
+   *                 reopens the conversation (see reopenConversation), because
+   *                 a resolved chat the visitor is still typing into would sit
+   *                 in the console's Resolved bucket while running live.
    * ticketed      — a Freshdesk ticket carries the outcome, and the team will
    *                 reply there by email. NOT an end state for the chat: Jetta
    *                 keeps answering, and anything new the visitor says is
@@ -262,6 +267,21 @@ export interface ChatConversation {
    *                 conversation is over.
    */
   status: "open" | "waiting_human" | "human" | "resolved" | "ticketed";
+  /** ISO time the conversation was resolved. Cleared when it reopens. */
+  resolvedAt?: string;
+  /** Who resolved it: a console username, or "jetta" when she did it herself. */
+  resolvedBy?: string;
+  /**
+   * ISO time the follow-up sweep JUDGED this conversation — not the time a
+   * message was sent.
+   *
+   * One judgement per conversation, whatever it decided: she may nudge, resolve
+   * on the spot, or decide nothing is needed, and all three stamp this. Without
+   * that, the "wait" branch would be re-judged every sweep and a nudged
+   * conversation would be nudged again fifteen minutes later, because her own
+   * message resets the idle clock the sweep selects on.
+   */
+  followUpAt?: string;
   /** Unix ms a human was requested — drives the "nobody came" fallback. */
   humanRequestedAt?: number;
   /** Console username of whoever took the conversation. */

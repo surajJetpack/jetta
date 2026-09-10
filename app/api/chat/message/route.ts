@@ -79,9 +79,19 @@ export async function POST(req: NextRequest) {
     return await chatJson(req, { error: "that upload expired — try attaching it again" }, { status: 410 });
   }
 
-  // The same idle rule the session route applies on resume, enforced here too:
-  // a tab left open past the window would otherwise keep writing into a
-  // conversation the widget would never have resumed on a reload.
+  /*
+   * The same idle rule the session route applies on resume, enforced here too:
+   * a tab left open past the window would otherwise keep writing into a
+   * conversation the widget would never have resumed on a reload.
+   *
+   * Deliberately BEFORE the reopen below, and the order is the interesting
+   * part: `autoResolveHours` matches `sessionIdleHours` by default, so a
+   * conversation the sweep resolved for silence is stale at the same moment
+   * and a returning visitor correctly gets a fresh chat rather than being
+   * dropped back into a thread whose framing they cannot escape. Reopening is
+   * for a conversation resolved EARLY — by a colleague, or because she judged
+   * it finished — which is still well inside the resume window.
+   */
   const existing = await store.getConversation(conversationId);
   if (existing && store.isStale(existing, (await getChatSettings()).sessionIdleHours)) {
     return await chatJson(req, { expired: true }, { status: 410 });
@@ -89,6 +99,30 @@ export async function POST(req: NextRequest) {
 
   const stored = await store.appendMessage(conversationId, "visitor", text, { attachments });
   if (!stored) return await chatJson(req, { expired: true }, { status: 410 });
+
+  /*
+   * A visitor writing into a resolved conversation reopens it.
+   *
+   * "Resolved" is where the console files a finished chat, and it has to mean
+   * that or it means nothing: without this the conversation would keep taking
+   * messages and keep being answered while sitting in the Resolved bucket,
+   * which is the one state the inbox cannot show you. Back to `ticketed` when
+   * a ticket carries the issue, else `open`.
+   *
+   * Before the turn is scheduled, so the run below sees a live conversation.
+   */
+  let status = existing?.status;
+  if (existing?.status === "resolved") {
+    const reopened = await store.reopenConversation(conversationId);
+    status = reopened?.status ?? status;
+    await logOpsEvent({
+      level: "info",
+      event: "chat.reopened_by_visitor",
+      source: "jettachat",
+      ticketId: conversationId,
+      data: { status, resolvedBy: existing.resolvedBy },
+    });
+  }
 
   // Mark this as the newest turn. The debounced run checks it before spending
   // an agent loop, so a burst of messages costs exactly one run.
@@ -114,7 +148,12 @@ export async function POST(req: NextRequest) {
   after(() => runChatTurn(conversationId, stored.id));
   return await chatJson(req, {
     accepted: true,
-    ...(existing?.status === "ticketed" ? { ticketed: true } : {}),
+    // Read AFTER the reopen above, not from `existing`: a ticketed conversation
+    // that had been resolved is ticketed again by the time this responds, and
+    // taking the flag from the pre-reopen document would drop the widget's
+    // "your answer is coming by email" banner on the one message where the
+    // visitor most needs to see it.
+    ...(status === "ticketed" ? { ticketed: true } : {}),
     message: stored,
   });
 }
