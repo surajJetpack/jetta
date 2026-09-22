@@ -7,6 +7,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Alert, AlertTitle } from "@/components/ui/alert";
 import { StatusChip } from "@/components/jetta/status-chip";
+import { APP_NAMES } from "@/lib/types";
+
+/** The app keys an embed may name — APP_NAMES minus the catch-all. */
+const APP_KEYS = Object.keys(APP_NAMES).filter((k) => k !== "unknown");
 
 function Snippet({ code }: { code: string }) {
   const [copied, setCopied] = useState(false);
@@ -177,30 +181,65 @@ export async function mountJettaChat() {
 }`;
 
   /*
-   * A standalone support PAGE, for a "Support" button inside a monday app.
+   * A "Chat with us" PAGE — one page that serves every app.
    *
    * The widget's normal job is to sit in the corner of a page someone came to
    * for another reason. This is the opposite: the page has no other job, so it
-   * opens straight into the conversation.
+   * opens straight into the conversation, and every app links to it with its
+   * own `?app=`.
    *
-   * The token is the point. A support URL is public — every query parameter on
-   * it was typed by whoever holds the link — and Jetta ACTS on the monday
-   * account slug, raising trial and discount requests against it without
-   * asking. So the account is not passed as text: the app hands over monday's
-   * own signed session token, our server checks it against the app's client
-   * secret, and the slug, the account id and which app they came from are read
-   * out of the claims. Name and email ride along as hints, exactly as good as
-   * something typed into the chat, which is what they would otherwise be.
+   * A CONTAINER, not `inline: true`. Filling the window means
+   * `position:fixed;inset:0`, which covers the site's own header and nav — on
+   * a WordPress page inside a theme that reads as the site having broken. A
+   * selector keeps the chat in the page's flow, and a selector matching
+   * nothing falls back to the corner launcher, so a stripped-out div costs the
+   * page its layout and never its chat.
+   *
+   * The app key is checked against the list rather than passed through: the
+   * URL is public and hand-editable, and an unrecognised value would otherwise
+   * be stamped on the conversation and carried into the per-app reports.
    */
-  const supportPageSnippet = `<!-- On the WordPress support page, before </body> -->
+  const chatPageSnippet = `<!-- In the page content — a Custom HTML block -->
+<div id="jetta-chat" style="height:70vh;min-height:520px;border:1px solid #e5e5e5;border-radius:12px;overflow:hidden"></div>
+
 <script>
   (function () {
-    var q = new URLSearchParams(location.search);
+    // Only our own app keys are accepted. Anything else is ignored rather than
+    // tagged onto the conversation and carried into the reports.
+    var APPS = ${JSON.stringify(APP_KEYS)};
+    var app = new URLSearchParams(location.search).get("app");
     window.JettaChatConfig = {
       surface: "wordpress",
-      inline: true,                         // this page IS the chat: no launcher
+      inline: "#jetta-chat",
+      visitor: { app: APPS.indexOf(app) !== -1 ? app : undefined }
+    };
+  })();
+</script>
+<script src="${baseUrl}/jettachat.js" defer></script>`;
+
+  const chatPageLink = `https://YOUR-SITE.com/chat-with-us/?app=vlookup`;
+
+  /*
+   * The same page, plus a signed monday session token.
+   *
+   * The token is the difference between "they say they are on acme.monday.com"
+   * and monday saying it. Jetta ACTS on the monday account slug, raising trial
+   * and discount requests against it without asking, and every query parameter
+   * on a public URL was typed by whoever holds the link. So with a token the
+   * slug, the account id and which app they came from are read out of the
+   * signed claims instead. Name and email ride along as hints, exactly as good
+   * as something typed into the chat, which is what they would otherwise be.
+   */
+  const chatPageTokenSnippet = `<script>
+  (function () {
+    var q = new URLSearchParams(location.search);
+    var APPS = ${JSON.stringify(APP_KEYS)};
+    var app = q.get("app");
+    window.JettaChatConfig = {
+      surface: "wordpress",
+      inline: "#jetta-chat",
       visitor: {
-        app: q.get("app") || undefined,     // which app the button belongs to
+        app: APPS.indexOf(app) !== -1 ? app : undefined,
         mondaySessionToken: q.get("token") || undefined,  // proves the account
         name: q.get("name") || undefined,   // hints; Jetta asks if absent
         email: q.get("email") || undefined
@@ -208,7 +247,6 @@ export async function mountJettaChat() {
     };
     // Take the token back out of the address bar, so it is not in history,
     // in a referrer, or in whatever analytics the theme loads.
-    var app = q.get("app");
     history.replaceState(null, "", location.pathname + (app ? "?app=" + encodeURIComponent(app) : ""));
   })();
 </script>
@@ -217,9 +255,9 @@ export async function mountJettaChat() {
   const supportButtonSnippet = `import mondaySdk from "monday-sdk-js";
 
 const monday = mondaySdk();
-const SUPPORT_PAGE = "https://YOUR-SITE.com/support";
+const CHAT_PAGE = "https://YOUR-SITE.com/chat-with-us/";
 
-/** Wire this to the Support button in your app view. */
+/** Wire this to the "Chat with us" button in your app view. */
 export async function openSupport() {
   // Signed by monday with your app's client secret, and short-lived — Jetta
   // verifies it server-side, so the account cannot be faked by editing the URL.
@@ -227,7 +265,7 @@ export async function openSupport() {
   // Name and email are a courtesy: they save Jetta asking. They prove nothing.
   const me = await monday.api("query { me { name email } }");
 
-  const url = new URL(SUPPORT_PAGE);
+  const url = new URL(CHAT_PAGE);
   url.searchParams.set("app", "vlookup");
   url.searchParams.set("token", session.data);
   if (me.data?.me?.name) url.searchParams.set("name", me.data.me.name);
@@ -332,6 +370,93 @@ export async function openSupport() {
 
       <Card>
         <CardHeader>
+          <CardTitle>A &quot;Chat with us&quot; page</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <p className="text-sm text-muted-foreground">
+            One page, every app. A <b>Chat with us</b> button in a monday app view links to it with{" "}
+            <code>?app=</code> naming the app, so someone arriving from inside VLOOKUP is attributed to
+            VLOOKUP without being asked — and the same page works as the site&apos;s own support page.
+            It keeps the conversation across a refresh, because the session is stored on that domain.
+          </p>
+          <Step n={1} title="Make the page, and allow it">
+            <p className="text-sm text-muted-foreground">
+              Any page will do — the chat fills the block you give it. Add its address to{" "}
+              <b>Sites allowed to embed the chat</b> in Settings, the same as any other embed.
+            </p>
+          </Step>
+          <Step n={2} title="Paste this into the page content">
+            <Snippet code={chatPageSnippet} />
+            <p className="text-[11px] text-muted-foreground">
+              No launcher, no badge, always open — on a page whose only job is the chat, a bubble is
+              furniture in front of the one thing there. Adjust the <code>height</code> to taste.
+            </p>
+            <p className="text-[11px] text-muted-foreground">
+              <b>Use the container, not <code>inline: true</code>.</b> Filling the window means covering
+              the site&apos;s own header and nav, which reads as the site having broken. If the page also
+              carries the site-wide script from above, that&apos;s fine: the loader refuses to run twice
+              and this one goes first. If it carries a <em>different</em> chat widget, delete that script
+              — two widgets is two conversations, and the visitor cannot tell which one anybody is
+              reading.
+            </p>
+          </Step>
+          <Step n={3} title="Point each app at it">
+            <Snippet code={chatPageLink} />
+            <p className="text-[11px] text-muted-foreground">
+              Swap the page address for yours and the <code>app</code> value per app. Spell the key
+              exactly — anything unrecognised is dropped and the chat runs unattributed, which costs you
+              the per-app filter in <b>Chats</b> and the app breakdown on <b>Today</b>.
+            </p>
+            <div className="grid gap-x-6 gap-y-1 text-[11px] text-muted-foreground sm:grid-cols-2">
+              {APP_KEYS.map((k) => (
+                <div key={k} className="flex items-baseline justify-between gap-2 border-b border-dashed py-0.5">
+                  <span>{APP_NAMES[k]}</span>
+                  <code>{k}</code>
+                </div>
+              ))}
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              <code>getsign</code> also switches the page to the GetSign skin and scopes answers to the
+              GetSign knowledge base — the other apps&apos; articles are not retrievable under it.
+            </p>
+          </Step>
+
+          <div className="space-y-3 rounded-lg border bg-muted/30 p-3">
+            <p className="text-sm font-medium">Optional: let Jetta act on the monday account</p>
+            <p className="text-sm text-muted-foreground">
+              With the link above, Jetta knows which app the visitor came from but not <em>who</em> they
+              are — she asks for a name and email in the chat, and confirms the account before raising
+              anything against it. Hand over monday&apos;s signed session token and she stops asking.
+            </p>
+            <p className="text-[11px] text-muted-foreground">
+              Use this version of the page snippet instead — same page, same container, it just reads the
+              extra parameters:
+            </p>
+            <Snippet code={chatPageTokenSnippet} />
+            <p className="text-[11px] text-muted-foreground">
+              And open it from the app view like this, rather than as a plain link:
+            </p>
+            <Snippet code={supportButtonSnippet} />
+            <p className="text-[11px] text-muted-foreground">
+              <code>monday.api</code> needs the <code>me:read</code> scope, the same one the in-view embed
+              uses. Then set <code>MONDAY_CLIENT_SECRET_VLOOKUP</code> — and the same for every other app
+              whose button you wire up — from that app&apos;s monday developer page. Without the secret the
+              token cannot be checked and nothing breaks: the chat simply starts anonymous again, with no
+              account attached.
+            </p>
+            <p className="text-[11px] text-muted-foreground">
+              Why a token rather than just putting the account slug in the link: Jetta uses that slug to
+              raise trial and discount requests <em>without asking</em>. On a link anyone can edit, that
+              would let one customer ask for a discount on another&apos;s account. A verified token is
+              monday saying who this is; an unverified slug is shown to her as a claim, with an
+              instruction to confirm it before acting.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <CardTitle>Inside a monday app view</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -370,58 +495,6 @@ export async function openSupport() {
 
       <Card>
         <CardHeader>
-          <CardTitle>A support page for a monday app</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-5">
-          <p className="text-sm text-muted-foreground">
-            For a <b>Support</b> button in an app view that should open a full page rather than a corner
-            panel. The page can live anywhere you like — a WordPress page on your own domain is the easy
-            choice, and it keeps the conversation across a refresh, because the session is stored on that
-            domain.
-          </p>
-          <Step n={1} title="Make the page, and allow it">
-            <p className="text-sm text-muted-foreground">
-              Any page will do — an empty one is fine, since the chat fills it. Add its address to{" "}
-              <b>Sites allowed to embed the chat</b> in Settings, the same as any other embed.
-            </p>
-          </Step>
-          <Step n={2} title="Paste this into it">
-            <Snippet code={supportPageSnippet} />
-            <p className="text-[11px] text-muted-foreground">
-              <code>inline: true</code> fills the window — no launcher, no badge, always open, because on
-              a page whose only job is the chat a bubble is furniture in front of the one thing there.
-              Pass a selector instead (<code>inline: &quot;#chat-here&quot;</code>) to drop it into your own
-              layout. If the page already carries another chat widget, delete that script: two widgets is
-              two conversations, and the visitor cannot tell which one anybody is reading.
-            </p>
-          </Step>
-          <Step n={3} title="Point the Support button at it">
-            <Snippet code={supportButtonSnippet} />
-            <p className="text-[11px] text-muted-foreground">
-              <code>monday.api</code> needs the <code>me:read</code> scope, the same one the in-view embed
-              uses. If you skip it, Jetta simply asks for a name and email in the chat.
-            </p>
-          </Step>
-          <Step n={4} title="Add the app's client secret">
-            <p className="text-sm text-muted-foreground">
-              Set <code>MONDAY_CLIENT_SECRET_VLOOKUP</code> (and the same for any other app whose button
-              you wire up) from that app&apos;s monday developer page. Without it the token cannot be
-              checked, and the chat still works — it just starts anonymous, with Jetta asking who they
-              are, and no account attached.
-            </p>
-          </Step>
-          <p className="text-[11px] text-muted-foreground">
-            Why the token rather than just putting the account slug in the link: Jetta uses that slug to
-            raise trial and discount requests <em>without asking</em>. On a link anyone can edit, that
-            would let one customer ask for a discount on another&apos;s account. A verified token is
-            monday saying who this is; an unverified slug is now shown to Jetta as a claim, with an
-            instruction to confirm it before acting.
-          </p>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
           <CardTitle>When it doesn&apos;t work</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3 text-sm">
@@ -449,6 +522,15 @@ export async function openSupport() {
               email came back empty. Log the query result: <code>monday.get(&quot;context&quot;)</code> never
               carries a name, an email or an account slug, and <code>monday.api()</code> returns them only with
               the <code>me:read</code> scope granted.
+            </p>
+          </div>
+          <div>
+            <p className="font-medium">The &quot;Chat with us&quot; page shows a launcher instead of the chat</p>
+            <p className="text-muted-foreground">
+              The selector matched nothing, so it fell back to the corner widget rather than leaving the
+              page empty. The <code>&lt;div id=&quot;jetta-chat&quot;&gt;</code> is missing — some editors
+              strip an empty div on save. Give it a non-breaking space, or use a block that preserves raw
+              HTML.
             </p>
           </div>
           <div>
