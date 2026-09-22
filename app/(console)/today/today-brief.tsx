@@ -236,9 +236,9 @@ function WorklistRow({ item, why }: { item: WorklistItem; why: string | null }) 
 
 /**
  * Today is the agent's worklist. Approving learnings, reviewing articles and
- * deciding billing all left this page for their own — they are admin work on a
- * different clock, and mixing them in made the morning read a mixed pile with
- * no single spine.
+ * deciding billing all left this page for their own — they run on a different
+ * clock, and mixing them in made the morning read a mixed pile with no single
+ * spine.
  */
 export default function TodayBrief({ isAdmin }: { isAdmin: boolean }) {
   const [brief, setBrief] = useState<Brief | null>(null);

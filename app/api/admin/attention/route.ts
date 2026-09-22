@@ -11,9 +11,9 @@
  * without a console session gets a 401 and the badges simply don't render,
  * which is the correct behaviour for an expired tab left open overnight.
  *
- * Counts are NOT filtered by role. A general user sees the chat badge because
- * a waiting visitor is their job; the billing count is only ever rendered
- * beside a nav item they don't have, so it costs nothing to return.
+ * Counts are NOT filtered by role. A general user sees the chat and billing
+ * badges because both are their job; the two admin counts are only ever
+ * rendered beside nav items they don't have, so they cost nothing to return.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { adminAuthorized } from "@/lib/auth";

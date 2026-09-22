@@ -9,9 +9,9 @@
  * which is how a nav stops being read.
  *
  * `admin` here is a NAV decision, not a permission — see the note in
- * lib/roles.ts. A general user sees Today, Chats and the Guide, because that
- * is the shape of their day; the API routes remain the boundary and stay
- * deliberately more permissive.
+ * lib/roles.ts. A general user sees Today, Chats, Test Jetta, Billing and the
+ * Guide, because that is the shape of their day; the API routes remain the
+ * boundary and stay deliberately more permissive.
  */
 import {
   BarChart3,
@@ -136,7 +136,6 @@ export const NAV: NavGroup[] = [
         icon: CreditCard,
         hint: "Trial and discount approvals waiting on a person",
         badge: "billing",
-        adminOnly: true,
       },
     ],
   },

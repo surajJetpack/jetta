@@ -125,8 +125,7 @@ export default function GuideContent({ isAdmin }: { isAdmin: boolean }) {
               {isAdmin && (
                 <>
                   {" "}
-                  Admins also see KB articles awaiting review, billing approvals, and candidate
-                  learnings to approve.
+                  Admins also see KB articles awaiting review and candidate learnings to approve.
                 </>
               )}
             </p>
@@ -321,6 +320,35 @@ export default function GuideContent({ isAdmin }: { isAdmin: boolean }) {
 
       <Card>
         <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <CreditCard className="size-4 text-primary" /> Billing — approvals Jetta can&apos;t
+            self-serve
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm">
+          <p>
+            When a customer asks for a trial extension or a discount, Jetta doesn&apos;t grant it.
+            She files a request on <b>Billing</b> (and in Slack) with the account, the amount and
+            the ticket, and waits for a person. That person can be you: approving applies it to the
+            customer&apos;s monday account straight away, so read the ticket first and check the
+            account is the one that asked.
+          </p>
+          <p>
+            Requests that look like repeat trial-stretching arrive <b>flagged</b> — a second or
+            third extension for the same account is worth a look before you approve it, not an
+            automatic no. Trial extensions are a standard 7 days; if someone needs something other
+            than that, it&apos;s a conversation with Suraj, not a bigger approval.
+          </p>
+          <p className="text-muted-foreground">
+            Pending requests expire after 3 days on their own, so an ignored request never quietly
+            grants itself. If an approval reports that nothing was applied, the queue says why at
+            the top of the page and the request stays put so it can be retried.
+          </p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <CardTitle>Ground rules</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2">
@@ -426,28 +454,6 @@ export default function GuideContent({ isAdmin }: { isAdmin: boolean }) {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <CreditCard className="size-4 text-primary" /> Billing — approvals Jetta can&apos;t
-                self-serve
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2 text-sm">
-              <p>
-                When a customer asks for a trial extension or a discount, Jetta doesn&apos;t grant
-                it. She files a request here (and in Slack) with the account, the amount and the
-                ticket, and waits for a person. Requests that look like repeat trial-stretching are
-                flagged for you.
-              </p>
-              <p className="text-muted-foreground">
-                Pending requests expire after 3 days on their own, so an ignored request never
-                quietly grants itself. Whether an approval actually reaches the billing system is a
-                separate switch — check <b>System</b> if an approval seems to do nothing.
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
                 <BarChart3 className="size-4 text-primary" /> Insights — how we&apos;re doing
               </CardTitle>
             </CardHeader>
@@ -505,12 +511,14 @@ export default function GuideContent({ isAdmin }: { isAdmin: boolean }) {
             <CardContent className="space-y-2.5 text-sm">
               <StepCard title="Who sees what">
                 <p className="text-sm">
-                  General users get three tabs — Today, Chats, Guide — because that is the shape of
-                  their day. It is a <b>navigation</b> decision, not a permission: the API routes are
-                  the real boundary and are deliberately more permissive, so a direct link still
-                  works for them. What they genuinely cannot do is approve a learning, publish an
-                  article, or decide anything that spends money. <b>View as general</b> in the top
-                  bar is a real downgrade, not a preview — the APIs honour it too.
+                  General users get Today, Chats, Test Jetta, Billing and the Guide, because that is
+                  the shape of their day. It is a <b>navigation</b> decision, not a permission: the
+                  API routes are the real boundary and are deliberately more permissive, so a direct
+                  link still works for them. What they genuinely cannot do is approve a learning,
+                  publish an article, or decide who may embed the widget. Trials and discounts were
+                  on that list until 2026-09-22 and are now theirs to decide — the agent holding the
+                  ticket is the one who should answer it. <b>View as general</b> in the top bar is a
+                  real downgrade, not a preview — the APIs honour it too.
                 </p>
               </StepCard>
 

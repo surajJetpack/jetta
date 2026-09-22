@@ -8,12 +8,11 @@ import TrialsDiscountsQueue from "./billing-queue";
 export const dynamic = "force-dynamic";
 
 export default async function BillingPage() {
-  const { locked, isAdmin } = await gate();
+  const { locked } = await gate();
   if (locked) redirect("/login?next=%2Fbilling");
-  // Every action on this page is admin-only, so a general user landing here by
-  // URL would see a list of approvals they cannot decide. Hiding the tab and
-  // leaving the page reachable is a half-measure.
-  if (!isAdmin) redirect("/today");
+  // Open to the whole support team: the person reading the ticket that asked
+  // for the trial is the person best placed to decide it, and every action on
+  // this page now works for them (see app/api/admin/monetization/route.ts).
   return (
     <>
       <PageHeader
