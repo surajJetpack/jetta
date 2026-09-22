@@ -1,6 +1,14 @@
 /**
- * Trials & discounts approval queue (admin-gated) — the console counterpart of
- * the Slack `approve/reject monet` commands.
+ * Trials & discounts approval queue — the console counterpart of the Slack
+ * `approve/reject monet` commands.
+ *
+ * Open to every signed-in console user, admin or not (2026-09-22). Deciding a
+ * trial extension or a discount used to be admin-only on blast-radius grounds,
+ * but it is the support team who reads the ticket that asked for it, and a
+ * queue only one person may clear is a queue that sits. The guard rails that
+ * remain are the ones that were doing the real work anyway: Jetta never grants
+ * one herself, repeat trial-stretching arrives already flagged, requests expire
+ * after 3 days, and every decision is logged with its actor.
  *
  *   GET            → { approvals }  (pending MonetApprovals, newest first)
  *   GET ?count     → { pending: N } (cheap poll for the nav badge)
@@ -11,7 +19,6 @@
  * still bounded by MONDAY_MONETIZATION_ALLOW_WRITES.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/roles";
 import { adminAuthorized, adminActor } from "@/lib/auth";
 import { listMonetApprovals } from "@/lib/kv";
 import { resolveMonetApproval } from "@/lib/monetization-approvals";
@@ -30,9 +37,6 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  // Admin-only: this grants a trial extension or a discount — it spends money.
-  const denied = requireAdmin(req);
-  if (denied) return denied;
   if (!adminAuthorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const actor = adminActor(req) ?? "console";
   const { id, action } = (await req.json().catch(() => ({}))) as { id?: string; action?: string };

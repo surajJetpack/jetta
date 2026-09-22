@@ -151,8 +151,9 @@ export default function TrialsDiscountsQueue({
           <Alert>
             <TriangleAlert />
             <AlertTitle>
-              monday writes are disabled — approvals are recorded but nothing is applied until
-              MONDAY_MONETIZATION_ALLOW_WRITES=true. A gated approval stays in the queue so it can be retried.
+              Approvals are switched off right now — you can still decide one, but nothing reaches the
+              customer&apos;s monday account and the request stays here to be retried. This needs Suraj
+              (MONDAY_MONETIZATION_ALLOW_WRITES), not a retry.
             </AlertTitle>
           </Alert>
         )}
