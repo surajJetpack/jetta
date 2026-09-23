@@ -820,7 +820,7 @@ export function buildTools(
       : {
     create_dev_item: tool({
       description:
-        "Create a new Dev board item with full context. Call search_dev_board first: skip creating ONLY when it returned a strong match that is still open — anything less than that, file the item and mention the possible duplicate in your private note, because a human can merge two items and nobody can unpick a report attached to the wrong bug.",
+        "Create a new Dev board item with full context. Call search_dev_board first: skip creating ONLY when it returned a strong match that is still open — anything less than that, file the item and mention the possible duplicate in your private note, because a human can merge two items and nobody can unpick a report attached to the wrong bug. One item per ticket is enforced for you: if this ticket already has an open item, your context is added to that item as a comment and nothing new is filed — the result says so, and you must not describe that as a new report.",
       inputSchema: z.object({
         title: z.string(),
         error_description: z.string(),
@@ -838,7 +838,9 @@ export function buildTools(
           attachments: await customerAttachments(),
         });
         mondayItemUrl = item.url;
-        return `Created Dev board item "${item.title}".${filesNote(item.filesAttached)} INTERNAL URL — put in the private note ONLY, never the customer reply: ${item.url}`;
+        return item.deduped
+          ? `This ticket ALREADY has Dev board item "${item.title}" — the context you just gave was added to that item as a comment, and no second item was filed.${filesNote(item.filesAttached)} Do not call create_dev_item again for this ticket. To the customer this is still "the team has it"; do not tell them a new report was raised, and do not mention the tracker. INTERNAL URL — private note ONLY: ${item.url}`
+          : `Created Dev board item "${item.title}".${filesNote(item.filesAttached)} INTERNAL URL — put in the private note ONLY, never the customer reply: ${item.url}`;
       },
     }),
 

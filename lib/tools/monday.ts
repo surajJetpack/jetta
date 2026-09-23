@@ -122,7 +122,7 @@ const PROGRESS_COLUMN_TITLES = ["dev status", "status"];
  * exact comparison silently returns nobody for every item on that board.
  */
 function pickColumn(
-  columns: MondayColumnValue[] | undefined,
+  columns: MondayColumnValue[] | null | undefined,
   type: string,
   titles: string[],
 ): string | undefined {
@@ -182,6 +182,19 @@ const STRONG_MATCH = 0.65;
 const POSSIBLE_MATCH = 0.5;
 /** Fewer shared distinctive words than this is a coincidence, not a match. */
 const MIN_SHARED_TERMS = 2;
+/**
+ * A symptom with fewer distinctive words than this can be a lead, never "the
+ * same bug".
+ *
+ * The body is corroboration, and on a two-word symptom a single half-weight
+ * body hit is a third of the whole score. Run over the live boards, exactly
+ * one pair in 19,800 needed this: the symptom "VLookUp questions" scored 0.75
+ * against "VLookUp Template not working" — one word in the title, the other
+ * somewhere in a comment thread — which is enough to BLOCK a customer's report
+ * from being filed. Two words is not enough evidence to decide that, whatever
+ * it scores.
+ */
+const MIN_TERMS_FOR_STRONG = 3;
 
 /**
  * Distinctive words in a piece of text: lowercased, split on non-alphanumerics,
@@ -250,11 +263,154 @@ export function matchDevItem(
   const score = similarity(q, title, body);
   if (shared < MIN_SHARED_TERMS || score < POSSIBLE_MATCH) return null;
   const feature = FEATURE_GROUP.test((item.group ?? "").toLowerCase());
+  const enoughToBeSure = q.size >= MIN_TERMS_FOR_STRONG;
   return {
-    confidence: score >= STRONG_MATCH && !feature ? "strong" : "possible",
+    confidence: score >= STRONG_MATCH && !feature && enoughToBeSure ? "strong" : "possible",
     score: Number(score.toFixed(2)),
     shared,
   };
+}
+
+/**
+ * How many updates to read per item.
+ *
+ * Deliberately generous. The busiest item on either board carries six, and a
+ * live probe put `updates(limit: 20)` at the same query complexity (9348 vs
+ * 9346) and the same response size as `limit: 5` — monday charges for the
+ * connection, not the rows. A tight window would silently drop the ONE update
+ * that matters: Jetta posts her context first, so on an item engineering has
+ * since discussed, the oldest update is the one carrying the ticket link.
+ */
+const UPDATES_PER_ITEM = 20;
+
+/** A board row with everything the matcher and the duplicate guard read. */
+interface BoardItemRow {
+  id: string;
+  name: string;
+  group: { title: string } | null;
+  column_values: MondayColumnValue[] | null;
+  updates: { text_body: string | null }[] | null;
+}
+
+/**
+ * Every item on the board, with its updates, in one query.
+ *
+ * The updates are not a nicety. `createDevItem` writes the error description,
+ * the repro steps and the Freshdesk ticket link into an UPDATE, and populates
+ * columns only where the board happens to have ones whose titles match. The
+ * GetSign board has no `long_text` or `text` column at all — Bug Description
+ * and Account URL are mirrors — so before this, everything read here about a
+ * GetSign item was its title. Both callers below were working from a third of
+ * the evidence on the board that files the most items.
+ *
+ * The 100-item window is NOT 100 of the board. GetSign holds 1373 items and
+ * Dev Tasks 967, almost all of them Done (1237 and 901). What the window
+ * actually covers is every live group on both boards — every Client reported
+ * Field Issue, Internal Bug and Coming Up row, and 50 of GetSign's 86 Backlog
+ * rows, which are FEATURE_GROUP and can never be more than "possible" anyway.
+ *
+ * That holds only because monday returns the groups in board order and Done is
+ * LAST on both. Reorder the groups, or grow the live ones past ~100, and this
+ * silently starts reading finished work instead of current work: the search
+ * goes quiet and the duplicate guard below stops seeing the item it exists to
+ * find. Neither failure announces itself. If that day comes, page the
+ * non-closed groups rather than raising the limit.
+ */
+async function fetchBoardItems(board: string | undefined): Promise<BoardItemRow[]> {
+  // No board configured for this product: the query would error and be
+  // swallowed anyway, so say "nothing on the board" directly.
+  if (!board) return [];
+  const data = await gql<{ boards: { items_page: { items: BoardItemRow[] } }[] }>(
+    `query ($board: [ID!]) {
+      boards(ids: $board) {
+        items_page(limit: 100) {
+          items {
+            id
+            name
+            group { title }
+            column_values { text type column { title } }
+            updates(limit: ${UPDATES_PER_ITEM}) { text_body }
+          }
+        }
+      }
+    }`,
+    { board: [board] },
+  ).catch(() => null);
+  return data?.boards?.[0]?.items_page?.items ?? [];
+}
+
+/**
+ * Metadata lines in one of Jetta's updates — the label IS the whole value, and
+ * the value says nothing about which bug this is.
+ *
+ * Stripping them is what makes it safe to feed updates to the matcher. Every
+ * item she files carries the same header, so leaving it in would hand a free
+ * half-point to EVERY item on the board for a symptom that happens to say
+ * "product" or "conversation".
+ */
+const UPDATE_METADATA_LINE = /^\s*(product|account|freshdesk ticket|conversation|surface)\s*:/i;
+/** Labels whose value is the real content, so only the label comes off. */
+const UPDATE_LABEL = /^\s*(error|reproduction steps|repro steps)\s*:\s*/i;
+
+/**
+ * One of Jetta's updates reduced to the words that describe the bug: headers
+ * dropped, labels unwrapped, URLs removed (a ticket link contributes "https",
+ * "freshdesk" and "com" to no bug in particular).
+ *
+ * Exported for scripts/dev-board-match-test.ts, which pins the stripping — a
+ * regression here does not fail loudly, it just quietly makes every item look
+ * a little more like every symptom.
+ */
+export function devItemUpdateText(raw: string): string {
+  return raw
+    .split("\n")
+    .filter((line) => !UPDATE_METADATA_LINE.test(line))
+    .map((line) => line.replace(UPDATE_LABEL, ""))
+    .join("\n")
+    .replace(/https?:\/\/\S+/g, " ")
+    .trim();
+}
+
+/** Everything on an item that describes the problem, for the matcher. */
+function itemBodyText(item: BoardItemRow): string {
+  return [
+    // Free-text columns only: link columns hold ticket and account URLs, whose
+    // words belong to no bug in particular.
+    ...(item.column_values ?? [])
+      .filter((c) => c.type === "long_text" || c.type === "text")
+      .map((c) => c.text ?? ""),
+    ...(item.updates ?? []).map((u) => devItemUpdateText(u.text_body ?? "")),
+  ].join(" ");
+}
+
+/** The Freshdesk ticket id in a ticket URL, or null when there isn't one. */
+export function freshdeskTicketId(url: string): string | null {
+  return /\/tickets\/(\d+)/.exec(url)?.[1] ?? null;
+}
+
+/**
+ * Is this item already the one filed for that Freshdesk ticket?
+ *
+ * Read off the RAW update text, not the matcher's cleaned copy — the ticket
+ * link is exactly what that one strips. The lookahead stops ticket 1433 from
+ * matching the item filed for 14331.
+ *
+ * (An older `itemMentionsTicket` existed for the retired +1 flow and asked a
+ * different question — "might a human have mentioned this ticket here". This
+ * one asks whether WE filed for it, which is exact.)
+ */
+export function itemCarriesTicket(
+  item: {
+    column_values?: { text: string | null }[] | null;
+    updates?: { text_body: string | null }[] | null;
+  },
+  ticketId: string,
+): boolean {
+  const link = new RegExp(`/tickets/${ticketId}(?![0-9])`);
+  return [
+    ...(item.column_values ?? []).map((c) => c.text ?? ""),
+    ...(item.updates ?? []).map((u) => u.text_body ?? ""),
+  ].some((text) => link.test(text));
 }
 
 /**
@@ -296,41 +452,14 @@ export async function searchDevBoard(symptom: string, product: Product): Promise
   // contains_text rule, which is a strict substring match on the full phrase
   // and misses near-matches ("signed document syncing" vs "...not syncing...").
   const board = boardIdFor(product);
-  const data = await gql<{
-    boards: {
-      items_page: {
-        items: {
-          id: string;
-          name: string;
-          group: { title: string } | null;
-          column_values: MondayColumnValue[];
-        }[];
-      };
-    }[];
-  }>(
-    `query ($board: [ID!]) {
-      boards(ids: $board) {
-        items_page(limit: 100) {
-          items { id name group { title } column_values { text type column { title } } }
-        }
-      }
-    }`,
-    { board: [board] },
-  ).catch(() => null);
-
-  const items = data?.boards?.[0]?.items_page?.items ?? [];
+  const items = await fetchBoardItems(board);
 
   const scored = items
     .map((i) => {
       const groupTitle = i.group?.title?.trim() ?? "";
       const match = matchDevItem(symptom, {
         title: i.name,
-        // Only the free-text columns: link columns hold ticket and account
-        // URLs, whose words belong to no bug in particular.
-        body: (i.column_values ?? [])
-          .filter((c) => c.type === "long_text" || c.type === "text")
-          .map((c) => c.text ?? "")
-          .join(" "),
+        body: itemBodyText(i),
         group: groupTitle,
       });
       return { i, groupTitle, match, closed: CLOSED_GROUP.test(groupTitle.toLowerCase()) };
@@ -399,7 +528,54 @@ export interface CreateDevItemInput {
 }
 
 /** A created item, plus the names of the files that actually attached. */
-export type CreatedDevItem = DevBoardItem & { filesAttached: string[] };
+export type CreatedDevItem = DevBoardItem & {
+  filesAttached: string[];
+  /**
+   * True when this ticket already had an item and the context went onto that
+   * one as a comment. The caller must say so rather than report a new filing —
+   * an agent told "created" for an item it did not create will describe a fresh
+   * report to the team that nobody made.
+   */
+  deduped?: boolean;
+};
+
+/** The context block Jetta posts on an item, as an update. */
+function contextBody(input: CreateDevItemInput, followUp: boolean): string {
+  return [
+    ...(followUp
+      ? [
+          `Follow-up from the SAME Freshdesk ticket — added here rather than filed as a second item.`,
+          "",
+        ]
+      : []),
+    `Product: ${input.product}`,
+    `Account: ${input.accountUrl}`,
+    `Freshdesk ticket: ${input.freshdeskTicketUrl}`,
+    "",
+    `Error: ${input.errorDescription}`,
+    "",
+    `Reproduction steps:\n${input.reproSteps}`,
+  ].join("\n");
+}
+
+/**
+ * Post an update on an item and hang the customer's files off it.
+ *
+ * The update is the one place on an item guaranteed to exist regardless of
+ * which columns the configured board happens to have — which, on the GetSign
+ * board, is none of the ones `createDevItem` looks for.
+ */
+async function postContextUpdate(
+  itemId: string,
+  body: string,
+  attachments: AttachmentFile[],
+): Promise<string[]> {
+  const update = await gql<{ create_update: { id: string } }>(
+    `mutation ($item: ID!, $body: String!) { create_update(item_id: $item, body: $body) { id } }`,
+    { item: itemId, body },
+  ).catch(() => null);
+  return attachFilesToUpdate(update?.create_update.id ?? null, attachments);
+}
 
 export async function createDevItem(input: CreateDevItemInput): Promise<CreatedDevItem> {
   const fileCount = input.attachments?.length ?? 0;
@@ -418,6 +594,48 @@ export async function createDevItem(input: CreateDevItemInput): Promise<CreatedD
   }
 
   const board = boardIdFor(input.product);
+
+  /*
+   * One item per Freshdesk ticket.
+   *
+   * The similarity matcher below is the wrong instrument for this question.
+   * Ticket 14331 got two items 29 minutes apart because a second run scored
+   * the first item at 0.62 — one notch under the 0.65 that means "the same
+   * bug" — and the rule for a "possible" match is, correctly, to file anyway
+   * and let a human merge. That rule is about two different CUSTOMERS who
+   * might have one bug. Two runs on one ticket are not that: it is the same
+   * report, and the ticket id answers it exactly, with no threshold to miss.
+   *
+   * Deliberately not blocked by a FINISHED item: if the same ticket comes back
+   * to life weeks after its item shipped, a new item is the right outcome.
+   */
+  const ticketId = freshdeskTicketId(input.freshdeskTicketUrl);
+  if (ticketId) {
+    const existing = (await fetchBoardItems(board)).find(
+      (i) =>
+        itemCarriesTicket(i, ticketId) &&
+        !CLOSED_GROUP.test((i.group?.title ?? "").trim().toLowerCase()),
+    );
+    if (existing) {
+      // Whatever the customer said since is the reason there was a second run
+      // at all, so it goes onto the item — unless it is already there, which
+      // is what a run repeating itself looks like.
+      const alreadyPosted = (existing.updates ?? []).some((u) =>
+        (u.text_body ?? "").includes(input.errorDescription.trim()),
+      );
+      const filesAttached = alreadyPosted
+        ? []
+        : await postContextUpdate(existing.id, contextBody(input, true), input.attachments ?? []);
+      return {
+        id: existing.id,
+        title: existing.name,
+        status: pickColumn(existing.column_values, "status", PROGRESS_COLUMN_TITLES) ?? "unknown",
+        url: itemUrl(existing.id, input.product),
+        filesAttached,
+        deduped: true,
+      };
+    }
+  }
 
   // Discover the board's columns and groups so we can populate structured
   // fields by title and land the item in the right group, adapting to whatever
@@ -468,26 +686,12 @@ export async function createDevItem(input: CreateDevItemInput): Promise<CreatedD
   );
   const id = data.create_item.id;
 
-  // Also post the full context as an update — keeps product/ticket visible and
-  // covers boards that lack matching columns.
-  const body = [
-    `Product: ${input.product}`,
-    `Account: ${input.accountUrl}`,
-    `Freshdesk ticket: ${input.freshdeskTicketUrl}`,
-    "",
-    `Error: ${input.errorDescription}`,
-    "",
-    `Reproduction steps:\n${input.reproSteps}`,
-  ].join("\n");
-  const update = await gql<{ create_update: { id: string } }>(
-    `mutation ($item: ID!, $body: String!) { create_update(item_id: $item, body: $body) { id } }`,
-    { item: id, body },
-  ).catch(() => null);
-
-  // Screenshots hang off that update — it's the one place on the item guaranteed
-  // to exist regardless of which columns the configured board happens to have.
-  const filesAttached = await attachFilesToUpdate(
-    update?.create_update.id ?? null,
+  // Also post the full context as an update — keeps product/ticket visible,
+  // covers boards that lack matching columns, and is what the duplicate guard
+  // above reads on the next run.
+  const filesAttached = await postContextUpdate(
+    id,
+    contextBody(input, false),
     input.attachments ?? [],
   );
 
