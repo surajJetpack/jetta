@@ -4,15 +4,22 @@
  *
  * No network, no storage — synthetic Freshdesk tickets and threads.
  */
+import { handoffEvidence } from "../lib/handoff-judge";
 import {
+  bucketOf,
   buildSummary,
   chatWeeks,
+  detectHandoff,
+  handoffSummary,
+  isSettled,
   isJunkSubject,
   median,
   periodStats,
   suggestionBody,
   summarizeTicket,
   weekStart,
+  withBoardHandoffs,
+  type HandoffOutcome,
   type PerfConversation,
   type PerfListTicket,
 } from "../lib/performance";
@@ -152,6 +159,94 @@ check("weekStart Sunday → previous Monday", weekStart("2026-09-27T23:59:00Z"),
   check("summary: weeks sorted", sum.weeks.map((w) => w.week), ["2026-06-01", "2026-08-10", "2026-09-14"]);
   check("summary: since", sum.since, "2026-06-01");
   check("summary: agents from recent window only", sum.agents.map((a) => [a.agent, a.firstReplies]), [["Cherryl", 1]]);
+}
+
+// ── handoff detection: every wording her notes have used ──
+{
+  const n = (body: string, at = "2026-09-10T10:00:00Z") => msg({ private: true, user_id: JETTA, created_at: at, body_text: body });
+  check("no handoff on a plain ticket", detectHandoff([n("Jetta — suggested reply (pending) Hi")]), null);
+  check(
+    "dev item + slack in one note, item id from URL",
+    detectHandoff([n("Escalated to dev team via Slack (ts 1790). Created dev board item: https://jetpackteam.monday.com/boards/3713408976/pulses/13102329370")]),
+    { kinds: ["dev_item", "slack"], at: "2026-09-10T10:00:00Z", itemIds: ["13102329370"] },
+  );
+  check(
+    "matched existing item by id in prose; earliest note wins",
+    detectHandoff([
+      n("Strong match found on Dev board: item 13103351454 — GetSign cannot read email", "2026-09-12T10:00:00Z"),
+      n("Opened by Jetta from a live chat. Conversation: https://jettajetpack.vercel.app/chats/x", "2026-09-11T10:00:00Z"),
+    ]),
+    { kinds: ["dev_item", "chat"], at: "2026-09-11T10:00:00Z", itemIds: ["13103351454"] },
+  );
+  check("'Escalated urgently to engineering' counts as Slack", detectHandoff([n("Escalated urgently to engineering via Slack.")])?.kinds, ["slack"]);
+  const t = summarizeTicket(ticket({ id: 104 }), [n("Dev board item created: https://x.monday.com/boards/1/pulses/12345678")], AGENTS, JETTA);
+  check("summarizeTicket carries handoff + subject + schema", [t.handoff?.kinds, t.subject, t.v], [["dev_item"], "Signer email not resolving", 2]);
+}
+
+// ── board-recorded handoffs fill what her notes missed ──
+{
+  const plain = summarizeTicket(ticket({ id: 200 }), [], AGENTS, JETTA);
+  const noted = { ...plain, id: 201, handoff: { kinds: ["slack" as const], at: "2026-09-01T00:00:00Z", itemIds: [] } };
+  const [a, b, c] = withBoardHandoffs([plain, noted, { ...plain, id: 202 }], {
+    "200": { itemIds: ["111"], jettaFiledAt: "2026-09-02T00:00:00Z" },
+    "201": { itemIds: ["222"], jettaFiledAt: "2026-09-03T00:00:00Z" },
+  });
+  check("board-only item becomes a dev_item handoff", a.handoff, { kinds: ["dev_item"], at: "2026-09-02T00:00:00Z", itemIds: ["111"] });
+  check("noted handoff keeps its time, gains the item", b.handoff, { kinds: ["slack", "dev_item"], at: "2026-09-01T00:00:00Z", itemIds: ["222"] });
+  check("untouched ticket stays untouched", c.handoff, null);
+}
+
+// ── settled + buckets ──
+{
+  const now = Date.parse("2026-09-24T00:00:00Z");
+  check("resolved is settled", isSettled({ status: 4, updatedAt: "2026-09-23T00:00:00Z" }, now), true);
+  check("open and recent is not settled", isSettled({ status: 2, updatedAt: "2026-09-22T00:00:00Z" }, now), false);
+  check("open but quiet 8 days is settled", isSettled({ status: 2, updatedAt: "2026-09-15T00:00:00Z" }, now), true);
+  const o = (category: HandoffOutcome["category"]) => ({ category }) as HandoffOutcome;
+  check("buckets", [bucketOf(undefined), bucketOf(o("unresolved")), bucketOf(o("real_bug")), bucketOf(o("feature_request"))], ["awaiting", "awaiting", "real_bug", "other"]);
+}
+
+// ── handoff summary ──
+{
+  const now = Date.parse("2026-09-24T00:00:00Z");
+  const mk = (id: number, at: string, kinds: ("dev_item" | "slack" | "chat")[]) => ({
+    ...summarizeTicket(ticket({ id, created_at: at, subject: `S${id}` }), [], AGENTS, JETTA),
+    handoff: { kinds, at, itemIds: [] },
+  });
+  const tickets = [mk(1, "2026-09-20T00:00:00Z", ["dev_item"]), mk(2, "2026-09-21T00:00:00Z", ["chat"]), mk(3, "2026-07-20T00:00:00Z", ["slack"]), mk(4, "2026-09-22T00:00:00Z", ["chat", "slack"])];
+  const out = (ticketId: number, category: HandoffOutcome["category"], extra: Partial<HandoffOutcome> = {}): [number, HandoffOutcome] => [
+    ticketId,
+    { ticketId, category, confidence: "high", evidence: `e${ticketId}`, missingKnowledge: null, kbArticleTitle: null, kbCoverage: null, kbArticle: null, judgedAt: 0, basisUpdatedAt: "", model: "t", ...extra },
+  ];
+  const h = handoffSummary(tickets, new Map([out(1, "real_bug"), out(2, "knowledge_gap", { missingKnowledge: "IP is in the audit trail", kbCoverage: "not_covered" }), out(3, "account_action")]), now);
+  check("all-time buckets", h.all, { total: 4, real_bug: 1, knowledge_gap: 1, other: 1, awaiting: 1 });
+  check("recent excludes July", h.recent.total, 3);
+  check("by kind (multi-route ticket counted in both)", h.byKind.map((k) => [k.kind, k.total]), [["dev_item", 1], ["slack", 2], ["chat", 2]]);
+  check("gap list", h.gaps.map((g) => [g.ticketId, g.subject, g.kbCoverage]), [[2, "S2", "not_covered"]]);
+  check("bugs + others lists", [h.bugs.map((b) => b.ticketId), h.others.map((o) => o.category)], [[1], ["account_action"]]);
+}
+
+// ── judge evidence: thread from the handoff on, Jetta's later notes excluded ──
+{
+  const text = handoffEvidence({
+    ticket: { id: 7, subject: "Automations greyed out", status: 4 },
+    description: "My GetSign automations are greyed out",
+    thread: [
+      msg({ user_id: 2, created_at: "2026-09-01T09:00:00Z", body_text: "BEFORE-HANDOFF reply" }),
+      msg({ private: true, user_id: JETTA, created_at: "2026-09-01T10:00:00Z", body_text: "Escalated to dev team via Slack." }),
+      msg({ private: true, user_id: JETTA, created_at: "2026-09-01T11:00:00Z", body_text: "Jetta — suggested reply (pending) DRAFT-TEXT" }),
+      msg({ user_id: 3, created_at: "2026-09-02T10:00:00Z", body_text: "That's expected — set it up from the board view." }),
+    ],
+    jettaId: JETTA,
+    agents: AGENTS,
+    devItems: [{ id: "1", name: "Greyed out", group: "Done", devStatus: "Done", updates: [{ at: "2026-09-02T00:00:00Z", author: "Dev", text: "Not a bug", replies: [] }] }],
+    kbCandidates: [{ title: "Board view setup", body: "Install the view first." }],
+  });
+  check("evidence: pre-handoff reply dropped", text.includes("BEFORE-HANDOFF"), false);
+  check("evidence: Jetta's draft not treated as outcome", text.includes("DRAFT-TEXT"), false);
+  check("evidence: agent reply after handoff kept", text.includes("[agent Solutions Team]: That's expected"), true);
+  check("evidence: dev status + comment", text.includes("Dev Status: Done") && text.includes("Dev: Not a bug"), true);
+  check("evidence: KB candidate included", text.includes("(1) Board view setup"), true);
 }
 
 console.log(failed ? `\n${failed} FAILED` : "\nall passed");

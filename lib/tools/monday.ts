@@ -809,6 +809,142 @@ export async function getItemUpdates(
   };
 }
 
+export interface DevItemOutcome {
+  id: string;
+  name: string;
+  /** Board group — "Done", "Client reported Field Issues", "Deployed To Prod"… */
+  group: string | null;
+  /** The "Dev Status" column, whatever the board calls its id. */
+  devStatus: string | null;
+  /** Oldest first, so the thread reads as it happened. */
+  updates: DevItemUpdate[];
+}
+
+/**
+ * What became of dev items: their status and engineering's whole thread.
+ *
+ * For the /performance handoff judge, which decides from this whether a ticket
+ * Jetta escalated was a real bug or something she should have known. The two
+ * boards give "Dev Status" different column ids, so it is found by title. A
+ * failed read returns nothing rather than throwing: a verdict without the dev
+ * thread is weaker, not wrong, and the Freshdesk side still carries evidence.
+ */
+export async function getDevItemOutcomes(itemIds: string[]): Promise<DevItemOutcome[]> {
+  const ids = [...new Set(itemIds)].filter((id) => /^\d+$/.test(id));
+  if (!ids.length || !config.monday.live) return [];
+  const data = await gql<{
+    items: {
+      id: string;
+      name: string;
+      group: { title: string } | null;
+      column_values: { text: string | null; column: { title: string } | null }[];
+      updates: {
+        created_at: string;
+        text_body: string | null;
+        creator: { name: string } | null;
+        replies: { created_at: string; text_body: string | null; creator: { name: string } | null }[];
+      }[];
+    }[];
+  }>(
+    `query ($ids: [ID!]) {
+      items(ids: $ids) {
+        id
+        name
+        group { title }
+        column_values { text column { title } }
+        updates(limit: 40) {
+          created_at
+          text_body
+          creator { name }
+          replies { created_at text_body creator { name } }
+        }
+      }
+    }`,
+    { ids },
+  ).catch(() => null);
+  const clean = (t: string | null) => (t ?? "").replace(/\s+\n/g, "\n").trim();
+  return (data?.items ?? []).map((item) => ({
+    id: item.id,
+    name: item.name,
+    group: item.group?.title ?? null,
+    devStatus: item.column_values.find((c) => c.column?.title === "Dev Status")?.text || null,
+    updates: [...(item.updates ?? [])]
+      .reverse()
+      .filter((u) => clean(u.text_body))
+      .map((u) => ({
+        at: u.created_at,
+        author: u.creator?.name ?? "unknown",
+        text: clean(u.text_body),
+        replies: (u.replies ?? [])
+          .filter((r) => clean(r.text_body))
+          .map((r) => ({ at: r.created_at, author: r.creator?.name ?? "unknown", text: clean(r.text_body) })),
+      })),
+  }));
+}
+
+/**
+ * Dev items that link to each Freshdesk ticket, from both boards, newest first
+ * back to `sinceIso`.
+ *
+ * Jetta's notes name the items she filed, but not the ones a person filed for
+ * the same ticket, nor older items she matched without quoting an id — and a
+ * judge that sees "no dev item" where engineering actually answered gets the
+ * verdict wrong (ticket 13756: a tracked bug read as "unresolved"). The item
+ * side is reliable: every dev item carries its ticket link. Two boards of a few
+ * pages each since launch, so one scan per sync run is cheap.
+ */
+export interface TicketDevItems {
+  itemIds: string[];
+  /** Items Jetta filed herself — createDevItem's "Product: / Account: / Freshdesk ticket:" header. */
+  jettaFiled: string[];
+  /** Earliest creation time among Jetta's items: the handoff time when her note is missing. */
+  jettaFiledAt: string | null;
+}
+
+/** The header createDevItem writes as an item's first update. */
+const JETTA_ITEM_HEADER = /Product: .*\n\s*Account: .*\n\s*Freshdesk ticket:/;
+
+export async function devItemsByTicket(sinceIso: string): Promise<Map<string, TicketDevItems>> {
+  const out = new Map<string, TicketDevItems>();
+  if (!config.monday.live) return out;
+  type Page = { cursor: string | null; items: { id: string; created_at: string; column_values: { text: string | null }[]; updates: { text_body: string | null }[] }[] };
+  const fields = `cursor items { id created_at column_values { text } updates(limit: 5) { text_body } }`;
+  for (const boardId of [config.monday.boardIds.jetpackapps, config.monday.boardIds.getsign]) {
+    if (!boardId) continue;
+    let page: Page | null = (
+      await gql<{ boards: { items_page: Page }[] }>(
+        `query ($id: [ID!]) { boards(ids: $id) { items_page(limit: 100, query_params: { order_by: [{ column_id: "__creation_log__", direction: desc }] }) { ${fields} } } }`,
+        { id: [boardId] },
+      ).catch(() => null)
+    )?.boards?.[0]?.items_page ?? null;
+    for (let guard = 0; page && guard < 10; guard++) {
+      let reachedOld = false;
+      for (const item of page.items) {
+        if (item.created_at < sinceIso) {
+          reachedOld = true;
+          continue;
+        }
+        const text = [...item.column_values.map((c) => c.text ?? ""), ...item.updates.map((u) => u.text_body ?? "")].join(" ");
+        const byJetta = item.updates.some((u) => JETTA_ITEM_HEADER.test(u.text_body ?? ""));
+        for (const m of text.matchAll(/\/tickets\/(\d+)(?![0-9])/g)) {
+          const entry = out.get(m[1]) ?? { itemIds: [], jettaFiled: [], jettaFiledAt: null };
+          if (!entry.itemIds.includes(item.id)) entry.itemIds.push(item.id);
+          if (byJetta && !entry.jettaFiled.includes(item.id)) {
+            entry.jettaFiled.push(item.id);
+            if (!entry.jettaFiledAt || item.created_at < entry.jettaFiledAt) entry.jettaFiledAt = item.created_at;
+          }
+          out.set(m[1], entry);
+        }
+      }
+      if (reachedOld || !page.cursor) break;
+      page = (
+        await gql<{ next_items_page: Page }>(`query ($c: String!) { next_items_page(limit: 100, cursor: $c) { ${fields} } }`, { c: page.cursor }).catch(() => null)
+      )?.next_items_page ?? null;
+    }
+  }
+  return out;
+}
+
 // ── Playbook cleanup ───────────────────────────────────────────────
 
 /** A dev-board item the test playbook created, found by its [TEST] name. */

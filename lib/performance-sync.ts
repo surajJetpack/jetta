@@ -21,14 +21,21 @@ import { config } from "./config";
 import { bumpDataVersion } from "./data-version";
 import { markEventSeen, unmarkEventSeen } from "./kv";
 import { listConversations } from "./chat-store";
-import { fd } from "./tools/freshdesk";
+import { fd, freshdeskTicketUrl } from "./tools/freshdesk";
+import { devItemsByTicket } from "./tools/monday";
+import { judgeHandoff } from "./handoff-judge";
 import {
   BASELINE_START,
+  JETTA_LIVE_DATE,
+  PERF_SCHEMA,
   buildSummary,
   chatWeeks,
   isJunkSubject,
+  isSettled,
   summarizeTicket,
   weekStart,
+  withBoardHandoffs,
+  type HandoffOutcome,
   type PerfConversation,
   type PerfListTicket,
   type PerfTicket,
@@ -38,10 +45,20 @@ import {
 const TICKETS_KEY = "jetta:perf:tickets:v1";
 const SUMMARY_KEY = "jetta:perf:summary:v1";
 const STATE_KEY = "jetta:perf:state:v1";
+/** Handoff verdicts, field per ticket id. Written by the judge step, read once per rebuild. */
+const OUTCOMES_KEY = "jetta:perf:handoffs:v1";
 const LOCK_ID = "perf-sync-lock";
 
-/** Thread reads per run. At PACE_MS apart this is ~2.5 minutes of a 5-minute function. */
-export const MAX_PER_RUN = 60;
+/** Thread reads per run. At PACE_MS apart this is ~2 minutes of a 5-minute function. */
+export const MAX_PER_RUN = 50;
+/**
+ * Handoffs judged per run. Each costs two Freshdesk reads (thread + opening
+ * message), one monday query and one LLM call; the LLM calls run together at
+ * the end so they don't hold the Freshdesk pacing up.
+ */
+const JUDGE_PER_RUN = 6;
+/** Stop starting new Freshdesk reads past this point, leaving room for the judge + rebuild. */
+const READ_DEADLINE_MS = 170_000;
 /** Gap between Freshdesk reads: ~24/min, leaving live Jetta most of the 40/min budget. */
 const PACE_MS = 2500;
 /**
@@ -62,6 +79,14 @@ export interface PerfSyncState {
   queue: PerfListTicket[];
   lastRunAt: number | null;
   lastError: string | null;
+  /** PERF_SCHEMA the stored records were written under. Absent = 1. */
+  schema?: number;
+  /**
+   * Tickets with a dev item Jetta filed, from the last board scan — merged into
+   * the records at rebuild time (withBoardHandoffs), since the board, not the
+   * ticket, is where some of her handoffs are recorded.
+   */
+  boardHandoffs?: Record<string, { itemIds: string[]; jettaFiledAt: string }>;
 }
 
 let redis: Redis | null = null;
@@ -74,7 +99,12 @@ function client(): Redis | null {
 }
 
 // In-memory fallback (single-process only, mirrors kv.ts).
-const mem = { tickets: new Map<string, PerfTicket>(), summary: null as PerformanceSummary | null, state: null as PerfSyncState | null };
+const mem = {
+  tickets: new Map<string, PerfTicket>(),
+  outcomes: new Map<string, HandoffOutcome>(),
+  summary: null as PerformanceSummary | null,
+  state: null as PerfSyncState | null,
+};
 
 export async function getPerformanceSummary(): Promise<PerformanceSummary | null> {
   const r = client();
@@ -108,6 +138,19 @@ async function allTickets(): Promise<PerfTicket[]> {
   if (!r) return [...mem.tickets.values()];
   const raw = (await r.hgetall<Record<string, PerfTicket>>(TICKETS_KEY)) ?? {};
   return Object.values(raw);
+}
+
+async function allOutcomes(): Promise<Map<number, HandoffOutcome>> {
+  const r = client();
+  const raw = r ? ((await r.hgetall<Record<string, HandoffOutcome>>(OUTCOMES_KEY)) ?? {}) : Object.fromEntries(mem.outcomes);
+  return new Map(Object.values(raw).map((o) => [o.ticketId, o]));
+}
+
+async function saveOutcomes(list: HandoffOutcome[]): Promise<void> {
+  if (!list.length) return;
+  const r = client();
+  if (r) await r.hset(OUTCOMES_KEY, Object.fromEntries(list.map((o) => [String(o.ticketId), o])));
+  else for (const o of list) mem.outcomes.set(String(o.ticketId), o);
 }
 
 async function dropTickets(ids: number[]): Promise<void> {
@@ -161,6 +204,8 @@ export interface SyncResult {
   read: number;
   queued: number;
   tickets: number;
+  /** Handoffs given a verdict this run. */
+  judged: number;
   error?: string;
 }
 
@@ -171,9 +216,16 @@ export interface SyncResult {
  */
 export async function syncPerformance(budget = MAX_PER_RUN): Promise<SyncResult> {
   if (!(await markEventSeen(LOCK_ID, 290))) {
-    return { status: "busy", listed: 0, read: 0, queued: 0, tickets: 0 };
+    return { status: "busy", listed: 0, read: 0, queued: 0, tickets: 0, judged: 0 };
   }
+  const started = Date.now();
   const state = await getSyncState();
+  // A store written under an older record shape is re-listed from the start:
+  // every ticket is re-queued once and re-read into the new shape.
+  if ((state.schema ?? 1) < PERF_SCHEMA) {
+    state.cursor = BASELINE_START;
+    state.schema = PERF_SCHEMA;
+  }
   let listed = 0;
   let read = 0;
   const done: PerfTicket[] = [];
@@ -190,7 +242,7 @@ export async function syncPerformance(budget = MAX_PER_RUN): Promise<SyncResult>
     const jettaId = config.freshdesk.agentId ? Number(config.freshdesk.agentId) : null;
     // Newest change first: during a backfill the last-28-days headline is what
     // the team reads, so it fills in within hours instead of after the baseline.
-    while (state.queue.length && read < budget) {
+    while (state.queue.length && read < budget && Date.now() - started < READ_DEADLINE_MS) {
       const t = state.queue[state.queue.length - 1];
       await sleep(PACE_MS);
       try {
@@ -215,6 +267,11 @@ export async function syncPerformance(budget = MAX_PER_RUN): Promise<SyncResult>
     await saveTickets(done);
     state.lastRunAt = Date.now();
     await saveState(state);
+    const judged = state.lastError ? 0 : await judgeSettledHandoffs(JUDGE_PER_RUN, state).catch((e) => {
+      state.lastError = `handoff judge: ${e instanceof Error ? e.message : String(e)}`;
+      return 0;
+    });
+    await saveState(state);
     const tickets = await rebuildSummary();
     return {
       status: state.lastError ? "error" : "ok",
@@ -222,11 +279,60 @@ export async function syncPerformance(budget = MAX_PER_RUN): Promise<SyncResult>
       read,
       queued: state.queue.length,
       tickets,
+      judged,
       ...(state.lastError ? { error: state.lastError } : {}),
     };
   } finally {
     await unmarkEventSeen(LOCK_ID);
   }
+}
+
+/**
+ * Give verdicts to handoffs that have an outcome to judge — settled (resolved,
+ * closed, or quiet for a week) and not judged since their last activity.
+ * Newest handoffs first, so the dashboard's recent numbers fill before history.
+ */
+async function judgeSettledHandoffs(limit: number, state: PerfSyncState): Promise<number> {
+  if (limit <= 0) return 0;
+  const now = Date.now();
+  const linked = await devItemsByTicket(`${JETTA_LIVE_DATE}T00:00:00Z`).catch(() => null);
+  if (linked) {
+    state.boardHandoffs = Object.fromEntries(
+      [...linked.entries()]
+        .filter(([, v]) => v.jettaFiled.length && v.jettaFiledAt)
+        .map(([id, v]) => [id, { itemIds: v.itemIds, jettaFiledAt: v.jettaFiledAt! }]),
+    );
+  }
+  const outcomes = await allOutcomes();
+  const due = withBoardHandoffs(await allTickets(), state.boardHandoffs ?? {})
+    .filter((t) => t.handoff && isSettled(t, now))
+    .filter((t) => {
+      const o = outcomes.get(t.id);
+      return !o || o.basisUpdatedAt < t.updatedAt;
+    })
+    .sort((a, b) => b.handoff!.at.localeCompare(a.handoff!.at))
+    .slice(0, limit);
+  if (!due.length) return 0;
+
+  const agents = await fetchAgents();
+  const jettaId = config.freshdesk.agentId ? Number(config.freshdesk.agentId) : null;
+  // Freshdesk reads stay paced and in sequence; only the LLM calls overlap.
+  const inputs: { ticket: PerfTicket; thread: PerfConversation[]; description: string | null }[] = [];
+  for (const t of due) {
+    await sleep(PACE_MS);
+    const thread = await fetchThread(t.id).catch(() => null);
+    await sleep(PACE_MS);
+    const detail = await fd<{ description_text?: string }>(`/tickets/${t.id}`).catch(() => null);
+    if (thread) inputs.push({ ticket: t, thread, description: detail?.description_text ?? null });
+  }
+  const verdicts = await Promise.all(
+    inputs.map((i) =>
+      judgeHandoff({ ...i, jettaId, agents, extraItemIds: linked?.get(String(i.ticket.id))?.itemIds }).catch(() => null),
+    ),
+  );
+  const ok = verdicts.filter((v): v is HandoffOutcome => !!v);
+  await saveOutcomes(ok);
+  return ok.length;
 }
 
 /** Recompute the page payload from every stored record. Returns the record count. */
@@ -244,7 +350,11 @@ export async function rebuildSummary(): Promise<number> {
     if (convs) chat = { computedAt: now, weeks: chatWeeks(convs) };
   }
 
-  const summary = buildSummary(kept, now, chat);
+  const { boardHandoffs } = await getSyncState();
+  const summary = {
+    ...buildSummary(withBoardHandoffs(kept, boardHandoffs ?? {}), now, chat, await allOutcomes()),
+    ticketUrlBase: freshdeskTicketUrl("").replace(/\/$/, "/"),
+  };
   const r = client();
   if (r) await r.set(SUMMARY_KEY, summary);
   else mem.summary = summary;

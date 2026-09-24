@@ -30,9 +30,9 @@ import { EVAL_TAGS, type EvalTag } from "./evals";
  * the same independent judge scripts/human-benchmark.ts uses, so verdicts stay
  * comparable with that benchmark.
  */
-const JUDGE_MODEL = "anthropic/claude-sonnet-5";
+export const JUDGE_MODEL = "anthropic/claude-sonnet-5";
 
-function judgeModel() {
+export function judgeModel() {
   if (!config.openrouter.apiKey) throw new Error("OPENROUTER_API_KEY is not set (needed for the judge).");
   return createOpenRouter({ apiKey: config.openrouter.apiKey }).chat(JUDGE_MODEL);
 }

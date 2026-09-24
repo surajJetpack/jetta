@@ -34,6 +34,8 @@ export interface PerfListTicket {
   id: number;
   subject: string;
   source: number;
+  /** 2 open, 3 pending, 4 resolved, 5 closed (custom statuses above that). */
+  status?: number;
   created_at: string;
   updated_at: string;
   spam?: boolean;
@@ -61,8 +63,23 @@ export interface PerfSuggestion {
   waitH: number | null;
 }
 
+/** How Jetta passed a ticket to people. One ticket can carry several. */
+export type HandoffKind = "dev_item" | "slack" | "chat";
+
+export interface PerfHandoff {
+  kinds: HandoffKind[];
+  /** ISO time of her first handoff note. */
+  at: string;
+  /** monday dev-item ids named in her notes — the thread engineering answers on. */
+  itemIds: string[];
+}
+
 export interface PerfTicket {
+  /** Record shape version — see PERF_SCHEMA. */
+  v?: number;
   id: number;
+  subject?: string;
+  status?: number | null;
   createdAt: string;
   updatedAt: string;
   /** Freshdesk source code: 1 email, 2 portal, 3 phone/API, 7 chat. */
@@ -80,7 +97,16 @@ export interface PerfTicket {
   fromChat: boolean;
   /** Jetta filed a dev-board item or a Slack escalation on it. */
   devWork: boolean;
+  /** Set when Jetta handed the ticket to people (dev item, Slack, or a chat she couldn't finish). */
+  handoff?: PerfHandoff | null;
 }
+
+/**
+ * Bumped when PerfTicket gains a field that old records can't have. The sync
+ * re-reads every ticket once when it sees a store written under an older
+ * version — v2 added `handoff`, which only a fresh thread read can fill.
+ */
+export const PERF_SCHEMA = 2;
 
 /** Auto-replies, OOO and bounces never reach the queue as work. */
 export function isJunkSubject(subject: string): boolean {
@@ -90,6 +116,39 @@ export function isJunkSubject(subject: string): boolean {
 const SUGGESTION_MARK = /^Jetta — suggested reply/;
 const FROM_CHAT_MARK = /Opened by Jetta from a live chat/;
 const DEV_WORK_MARK = /Created dev board item|Escalated to dev team/;
+/**
+ * Her note wording has drifted over the months ("Created dev board item",
+ * "Dev board item created", "Matched to existing open Dev board item", "Added
+ * +1 to existing Dev board item"), so these match the family of ACTIONS — not
+ * the phrase "dev board item", which her notes also use to say she found
+ * nothing ("No matching Dev board item found", "Related dev board item
+ * exists"). Matching the noun counted those as handoffs: 27 false positives in
+ * the first audit sample.
+ */
+const DEV_ITEM_MARK =
+  /(created|filed|opened) (a |the )?dev (board )?item|dev board item created|matched to existing (open )?dev board item|strong match found on (the )?dev board|\+1(['’]?d)?( to)? (the )?existing dev board item|added \+1|found and \+1/i;
+const SLACK_MARK = /escalated\b[^.\n]{0,80}\b(dev team|engineering|via slack)/i;
+const ITEM_ID = /\/pulses\/(\d{8,})|\bitem (\d{8,})\b/gi;
+
+/** Did Jetta hand this ticket to people, and how? Read off her private notes. */
+export function detectHandoff(jettaNotes: PerfConversation[]): PerfHandoff | null {
+  const kinds = new Set<HandoffKind>();
+  const itemIds = new Set<string>();
+  let at: string | null = null;
+  for (const n of jettaNotes) {
+    const text = n.body_text ?? "";
+    if (SUGGESTION_MARK.test(text.trim())) continue;
+    const hit: HandoffKind[] = [];
+    if (FROM_CHAT_MARK.test(text)) hit.push("chat");
+    if (DEV_ITEM_MARK.test(text)) hit.push("dev_item");
+    if (SLACK_MARK.test(text)) hit.push("slack");
+    if (!hit.length) continue;
+    for (const k of hit) kinds.add(k);
+    for (const m of text.matchAll(ITEM_ID)) itemIds.add(m[1] ?? m[2]);
+    if (!at || n.created_at < at) at = n.created_at;
+  }
+  return at ? { kinds: [...kinds], at, itemIds: [...itemIds] } : null;
+}
 
 const hoursBetween = (from: string, to: string) =>
   (new Date(to).getTime() - new Date(from).getTime()) / 3.6e6;
@@ -142,7 +201,10 @@ export function summarizeTicket(
   const firstText = first?.body_text ?? "";
   const resolvedAt = ticket.stats?.resolved_at;
   return {
+    v: PERF_SCHEMA,
     id: ticket.id,
+    subject: ticket.subject,
+    status: ticket.status ?? null,
     createdAt: ticket.created_at,
     updatedAt: ticket.updated_at,
     source: ticket.source,
@@ -159,6 +221,180 @@ export function summarizeTicket(
     suggestions,
     fromChat,
     devWork: jettaNotes.some((c) => DEV_WORK_MARK.test(c.body_text ?? "")),
+    handoff: detectHandoff(jettaNotes),
+  };
+}
+
+const DAY_MS = 86_400_000;
+
+// ── Handoff outcomes: was it a bug, or something Jetta should have known? ──
+
+/**
+ * What a handed-off ticket turned out to be, judged from what happened AFTER
+ * the handoff — engineering's comments on the dev item, and the agents' later
+ * replies. The split that matters: a real_bug needed a developer; a
+ * knowledge_gap needed only a fact Jetta didn't have, which a KB article fixes.
+ */
+export type HandoffCategory =
+  | "real_bug"
+  | "knowledge_gap"
+  | "feature_request"
+  | "account_action"
+  | "customer_environment"
+  | "unresolved";
+
+export interface HandoffOutcome {
+  ticketId: number;
+  category: HandoffCategory;
+  confidence: "high" | "medium" | "low";
+  /** The deciding fact, in one sentence. */
+  evidence: string;
+  /** knowledge_gap: the generic fact Jetta needed. */
+  missingKnowledge: string | null;
+  /** knowledge_gap: a title for the article that would have let her answer. */
+  kbArticleTitle: string | null;
+  /** Did the KB already hold that fact? (Checked against the closest published articles.) */
+  kbCoverage: "covered" | "partly_covered" | "not_covered" | null;
+  kbArticle: string | null;
+  /** Unix ms. */
+  judgedAt: number;
+  /** The ticket's updated_at the verdict was based on — newer activity triggers a re-judge. */
+  basisUpdatedAt: string;
+  model: string;
+}
+
+/**
+ * Fill in handoffs her notes don't record. Some tickets carry a dev item Jetta
+ * filed (the board knows) with no matching note on the ticket (a failed note
+ * post, or an older wording); without this they'd read as "Jetta handled it".
+ */
+export function withBoardHandoffs(
+  tickets: PerfTicket[],
+  board: Record<string, { itemIds: string[]; jettaFiledAt: string }>,
+): PerfTicket[] {
+  return tickets.map((t) => {
+    const b = board[String(t.id)];
+    if (!b) return t;
+    if (t.handoff) {
+      const itemIds = [...new Set([...t.handoff.itemIds, ...b.itemIds])];
+      const kinds: HandoffKind[] = t.handoff.kinds.includes("dev_item") ? t.handoff.kinds : [...t.handoff.kinds, "dev_item"];
+      return { ...t, handoff: { ...t.handoff, kinds, itemIds } };
+    }
+    return { ...t, handoff: { kinds: ["dev_item"], at: b.jettaFiledAt, itemIds: b.itemIds } };
+  });
+}
+
+/**
+ * A handoff is judged once it has an outcome to judge: the ticket is resolved
+ * or closed, or has gone quiet for a week. Judging an open one would mostly
+ * say "unresolved", then need redoing.
+ */
+export function isSettled(t: Pick<PerfTicket, "status" | "updatedAt">, now: number): boolean {
+  if (t.status === 4 || t.status === 5) return true;
+  return now - new Date(t.updatedAt).getTime() > 7 * 86_400_000;
+}
+
+export type HandoffBucket = "real_bug" | "knowledge_gap" | "other" | "awaiting";
+
+export function bucketOf(o: HandoffOutcome | undefined): HandoffBucket {
+  if (!o || o.category === "unresolved") return "awaiting";
+  if (o.category === "real_bug" || o.category === "knowledge_gap") return o.category;
+  return "other";
+}
+
+export interface HandoffStats {
+  total: number;
+  real_bug: number;
+  knowledge_gap: number;
+  other: number;
+  awaiting: number;
+}
+
+const emptyHandoffStats = (): HandoffStats => ({ total: 0, real_bug: 0, knowledge_gap: 0, other: 0, awaiting: 0 });
+
+export interface HandoffSummary {
+  /** Since Jetta went live. */
+  all: HandoffStats;
+  /** Last 28 days, by handoff date. */
+  recent: HandoffStats;
+  weeks: ({ week: string } & HandoffStats)[];
+  /** How each route turned out — dev items vs Slack-only vs chat hand-offs. */
+  byKind: ({ kind: HandoffKind } & HandoffStats)[];
+  /** Knowledge gaps, newest first: the KB work list. */
+  gaps: {
+    ticketId: number;
+    subject: string;
+    at: string;
+    missingKnowledge: string;
+    kbArticleTitle: string | null;
+    kbCoverage: HandoffOutcome["kbCoverage"];
+    kbArticle: string | null;
+    confidence: HandoffOutcome["confidence"];
+  }[];
+  bugs: { ticketId: number; subject: string; at: string; evidence: string }[];
+  /** Everything else that was judged — feature requests, account work, platform issues. */
+  others: { ticketId: number; subject: string; at: string; category: HandoffCategory; evidence: string }[];
+}
+
+export function handoffSummary(
+  tickets: PerfTicket[],
+  outcomes: Map<number, HandoffOutcome>,
+  now: number,
+): HandoffSummary {
+  const handed = tickets
+    .filter((t): t is PerfTicket & { handoff: PerfHandoff } => !!t.handoff)
+    .sort((a, b) => b.handoff.at.localeCompare(a.handoff.at));
+  const recentFrom = new Date(now - 28 * DAY_MS).toISOString();
+  const all = emptyHandoffStats();
+  const recent = emptyHandoffStats();
+  const weeks = new Map<string, HandoffStats>();
+  const kinds = new Map<HandoffKind, HandoffStats>();
+  const add = (s: HandoffStats, b: HandoffBucket) => {
+    s.total++;
+    s[b]++;
+  };
+  for (const t of handed) {
+    const b = bucketOf(outcomes.get(t.id));
+    add(all, b);
+    if (t.handoff.at >= recentFrom) add(recent, b);
+    const w = weekStart(t.handoff.at);
+    if (!weeks.has(w)) weeks.set(w, emptyHandoffStats());
+    add(weeks.get(w)!, b);
+    for (const k of t.handoff.kinds) {
+      if (!kinds.has(k)) kinds.set(k, emptyHandoffStats());
+      add(kinds.get(k)!, b);
+    }
+  }
+  const judged = handed.map((t) => ({ t, o: outcomes.get(t.id) })).filter((x) => x.o);
+  const subject = (t: PerfTicket) => t.subject ?? `Ticket #${t.id}`;
+  return {
+    all,
+    recent,
+    weeks: [...weeks.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([week, s]) => ({ week, ...s })),
+    byKind: (["dev_item", "slack", "chat"] as HandoffKind[])
+      .filter((k) => kinds.has(k))
+      .map((kind) => ({ kind, ...kinds.get(kind)! })),
+    gaps: judged
+      .filter(({ o }) => o!.category === "knowledge_gap" && o!.missingKnowledge)
+      .slice(0, 40)
+      .map(({ t, o }) => ({
+        ticketId: t.id,
+        subject: subject(t),
+        at: t.handoff.at,
+        missingKnowledge: o!.missingKnowledge!,
+        kbArticleTitle: o!.kbArticleTitle,
+        kbCoverage: o!.kbCoverage,
+        kbArticle: o!.kbArticle,
+        confidence: o!.confidence,
+      })),
+    bugs: judged
+      .filter(({ o }) => o!.category === "real_bug")
+      .slice(0, 40)
+      .map(({ t, o }) => ({ ticketId: t.id, subject: subject(t), at: t.handoff.at, evidence: o!.evidence })),
+    others: judged
+      .filter(({ o }) => bucketOf(o) === "other")
+      .slice(0, 40)
+      .map(({ t, o }) => ({ ticketId: t.id, subject: subject(t), at: t.handoff.at, category: o!.category, evidence: o!.evidence })),
   };
 }
 
@@ -348,14 +584,17 @@ export interface PerformanceSummary {
   /** Per agent, last 28 days. Admin page only. */
   agents: AgentStats[];
   chat: { computedAt: number; weeks: ChatWeek[] } | null;
+  /** Absent on summaries written before handoff outcomes existed. */
+  handoffs?: HandoffSummary;
+  /** Freshdesk ticket link prefix, e.g. "https://x.freshdesk.com/a/tickets/". */
+  ticketUrlBase?: string;
 }
-
-const DAY_MS = 86_400_000;
 
 export function buildSummary(
   tickets: PerfTicket[],
   now: number,
   chat: PerformanceSummary["chat"],
+  outcomes: Map<number, HandoffOutcome> = new Map(),
 ): PerformanceSummary {
   const byWeek = new Map<string, PerfTicket[]>();
   for (const t of tickets) {
@@ -379,5 +618,6 @@ export function buildSummary(
     baseline: periodStats(tickets.filter((t) => t.createdAt < JETTA_LIVE_DATE)),
     agents: agentStats(recent),
     chat,
+    handoffs: handoffSummary(tickets.filter((t) => t.createdAt >= JETTA_LIVE_DATE), outcomes, now),
   };
 }
