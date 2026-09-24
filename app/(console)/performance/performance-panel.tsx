@@ -22,6 +22,7 @@ import { EmptyState } from "@/components/jetta/empty-state";
 import { RelativeTime } from "@/components/jetta/relative-time";
 import { useDataVersion } from "@/lib/use-data-version";
 import { JETTA_LIVE_DATE, weekStart, type PerformanceSummary, type PeriodStats } from "@/lib/performance";
+import HandoffPanel from "./handoff-panel";
 
 interface SyncInfo {
   cursor: string;
@@ -209,6 +210,8 @@ export default function PerformancePanel() {
           <Headline recent={summary.recent} previous={summary.previous} baseline={summary.baseline} />
         </CardContent>
       </Card>
+
+      {summary.handoffs && <HandoffPanel h={summary.handoffs} ticketUrlBase={summary.ticketUrlBase} />}
 
       <div className="grid gap-4 md:grid-cols-2 [&>*]:min-w-0">
         <ChartCard
