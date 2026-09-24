@@ -23,6 +23,7 @@ import {
   BookOpen,
   CreditCard,
   Flame,
+  Gauge,
   GraduationCap,
   Hand,
   Mail,
@@ -468,6 +469,27 @@ export default function GuideContent({ isAdmin }: { isAdmin: boolean }) {
               <p className="text-muted-foreground">
                 The <b>Event log</b> at the bottom records every system event — runs, skips,
                 escalations, logins — and is the first place to look when something behaved oddly.
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Gauge className="size-4 text-primary" /> Performance — what customers got
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2 text-sm">
+              <p>
+                Insights reads Jetta&apos;s own records; Performance reads <b>Freshdesk</b>, because
+                a person sends every reply and only Freshdesk knows what went out. It shows how often
+                Jetta drafted, how often her draft is what the customer received, how long customers
+                waited for a first reply, and how that compares with before Jetta.
+              </p>
+              <p className="text-muted-foreground">
+                It fills from an hourly job that reads Freshdesk slowly, so it never competes with live
+                Jetta for the API budget. The per-agent table is for coaching — a low draft-use rate is a
+                question to ask about which drafts don&apos;t help, not a score.
               </p>
             </CardContent>
           </Card>

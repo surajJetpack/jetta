@@ -90,6 +90,9 @@ before troubleshooting a sync" is a learning.
 - **Insights** — the ops view: yesterday's rollup, volume and cost over time,
   per-model quality, and the event log. Volume is broken down per app, never as
   one "Jetpack Apps" lump.
+- **Performance** (admins) — what customers actually got, read from Freshdesk:
+  how often Jetta drafted, how often her draft is what went out, first-reply
+  times, and the comparison with before Jetta. Fills from an hourly sync.
 - **Console** — system status, and a ticket tester that re-runs any ticket.
   With *Dry run* on (default) nothing is written; use it to answer "why did it
   say that?".

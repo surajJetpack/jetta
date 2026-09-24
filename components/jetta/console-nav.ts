@@ -19,6 +19,7 @@ import {
   ClipboardCheck,
   CreditCard,
   FlaskConical,
+  Gauge,
   GraduationCap,
   LifeBuoy,
   MessageSquare,
@@ -83,6 +84,14 @@ export const NAV: NavGroup[] = [
         label: "Insights",
         icon: BarChart3,
         hint: "Volume, cost, quality and the event log",
+        adminOnly: true,
+      },
+      {
+        id: "performance",
+        href: "/performance",
+        label: "Performance",
+        icon: Gauge,
+        hint: "What customers got — reply times, and how much of it was Jetta's",
         adminOnly: true,
       },
       {

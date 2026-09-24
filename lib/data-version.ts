@@ -36,7 +36,7 @@ const VERSION_KEY = "jetta:data-version";
  * moves with every run outcome because that is what the /today numbers are
  * made from.
  */
-export type Dataset = "kb" | "daily" | "today";
+export type Dataset = "kb" | "daily" | "today" | "performance";
 
 // In-memory fallback (single-process only, mirrors kv.ts).
 const memVersions: Record<string, number> = {};
