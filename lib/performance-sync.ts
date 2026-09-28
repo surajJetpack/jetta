@@ -19,17 +19,21 @@
 import { Redis } from "@upstash/redis";
 import { config } from "./config";
 import { bumpDataVersion } from "./data-version";
-import { markEventSeen, unmarkEventSeen } from "./kv";
+import { getOutcomes, markEventSeen, unmarkEventSeen } from "./kv";
 import { listConversations } from "./chat-store";
 import { fd, freshdeskTicketUrl } from "./tools/freshdesk";
 import { devItemsByTicket } from "./tools/monday";
 import { judgeHandoff } from "./handoff-judge";
+import { appProductFromHint, inferAppProduct } from "./context";
+import { ticketRecords } from "./topics";
+import { buildHealth, type HealthTicket, type SupportHealth } from "./support-health";
 import {
   BASELINE_START,
   JETTA_LIVE_DATE,
   PERF_SCHEMA,
   buildSummary,
   chatWeeks,
+  chatWindow,
   isJunkSubject,
   isSettled,
   summarizeTicket,
@@ -44,9 +48,25 @@ import {
 
 const TICKETS_KEY = "jetta:perf:tickets:v1";
 const SUMMARY_KEY = "jetta:perf:summary:v1";
+/** /health's payload — its own key so the general page never reads the per-agent summary. */
+const HEALTH_KEY = "jetta:perf:health:v1";
 const STATE_KEY = "jetta:perf:state:v1";
 /** Handoff verdicts, field per ticket id. Written by the judge step, read once per rebuild. */
 const OUTCOMES_KEY = "jetta:perf:handoffs:v1";
+/**
+ * What the Freshdesk LIST says about each ticket — live status, the app
+ * dropdown, updated_at — field per ticket id. Refreshed on every listing,
+ * which costs nothing extra, so /health's backlog reads today's status even
+ * for a ticket whose thread is still queued.
+ */
+const META_KEY = "jetta:perf:meta:v1";
+/**
+ * Jetta's labels for tickets she read — topic and app — copied out of the
+ * outcome feed at each rebuild. The feed keeps only the newest 1,000 events
+ * (a few weeks), so without this copy a ticket's topic would vanish from
+ * /health once it scrolled off.
+ */
+const LABELS_KEY = "jetta:perf:labels:v1";
 const LOCK_ID = "perf-sync-lock";
 
 /** Thread reads per run. At PACE_MS apart this is ~2 minutes of a 5-minute function. */
@@ -72,6 +92,18 @@ const CHAT_REFRESH_MS = 20 * 3600_000;
 /** Records older than this are dropped so the hash cannot grow without bound. */
 const RETAIN_DAYS = 400;
 
+export interface TicketMeta {
+  status: number | null;
+  updatedAt: string;
+  /** Raw cf_product value. */
+  product: string | null;
+}
+
+interface TicketLabel {
+  topic: string | null;
+  app: string | null;
+}
+
 export interface PerfSyncState {
   /** Freshdesk updated_at of the newest ticket listed so far. */
   cursor: string;
@@ -87,6 +119,12 @@ export interface PerfSyncState {
    * ticket, is where some of her handoffs are recorded.
    */
   boardHandoffs?: Record<string, { itemIds: string[]; jettaFiledAt: string }>;
+  /**
+   * The one-time re-list that fills META_KEY for tickets listed before it
+   * existed, and re-queues every unresolved one so its record gains
+   * `lastPublicFrom`. A ticket updated_at cursor like `cursor`; "done" once caught up.
+   */
+  metaCursor?: string;
 }
 
 let redis: Redis | null = null;
@@ -102,7 +140,10 @@ function client(): Redis | null {
 const mem = {
   tickets: new Map<string, PerfTicket>(),
   outcomes: new Map<string, HandoffOutcome>(),
+  meta: new Map<string, TicketMeta>(),
+  labels: new Map<string, TicketLabel>(),
   summary: null as PerformanceSummary | null,
+  health: null as SupportHealth | null,
   state: null as PerfSyncState | null,
 };
 
@@ -153,6 +194,50 @@ async function saveOutcomes(list: HandoffOutcome[]): Promise<void> {
   else for (const o of list) mem.outcomes.set(String(o.ticketId), o);
 }
 
+async function saveMeta(listed: PerfListTicket[]): Promise<void> {
+  if (!listed.length) return;
+  const entries = listed.map((t): [string, TicketMeta] => [
+    String(t.id),
+    { status: t.status ?? null, updatedAt: t.updated_at, product: t.custom_fields?.cf_product ?? null },
+  ]);
+  const r = client();
+  if (r) await r.hset(META_KEY, Object.fromEntries(entries));
+  else for (const [id, m] of entries) mem.meta.set(id, m);
+}
+
+async function allMeta(): Promise<Map<string, TicketMeta>> {
+  const r = client();
+  if (!r) return mem.meta;
+  return new Map(Object.entries((await r.hgetall<Record<string, TicketMeta>>(META_KEY)) ?? {}));
+}
+
+/**
+ * Fold the outcome feed's per-ticket labels into LABELS_KEY. A newer label
+ * wins; a missing one never erases an older one. Writes only what changed.
+ */
+async function refreshLabels(): Promise<Map<string, TicketLabel>> {
+  const r = client();
+  const stored = r
+    ? new Map(Object.entries((await r.hgetall<Record<string, TicketLabel>>(LABELS_KEY)) ?? {}))
+    : mem.labels;
+  const feed = ticketRecords(await getOutcomes(1000).catch(() => []));
+  const changed: Record<string, TicketLabel> = {};
+  for (const rec of feed) {
+    if (!/^\d+$/.test(rec.ticketId)) continue; // chat conversations carry UUIDs, not ticket ids
+    const old = stored.get(rec.ticketId);
+    const next: TicketLabel = {
+      topic: rec.topic ?? old?.topic ?? null,
+      app: rec.app && rec.app !== "unknown" ? rec.app : (old?.app ?? null),
+    };
+    if (!next.topic && !next.app) continue;
+    if (old?.topic === next.topic && old?.app === next.app) continue;
+    changed[rec.ticketId] = next;
+    stored.set(rec.ticketId, next);
+  }
+  if (r && Object.keys(changed).length) await r.hset(LABELS_KEY, changed);
+  return stored;
+}
+
 async function dropTickets(ids: number[]): Promise<void> {
   if (!ids.length) return;
   const r = client();
@@ -181,10 +266,14 @@ async function fetchAgents(): Promise<Map<number, string>> {
  * Tickets changed since the cursor, oldest change first. Junk (auto-replies,
  * spam) is dropped here so it never costs a thread read.
  */
-async function listChanged(cursor: string): Promise<{ tickets: PerfListTicket[]; cursor: string }> {
+async function listChanged(
+  cursor: string,
+  maxPages = MAX_LIST_PAGES,
+): Promise<{ tickets: PerfListTicket[]; cursor: string; complete: boolean }> {
   const found: PerfListTicket[] = [];
   let next = cursor;
-  for (let page = 1; page <= MAX_LIST_PAGES; page++) {
+  let complete = false;
+  for (let page = 1; page <= maxPages; page++) {
     const batch = await fd<PerfListTicket[]>(
       `/tickets?updated_since=${encodeURIComponent(cursor)}&order_by=updated_at&order_type=asc&per_page=100&page=${page}&include=stats`,
     );
@@ -192,11 +281,17 @@ async function listChanged(cursor: string): Promise<{ tickets: PerfListTicket[];
       if (t.updated_at > next) next = t.updated_at;
       if (t.created_at >= BASELINE_START && !t.spam && !isJunkSubject(t.subject ?? "")) found.push(t);
     }
-    if (batch.length < 100) break;
+    if (batch.length < 100) {
+      complete = true;
+      break;
+    }
     await sleep(PACE_MS);
   }
-  return { tickets: found, cursor: next };
+  return { tickets: found, cursor: next, complete };
 }
+
+/** Meta re-list pages per run. ~1,500 tickets since BASELINE_START is two runs. */
+const META_LIST_PAGES = 8;
 
 export interface SyncResult {
   status: "ok" | "busy" | "error";
@@ -232,10 +327,23 @@ export async function syncPerformance(budget = MAX_PER_RUN): Promise<SyncResult>
   try {
     const changed = await listChanged(state.cursor);
     listed = changed.tickets.length;
+    await saveMeta(changed.tickets);
     // A ticket changed again while queued keeps one entry, with its newest stats.
     const queue = new Map(state.queue.map((t) => [t.id, t]));
     for (const t of changed.tickets) queue.set(t.id, t);
     state.cursor = changed.cursor;
+
+    // One-time: fill meta for tickets listed before it existed, and re-read
+    // every unresolved one so /health knows whose turn it is. Resolved
+    // tickets don't need that, so their records are left alone.
+    if (state.metaCursor !== "done") {
+      const relist = await listChanged(state.metaCursor ?? BASELINE_START, META_LIST_PAGES);
+      await saveMeta(relist.tickets);
+      for (const t of relist.tickets) {
+        if (t.status !== 4 && t.status !== 5 && !queue.has(t.id)) queue.set(t.id, t);
+      }
+      state.metaCursor = relist.complete ? "done" : relist.cursor;
+    }
     state.queue = [...queue.values()];
 
     const agents = await fetchAgents();
@@ -345,21 +453,65 @@ export async function rebuildSummary(): Promise<number> {
 
   const previous = await getPerformanceSummary();
   let chat = previous?.chat ?? null;
-  if (!chat || now - chat.computedAt > CHAT_REFRESH_MS) {
+  if (!chat || !chat.recent || now - chat.computedAt > CHAT_REFRESH_MS) {
     const convs = await listConversations(300).catch(() => null);
-    if (convs) chat = { computedAt: now, weeks: chatWeeks(convs) };
+    if (convs) {
+      const iso = (daysAgo: number) => new Date(now - daysAgo * 86_400_000).toISOString();
+      chat = {
+        computedAt: now,
+        weeks: chatWeeks(convs),
+        recent: chatWindow(convs, iso(28), iso(0)),
+        previous: chatWindow(convs, iso(56), iso(28)),
+      };
+    }
   }
 
   const { boardHandoffs } = await getSyncState();
+  const records = withBoardHandoffs(kept, boardHandoffs ?? {});
+  const outcomes = await allOutcomes();
+  const [meta, labels] = await Promise.all([allMeta(), refreshLabels()]);
   const summary = {
-    ...buildSummary(withBoardHandoffs(kept, boardHandoffs ?? {}), now, chat, await allOutcomes()),
+    ...buildSummary(records, now, chat, outcomes),
     ticketUrlBase: freshdeskTicketUrl("").replace(/\/$/, "/"),
   };
+  const health = buildHealth(records.map((t) => healthTicket(t, meta, labels)), outcomes, chatForHealth(chat), now);
   const r = client();
-  if (r) await r.set(SUMMARY_KEY, summary);
-  else mem.summary = summary;
+  if (r) await Promise.all([r.set(SUMMARY_KEY, summary), r.set(HEALTH_KEY, health)]);
+  else {
+    mem.summary = summary;
+    mem.health = health;
+  }
   await bumpDataVersion("performance");
   return kept.length;
+}
+
+/**
+ * A record joined with what it needs for /health. The live status is the
+ * list's when the list has seen a newer version of the ticket than the thread
+ * read did. App precedence matches lib/context.ts — the cf_product dropdown,
+ * then Jetta's label (which already applied keywords + triage to the whole
+ * message), then keywords on the subject.
+ */
+export function healthTicket(t: PerfTicket, meta: Map<string, TicketMeta>, labels: Map<string, TicketLabel>): HealthTicket {
+  const m = meta.get(String(t.id));
+  const label = labels.get(String(t.id));
+  const status = m && m.updatedAt >= t.updatedAt ? m.status : (t.status ?? m?.status ?? null);
+  const fromSubject = inferAppProduct(t.subject ?? "");
+  const app =
+    appProductFromHint(m?.product) ??
+    label?.app ??
+    (fromSubject !== "unknown" ? fromSubject : "unknown");
+  return { ...t, status, app, topic: label?.topic ?? null };
+}
+
+function chatForHealth(chat: PerformanceSummary["chat"]): SupportHealth["chat"] {
+  return chat?.recent && chat.previous ? { recent: chat.recent, previous: chat.previous } : null;
+}
+
+/** The /health payload. One GET. */
+export async function getSupportHealth(): Promise<SupportHealth | null> {
+  const r = client();
+  return r ? await r.get<SupportHealth>(HEALTH_KEY) : mem.health;
 }
 
 /** Exposed for the page footer: how complete the store is. */

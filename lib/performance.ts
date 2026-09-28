@@ -40,6 +40,8 @@ export interface PerfListTicket {
   updated_at: string;
   spam?: boolean;
   stats?: { resolved_at?: string | null; reopened_at?: string | null } | null;
+  /** cf_product is the app dropdown agents and forms fill in ("GetSign", "VLOOKUP Auto-link"…). */
+  custom_fields?: { cf_product?: string | null } | null;
 }
 
 export interface PerfConversation {
@@ -99,6 +101,15 @@ export interface PerfTicket {
   devWork: boolean;
   /** Set when Jetta handed the ticket to people (dev item, Slack, or a chat she couldn't finish). */
   handoff?: PerfHandoff | null;
+  /**
+   * Who wrote the newest PUBLIC message, and when — does the customer owe us
+   * nothing, or we them (/health's backlog)? Private notes never count: Jetta
+   * posts one seconds after every customer message, so counting them would
+   * read "agent" on every ticket that owes a reply. Absent on records read
+   * before 2026-09-28.
+   */
+  lastPublicFrom?: "customer" | "agent";
+  lastPublicAt?: string;
 }
 
 /**
@@ -199,6 +210,8 @@ export function summarizeTicket(
 
   const first = agentPublic[0];
   const firstText = first?.body_text ?? "";
+  // The opening message (the ticket description) is the customer's, and is not in the thread.
+  const lastPublic = thread.filter((c) => !c.private).at(-1);
   const resolvedAt = ticket.stats?.resolved_at;
   return {
     v: PERF_SCHEMA,
@@ -222,6 +235,8 @@ export function summarizeTicket(
     fromChat,
     devWork: jettaNotes.some((c) => DEV_WORK_MARK.test(c.body_text ?? "")),
     handoff: detectHandoff(jettaNotes),
+    lastPublicFrom: !lastPublic || lastPublic.incoming ? "customer" : "agent",
+    lastPublicAt: lastPublic?.created_at ?? ticket.created_at,
   };
 }
 
@@ -551,6 +566,12 @@ export function isRealChat(c: PerfChat): boolean {
   return said.join(" ").split(/\s+/).filter(Boolean).length >= 4;
 }
 
+/** Became a ticket, or a person joined — anything Jetta didn't finish alone. */
+export function chatHandedOff(c: PerfChat): boolean {
+  const human = c.messages.some((m) => m.author === "agent" && m.via === "human" && !m.system);
+  return !!c.ticketId || human || c.status === "waiting_human" || c.status === "human";
+}
+
 export function chatWeeks(chats: PerfChat[]): ChatWeek[] {
   const by = new Map<string, ChatWeek>();
   for (const c of chats) {
@@ -559,12 +580,16 @@ export function chatWeeks(chats: PerfChat[]): ChatWeek[] {
     let w = by.get(week);
     if (!w) by.set(week, (w = { week, real: 0, alone: 0, handedOff: 0 }));
     w.real++;
-    const human = c.messages.some((m) => m.author === "agent" && m.via === "human" && !m.system);
-    const handed = !!c.ticketId || human || c.status === "waiting_human" || c.status === "human";
-    if (handed) w.handedOff++;
+    if (chatHandedOff(c)) w.handedOff++;
     else w.alone++;
   }
   return [...by.values()].sort((a, b) => a.week.localeCompare(b.week));
+}
+
+/** Real chats created in [from, to), and how many Jetta finished alone. */
+export function chatWindow(chats: PerfChat[], from: string, to: string): { real: number; alone: number } {
+  const real = chats.filter((c) => c.createdAt >= from && c.createdAt < to && isRealChat(c));
+  return { real: real.length, alone: real.filter((c) => !chatHandedOff(c)).length };
 }
 
 // ── The page's whole payload ────────────────────────────────────────
@@ -583,7 +608,13 @@ export interface PerformanceSummary {
   baseline: PeriodStats;
   /** Per agent, last 28 days. Admin page only. */
   agents: AgentStats[];
-  chat: { computedAt: number; weeks: ChatWeek[] } | null;
+  chat: {
+    computedAt: number;
+    weeks: ChatWeek[];
+    /** Rolling 28-day windows at computedAt, for /health. Absent on older summaries. */
+    recent?: { real: number; alone: number };
+    previous?: { real: number; alone: number };
+  } | null;
   /** Absent on summaries written before handoff outcomes existed. */
   handoffs?: HandoffSummary;
   /** Freshdesk ticket link prefix, e.g. "https://x.freshdesk.com/a/tickets/". */

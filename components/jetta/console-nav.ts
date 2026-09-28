@@ -9,8 +9,8 @@
  * which is how a nav stops being read.
  *
  * `admin` here is a NAV decision, not a permission — see the note in
- * lib/roles.ts. A general user sees Today, Chats, Test Jetta, Billing and the
- * Guide, because that is the shape of their day; the API routes remain the
+ * lib/roles.ts. A general user sees Today, Chats, Test Jetta, Support health,
+ * Billing and the Guide, because that is the shape of their day; the API routes remain the
  * boundary and stay deliberately more permissive.
  */
 import {
@@ -21,6 +21,7 @@ import {
   FlaskConical,
   Gauge,
   GraduationCap,
+  HeartPulse,
   LifeBuoy,
   MessageSquare,
   Monitor,
@@ -77,6 +78,13 @@ export const NAV: NavGroup[] = [
         label: "Test Jetta",
         icon: FlaskConical,
         hint: "The manual playbook — play the customer, learn how she works",
+      },
+      {
+        id: "health",
+        href: "/health",
+        label: "Support health",
+        icon: HeartPulse,
+        hint: "Is support in good shape — volume, reply times, who is waiting, which apps drive it",
       },
       {
         id: "insights",
