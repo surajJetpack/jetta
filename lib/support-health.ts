@@ -143,7 +143,11 @@ export interface HealthPeriod {
   reopenRate: number | null;
   /** Customer messages per answered ticket — how much back-and-forth an answer took. */
   customerMsgsPerTicket: number | null;
-  /** Share of real tickets that needed engineering (a dev item or escalation). */
+  /**
+   * Share of real tickets sent to engineering (a dev item or escalation). "Sent",
+   * not "needed": the handoff judge finds about a fifth of these were knowledge
+   * gaps a KB article would have answered.
+   */
   engineeringRate: number | null;
 }
 
