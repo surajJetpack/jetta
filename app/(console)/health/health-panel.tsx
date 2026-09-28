@@ -140,7 +140,7 @@ function Secondary({ recent, previous, chat }: { recent: HealthPeriod; previous:
           : undefined,
     },
     {
-      label: "Needed engineering",
+      label: "Sent to engineering",
       value: pct(recent.engineeringRate),
       hint: pctDelta(recent.engineeringRate, previous.engineeringRate),
     },
