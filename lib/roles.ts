@@ -18,7 +18,7 @@
  * so the endpoint is where the answer has to live.
  *
  * The NAV is narrower than these permissions, and deliberately so. A general
- * user is shown a handful of tabs (Today, Chats, Test Jetta, Billing, Guide —
+ * user is shown a handful of tabs (Today, Chats, Test Jetta, Support health, Billing, Guide —
  * see NAV in components/jetta/console-nav.ts) because that is the shape of
  * their day, not because the other
  * pages are forbidden to them: follow a direct link to /kb and it still loads,
