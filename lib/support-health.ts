@@ -74,6 +74,8 @@ export type BacklogBucket = "owes_reply" | "engineering" | "in_progress" | "cust
 const STATUS_NAMES: Record<number, string> = {
   2: "Open",
   3: "Pending",
+  4: "Resolved",
+  5: "Closed",
   6: "Waiting on customer",
   7: "Working on it",
   8: "Escalated to dev",
@@ -399,4 +401,167 @@ export function buildHealth(
       chatsFinishedAlone: chat?.recent.alone ?? 0,
     },
   };
+}
+
+// ── The tickets behind the numbers ──────────────────────────────────
+
+/**
+ * One ticket, as the drill-down lists show it: enough to say why it is in a
+ * number, and a link to open it in Freshdesk. Precomputed at sync time next
+ * to the payload, so a click never re-reads the store.
+ *
+ * No `firstReplyBy`, on purpose — the same no-per-agent rule as the page.
+ */
+export interface HealthRow {
+  id: number;
+  subject: string;
+  app: string;
+  topic: string | null;
+  status: string;
+  createdAt: string;
+  week: string;
+  /** Last 28 days / the 28 before, by creation — the headline windows. */
+  period: "recent" | "previous" | null;
+  real: boolean;
+  firstReplyH: number | null;
+  resolvedH: number | null;
+  reopened: boolean;
+  customerMsgs: number;
+  engineering: boolean;
+  /** When Jetta handed it to people, and what the handoff judge made of it. */
+  handoffAt: string | null;
+  outcome: HandoffOutcome["category"] | null;
+  drafted: boolean;
+  /** Open tickets only: whose turn it is. */
+  bucket: BacklogBucket | null;
+  /** owes_reply only: hours the customer has been waiting on us. */
+  waitingH: number | null;
+}
+
+/** Stored separately from the payload: ~400 days of tickets is too much to ship on every page load. */
+export function healthRows(tickets: HealthTicket[], outcomes: Map<number, HandoffOutcome>, now: number): HealthRow[] {
+  const recentFrom = new Date(now - 28 * DAY_MS).toISOString();
+  const previousFrom = new Date(now - 56 * DAY_MS).toISOString();
+  return tickets
+    .map((t) => {
+      const open = !isDone(t.status) && t.status != null;
+      const bucket = open ? backlogBucket(t) : null;
+      const since = t.lastPublicFrom === "customer" && t.lastPublicAt ? t.lastPublicAt : t.createdAt;
+      return {
+        id: t.id,
+        subject: (t.subject ?? `Ticket #${t.id}`).slice(0, 100),
+        app: t.app,
+        topic: t.topic,
+        status: statusName(t.status),
+        createdAt: t.createdAt,
+        week: weekStart(t.createdAt),
+        period: t.createdAt >= recentFrom ? "recent" : t.createdAt >= previousFrom ? "previous" : null,
+        real: isRealTicket(t),
+        firstReplyH: t.firstReplyH,
+        resolvedH: t.resolvedH,
+        reopened: t.reopened,
+        customerMsgs: t.customerMsgs,
+        engineering: !!(t.devWork || t.handoff?.kinds.some((k) => k !== "chat")),
+        handoffAt: t.handoff?.at ?? null,
+        outcome: outcomes.get(t.id)?.category ?? null,
+        drafted: t.suggestions.length > 0,
+        bucket,
+        waitingH: bucket === "owes_reply" ? Number(((now - new Date(since).getTime()) / HOUR_MS).toFixed(1)) : null,
+      } satisfies HealthRow;
+    })
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+/**
+ * Was a row answered within `hours`? Null when it doesn't count yet — no reply
+ * and not yet past the bar — mirroring healthPeriod's share().
+ */
+export function hitWithin(r: Pick<HealthRow, "firstReplyH" | "createdAt">, hours: number, now: number): boolean | null {
+  if (r.firstReplyH != null) return r.firstReplyH <= hours;
+  return (now - new Date(r.createdAt).getTime()) / HOUR_MS > hours ? false : null;
+}
+
+/** What was clicked. Each one selects exactly the tickets its number was computed from. */
+export type Drill =
+  | { kind: "tickets" }
+  | { kind: "within"; hours: number }
+  | { kind: "firstReply" }
+  | { kind: "reopened" }
+  | { kind: "resolved" }
+  | { kind: "backAndForth" }
+  | { kind: "engineering" }
+  | { kind: "drafted" }
+  | { kind: "bucket"; bucket: BacklogBucket }
+  | { kind: "week"; week: string; metric: "tickets" | "within" | "firstReply" | "reopened" }
+  | { kind: "app"; app: string; metric: "tickets" | "firstReply" | "reopened" | "open" | "owesReply" | "bugs" | "gaps" }
+  | { kind: "topic"; topic: string };
+
+export function drillRows(rows: HealthRow[], d: Drill, now: number): HealthRow[] {
+  const recentFrom = new Date(now - 28 * DAY_MS).toISOString();
+  const recent = rows.filter((r) => r.period === "recent" && r.real);
+  const answered = (list: HealthRow[]) => list.filter((r) => r.firstReplyH != null);
+  const slowest = (list: HealthRow[]) => [...list].sort((a, b) => (b.firstReplyH ?? Infinity) - (a.firstReplyH ?? Infinity));
+  // Misses first, then the slowest hits: the tickets that dragged the share down lead.
+  const byHit = (list: HealthRow[], hours: number) =>
+    slowest(list.filter((r) => hitWithin(r, hours, now) != null)).sort(
+      (a, b) => Number(hitWithin(a, hours, now)) - Number(hitWithin(b, hours, now)),
+    );
+  switch (d.kind) {
+    case "tickets":
+      return recent;
+    case "within":
+      return byHit(recent, d.hours);
+    case "firstReply":
+      return slowest(answered(recent));
+    case "reopened":
+      return answered(recent).filter((r) => r.reopened);
+    case "resolved":
+      return answered(recent)
+        .filter((r) => r.resolvedH != null)
+        .sort((a, b) => (b.resolvedH ?? 0) - (a.resolvedH ?? 0));
+    case "backAndForth":
+      return answered(recent).sort((a, b) => b.customerMsgs - a.customerMsgs);
+    case "engineering":
+      return recent.filter((r) => r.engineering);
+    case "drafted":
+      return recent.filter((r) => r.drafted);
+    case "bucket":
+      return rows
+        .filter((r) => r.bucket === d.bucket)
+        .sort((a, b) => (b.waitingH ?? 0) - (a.waitingH ?? 0) || a.createdAt.localeCompare(b.createdAt));
+    case "week": {
+      const wk = rows.filter((r) => r.week === d.week && r.real);
+      if (d.metric === "tickets") return wk;
+      if (d.metric === "within") return byHit(wk, TARGETS.firstReplyH);
+      if (d.metric === "firstReply") return slowest(answered(wk));
+      // Reopened: every answered ticket that week, the reopened ones first.
+      return answered(wk).sort((a, b) => Number(b.reopened) - Number(a.reopened));
+    }
+    case "app": {
+      const mine = rows.filter((r) => r.app === d.app);
+      const mineRecent = recent.filter((r) => r.app === d.app);
+      switch (d.metric) {
+        case "tickets":
+          return mineRecent;
+        case "firstReply":
+          return slowest(answered(mineRecent));
+        case "reopened":
+          return answered(mineRecent).sort((a, b) => Number(b.reopened) - Number(a.reopened));
+        case "open":
+          return mine.filter((r) => r.bucket);
+        case "owesReply":
+          return mine.filter((r) => r.bucket === "owes_reply").sort((a, b) => (b.waitingH ?? 0) - (a.waitingH ?? 0));
+        case "bugs":
+        case "gaps":
+          return mine.filter(
+            (r) =>
+              r.handoffAt != null &&
+              r.handoffAt >= recentFrom &&
+              r.outcome === (d.metric === "bugs" ? "real_bug" : "knowledge_gap"),
+          );
+      }
+    }
+    case "topic":
+      return recent.filter((r) => r.topic === d.topic);
+  }
 }

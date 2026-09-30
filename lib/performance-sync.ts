@@ -26,7 +26,7 @@ import { devItemsByTicket } from "./tools/monday";
 import { judgeHandoff } from "./handoff-judge";
 import { appProductFromHint, inferAppProduct } from "./context";
 import { ticketRecords } from "./topics";
-import { buildHealth, type HealthTicket, type SupportHealth } from "./support-health";
+import { buildHealth, healthRows, type HealthRow, type HealthTicket, type SupportHealth } from "./support-health";
 import {
   BASELINE_START,
   JETTA_LIVE_DATE,
@@ -50,6 +50,8 @@ const TICKETS_KEY = "jetta:perf:tickets:v1";
 const SUMMARY_KEY = "jetta:perf:summary:v1";
 /** /health's payload — its own key so the general page never reads the per-agent summary. */
 const HEALTH_KEY = "jetta:perf:health:v1";
+/** The tickets behind /health's numbers — read only when someone clicks one. */
+const HEALTH_ROWS_KEY = "jetta:perf:health:rows:v1";
 const STATE_KEY = "jetta:perf:state:v1";
 /** Handoff verdicts, field per ticket id. Written by the judge step, read once per rebuild. */
 const OUTCOMES_KEY = "jetta:perf:handoffs:v1";
@@ -144,6 +146,7 @@ const mem = {
   labels: new Map<string, TicketLabel>(),
   summary: null as PerformanceSummary | null,
   health: null as SupportHealth | null,
+  healthRows: null as HealthRow[] | null,
   state: null as PerfSyncState | null,
 };
 
@@ -474,12 +477,15 @@ export async function rebuildSummary(): Promise<number> {
     ...buildSummary(records, now, chat, outcomes),
     ticketUrlBase: freshdeskTicketUrl("").replace(/\/$/, "/"),
   };
-  const health = buildHealth(records.map((t) => healthTicket(t, meta, labels)), outcomes, chatForHealth(chat), now);
+  const healthTickets = records.map((t) => healthTicket(t, meta, labels));
+  const health = buildHealth(healthTickets, outcomes, chatForHealth(chat), now);
+  const rows = healthRows(healthTickets, outcomes, now);
   const r = client();
-  if (r) await Promise.all([r.set(SUMMARY_KEY, summary), r.set(HEALTH_KEY, health)]);
+  if (r) await Promise.all([r.set(SUMMARY_KEY, summary), r.set(HEALTH_KEY, health), r.set(HEALTH_ROWS_KEY, rows)]);
   else {
     mem.summary = summary;
     mem.health = health;
+    mem.healthRows = rows;
   }
   await bumpDataVersion("performance");
   return kept.length;
@@ -512,6 +518,12 @@ function chatForHealth(chat: PerformanceSummary["chat"]): SupportHealth["chat"] 
 export async function getSupportHealth(): Promise<SupportHealth | null> {
   const r = client();
   return r ? await r.get<SupportHealth>(HEALTH_KEY) : mem.health;
+}
+
+/** The tickets behind /health's numbers, as of the last rebuild. */
+export async function getSupportHealthRows(): Promise<HealthRow[] | null> {
+  const r = client();
+  return r ? await r.get<HealthRow[]>(HEALTH_ROWS_KEY) : mem.healthRows;
 }
 
 /** Exposed for the page footer: how complete the store is. */

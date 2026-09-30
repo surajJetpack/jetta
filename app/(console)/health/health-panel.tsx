@@ -1,9 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ReferenceLine, XAxis, YAxis } from "recharts";
-import { HeartPulse, TriangleAlert } from "lucide-react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { HeartPulse, RotateCw, TriangleAlert } from "lucide-react";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertTitle } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -20,13 +22,16 @@ import {
   toneBelow,
   type AppHealth,
   type Backlog,
+  type BacklogBucket,
+  type HealthRow,
   type HealthPeriod,
   type SupportHealth,
 } from "@/lib/support-health";
+import { DrillSheet, type DrillRequest } from "./drill-sheet";
 
 interface Payload {
   health: SupportHealth | null;
-  sync: { lastRunAt: number | null; queued: number };
+  sync: { lastRunAt: number | null; queued: number; lastError: string | null };
   ticketUrlBase: string;
 }
 
@@ -51,6 +56,9 @@ const tipRow = (label: string, f: (v: number) => string) =>
       </div>
     );
   };
+
+/** Opens the tickets behind a number. */
+type Open = (r: DrillRequest) => void;
 
 const PRIOR = "vs prior 28 days";
 function countDelta(now: number, before: number): string {
@@ -80,30 +88,54 @@ function ChartCard({ title, description, children }: { title: string; descriptio
   );
 }
 
-function Headline({ recent, previous, backlog }: { recent: HealthPeriod; previous: HealthPeriod; backlog: Backlog }) {
+function Headline({ recent, previous, backlog, open }: { recent: HealthPeriod; previous: HealthPeriod; backlog: Backlog; open: Open }) {
   const metrics: MetricSpec[] = [
     {
       label: "Tickets",
       value: recent.tickets,
       hint: countDelta(recent.tickets, previous.tickets),
+      onClick: () =>
+        open({
+          title: "Tickets, last 28 days",
+          description: "Every ticket that arrived in the last 28 days and that a person answered or is still open.",
+          drill: { kind: "tickets" },
+        }),
     },
     {
       label: `Answered within ${TARGETS.firstReplyH}h`,
       value: pct(recent.withinTarget),
       tone: toneAbove(recent.withinTarget, TARGETS.firstReplyShare) ?? undefined,
       hint: pctDelta(recent.withinTarget, previous.withinTarget),
+      onClick: () =>
+        open({
+          title: `Answered within ${TARGETS.firstReplyH}h`,
+          description: `Tickets from the last 28 days, misses first. A ticket still unanswered after ${TARGETS.firstReplyH}h counts as a miss; one younger than that isn't counted yet.`,
+          drill: { kind: "within", hours: TARGETS.firstReplyH },
+        }),
     },
     {
       label: "Median first reply",
       value: hrs(recent.firstReplyH),
       tone: toneBelow(recent.firstReplyH, TARGETS.medianFirstReplyH) ?? undefined,
       hint: `slowest 10%: over ${hrs(recent.firstReplyP90H)}`,
+      onClick: () =>
+        open({
+          title: "First reply times",
+          description: "Answered tickets from the last 28 days, slowest first. The median is the middle of this list.",
+          drill: { kind: "firstReply" },
+        }),
     },
     {
       label: "Reopened",
       value: pct(recent.reopenRate),
       tone: toneBelow(recent.reopenRate, TARGETS.reopenRate) ?? undefined,
       hint: pctDelta(recent.reopenRate, previous.reopenRate),
+      onClick: () =>
+        open({
+          title: "Reopened tickets",
+          description: "Answered tickets from the last 28 days the customer came back on after they were resolved.",
+          drill: { kind: "reopened" },
+        }),
     },
     {
       label: "Waiting on us now",
@@ -114,22 +146,50 @@ function Headline({ recent, previous, backlog }: { recent: HealthPeriod; previou
         : backlog.owesReply
           ? `none over ${TARGETS.firstReplyH}h`
           : "nobody waiting",
+      onClick: () =>
+        open({
+          title: "Customers waiting on us",
+          description: "Open tickets where the customer wrote the newest message, longest wait first.",
+          drill: { kind: "bucket", bucket: "owes_reply" },
+        }),
     },
   ];
   return <MetricRow metrics={metrics} />;
 }
 
-function Secondary({ recent, previous, chat }: { recent: HealthPeriod; previous: HealthPeriod; chat: SupportHealth["chat"] }) {
+function Secondary({
+  recent,
+  previous,
+  chat,
+  open,
+}: {
+  recent: HealthPeriod;
+  previous: HealthPeriod;
+  chat: SupportHealth["chat"];
+  open: Open;
+}) {
   const metrics: MetricSpec[] = [
     {
       label: `Answered within ${TARGETS.fastReplyH}h`,
       value: pct(recent.withinFast),
       hint: pctDelta(recent.withinFast, previous.withinFast),
+      onClick: () =>
+        open({
+          title: `Answered within ${TARGETS.fastReplyH}h`,
+          description: `Tickets from the last 28 days, misses first. A ticket still unanswered after ${TARGETS.fastReplyH}h counts as a miss.`,
+          drill: { kind: "within", hours: TARGETS.fastReplyH },
+        }),
     },
     {
       label: "Median time to resolve",
       value: hrs(recent.resolvedH),
       hint: hrsDelta(recent.resolvedH, previous.resolvedH),
+      onClick: () =>
+        open({
+          title: "Time to resolve",
+          description: "Answered tickets from the last 28 days that have been resolved, longest first.",
+          drill: { kind: "resolved" },
+        }),
     },
     {
       label: "Customer messages per ticket",
@@ -138,11 +198,23 @@ function Secondary({ recent, previous, chat }: { recent: HealthPeriod; previous:
         previous.customerMsgsPerTicket != null
           ? `${previous.customerMsgsPerTicket.toFixed(1)} in the prior 28 days`
           : undefined,
+      onClick: () =>
+        open({
+          title: "Back-and-forth",
+          description: "Answered tickets from the last 28 days, most customer messages first.",
+          drill: { kind: "backAndForth" },
+        }),
     },
     {
       label: "Sent to engineering",
       value: pct(recent.engineeringRate),
       hint: pctDelta(recent.engineeringRate, previous.engineeringRate),
+      onClick: () =>
+        open({
+          title: "Sent to engineering",
+          description: "Tickets from the last 28 days that got a dev-board item or a Slack escalation.",
+          drill: { kind: "engineering" },
+        }),
     },
     {
       label: "Live chats",
@@ -154,26 +226,43 @@ function Secondary({ recent, previous, chat }: { recent: HealthPeriod; previous:
 }
 
 /** One bar, four segments — where the ball is on every open ticket. */
-function BallBar({ b }: { b: Backlog }) {
-  const parts = [
-    { key: "owes", label: "Waiting on us", n: b.owesReply, cls: "bg-tone-bad" },
-    { key: "eng", label: "With engineering", n: b.engineering, cls: "bg-tone-warn" },
-    { key: "prog", label: "We're working on it", n: b.inProgress, cls: "bg-tone-info" },
-    { key: "cust", label: "Waiting on the customer", n: b.customer, cls: "bg-muted-foreground/40" },
+function BallBar({ b, open }: { b: Backlog; open: Open }) {
+  const parts: { key: BacklogBucket; label: string; n: number; cls: string; why: string }[] = [
+    { key: "owes_reply", label: "Waiting on us", n: b.owesReply, cls: "bg-tone-bad", why: "the customer wrote the newest message" },
+    { key: "engineering", label: "With engineering", n: b.engineering, cls: "bg-tone-warn", why: "status is Escalated to dev" },
+    { key: "in_progress", label: "We're working on it", n: b.inProgress, cls: "bg-tone-info", why: "status is Working on it, Validating or Hold" },
+    { key: "customer", label: "Waiting on the customer", n: b.customer, cls: "bg-muted-foreground/40", why: "we wrote the newest message" },
   ];
+  const show = (p: (typeof parts)[number]) =>
+    open({ title: p.label, description: `Open tickets where ${p.why}.`, drill: { kind: "bucket", bucket: p.key } });
   if (!b.open) return null;
   return (
     <div className="grid gap-2">
       <div className="flex h-2.5 w-full gap-0.5 overflow-hidden rounded-full" role="img" aria-label={parts.map((p) => `${p.label}: ${p.n}`).join(", ")}>
         {parts.filter((p) => p.n).map((p) => (
-          <div key={p.key} className={cn("h-full first:rounded-l-full last:rounded-r-full", p.cls)} style={{ flexGrow: p.n }} />
+          <button
+            key={p.key}
+            type="button"
+            tabIndex={-1}
+            aria-hidden
+            onClick={() => show(p)}
+            className={cn("h-full cursor-pointer first:rounded-l-full last:rounded-r-full hover:opacity-80", p.cls)}
+            style={{ flexGrow: p.n }}
+          />
         ))}
       </div>
       <ul className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted-foreground">
         {parts.map((p) => (
-          <li key={p.key} className="flex items-center gap-1.5">
-            <span className={cn("size-2 rounded-full", p.cls)} aria-hidden />
-            {p.label} <span className="font-medium text-foreground tabular-nums">{p.n}</span>
+          <li key={p.key}>
+            <button
+              type="button"
+              onClick={() => show(p)}
+              disabled={!p.n}
+              className="flex items-center gap-1.5 rounded-sm hover:text-foreground hover:underline disabled:pointer-events-none"
+            >
+              <span className={cn("size-2 rounded-full", p.cls)} aria-hidden />
+              {p.label} <span className="font-medium text-foreground tabular-nums">{p.n}</span>
+            </button>
           </li>
         ))}
       </ul>
@@ -181,7 +270,7 @@ function BallBar({ b }: { b: Backlog }) {
   );
 }
 
-function RightNow({ b, base }: { b: Backlog; base: string }) {
+function RightNow({ b, base, open }: { b: Backlog; base: string; open: Open }) {
   return (
     <Card className="py-4">
       <CardHeader className="px-4">
@@ -192,7 +281,7 @@ function RightNow({ b, base }: { b: Backlog; base: string }) {
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-4 px-4">
-        <BallBar b={b} />
+        <BallBar b={b} open={open} />
         {b.waiting.length ? (
           <Table>
             <TableHeader>
@@ -228,6 +317,22 @@ function RightNow({ b, base }: { b: Backlog; base: string }) {
         ) : (
           <EmptyState title="No customer is waiting on a reply" />
         )}
+        {b.owesReply > b.waiting.length && (
+          <Button
+            variant="link"
+            size="sm"
+            className="justify-self-start px-0"
+            onClick={() =>
+              open({
+                title: "Customers waiting on us",
+                description: "Open tickets where the customer wrote the newest message, longest wait first.",
+                drill: { kind: "bucket", bucket: "owes_reply" },
+              })
+            }
+          >
+            Show all {b.owesReply}
+          </Button>
+        )}
       </CardContent>
     </Card>
   );
@@ -240,7 +345,19 @@ function Delta({ now, before }: { now: number; before: number }) {
   return <span className="text-muted-foreground">{d > 0 ? `+${d}` : `−${-d}`}</span>;
 }
 
-function ByApp({ apps }: { apps: AppHealth[] }) {
+/** A table number that opens its tickets. Zero stays plain text: there is nothing behind it. */
+function CellLink({ n, onClick, children }: { n: number; onClick: () => void; children: React.ReactNode }) {
+  if (!n) return <>{children}</>;
+  return (
+    <button type="button" onClick={onClick} className="tabular-nums underline decoration-dotted underline-offset-4 hover:decoration-solid">
+      {children}
+    </button>
+  );
+}
+
+function ByApp({ apps, open }: { apps: AppHealth[]; open: Open }) {
+  const show = (a: AppHealth, metric: Extract<DrillRequest["drill"], { kind: "app" }>["metric"], title: string, description: string) =>
+    open({ title: `${appName(a.app)} · ${title}`, description, drill: { kind: "app", app: a.app, metric } });
   return (
     <Card className="py-4">
       <CardHeader className="px-4">
@@ -271,16 +388,53 @@ function ByApp({ apps }: { apps: AppHealth[] }) {
                     {appName(a.app)}
                   </TableCell>
                   <TableCell className="text-right tabular-nums">
-                    {a.tickets} <Delta now={a.tickets} before={a.previous} />
+                    <CellLink n={a.tickets} onClick={() => show(a, "tickets", "tickets", "Tickets from the last 28 days.")}>
+                      {a.tickets}
+                    </CellLink>{" "}
+                    <Delta now={a.tickets} before={a.previous} />
                   </TableCell>
-                  <TableCell className="text-right tabular-nums">{hrs(a.firstReplyH)}</TableCell>
-                  <TableCell className="text-right tabular-nums">{pct(a.reopenRate)}</TableCell>
                   <TableCell className="text-right tabular-nums">
-                    {a.open}
-                    {a.owesReply ? <span className="text-tone-bad"> · {a.owesReply}</span> : null}
+                    <CellLink
+                      n={a.firstReplyH == null ? 0 : 1}
+                      onClick={() => show(a, "firstReply", "first replies", "Answered tickets from the last 28 days, slowest first.")}
+                    >
+                      {hrs(a.firstReplyH)}
+                    </CellLink>
                   </TableCell>
-                  <TableCell className="text-right tabular-nums">{a.bugs || "—"}</TableCell>
-                  <TableCell className="text-right tabular-nums">{a.gaps || "—"}</TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    <CellLink
+                      n={a.reopenRate ? 1 : 0}
+                      onClick={() => show(a, "reopened", "reopens", "Answered tickets from the last 28 days, reopened ones first.")}
+                    >
+                      {pct(a.reopenRate)}
+                    </CellLink>
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    <CellLink n={a.open} onClick={() => show(a, "open", "open now", "Every open ticket for this app, whoever's turn it is.")}>
+                      {a.open}
+                    </CellLink>
+                    {a.owesReply ? (
+                      <span className="text-tone-bad">
+                        {" · "}
+                        <CellLink
+                          n={a.owesReply}
+                          onClick={() => show(a, "owesReply", "waiting on us", "Open tickets where the customer wrote the newest message.")}
+                        >
+                          {a.owesReply}
+                        </CellLink>
+                      </span>
+                    ) : null}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    <CellLink n={a.bugs} onClick={() => show(a, "bugs", "real bugs", "Handoffs in the last 28 days the review judged a real product bug.")}>
+                      {a.bugs || "—"}
+                    </CellLink>
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    <CellLink n={a.gaps} onClick={() => show(a, "gaps", "knowledge gaps", "Handoffs in the last 28 days that only needed an answer Jetta didn't have.")}>
+                      {a.gaps || "—"}
+                    </CellLink>
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -293,7 +447,7 @@ function ByApp({ apps }: { apps: AppHealth[] }) {
   );
 }
 
-function Topics({ h }: { h: SupportHealth }) {
+function Topics({ h, open }: { h: SupportHealth; open: Open }) {
   const max = Math.max(1, ...h.topics.map((t) => t.count));
   return (
     <Card className="gap-2 py-4">
@@ -307,7 +461,22 @@ function Topics({ h }: { h: SupportHealth }) {
         {h.topics.length ? (
           <ul className="grid gap-2">
             {h.topics.map((t) => (
-              <li key={t.topic} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1">
+              <li
+                key={t.topic}
+                className="relative -mx-1.5 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 rounded-md px-1.5 py-1 hover:bg-muted/60"
+              >
+                <button
+                  type="button"
+                  aria-label={`Show tickets about ${t.topic}`}
+                  className="absolute inset-0 rounded-md focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                  onClick={() =>
+                    open({
+                      title: t.topic.charAt(0).toUpperCase() + t.topic.slice(1),
+                      description: "Tickets from the last 28 days Jetta labelled with this theme.",
+                      drill: { kind: "topic", topic: t.topic },
+                    })
+                  }
+                />
                 <div className="min-w-0">
                   <p className="truncate text-sm first-letter:uppercase">{t.topic}</p>
                   {t.apps.length > 0 && (
@@ -334,12 +503,18 @@ function Topics({ h }: { h: SupportHealth }) {
   );
 }
 
-function Load({ h }: { h: SupportHealth }) {
+function Load({ h, open }: { h: SupportHealth; open: Open }) {
   const metrics: MetricSpec[] = [
     {
       label: "Tickets with a Jetta draft",
       value: pct(h.recent.tickets ? h.load.ticketsDrafted / h.recent.tickets : null),
       hint: `${h.load.ticketsDrafted} of ${h.recent.tickets} · an agent reviews and sends each reply`,
+      onClick: () =>
+        open({
+          title: "Tickets with a Jetta draft",
+          description: "Tickets from the last 28 days where Jetta suggested at least one reply for an agent to review.",
+          drill: { kind: "drafted" },
+        }),
     },
     {
       label: "Chats finished by Jetta",
@@ -363,6 +538,12 @@ function Load({ h }: { h: SupportHealth }) {
 export default function HealthPanel() {
   const [data, setData] = useState<Payload | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [drill, setDrill] = useState<DrillRequest | null>(null);
+  // The tickets behind the numbers: fetched on the first click, dropped when the numbers change.
+  const [rows, setRows] = useState<HealthRow[] | null>(null);
+  const [rowsErr, setRowsErr] = useState<string | null>(null);
+  const rowsReq = useRef<Promise<void> | null>(null);
 
   const load = useCallback(() => {
     fetch("/api/admin/support-health", { cache: "no-store" })
@@ -371,9 +552,43 @@ export default function HealthPanel() {
         if (!r.ok) throw new Error(d.message ?? d.error ?? `HTTP ${r.status}`);
         setData(d);
         setErr(null);
+        setRows(null);
+        rowsReq.current = null;
       })
       .catch((e) => setErr(e instanceof Error ? e.message : String(e)));
   }, []);
+
+  const open = useCallback<Open>((req) => setDrill(req), []);
+  // Also re-runs when a refresh drops the rows under an open sheet.
+  useEffect(() => {
+    if (!drill || rows || rowsReq.current) return;
+    setRowsErr(null);
+    rowsReq.current = fetch("/api/admin/support-health?rows=1", { cache: "no-store" })
+      .then(async (r) => {
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.message ?? d.error ?? `HTTP ${r.status}`);
+        setRows(d.rows);
+      })
+      .catch((e) => {
+        setRowsErr(e instanceof Error ? e.message : String(e));
+        rowsReq.current = null;
+      });
+  }, [drill, rows]);
+
+  const syncNow = async () => {
+    setSyncing(true);
+    try {
+      const r = await fetch("/api/admin/support-health", { method: "POST" });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.message ?? d.error ?? `HTTP ${r.status}`);
+      toast.success(`Read ${d.read} ticket${d.read === 1 ? "" : "s"} from Freshdesk${d.queued ? ` · ${d.queued} still queued` : ""}`);
+      load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSyncing(false);
+    }
+  };
   useEffect(() => {
     load();
   }, [load]);
@@ -408,12 +623,34 @@ export default function HealthPanel() {
         icon={HeartPulse}
         title="No numbers yet"
         hint="These are computed by the hourly Freshdesk sync. The first ones appear after its next run."
+        action={
+          <Button variant="outline" size="sm" onClick={syncNow} disabled={syncing}>
+            <RotateCw className={syncing ? "animate-spin" : undefined} />
+            {syncing ? "Reading Freshdesk…" : "Sync now"}
+          </Button>
+        }
       />
     );
   }
 
   // Complete weeks only: a Monday-morning partial week reads as a collapse.
   const weeks = h.weeks.filter((w) => !w.partial);
+
+  /** A click anywhere in a weekly chart opens the week under the cursor. */
+  const onWeek =
+    (metric: "tickets" | "within" | "firstReply" | "reopened", title: string, description: string) =>
+    (state: { activeLabel?: string | number }) => {
+      const week = state.activeLabel != null ? String(state.activeLabel) : null;
+      if (!week) return;
+      open({ title: `${title} · week of ${weekTick(week)}`, description, drill: { kind: "week", week, metric } });
+    };
+
+  const syncButton = (
+    <Button variant="outline" size="sm" onClick={syncNow} disabled={syncing}>
+      <RotateCw className={syncing ? "animate-spin" : undefined} />
+      {syncing ? "Reading Freshdesk…" : "Sync now"}
+    </Button>
+  );
 
   return (
     <div className="grid min-w-0 gap-6 [&>*]:min-w-0">
@@ -422,23 +659,28 @@ export default function HealthPanel() {
           <CardTitle className="text-sm">Last 28 days</CardTitle>
           <CardDescription className="text-xs">
             Tickets a person answered or that are still open. Marketing and vendor mail closed without a reply is left
-            out.
+            out. Click any number to see the tickets behind it.
           </CardDescription>
+          <CardAction>{syncButton}</CardAction>
         </CardHeader>
         <CardContent className="grid gap-6 px-4">
-          <Headline recent={h.recent} previous={h.previous} backlog={h.backlog} />
+          <Headline recent={h.recent} previous={h.previous} backlog={h.backlog} open={open} />
           <div className="border-t pt-4">
-            <Secondary recent={h.recent} previous={h.previous} chat={h.chat} />
+            <Secondary recent={h.recent} previous={h.previous} chat={h.chat} open={open} />
           </div>
         </CardContent>
       </Card>
 
-      <RightNow b={h.backlog} base={ticketUrlBase} />
+      <RightNow b={h.backlog} base={ticketUrlBase} open={open} />
 
       <div className="grid gap-4 md:grid-cols-2 [&>*]:min-w-0">
-        <ChartCard title="Tickets per week" description="By the week they arrived.">
-          <ChartContainer config={volumeConfig} className="h-[180px] w-full">
-            <BarChart data={weeks} margin={{ left: -24, right: 0, top: 4 }}>
+        <ChartCard title="Tickets per week" description="By the week they arrived. Click a week for its tickets.">
+          <ChartContainer config={volumeConfig} className="h-[180px] w-full cursor-pointer">
+            <BarChart
+              data={weeks}
+              margin={{ left: -24, right: 0, top: 4 }}
+              onClick={onWeek("tickets", "Tickets", "Tickets that arrived this week and that a person answered or is still open.")}
+            >
               <CartesianGrid vertical={false} strokeOpacity={0.4} />
               <XAxis dataKey="week" tickFormatter={weekTick} tickLine={false} axisLine={false} fontSize={10} minTickGap={24} />
               <YAxis allowDecimals={false} tickLine={false} axisLine={false} fontSize={10} />
@@ -452,8 +694,12 @@ export default function HealthPanel() {
           title={`Answered within ${TARGETS.firstReplyH} hours`}
           description={`Share of each week's tickets. The dashed line is the ${pct(TARGETS.firstReplyShare.good)} target.`}
         >
-          <ChartContainer config={withinConfig} className="h-[180px] w-full">
-            <LineChart data={weeks} margin={{ left: -16, right: 8, top: 4 }}>
+          <ChartContainer config={withinConfig} className="h-[180px] w-full cursor-pointer">
+            <LineChart
+              data={weeks}
+              margin={{ left: -16, right: 8, top: 4 }}
+              onClick={onWeek("within", `Answered within ${TARGETS.firstReplyH}h`, "This week's tickets, misses first.")}
+            >
               <CartesianGrid vertical={false} strokeOpacity={0.4} />
               <XAxis dataKey="week" tickFormatter={weekTick} tickLine={false} axisLine={false} fontSize={10} minTickGap={24} />
               <YAxis domain={[0, 1]} tickFormatter={(v: number) => `${Math.round(v * 100)}%`} tickLine={false} axisLine={false} fontSize={10} />
@@ -472,8 +718,12 @@ export default function HealthPanel() {
         </ChartCard>
 
         <ChartCard title="Median first reply" description="Hours from the customer writing in to the first human reply.">
-          <ChartContainer config={speedConfig} className="h-[180px] w-full">
-            <LineChart data={weeks} margin={{ left: -24, right: 8, top: 4 }}>
+          <ChartContainer config={speedConfig} className="h-[180px] w-full cursor-pointer">
+            <LineChart
+              data={weeks}
+              margin={{ left: -24, right: 8, top: 4 }}
+              onClick={onWeek("firstReply", "First replies", "This week's answered tickets, slowest first.")}
+            >
               <CartesianGrid vertical={false} strokeOpacity={0.4} />
               <XAxis dataKey="week" tickFormatter={weekTick} tickLine={false} axisLine={false} fontSize={10} minTickGap={24} />
               <YAxis tickLine={false} axisLine={false} fontSize={10} unit="h" />
@@ -488,8 +738,12 @@ export default function HealthPanel() {
         </ChartCard>
 
         <ChartCard title="Reopened" description="Share of each week's answered tickets the customer came back on after it was resolved.">
-          <ChartContainer config={reopenConfig} className="h-[180px] w-full">
-            <LineChart data={weeks} margin={{ left: -16, right: 8, top: 4 }}>
+          <ChartContainer config={reopenConfig} className="h-[180px] w-full cursor-pointer">
+            <LineChart
+              data={weeks}
+              margin={{ left: -16, right: 8, top: 4 }}
+              onClick={onWeek("reopened", "Reopens", "This week's answered tickets, reopened ones first.")}
+            >
               <CartesianGrid vertical={false} strokeOpacity={0.4} />
               <XAxis dataKey="week" tickFormatter={weekTick} tickLine={false} axisLine={false} fontSize={10} minTickGap={24} />
               <YAxis tickFormatter={(v: number) => `${Math.round(v * 100)}%`} tickLine={false} axisLine={false} fontSize={10} />
@@ -504,11 +758,11 @@ export default function HealthPanel() {
         </ChartCard>
       </div>
 
-      <ByApp apps={h.apps} />
+      <ByApp apps={h.apps} open={open} />
 
       <div className="grid gap-4 md:grid-cols-2 [&>*]:min-w-0">
-        <Topics h={h} />
-        <Load h={h} />
+        <Topics h={h} open={open} />
+        <Load h={h} open={open} />
       </div>
 
       <p className="text-xs text-muted-foreground">
@@ -518,12 +772,22 @@ export default function HealthPanel() {
             , last <RelativeTime at={Math.floor(sync.lastRunAt / 1000)} />
           </>
         ) : null}
-        .{sync.queued > 0 && ` ${sync.queued} recently changed tickets are still being read.`} Hours are calendar hours,
+        .{sync.queued > 0 && ` ${sync.queued} recently changed tickets are still being read.`}
+        {sync.lastError && ` Last sync stopped early: ${sync.lastError}.`} Hours are calendar hours,
         weekends included: that is how long the customer waited. Targets: a first reply within {TARGETS.firstReplyH}h for{" "}
         {pct(TARGETS.firstReplyShare.good)} of tickets, a median under {TARGETS.medianFirstReplyH.good}h, reopens under{" "}
         {pct(TARGETS.reopenRate.good)}. There is no satisfaction score — surveys aren&apos;t on this Freshdesk plan — so
         reopens and back-and-forth stand in for quality.
       </p>
+
+      <DrillSheet
+        request={drill}
+        rows={rows}
+        error={rowsErr}
+        now={h.computedAt}
+        base={ticketUrlBase}
+        onClose={() => setDrill(null)}
+      />
     </div>
   );
 }
