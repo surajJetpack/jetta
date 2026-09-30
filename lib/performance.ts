@@ -119,6 +119,23 @@ export interface PerfTicket {
  */
 export const PERF_SCHEMA = 2;
 
+const STATUS_NAMES: Record<number, string> = {
+  2: "Open",
+  3: "Pending",
+  4: "Resolved",
+  5: "Closed",
+  6: "Waiting on customer",
+  7: "Working on it",
+  8: "Escalated to dev",
+  9: "Reopened",
+  10: "Hold – account access",
+  11: "Validating",
+  12: "Customer responded",
+  9000: "Assigned to AI agent",
+};
+/** Freshdesk status id → the name the team uses. */
+export const statusName = (s: number | null | undefined) => (s == null ? "Unknown" : (STATUS_NAMES[s] ?? `Status ${s}`));
+
 /** Auto-replies, OOO and bounces never reach the queue as work. */
 export function isJunkSubject(subject: string): boolean {
   return JUNK.test(subject) || /^OOO\b/i.test(subject);
@@ -651,4 +668,127 @@ export function buildSummary(
     chat,
     handoffs: handoffSummary(tickets.filter((t) => t.createdAt >= JETTA_LIVE_DATE), outcomes, now),
   };
+}
+
+// ── The tickets behind the numbers ──────────────────────────────────
+
+/**
+ * One ticket as /performance's drill-down lists show it. Admin page, so the
+ * agent names stay: "who sent the first reply" is the point of the agent table.
+ */
+export interface PerfRow {
+  id: number;
+  subject: string;
+  app?: string;
+  status: string;
+  createdAt: string;
+  week: string;
+  period: "recent" | "previous" | null;
+  /** Created on or after JETTA_LIVE_DATE — the handoff numbers count only these. */
+  afterLive: boolean;
+  answered: boolean;
+  firstReplyH: number | null;
+  firstReplyBy: string | null;
+  firstReplyHasLink: boolean;
+  reopened: boolean;
+  /** Every Jetta suggestion on the ticket, and what the agent did with it (null = no reply followed yet). */
+  uses: { use: SuggestionUse | null; replyBy: string | null; waitH: number | null }[];
+  handoffAt: string | null;
+  handoffKinds: HandoffKind[];
+  handoffBucket: HandoffBucket | null;
+}
+
+/** Precomputed at rebuild into their own key — fetched only when someone clicks a number. */
+export function perfRows(
+  tickets: (PerfTicket & { app?: string })[],
+  outcomes: Map<number, HandoffOutcome>,
+  now: number,
+): PerfRow[] {
+  const recentFrom = new Date(now - 28 * DAY_MS).toISOString();
+  const previousFrom = new Date(now - 56 * DAY_MS).toISOString();
+  return tickets
+    .map((t) => ({
+      id: t.id,
+      subject: (t.subject ?? `Ticket #${t.id}`).slice(0, 100),
+      app: t.app,
+      status: statusName(t.status),
+      createdAt: t.createdAt,
+      week: weekStart(t.createdAt),
+      period: t.createdAt >= recentFrom ? ("recent" as const) : t.createdAt >= previousFrom ? ("previous" as const) : null,
+      afterLive: t.createdAt >= JETTA_LIVE_DATE,
+      answered: t.agentReplies > 0,
+      firstReplyH: t.firstReplyH,
+      firstReplyBy: t.firstReplyBy,
+      firstReplyHasLink: t.firstReplyHasLink,
+      reopened: t.reopened,
+      uses: t.suggestions.map((s) => ({ use: s.sim == null ? null : suggestionUse(s.sim), replyBy: s.replyBy, waitH: s.waitH })),
+      handoffAt: t.handoff?.at ?? null,
+      handoffKinds: t.handoff?.kinds ?? [],
+      handoffBucket: t.handoff ? bucketOf(outcomes.get(t.id)) : null,
+    }))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+/** What was clicked on /performance. Each selects exactly the tickets its number was computed from. */
+export type PerfDrill =
+  | { kind: "coverage" }
+  | { kind: "used" }
+  | { kind: "firstReply" }
+  | { kind: "link" }
+  | { kind: "reopened" }
+  | { kind: "week"; week: string; metric: "drafts" | "firstReply" | "answered" }
+  | { kind: "agent"; agent: string; metric: "firstReplies" | "afterSuggestion" }
+  /** Handoffs: `scope` recent = last 28 days by handoff date; `kind` = one route, since launch; `week` = handoff week. */
+  | { kind: "handoffs"; bucket: HandoffBucket | "total"; scope: "recent" | "all"; route?: HandoffKind; week?: string };
+
+export function perfDrillRows(rows: PerfRow[], d: PerfDrill, now: number): PerfRow[] {
+  const recent = rows.filter((r) => r.period === "recent");
+  const answered = (list: PerfRow[]) => list.filter((r) => r.answered);
+  const slowest = (list: PerfRow[]) => [...list].sort((a, b) => (b.firstReplyH ?? -1) - (a.firstReplyH ?? -1));
+  const judged = (list: PerfRow[]) => list.filter((r) => r.uses.some((u) => u.use));
+  // Tickets whose drafts went unused lead: those are the ones to read.
+  const byUse = (list: PerfRow[]) =>
+    judged(list).sort((a, b) => usedShare(a) - usedShare(b) || b.createdAt.localeCompare(a.createdAt));
+  switch (d.kind) {
+    case "coverage":
+      return answered(recent).sort((a, b) => Number(a.uses.length > 0) - Number(b.uses.length > 0));
+    case "used":
+      return byUse(recent);
+    case "firstReply":
+      return slowest(answered(recent));
+    case "link":
+      return answered(recent).sort((a, b) => Number(b.firstReplyHasLink) - Number(a.firstReplyHasLink));
+    case "reopened":
+      return answered(recent).filter((r) => r.reopened);
+    case "week": {
+      const wk = rows.filter((r) => r.week === d.week);
+      if (d.metric === "drafts") return byUse(wk);
+      if (d.metric === "firstReply") return slowest(answered(wk));
+      return answered(wk);
+    }
+    case "agent":
+      return d.metric === "firstReplies"
+        ? slowest(recent.filter((r) => r.firstReplyBy === d.agent))
+        : byUse(recent.filter((r) => r.uses.some((u) => u.use && u.replyBy === d.agent)));
+    case "handoffs": {
+      const recentFrom = new Date(now - 28 * DAY_MS).toISOString();
+      return rows
+        .filter(
+          (r) =>
+            r.afterLive &&
+            r.handoffAt != null &&
+            (d.bucket === "total" || r.handoffBucket === d.bucket) &&
+            (d.scope === "all" || r.handoffAt >= recentFrom) &&
+            (!d.route || r.handoffKinds.includes(d.route)) &&
+            (!d.week || weekStart(r.handoffAt) === d.week),
+        )
+        .sort((a, b) => (b.handoffAt ?? "").localeCompare(a.handoffAt ?? ""));
+    }
+  }
+}
+
+/** Share of a ticket's judged drafts that were used (as-is or edited). */
+export function usedShare(r: Pick<PerfRow, "uses">): number {
+  const j = r.uses.filter((u) => u.use);
+  return j.length ? j.filter((u) => u.use !== "not_used").length / j.length : 0;
 }

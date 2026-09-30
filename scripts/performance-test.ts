@@ -14,6 +14,8 @@ import {
   isSettled,
   isJunkSubject,
   median,
+  perfDrillRows,
+  perfRows,
   periodStats,
   suggestionBody,
   summarizeTicket,
@@ -22,6 +24,7 @@ import {
   type HandoffOutcome,
   type PerfConversation,
   type PerfListTicket,
+  type PerfTicket,
 } from "../lib/performance";
 
 const JETTA = 1;
@@ -247,6 +250,57 @@ check("weekStart Sunday → previous Monday", weekStart("2026-09-27T23:59:00Z"),
   check("evidence: agent reply after handoff kept", text.includes("[agent Solutions Team]: That's expected"), true);
   check("evidence: dev status + comment", text.includes("Dev Status: Done") && text.includes("Dev: Not a bug"), true);
   check("evidence: KB candidate included", text.includes("(1) Board view setup"), true);
+}
+
+// ── The tickets behind the numbers: every list adds up to its number ──
+{
+  const NOW2 = Date.parse("2026-09-28T12:00:00Z");
+  const ago = (h: number) => new Date(NOW2 - h * 3.6e6).toISOString();
+  const t = (p: Partial<PerfTicket>): PerfTicket => ({
+    v: 2, id: 1, subject: "Help", status: 4, createdAt: ago(48), updatedAt: ago(24), source: 1,
+    agentReplies: 1, customerMsgs: 1, firstReplyH: 2, firstReplyBy: "Cherryl", firstReplyWords: 50,
+    firstReplyHasLink: false, resolvedH: 20, reopened: false, suggestions: [], fromChat: false, devWork: false,
+    handoff: null, ...p,
+  });
+  const sug = (sim: number | null, replyBy = "Cherryl") => ({ at: ago(47), sim, replyBy, waitH: 1 });
+  const tickets = [
+    t({ id: 1, suggestions: [sug(0.95), sug(0.1)], firstReplyHasLink: true }),
+    t({ id: 2, suggestions: [sug(0.6, "Dana")], firstReplyBy: "Dana", firstReplyH: 9, reopened: true }),
+    t({ id: 3 }),
+    t({ id: 4, agentReplies: 0, firstReplyH: null, firstReplyBy: null, suggestions: [sug(null)] }),
+    t({ id: 5, handoff: { kinds: ["dev_item"], at: ago(40), itemIds: [] }, devWork: true }),
+    t({ id: 6, handoff: { kinds: ["slack"], at: ago(40), itemIds: [] } }),
+    t({ id: 7, createdAt: ago(24 * 40) }),
+  ];
+  const outcomes = new Map<number, HandoffOutcome>([
+    [5, { ticketId: 5, category: "real_bug", confidence: "high", evidence: "", missingKnowledge: null, kbArticleTitle: null, kbCoverage: null, kbArticle: null, judgedAt: 0, basisUpdatedAt: "", model: "" }],
+  ]);
+  const sum = buildSummary(tickets, NOW2, null, outcomes);
+  const rows = perfRows(tickets, outcomes, NOW2);
+  const ids = (d: Parameters<typeof perfDrillRows>[1]) => perfDrillRows(rows, d, NOW2).map((r) => r.id);
+  const r = sum.recent;
+  const cov = perfDrillRows(rows, { kind: "coverage" }, NOW2);
+  check("coverage list = answered, share matches", [cov.length, Number((cov.filter((x) => x.uses.length).length / cov.length).toFixed(3))], [r.answered, r.coverage]);
+  check("coverage: undrafted first", cov[0].uses.length, 0);
+  const used = perfDrillRows(rows, { kind: "used" }, NOW2).flatMap((x) => x.uses.filter((u) => u.use));
+  check("used list: judged drafts = judged", used.length, r.judged);
+  check("used list: used share = headline", Number((used.filter((u) => u.use !== "not_used").length / used.length).toFixed(3)), r.usedRate);
+  check("first reply: slowest first", ids({ kind: "firstReply" })[0], 2);
+  check("reopened", ids({ kind: "reopened" }), [2]);
+  check("link share", perfDrillRows(rows, { kind: "link" }, NOW2).filter((x) => x.firstReplyHasLink).length / r.answered, r.linkRate);
+  const dana = sum.agents.find((a) => a.agent === "Dana")!;
+  check("agent first replies = table", ids({ kind: "agent", agent: "Dana", metric: "firstReplies" }).length, dana.firstReplies);
+  check(
+    "agent replies after a draft = table",
+    perfDrillRows(rows, { kind: "agent", agent: "Cherryl", metric: "afterSuggestion" }, NOW2).flatMap((x) => x.uses.filter((u) => u.use && u.replyBy === "Cherryl")).length,
+    sum.agents.find((a) => a.agent === "Cherryl")!.afterSuggestion,
+  );
+  const h = sum.handoffs!;
+  check("handoffs total / bugs / awaiting = headline", [ids({ kind: "handoffs", bucket: "total", scope: "recent" }).length, ids({ kind: "handoffs", bucket: "real_bug", scope: "recent" }), ids({ kind: "handoffs", bucket: "awaiting", scope: "recent" })], [h.recent.total, [5], [6]]);
+  const slack = h.byKind.find((k) => k.kind === "slack")!;
+  check("handoff route cell = table", ids({ kind: "handoffs", bucket: "total", scope: "all", route: "slack" }).length, slack.total);
+  const wk = sum.weeks.find((w) => w.answered)!;
+  check("answered week = bar", ids({ kind: "week", week: wk.week, metric: "answered" }).length, wk.answered);
 }
 
 console.log(failed ? `\n${failed} FAILED` : "\nall passed");

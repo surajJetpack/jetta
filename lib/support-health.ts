@@ -22,7 +22,9 @@
  * answered Monday morning counts every hour of the weekend. That is how long
  * the customer waited, and it keeps the number honest across timezones.
  */
-import { median, weekStart, type HandoffOutcome, type PerfTicket } from "./performance";
+import { median, statusName, weekStart, type HandoffOutcome, type PerfTicket } from "./performance";
+
+export { statusName };
 
 /** One ticket as this page sees it. `status` is the live Freshdesk status. */
 export type HealthTicket = PerfTicket & {
@@ -71,21 +73,6 @@ export const isDone = (status: number | null | undefined) => status === 4 || sta
 
 export type BacklogBucket = "owes_reply" | "engineering" | "in_progress" | "customer";
 
-const STATUS_NAMES: Record<number, string> = {
-  2: "Open",
-  3: "Pending",
-  4: "Resolved",
-  5: "Closed",
-  6: "Waiting on customer",
-  7: "Working on it",
-  8: "Escalated to dev",
-  9: "Reopened",
-  10: "Hold – account access",
-  11: "Validating",
-  12: "Customer responded",
-  9000: "Assigned to AI agent",
-};
-export const statusName = (s: number | null) => (s == null ? "Unknown" : (STATUS_NAMES[s] ?? `Status ${s}`));
 
 /**
  * Does the customer owe us nothing, or we them? Read from the thread first —

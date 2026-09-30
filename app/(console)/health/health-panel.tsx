@@ -11,6 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
 import { MetricRow, type MetricSpec } from "@/components/jetta/metric-row";
+import { CellLink } from "@/components/jetta/cell-link";
 import { EmptyState } from "@/components/jetta/empty-state";
 import { RelativeTime } from "@/components/jetta/relative-time";
 import { useDataVersion } from "@/lib/use-data-version";
@@ -343,16 +344,6 @@ function Delta({ now, before }: { now: number; before: number }) {
   const d = now - before;
   if (!d) return <span className="text-muted-foreground">±0</span>;
   return <span className="text-muted-foreground">{d > 0 ? `+${d}` : `−${-d}`}</span>;
-}
-
-/** A table number that opens its tickets. Zero stays plain text: there is nothing behind it. */
-function CellLink({ n, onClick, children }: { n: number; onClick: () => void; children: React.ReactNode }) {
-  if (!n) return <>{children}</>;
-  return (
-    <button type="button" onClick={onClick} className="tabular-nums underline decoration-dotted underline-offset-4 hover:decoration-solid">
-      {children}
-    </button>
-  );
 }
 
 function ByApp({ apps, open }: { apps: AppHealth[]; open: Open }) {
