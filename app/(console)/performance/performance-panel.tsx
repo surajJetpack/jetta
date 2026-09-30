@@ -25,6 +25,7 @@ import { useDataVersion } from "@/lib/use-data-version";
 import { JETTA_LIVE_DATE, weekStart, type PerfRow, type PerformanceSummary, type PeriodStats } from "@/lib/performance";
 import HandoffPanel from "./handoff-panel";
 import { PerfDrillSheet, type OpenPerf, type PerfDrillRequest } from "./perf-drill";
+import { InsightCard } from "@/components/jetta/insight-card";
 
 interface SyncInfo {
   cursor: string;
@@ -274,6 +275,13 @@ export default function PerformancePanel() {
 
   return (
     <div className="grid min-w-0 gap-6 [&>*]:min-w-0">
+      <InsightCard
+        endpoint="/api/admin/performance/insight"
+        basedOn={summary.computedAt}
+        open={open}
+        description="Is Jetta helping? Written from the numbers on this page; each point links to the tickets behind it. It may name agents — read it as a question about the drafts, not a score."
+      />
+
       <Card className="py-4">
         <CardHeader className="px-4">
           <CardTitle className="text-sm">Last 28 days</CardTitle>

@@ -29,7 +29,7 @@ import {
   type SupportHealth,
 } from "@/lib/support-health";
 import { DrillSheet, type DrillRequest } from "./drill-sheet";
-import { InsightCard } from "./insight-card";
+import { InsightCard } from "@/components/jetta/insight-card";
 
 interface Payload {
   health: SupportHealth | null;
@@ -649,7 +649,7 @@ export default function HealthPanel() {
 
   return (
     <div className="grid min-w-0 gap-6 [&>*]:min-w-0">
-      <InsightCard basedOn={h.computedAt} open={open} />
+      <InsightCard endpoint="/api/admin/support-health/insight" basedOn={h.computedAt} open={open} />
 
       <Card className="py-4">
         <CardHeader className="px-4">
