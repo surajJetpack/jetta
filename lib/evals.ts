@@ -58,7 +58,10 @@ export interface ReplyEvaluation {
   /**
    * How this evaluation was produced:
    *  - "review"    — a human decided a draft in the console (/drafts)
-   *  - "reconcile" — auto-derived from the human's Freshdesk reply vs the draft
+   *  - "reconcile" — a draft an agent SENT from Freshdesk, as-is (good) or edited
+   *                  (partial); unused drafts write none (lib/reconcile.ts).
+   *                  scripts/judge-drafts.ts may overwrite one with a blind-judge
+   *                  quality verdict, which can be "bad"
    *  - "mined"     — offline comparison of Jetta's would-be draft vs a past human
    *                  reply (mine-human-replies); excluded from draft-decision stats
    * Absent on older records; treat as "review"/"reconcile".

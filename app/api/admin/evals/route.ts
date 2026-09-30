@@ -6,11 +6,13 @@
  * Stats cover the last 30 days: counts by rating, edit/discard rates, tag
  * frequency, and a per-product breakdown.
  *
- * Draft-decision stats count REAL decisions only (review/reconcile). Mined
- * evaluations are reported separately under `stats.mined`: mining records a
- * row only where Jetta's draft diverged from the human reply (matches are
- * dropped), so folding them in would peg "sent as-is" at zero and inflate the
- * discard rate — a measurement artifact, not draft quality.
+ * Draft-decision stats count console decisions only (review). The other two
+ * sources are one-sided, so each is reported on its own line:
+ *  - `stats.reconciled` — drafts an agent sent from Freshdesk. Only USED drafts
+ *    are recorded (unused ones write no evaluation), so folding them in would
+ *    peg the discard rate at zero. Adoption rates live on /performance.
+ *  - `stats.mined` — mining keeps only divergences, so folding it in would peg
+ *    "sent as-is" at zero and inflate the discard rate.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { adminAuthorized } from "@/lib/auth";
@@ -36,7 +38,8 @@ function tally(evals: ReplyEvaluation[]) {
 function buildStats(evals: ReplyEvaluation[]) {
   const cutoff = Math.floor(Date.now() / 1000) - 30 * 86400;
   const recent = evals.filter((e) => e.at >= cutoff);
-  const decisions = tally(recent.filter((e) => e.source !== "mined"));
+  const decisions = tally(recent.filter((e) => !e.source || e.source === "review"));
+  const reconciled = tally(recent.filter((e) => e.source === "reconcile"));
   const mined = tally(recent.filter((e) => e.source === "mined"));
   const total = decisions.total;
   return {
@@ -47,6 +50,7 @@ function buildStats(evals: ReplyEvaluation[]) {
     discardRate: total ? decisions.byRating.bad / total : 0,
     tagCounts: decisions.tagCounts,
     byProduct: decisions.byProduct,
+    reconciled,
     mined,
   };
 }

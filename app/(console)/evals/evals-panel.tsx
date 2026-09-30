@@ -47,19 +47,22 @@ interface ReplyEvaluation {
 
 interface EvalStats {
   windowDays: number;
-  /** Real draft decisions only — mined comparisons are counted separately. */
+  /** Console decisions only — Freshdesk sends and mined comparisons are counted separately. */
   total: number;
   byRating: { good: number; partial: number; bad: number };
   editRate: number;
   discardRate: number;
   tagCounts: Record<string, number>;
   byProduct: Record<string, { good: number; partial: number; bad: number }>;
-  mined: {
-    total: number;
-    byRating: { good: number; partial: number; bad: number };
-    tagCounts: Record<string, number>;
-    byProduct: Record<string, { good: number; partial: number; bad: number }>;
-  };
+  reconciled: SourceTally;
+  mined: SourceTally;
+}
+
+interface SourceTally {
+  total: number;
+  byRating: { good: number; partial: number; bad: number };
+  tagCounts: Record<string, number>;
+  byProduct: Record<string, { good: number; partial: number; bad: number }>;
 }
 
 interface Learning {
@@ -249,8 +252,8 @@ export default function EvalsPanel({ freshdeskDomain }: { freshdeskDomain: strin
           {stats === null && <Skeleton className="h-10 w-full" />}
           {stats && stats.total === 0 && (
             <p className="text-sm text-muted-foreground">
-              No draft decisions in the last {stats.windowDays} days — no suggestion was sent, edited, or
-              discarded on a ticket in that window.
+              No console decisions in the last {stats.windowDays} days — the team replies from Freshdesk, so
+              what they sent is counted below.
             </p>
           )}
           {stats && stats.total > 0 && (
@@ -290,6 +293,23 @@ export default function EvalsPanel({ freshdeskDomain }: { freshdeskDomain: strin
             </div>
           )}
           {stats && <TagChips counts={stats.tagCounts} />}
+          {/*
+            Freshdesk rows only exist for drafts an agent SENT (unused drafts
+            write no evaluation), so they can't yield a discard rate either.
+          */}
+          {stats && stats.reconciled.total > 0 && (
+            <div className="mt-4 border-t pt-3">
+              <div className="flex flex-wrap items-baseline gap-x-2">
+                <span className="text-sm font-medium">Sent from Freshdesk</span>
+                <span className="font-mono text-sm font-semibold">{stats.reconciled.total}</span>
+                <span className="text-xs text-muted-foreground">
+                  {stats.reconciled.byRating.good} as-is · {stats.reconciled.byRating.partial} edited — unused
+                  drafts aren&apos;t recorded here; see /performance for adoption
+                </span>
+              </div>
+              <TagChips counts={stats.reconciled.tagCounts} />
+            </div>
+          )}
           {/*
             Mined rows are offline draft-vs-human comparisons, and mining only
             keeps the divergences — so they get their own line rather than
@@ -426,6 +446,7 @@ export default function EvalsPanel({ freshdeskDomain }: { freshdeskDomain: strin
                     ))}
                     {e.rating === "partial" && <StatusChip tone="in_review">edited before send</StatusChip>}
                     {e.source === "mined" && <StatusChip tone="draft">mined from human reply</StatusChip>}
+                    {e.source === "reconcile" && <StatusChip tone="draft">sent from Freshdesk</StatusChip>}
                     {e.distilled && <StatusChip tone="published">distilled</StatusChip>}
                   </div>
                   {e.note && <p className="font-mono text-xs text-muted-foreground">{e.note}</p>}
