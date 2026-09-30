@@ -6,6 +6,10 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: __dirname,
   },
+  // The console assistant reads its own manual at runtime (lib/console-assistant.ts).
+  outputFileTracingIncludes: {
+    "/api/admin/assistant/*": ["./docs/**/*.md", "./JETTA-OVERVIEW.md"],
+  },
 };
 
 export default nextConfig;

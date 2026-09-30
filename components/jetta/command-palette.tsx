@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Dialog } from "radix-ui";
-import { ExternalLink, Search, TicketCheck } from "lucide-react";
+import { AudioLines, ExternalLink, Search, TicketCheck } from "lucide-react";
+import { OPEN_ASSISTANT_EVENT } from "./assistant/events";
 import { cn } from "@/lib/utils";
 import { navItemsFor } from "./console-nav";
 
@@ -64,6 +65,10 @@ export function CommandPalette({
       });
     }
 
+    if (isAdmin && (!term || "ask jetta talk voice assistant".includes(term) || term.split(" ").length > 2)) {
+      rows.push({ key: "assistant", label: "Ask Jetta", hint: "Talk to her — she can look things up and take you there (⌘J)", href: "", assistant: true });
+    }
+
     for (const item of navItemsFor(isAdmin)) {
       if (term && !`${item.label} ${item.hint}`.toLowerCase().includes(term)) continue;
       rows.push({ key: item.id, label: item.label, hint: item.hint, href: item.href });
@@ -83,7 +88,8 @@ export function CommandPalette({
     if (!r) return;
     setOpen(false);
     setQ("");
-    if (r.external) window.open(r.href, "_blank", "noopener,noreferrer");
+    if (r.assistant) window.dispatchEvent(new Event(OPEN_ASSISTANT_EVENT));
+    else if (r.external) window.open(r.href, "_blank", "noopener,noreferrer");
     else router.push(r.href);
   }
 
@@ -171,7 +177,9 @@ export function CommandPalette({
                   i === cursor ? "bg-muted" : "hover:bg-muted/60",
                 )}
               >
-                {r.external ? (
+                {r.assistant ? (
+                  <AudioLines className="size-4 shrink-0 text-primary" aria-hidden />
+                ) : r.external ? (
                   <TicketCheck className="size-4 shrink-0 text-primary" aria-hidden />
                 ) : (
                   <span className="size-4 shrink-0" aria-hidden />
@@ -198,4 +206,6 @@ interface Result {
   hint: string;
   href: string;
   external?: boolean;
+  /** Opens the voice assistant instead of navigating. */
+  assistant?: boolean;
 }
