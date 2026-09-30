@@ -43,6 +43,8 @@ export interface VoiceCallbacks {
   /** Runs a tool; resolves with what the model should be told. */
   onToolCall: (call: ToolCall) => Promise<Record<string, unknown>>;
   onError: (message: string) => void;
+  /** Deep mode is entered and left by Jetta herself; the panel only shows it. */
+  onMode?: (m: AssistantMode) => void;
 }
 
 interface SessionGrant {
@@ -93,6 +95,9 @@ export class LiveVoice {
   private reconnecting = false;
   private gen = 0;
   private outbox: ClientContent[] = [];
+  /** In deep mode because she escalated a question — go back once it is answered. */
+  private escalated = false;
+  private returnPending = false;
 
   private micStream: MediaStream | null = null;
   private inCtx: AudioContext | null = null;
@@ -113,15 +118,18 @@ export class LiveVoice {
     this.cb = cb;
   }
 
-  get currentMode(): AssistantMode {
-    return this.mode;
-  }
-
   // ── lifecycle ──────────────────────────────────────────────────────────
 
-  async start(mode: AssistantMode, pathname: string): Promise<void> {
-    this.mode = mode;
+  /**
+   * Start listening. If there is a transcript from before a pause (the panel was
+   * minimised), the new session is handed it, so the conversation resumes
+   * rather than restarts.
+   */
+  async start(pathname: string): Promise<void> {
+    this.setMode("live");
     this.pathname = pathname;
+    const history = this.historyText();
+    if (history) this.sendContext(`The panel was minimised and reopened. The conversation so far:\n${history}`);
     this.setState("connecting");
     try {
       // Both contexts are created inside the click that started the session:
@@ -144,34 +152,77 @@ export class LiveVoice {
     await this.outCtx?.close().catch(() => {});
     this.inCtx = this.outCtx = null;
     this.resumeHandle = undefined;
+    this.escalated = this.returnPending = false;
     this.setState("idle");
   }
 
   /**
    * Switch model. A resumption handle belongs to one model, so the new session
    * starts fresh and is handed the transcript so far as context instead.
+   * `answerNow` makes the new model take the question that prompted the switch.
    */
-  async switchMode(mode: AssistantMode): Promise<void> {
+  private async switchMode(mode: AssistantMode, answerNow = false): Promise<void> {
     if (mode === this.mode || this.state === "idle" || this.state === "error") return;
-    this.mode = mode;
+    this.setMode(mode);
     this.dropSession();
     this.flushPlayback();
     this.resumeHandle = undefined;
-    const history = this.lines
-      .filter((l) => l.who !== "tool" && l.text)
-      .slice(-30)
-      .map((l) => `${l.who === "you" ? "User" : "Jetta"}: ${l.text}`)
-      .join("\n");
+    const history = this.historyText();
     // Queued before connecting, so it is the first thing the new model reads —
-    // ahead of anything the user types while the switch is in flight.
+    // ahead of anything the user says while the switch is in flight.
     if (history) this.sendContext(`Switched to ${mode} mode. The conversation so far:\n${history}`);
-    this.addLine("tool", mode === "deep" ? "Switched to Deep mode" : "Back to Live mode");
-    this.setState("connecting");
+    if (answerNow) {
+      this.send({
+        turns: [{ role: "user", parts: [{ text: "[context] The quick model handed you the user's most recent question because it needs real reasoning. Answer it now." }] }],
+        turnComplete: true,
+      });
+      this.addLine("tool", "Thinking deeper");
+    }
+    this.setState(answerNow ? "thinking" : "connecting");
     try {
       await this.connect();
     } catch (e) {
       this.fail(e);
     }
+  }
+
+  /**
+   * She decided the question needs the extended-thinking model. The quick
+   * session is dropped mid-call — it gets no tool response, so it has nothing
+   * to say about the handover — and the deep one answers.
+   */
+  private escalate(): void {
+    this.escalated = true;
+    void this.switchMode("deep", true);
+  }
+
+  /**
+   * Back to the quick model once the deep answer has been SPOKEN, not merely
+   * generated — switching drops the socket, and with it any audio still queued.
+   */
+  private maybeReturn(): void {
+    if (!this.returnPending || this.playing.size) return;
+    // They asked something while the deep answer was finishing. Switching now
+    // would drop the socket with that question unanswered — stay, let the deep
+    // model take it, and go back after the next IDLE instead.
+    const lastSpoken = [...this.lines].reverse().find((l) => l.who !== "tool");
+    if (lastSpoken?.who === "you") return;
+    this.returnPending = this.escalated = false;
+    void this.switchMode("live");
+  }
+
+  private historyText(): string {
+    return this.lines
+      .filter((l) => l.who !== "tool" && l.text)
+      .slice(-30)
+      .map((l) => `${l.who === "you" ? "User" : "Jetta"}: ${l.text}`)
+      .join("\n");
+  }
+
+  private setMode(m: AssistantMode): void {
+    if (m === this.mode) return;
+    this.mode = m;
+    this.cb.onMode?.(m);
   }
 
   setMuted(muted: boolean): void {
@@ -294,6 +345,10 @@ export class LiveVoice {
     }
     if (m.goAway) void this.reconnect();
 
+    if (m.toolCall?.functionCalls?.some((fc) => fc.name === "think_deeper")) {
+      this.escalate();
+      return;
+    }
     if (m.toolCall?.functionCalls?.length) {
       this.setState("thinking");
       const responses = await Promise.all(
@@ -336,6 +391,10 @@ export class LiveVoice {
       const idle = this.mode !== "deep" || sc.interactionStatus === "IDLE";
       if (idle && !this.playing.size) this.setState("listening");
       else if (!idle) this.setState("thinking");
+      if (idle && this.mode === "deep" && this.escalated) {
+        this.returnPending = true;
+        this.maybeReturn();
+      }
     }
   }
 
@@ -410,6 +469,7 @@ export class LiveVoice {
     src.onended = () => {
       this.playing.delete(src);
       if (!this.playing.size && this.state === "speaking") this.setState("listening");
+      this.maybeReturn();
     };
   }
 
