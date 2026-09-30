@@ -115,6 +115,11 @@ export class LiveVoice {
   private carry = 0;
 
   private playing = new Set<AudioBufferSourceNode>();
+  /** Taps for the visualiser — read-only, never on the path to the speakers or the socket. */
+  private inAnalyser: AnalyserNode | null = null;
+  private outAnalyser: AnalyserNode | null = null;
+  /** fftSize 256 → 128 bins, reused every frame. */
+  private bins = new Uint8Array(128);
   private playhead = 0;
 
   private lines: TranscriptLine[] = [];
@@ -142,6 +147,10 @@ export class LiveVoice {
       // Both contexts are created inside the click that started the session:
       // browsers only let audio play from a user gesture.
       this.outCtx = new AudioContext({ sampleRate: OUT_RATE });
+      this.outAnalyser = this.outCtx.createAnalyser();
+      this.outAnalyser.fftSize = 256;
+      this.outAnalyser.smoothingTimeConstant = 0.7;
+      this.outAnalyser.connect(this.outCtx.destination);
       await this.startMic();
       await this.connect();
     } catch (e) {
@@ -158,6 +167,7 @@ export class LiveVoice {
     await this.inCtx?.close().catch(() => {});
     await this.outCtx?.close().catch(() => {});
     this.inCtx = this.outCtx = null;
+    this.inAnalyser = this.outAnalyser = null;
     this.resumeHandle = undefined;
     this.escalated = this.returnPending = false;
     this.setState("idle");
@@ -422,6 +432,10 @@ export class LiveVoice {
     const node = new AudioWorkletNode(this.inCtx, "jetta-capture");
     node.port.onmessage = (e: MessageEvent<Float32Array>) => this.onFrames(e.data);
     src.connect(node);
+    this.inAnalyser = this.inCtx.createAnalyser();
+    this.inAnalyser.fftSize = 256;
+    this.inAnalyser.smoothingTimeConstant = 0.7;
+    src.connect(this.inAnalyser);
   }
 
   /** Downsample by averaging each window of native-rate samples into one 16 kHz sample. */
@@ -465,7 +479,7 @@ export class LiveVoice {
     for (let i = 0; i < pcm.length; i++) ch[i] = pcm[i] / 0x8000;
     const src = ctx.createBufferSource();
     src.buffer = buf;
-    src.connect(ctx.destination);
+    src.connect(this.outAnalyser ?? ctx.destination);
     // Chunks are queued back to back on the audio clock, not played on
     // arrival — network jitter would otherwise be audible as stutter.
     this.playhead = Math.max(this.playhead, ctx.currentTime + 0.02);
@@ -492,6 +506,32 @@ export class LiveVoice {
     this.playing.clear();
     this.playhead = 0;
     if (this.state === "speaking") this.setState("listening");
+  }
+
+  // ── visualiser ─────────────────────────────────────────────────────────
+
+  /**
+   * Frequency bins (0–1) for whoever is audible: Jetta while she speaks, the
+   * microphone otherwise (silent when muted). Fills `out` in place so the
+   * render loop allocates nothing per frame.
+   */
+  readSpectrum(out: Float32Array): number {
+    const a = this.playing.size ? this.outAnalyser : this.muted ? null : this.inAnalyser;
+    if (!a) {
+      out.fill(0);
+      return 0;
+    }
+    const bins = this.bins;
+    a.getByteFrequencyData(bins);
+    // Voice lives in the low third of the spectrum; stretch it over every bar.
+    const span = Math.floor(bins.length / 3);
+    let sum = 0;
+    for (let i = 0; i < out.length; i++) {
+      const v = bins[Math.floor((i / out.length) * span)] / 255;
+      out[i] = v;
+      sum += v;
+    }
+    return sum / out.length;
   }
 
   // ── transcript ─────────────────────────────────────────────────────────

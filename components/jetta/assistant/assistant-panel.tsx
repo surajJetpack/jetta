@@ -4,11 +4,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { AudioLines, ExternalLink, Mic, MicOff, Minus, PhoneOff, Send } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { navItemsFor, PAGE_SECTIONS } from "../console-nav";
 import { drillHref } from "@/lib/drill-code";
 import { OPEN_ASSISTANT_EVENT } from "./events";
+import { VoiceOrb } from "./voice-orb";
 import { LiveVoice, type AssistantMode, type PanelLink, type ToolCall, type TranscriptLine, type VoiceState } from "./live-voice";
 
 
@@ -253,6 +253,16 @@ export function AssistantPanel({ freshdeskDomain }: { freshdeskDomain: string })
     setDraft("");
   }
 
+  const readSpectrum = useCallback((out: Float32Array) => voice.current?.readSpectrum(out) ?? (out.fill(0), 0), []);
+  const deepNow = mode === "deep" && connected;
+  const statusText = deepNow && state === "thinking" ? "Thinking deeper" : STATE_LABEL[state].replace(/…$/, "");
+  const talking = lines.length > 0;
+
+  function ask(q: string) {
+    if (!connected) start();
+    voice.current?.sendText(q);
+  }
+
   if (!open) {
     return (
       <Tooltip>
@@ -264,9 +274,17 @@ export function AssistantPanel({ freshdeskDomain }: { freshdeskDomain: string })
               start();
             }}
             aria-label="Talk to Jetta"
-            className="fixed right-5 bottom-5 z-40 flex size-12 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform hover:scale-105 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+            className="group fixed right-5 bottom-5 z-40 flex size-14 items-center justify-center rounded-full focus-visible:outline-none"
           >
-            <AudioLines className="size-5" aria-hidden />
+            {/* A slow-turning ring of light around a dark core. */}
+            <span
+              aria-hidden
+              className="absolute inset-0 animate-[spin_6s_linear_infinite] rounded-full bg-[conic-gradient(from_0deg,#22d3ee,#818cf8,#e879f9,#22d3ee)] opacity-90 blur-[1px] motion-reduce:animate-none"
+            />
+            <span aria-hidden className="absolute inset-0 rounded-full bg-[conic-gradient(from_0deg,#22d3ee,#818cf8,#e879f9,#22d3ee)] opacity-40 blur-md transition-opacity group-hover:opacity-80" />
+            <span className="relative flex size-[3.1rem] items-center justify-center rounded-full bg-[#060a14] text-cyan-300 ring-1 ring-white/10 transition-transform group-hover:scale-95 group-focus-visible:ring-2 group-focus-visible:ring-cyan-300">
+              <AudioLines className="size-5" aria-hidden />
+            </span>
           </button>
         </TooltipTrigger>
         <TooltipContent side="left">Talk to Jetta (⌘J)</TooltipContent>
@@ -275,113 +293,165 @@ export function AssistantPanel({ freshdeskDomain }: { freshdeskDomain: string })
   }
 
   return (
-    <section
-      aria-label="Jetta voice assistant"
-      className="fixed right-4 bottom-4 z-40 flex h-[min(34rem,calc(100svh-6rem))] w-[min(23rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-xl border bg-popover shadow-xl"
-    >
-      <header className="flex items-center gap-2 border-b px-3 py-2">
-        <Orb state={state} />
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium leading-tight">Jetta</p>
-          <p className="text-xs text-muted-foreground" aria-live="polite">
-            {mode === "deep" && connected && state === "thinking" ? "Thinking deeper…" : STATE_LABEL[state]}
+    // The gradient wrapper is the border: 1px of light around a glass panel.
+    <div className="fixed right-4 bottom-4 z-40 w-[min(24rem,calc(100vw-2rem))] rounded-2xl bg-[linear-gradient(140deg,rgba(34,211,238,0.55),rgba(129,140,248,0.15)_40%,rgba(232,121,249,0.5))] p-px shadow-[0_0_48px_-12px_rgba(34,211,238,0.55),0_24px_48px_-24px_rgba(0,0,0,0.8)]">
+      <section
+        aria-label="Jetta voice assistant"
+        className="relative flex h-[min(38rem,calc(100svh-6rem))] flex-col overflow-hidden rounded-[15px] bg-[#060a14]/95 text-slate-100 backdrop-blur-xl"
+      >
+        {/* Atmosphere: a glow behind the orb and a faint grid, both decorative. */}
+        <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-56 bg-[radial-gradient(ellipse_at_50%_0%,rgba(34,211,238,0.18),transparent_70%)]" />
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 opacity-[0.06] [background-image:linear-gradient(rgba(255,255,255,0.6)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.6)_1px,transparent_1px)] [background-size:22px_22px] [mask-image:linear-gradient(to_bottom,black,transparent_60%)]"
+        />
+
+        <header className="relative flex items-center gap-2 px-4 pt-3">
+          <p className="font-mono text-[10px] tracking-[0.35em] text-slate-400 uppercase">
+            Jetta <span className="text-cyan-400/70">{"//"}</span> Voice
+          </p>
+          <span className="ml-auto" />
+          <button
+            type="button"
+            onClick={minimise}
+            aria-label="Minimise — stops listening"
+            className="flex size-7 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-white/10 hover:text-slate-100 focus-visible:ring-2 focus-visible:ring-cyan-300/60 focus-visible:outline-none"
+          >
+            <Minus className="size-4" />
+          </button>
+        </header>
+
+        <div className="relative flex flex-col items-center">
+          <VoiceOrb
+            state={state}
+            deep={deepNow}
+            readSpectrum={readSpectrum}
+            size={132}
+            className={cn("transition-[width,height] duration-500", talking ? "!size-[84px]" : "!size-[132px]")}
+          />
+          <p
+            aria-live="polite"
+            className={cn(
+              "flex items-center gap-2 font-mono text-[10px] tracking-[0.3em] uppercase",
+              state === "error" ? "text-red-400" : deepNow ? "text-fuchsia-300" : state === "idle" ? "text-slate-500" : "text-cyan-300",
+            )}
+          >
+            <span className={cn("size-1.5 rounded-full bg-current", state !== "idle" && state !== "error" && "animate-pulse motion-reduce:animate-none")} />
+            {statusText}
           </p>
         </div>
-        <Button size="icon" variant="ghost" className="size-7" onClick={minimise} aria-label="Minimise — stops listening">
-          <Minus className="size-4" />
-        </Button>
-      </header>
 
-      <div ref={scroller} className="flex-1 space-y-2 overflow-y-auto px-3 py-3 text-sm">
-        {lines.length === 0 && !error && (
-          <div className="space-y-2 pt-6 text-center text-muted-foreground">
-            <p>Ask anything about tickets, support health, or how Jetta works.</p>
-            <p className="text-xs">“What came in over the weekend?” · “Take me to performance” · “Why is ticket 14457 escalated?”</p>
-          </div>
-        )}
-        {lines.map((l) =>
-          l.who === "tool" ? (
-            l.links?.length ? (
-              <div key={l.id} className="space-y-1">
-                {l.links.map((k) => (
-                  <PanelLinkRow key={k.url} link={k} />
+        <div ref={scroller} className="relative mt-2 flex-1 space-y-3 overflow-y-auto px-4 py-3 text-sm [scrollbar-width:thin]">
+          {!talking && !error && (
+            <div className="space-y-3 pt-2 text-center">
+              <p className="text-slate-400">Ask about tickets, support health, or how Jetta works.</p>
+              <div className="flex flex-wrap justify-center gap-1.5">
+                {["What came in yesterday?", "Take me to what needs me", "Why is support slower?"].map((q) => (
+                  <button
+                    key={q}
+                    type="button"
+                    onClick={() => ask(q)}
+                    className="rounded-full border border-cyan-400/25 bg-cyan-400/5 px-3 py-1 text-xs text-cyan-100 transition-colors hover:border-cyan-300/60 hover:bg-cyan-400/15 focus-visible:ring-2 focus-visible:ring-cyan-300/60 focus-visible:outline-none"
+                  >
+                    {q}
+                  </button>
                 ))}
               </div>
+            </div>
+          )}
+          {lines.map((l) =>
+            l.who === "tool" ? (
+              l.links?.length ? (
+                <div key={l.id} className="space-y-1.5">
+                  {l.links.map((k) => (
+                    <PanelLinkRow key={k.url} link={k} />
+                  ))}
+                </div>
+              ) : (
+                <p key={l.id} className="flex items-center gap-2 font-mono text-[10px] tracking-[0.2em] text-cyan-300/70 uppercase">
+                  <span aria-hidden className="text-cyan-400">▸</span>
+                  {l.text}
+                </p>
+              )
+            ) : l.who === "you" ? (
+              <div key={l.id} className="flex justify-end">
+                <p
+                  className={cn(
+                    "max-w-[85%] rounded-2xl rounded-br-sm border border-cyan-400/30 bg-cyan-400/10 px-3 py-1.5 leading-snug text-cyan-50",
+                    l.partial && "opacity-60",
+                  )}
+                >
+                  {l.text}
+                </p>
+              </div>
             ) : (
-              <p key={l.id} className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <span className="size-1 rounded-full bg-current" aria-hidden />
-                {l.text}
-              </p>
-            )
-          ) : (
-            <div key={l.id} className={cn("flex", l.who === "you" ? "justify-end" : "justify-start")}>
               <p
+                key={l.id}
+                className={cn("border-l-2 border-violet-400/50 pl-3 leading-relaxed text-slate-200", l.partial && "opacity-70")}
+              >
+                <WithTicketLinks text={l.text} domain={freshdeskDomain} />
+              </p>
+            ),
+          )}
+          {error && <p className="rounded-lg border border-red-400/30 bg-red-500/10 px-3 py-2 text-xs text-red-200">{error}</p>}
+        </div>
+
+        <footer className="relative flex items-center gap-2 border-t border-white/10 px-3 py-3">
+          {connected ? (
+            <>
+              <button
+                type="button"
+                onClick={toggleMute}
+                aria-label={muted ? "Unmute" : "Mute"}
+                aria-pressed={muted}
                 className={cn(
-                  "max-w-[85%] rounded-lg px-2.5 py-1.5 leading-snug",
-                  l.who === "you" ? "bg-primary text-primary-foreground" : "bg-muted",
-                  l.partial && "opacity-70",
+                  "flex size-10 shrink-0 items-center justify-center rounded-full border transition-all focus-visible:ring-2 focus-visible:ring-cyan-300/60 focus-visible:outline-none",
+                  muted
+                    ? "border-white/15 bg-white/5 text-slate-400"
+                    : "border-cyan-300/50 bg-cyan-400/15 text-cyan-200 shadow-[0_0_18px_-4px_rgba(34,211,238,0.8)]",
                 )}
               >
-                {l.who === "jetta" ? <WithTicketLinks text={l.text} domain={freshdeskDomain} /> : l.text}
-              </p>
-            </div>
-          ),
-        )}
-        {error && <p className="rounded-md bg-tone-warn-bg px-2.5 py-2 text-xs text-tone-warn">{error}</p>}
-      </div>
-
-      <footer className="flex items-center gap-1.5 border-t px-2 py-2">
-        {connected ? (
-          <>
-            <Button size="icon" variant={muted ? "secondary" : "ghost"} className="size-8 shrink-0" onClick={toggleMute} aria-label={muted ? "Unmute" : "Mute"}>
-              {muted ? <MicOff className="size-4" /> : <Mic className="size-4" />}
-            </Button>
-            <Button size="icon" variant="ghost" className="size-8 shrink-0 text-tone-bad" onClick={end} aria-label="End conversation">
-              <PhoneOff className="size-4" />
-            </Button>
-          </>
-        ) : (
-          <Button size="sm" className="h-8 shrink-0 gap-1.5" onClick={() => start()}>
-            <Mic className="size-4" aria-hidden />
-            {state === "error" ? "Reconnect" : "Start"}
-          </Button>
-        )}
-        <form onSubmit={submit} className="flex min-w-0 flex-1 items-center gap-1">
-          <input
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder="Or type…"
-            aria-label="Type a question"
-            className="h-8 min-w-0 flex-1 rounded-md border bg-background px-2 text-sm outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
-          />
-          <Button type="submit" size="icon" variant="ghost" className="size-8 shrink-0" aria-label="Send" disabled={!draft.trim()}>
-            <Send className="size-4" />
-          </Button>
-        </form>
-      </footer>
-    </section>
-  );
-}
-
-/** The one piece of motion: it tells you whether she is listening, thinking or talking without reading a word. */
-function Orb({ state }: { state: VoiceState }) {
-  return (
-    <span className="relative flex size-7 shrink-0 items-center justify-center" aria-hidden>
-      <span
-        className={cn(
-          "absolute inset-0 rounded-full",
-          state === "speaking" && "animate-ping bg-primary/30",
-          state === "thinking" && "animate-pulse bg-primary/20",
-          state === "listening" && "bg-tone-good/20",
-        )}
-      />
-      <span
-        className={cn(
-          "relative size-3.5 rounded-full",
-          state === "idle" || state === "error" ? "bg-muted-foreground/40" : state === "listening" ? "bg-tone-good" : "bg-primary",
-        )}
-      />
-    </span>
+                {muted ? <MicOff className="size-4" /> : <Mic className="size-4" />}
+              </button>
+              <button
+                type="button"
+                onClick={end}
+                aria-label="End conversation"
+                className="flex size-10 shrink-0 items-center justify-center rounded-full border border-red-400/30 bg-red-500/10 text-red-300 transition-colors hover:bg-red-500/25 focus-visible:ring-2 focus-visible:ring-red-300/60 focus-visible:outline-none"
+              >
+                <PhoneOff className="size-4" />
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={() => start()}
+              className="flex h-10 shrink-0 items-center gap-2 rounded-full border border-cyan-300/50 bg-cyan-400/15 px-4 text-sm text-cyan-100 shadow-[0_0_18px_-4px_rgba(34,211,238,0.8)] transition-colors hover:bg-cyan-400/25 focus-visible:ring-2 focus-visible:ring-cyan-300/60 focus-visible:outline-none"
+            >
+              <Mic className="size-4" aria-hidden />
+              {state === "error" ? "Reconnect" : "Start"}
+            </button>
+          )}
+          <form onSubmit={submit} className="flex min-w-0 flex-1 items-center rounded-full border border-white/10 bg-white/5 pr-1 focus-within:border-cyan-300/50">
+            <input
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              placeholder="Or type…"
+              aria-label="Type a question"
+              className="h-10 min-w-0 flex-1 bg-transparent px-4 text-sm text-slate-100 outline-none placeholder:text-slate-500"
+            />
+            <button
+              type="submit"
+              aria-label="Send"
+              disabled={!draft.trim()}
+              className="flex size-8 shrink-0 items-center justify-center rounded-full text-cyan-300 transition-colors hover:bg-cyan-400/15 disabled:text-slate-600 disabled:hover:bg-transparent focus-visible:ring-2 focus-visible:ring-cyan-300/60 focus-visible:outline-none"
+            >
+              <Send className="size-4" />
+            </button>
+          </form>
+        </footer>
+      </section>
+    </div>
   );
 }
 
@@ -392,9 +462,9 @@ function PanelLinkRow({ link }: { link: PanelLink }) {
     <a
       href={link.url}
       {...(internal ? {} : { target: "_blank", rel: "noopener noreferrer" })}
-      className="flex items-center gap-2 rounded-md border bg-card px-2.5 py-1.5 text-xs transition-colors hover:bg-muted"
+      className="group flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-slate-200 transition-all hover:border-cyan-300/50 hover:bg-cyan-400/10 hover:shadow-[0_0_16px_-6px_rgba(34,211,238,0.8)] focus-visible:ring-2 focus-visible:ring-cyan-300/60 focus-visible:outline-none"
     >
-      <ExternalLink className="size-3.5 shrink-0 text-primary" aria-hidden />
+      <ExternalLink className="size-3.5 shrink-0 text-cyan-300" aria-hidden />
       <span className="min-w-0 flex-1 truncate">{link.label}</span>
     </a>
   );
@@ -418,7 +488,7 @@ function WithTicketLinks({ text, domain }: { text: string; domain: string }) {
             href={`https://${domain}/a/tickets/${id}`}
             target="_blank"
             rel="noopener noreferrer"
-            className="underline decoration-dotted underline-offset-2 hover:text-primary"
+            className="text-cyan-300 underline decoration-cyan-300/40 decoration-dotted underline-offset-2 hover:text-cyan-200"
           >
             {p}
           </a>
