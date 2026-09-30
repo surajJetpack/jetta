@@ -39,6 +39,7 @@ export function readOnlyTools(): ToolSet {
           id: t.id,
           subject: t.subject,
           status: t.status,
+          url: freshdesk.freshdeskTicketUrl(t.id),
           requester: t.requesterName ?? t.requesterEmail,
           description: t.description.slice(0, BODY_CHARS),
           replies: t.replies.slice(-6).map((r) => ({

@@ -174,7 +174,9 @@ Escalations land in **#jetta-escalations**. When Jetta posts there, it's because
 
 ### Talking to Jetta in the console
 
-Admins can also talk to Jetta **by voice, inside the console**. Press **⌘J**, click the round button at the bottom right, or choose **Ask Jetta** in ⌘K. Ask out loud or type in the box. It knows this manual, the live configuration on System, and which page you are on. It can look up tickets, the knowledge base, billing, the dev board, Today, Support health, Performance and the event log, and it can **take you to a page** while you keep talking.
+Admins can also talk to Jetta **by voice, inside the console**. Press **⌘J**, click the round button at the bottom right, or choose **Ask Jetta** in ⌘K. Ask out loud or type in the box. It knows this manual, the live configuration on System, and which page you are on. It can look up tickets, the knowledge base, billing, the dev board, Today, Support health, Performance and the event log, and it can **take you there** while you keep talking. It goes to the specific thing, not just the page: a section ("what needs me today"), or the list of tickets behind a number on Support health or Performance ("show me the reopened GetSign tickets").
+- When it mentions tickets, dev board items or articles, it puts **clickable links** in the panel, and ticket numbers in its answers are links too. It only shows links its lookups actually returned.
+- The ticket lists behind numbers have their own links now (`/health?drill=…`), so you can paste one into Slack and it opens the same list.
 
 - It is **read-only**, the same as in Slack. It cannot reply to a customer, change a ticket, approve anything or write to the dev board. Ask it where to do that and it will take you there.
 - For "why" questions, and anything that combines several lookups, Jetta **thinks deeper on its own**. It hands the question to a slower reasoning model, answers, then switches back to the quick model. The panel shows "Thinking deeper…" while it works. There is no button for this.

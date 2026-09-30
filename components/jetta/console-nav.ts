@@ -193,3 +193,45 @@ export function activeId(pathname: string, isAdmin: boolean): string | null {
   }
   return best?.id ?? null;
 }
+
+/**
+ * Section anchors on each page, keyed by nav id — the ids in the page markup.
+ * The voice assistant navigates by these; rename one here and in the page together.
+ */
+export const PAGE_SECTIONS: Record<string, Record<string, string>> = {
+  today: {
+    "last-24h": "Last 24 hours — what arrived",
+    emerging: "Emerging issues — spiking topics",
+    "needs-you": "What needs you now — the worklist",
+    "going-wrong": "What's going wrong",
+    "would-help": "What would help",
+    "worth-documenting": "Worth documenting",
+  },
+  health: {
+    "ai-read": "The AI read",
+    "last-28-days": "Last 28 days — the headline numbers",
+    "right-now": "Right now — open tickets and whose turn it is",
+    "by-app": "By app, last 28 days",
+    themes: "What customers asked about",
+    load: "Who carried the load",
+  },
+  performance: {
+    "ai-read": "The AI read",
+    "last-28-days": "Last 28 days — reply times and Jetta's share",
+    handoffs: "Handoffs: real bugs or knowledge gaps",
+    "by-agent": "By agent, last 28 days",
+  },
+  insights: {
+    overview: "Overview",
+    trends: "Trends",
+    quality: "Quality",
+    runs: "Runs",
+    events: "The event log",
+  },
+  system: {
+    capabilities: "Write gates",
+    channels: "Channels",
+    rollout: "Rollout",
+    reasoning: "Models and retrieval",
+  },
+};
