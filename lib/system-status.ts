@@ -134,6 +134,19 @@ export function channelRows(): StatusRow[] {
     setting: "FRESHCHAT_LIVE",
   });
 
+  // The console voice assistant. Read-only by construction, so "on" rather
+  // than "warn" — but it does read customer tickets aloud to whoever asks, and
+  // it sends them to Google to do it, which is worth seeing stated here.
+  rows.push({
+    label: "Console voice assistant",
+    tone: config.google.apiKey ? "on" : "off",
+    state: config.google.apiKey ? "ADMINS" : "NO KEY",
+    meaning: config.google.apiKey
+      ? "Admins can talk to Jetta in the console (⌘J) on Gemini Live. Read-only: she looks things up and moves the page, and every lookup is logged as assistant.tool."
+      : "Needs GOOGLE_GENERATIVE_AI_API_KEY — the voice panel will refuse to start.",
+    setting: "GOOGLE_GENERATIVE_AI_API_KEY",
+  });
+
   return rows;
 }
 

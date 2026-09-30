@@ -4,6 +4,8 @@ import { cn } from "@/lib/utils";
 import { ConsoleSidebar } from "@/components/jetta/console-sidebar";
 import { ConsoleTopbar } from "@/components/jetta/console-topbar";
 import { GuideBanner } from "@/components/jetta/guide-banner";
+import { AssistantPanel } from "@/components/jetta/assistant/assistant-panel";
+import { freshdeskDomain } from "@/lib/tools/freshdesk";
 
 export const dynamic = "force-dynamic";
 
@@ -65,6 +67,11 @@ export default async function ConsoleLayout({ children }: { children: React.Reac
           </div>
         </main>
       </div>
+
+      {/* Admin-only for now (2026-09-30). isAdmin already honours "view as
+          general", so the preview hides her too — and the session route
+          refuses a general user whatever the UI does. */}
+      {isAdmin && <AssistantPanel freshdeskDomain={freshdeskDomain() ?? ""} />}
     </div>
   );
 }

@@ -172,6 +172,15 @@ Escalations land in **#jetta-escalations**. When Jetta posts there, it's because
 
 <div class="placeholder">Screenshot needed: an escalation post in #jetta-escalations.</div>
 
+### Talking to Jetta in the console
+
+Admins can also talk to Jetta **by voice, inside the console**. Press **⌘J**, click the round button at the bottom right, or choose **Ask Jetta** in ⌘K. Ask out loud or type in the box. It knows this manual, the live configuration on System, and which page you are on. It can look up tickets, the knowledge base, billing, the dev board, Today, Support health, Performance and the event log, and it can **take you to a page** while you keep talking.
+
+- It is **read-only**, the same as in Slack. It cannot reply to a customer, change a ticket, approve anything or write to the dev board. Ask it where to do that and it will take you there.
+- **Deep** switches to a slower model that thinks in the background, for "why" questions and anything that combines several lookups. For a question like that, Jetta will suggest Deep on its own.
+- Talk over it to interrupt. The mic button mutes you, and the red button ends the conversation.
+- Every lookup it makes is logged as `assistant.tool` in the event log, with who asked.
+
 ---
 
 ## 7. Teaching Jetta: the Evals page
