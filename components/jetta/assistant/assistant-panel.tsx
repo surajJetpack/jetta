@@ -282,7 +282,7 @@ export function AssistantPanel({ freshdeskDomain }: { freshdeskDomain: string })
               className="absolute inset-0 animate-[spin_6s_linear_infinite] rounded-full bg-[conic-gradient(from_0deg,#22d3ee,#818cf8,#e879f9,#22d3ee)] opacity-90 blur-[1px] motion-reduce:animate-none"
             />
             <span aria-hidden className="absolute inset-0 rounded-full bg-[conic-gradient(from_0deg,#22d3ee,#818cf8,#e879f9,#22d3ee)] opacity-40 blur-md transition-opacity group-hover:opacity-80" />
-            <span className="relative flex size-[3.1rem] items-center justify-center rounded-full bg-[#060a14] text-cyan-300 ring-1 ring-white/10 transition-transform group-hover:scale-95 group-focus-visible:ring-2 group-focus-visible:ring-cyan-300">
+            <span className="relative flex size-[3.1rem] items-center justify-center rounded-full bg-white text-cyan-600 ring-1 ring-slate-900/10 transition-transform dark:bg-[#060a14] dark:text-cyan-300 dark:ring-white/10 group-hover:scale-95 group-focus-visible:ring-2 group-focus-visible:ring-cyan-300">
               <AudioLines className="size-5" aria-hidden />
             </span>
           </button>
@@ -294,28 +294,29 @@ export function AssistantPanel({ freshdeskDomain }: { freshdeskDomain: string })
 
   return (
     // The gradient wrapper is the border: 1px of light around a glass panel.
-    <div className="fixed right-4 bottom-4 z-40 w-[min(24rem,calc(100vw-2rem))] rounded-2xl bg-[linear-gradient(140deg,rgba(34,211,238,0.55),rgba(129,140,248,0.15)_40%,rgba(232,121,249,0.5))] p-px shadow-[0_0_48px_-12px_rgba(34,211,238,0.55),0_24px_48px_-24px_rgba(0,0,0,0.8)]">
+    // Light glass by default; the dark HUD only when the console is dark.
+    <div className="fixed right-4 bottom-4 z-40 w-[min(24rem,calc(100vw-2rem))] rounded-2xl bg-[linear-gradient(140deg,rgba(6,182,212,0.65),rgba(99,102,241,0.18)_40%,rgba(217,70,239,0.55))] p-px shadow-[0_0_44px_-14px_rgba(6,182,212,0.55),0_24px_48px_-24px_rgba(15,23,42,0.35)] dark:shadow-[0_0_48px_-12px_rgba(34,211,238,0.55),0_24px_48px_-24px_rgba(0,0,0,0.8)]">
       <section
         aria-label="Jetta voice assistant"
-        className="relative flex h-[min(38rem,calc(100svh-6rem))] flex-col overflow-hidden rounded-[15px] bg-[#060a14]/95 text-slate-100 backdrop-blur-xl"
+        className="relative flex h-[min(38rem,calc(100svh-6rem))] flex-col overflow-hidden rounded-[15px] bg-white/90 text-slate-800 backdrop-blur-xl dark:bg-[#060a14]/95 dark:text-slate-100"
       >
         {/* Atmosphere: a glow behind the orb and a faint grid, both decorative. */}
-        <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-56 bg-[radial-gradient(ellipse_at_50%_0%,rgba(34,211,238,0.18),transparent_70%)]" />
+        <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-56 bg-[radial-gradient(ellipse_at_50%_0%,rgba(6,182,212,0.16),transparent_70%)] dark:bg-[radial-gradient(ellipse_at_50%_0%,rgba(34,211,238,0.18),transparent_70%)]" />
         <div
           aria-hidden
-          className="pointer-events-none absolute inset-0 opacity-[0.06] [background-image:linear-gradient(rgba(255,255,255,0.6)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.6)_1px,transparent_1px)] [background-size:22px_22px] [mask-image:linear-gradient(to_bottom,black,transparent_60%)]"
+          className="pointer-events-none absolute inset-0 text-slate-900 opacity-[0.05] dark:text-white dark:opacity-[0.06] [background-image:linear-gradient(currentColor_1px,transparent_1px),linear-gradient(90deg,currentColor_1px,transparent_1px)] [background-size:22px_22px] [mask-image:linear-gradient(to_bottom,black,transparent_60%)]"
         />
 
         <header className="relative flex items-center gap-2 px-4 pt-3">
-          <p className="font-mono text-[10px] tracking-[0.35em] text-slate-400 uppercase">
-            Jetta <span className="text-cyan-400/70">{"//"}</span> Voice
+          <p className="font-mono text-[10px] tracking-[0.35em] text-slate-500 uppercase dark:text-slate-400">
+            Jetta <span className="text-cyan-600 dark:text-cyan-400/70">{"//"}</span> Voice
           </p>
           <span className="ml-auto" />
           <button
             type="button"
             onClick={minimise}
             aria-label="Minimise — stops listening"
-            className="flex size-7 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-white/10 hover:text-slate-100 focus-visible:ring-2 focus-visible:ring-cyan-300/60 focus-visible:outline-none"
+            className="flex size-7 items-center justify-center rounded-full text-slate-500 transition-colors hover:bg-slate-900/5 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-white/10 dark:hover:text-slate-100 focus-visible:ring-2 focus-visible:ring-cyan-300/60 focus-visible:outline-none"
           >
             <Minus className="size-4" />
           </button>
@@ -333,7 +334,7 @@ export function AssistantPanel({ freshdeskDomain }: { freshdeskDomain: string })
             aria-live="polite"
             className={cn(
               "flex items-center gap-2 font-mono text-[10px] tracking-[0.3em] uppercase",
-              state === "error" ? "text-red-400" : deepNow ? "text-fuchsia-300" : state === "idle" ? "text-slate-500" : "text-cyan-300",
+              state === "error" ? "text-red-600 dark:text-red-400" : deepNow ? "text-fuchsia-600 dark:text-fuchsia-300" : state === "idle" ? "text-slate-400 dark:text-slate-500" : "text-cyan-700 dark:text-cyan-300",
             )}
           >
             <span className={cn("size-1.5 rounded-full bg-current", state !== "idle" && state !== "error" && "animate-pulse motion-reduce:animate-none")} />
@@ -344,14 +345,14 @@ export function AssistantPanel({ freshdeskDomain }: { freshdeskDomain: string })
         <div ref={scroller} className="relative mt-2 flex-1 space-y-3 overflow-y-auto px-4 py-3 text-sm [scrollbar-width:thin]">
           {!talking && !error && (
             <div className="space-y-3 pt-2 text-center">
-              <p className="text-slate-400">Ask about tickets, support health, or how Jetta works.</p>
+              <p className="text-slate-500 dark:text-slate-400">Ask about tickets, support health, or how Jetta works.</p>
               <div className="flex flex-wrap justify-center gap-1.5">
                 {["What came in yesterday?", "Take me to what needs me", "Why is support slower?"].map((q) => (
                   <button
                     key={q}
                     type="button"
                     onClick={() => ask(q)}
-                    className="rounded-full border border-cyan-400/25 bg-cyan-400/5 px-3 py-1 text-xs text-cyan-100 transition-colors hover:border-cyan-300/60 hover:bg-cyan-400/15 focus-visible:ring-2 focus-visible:ring-cyan-300/60 focus-visible:outline-none"
+                    className="rounded-full border border-cyan-500/30 bg-cyan-500/5 px-3 py-1 text-xs text-cyan-800 transition-colors hover:border-cyan-500/60 hover:bg-cyan-500/10 dark:border-cyan-400/25 dark:bg-cyan-400/5 dark:text-cyan-100 dark:hover:border-cyan-300/60 dark:hover:bg-cyan-400/15 focus-visible:ring-2 focus-visible:ring-cyan-300/60 focus-visible:outline-none"
                   >
                     {q}
                   </button>
@@ -368,8 +369,8 @@ export function AssistantPanel({ freshdeskDomain }: { freshdeskDomain: string })
                   ))}
                 </div>
               ) : (
-                <p key={l.id} className="flex items-center gap-2 font-mono text-[10px] tracking-[0.2em] text-cyan-300/70 uppercase">
-                  <span aria-hidden className="text-cyan-400">▸</span>
+                <p key={l.id} className="flex items-center gap-2 font-mono text-[10px] tracking-[0.2em] text-cyan-700/80 uppercase dark:text-cyan-300/70">
+                  <span aria-hidden className="text-cyan-500 dark:text-cyan-400">▸</span>
                   {l.text}
                 </p>
               )
@@ -377,7 +378,7 @@ export function AssistantPanel({ freshdeskDomain }: { freshdeskDomain: string })
               <div key={l.id} className="flex justify-end">
                 <p
                   className={cn(
-                    "max-w-[85%] rounded-2xl rounded-br-sm border border-cyan-400/30 bg-cyan-400/10 px-3 py-1.5 leading-snug text-cyan-50",
+                    "max-w-[85%] rounded-2xl rounded-br-sm border border-cyan-500/25 bg-cyan-50 px-3 py-1.5 leading-snug text-cyan-950 dark:border-cyan-400/30 dark:bg-cyan-400/10 dark:text-cyan-50",
                     l.partial && "opacity-60",
                   )}
                 >
@@ -387,16 +388,16 @@ export function AssistantPanel({ freshdeskDomain }: { freshdeskDomain: string })
             ) : (
               <p
                 key={l.id}
-                className={cn("border-l-2 border-violet-400/50 pl-3 leading-relaxed text-slate-200", l.partial && "opacity-70")}
+                className={cn("border-l-2 border-violet-400/60 pl-3 leading-relaxed text-slate-700 dark:border-violet-400/50 dark:text-slate-200", l.partial && "opacity-70")}
               >
                 <WithTicketLinks text={l.text} domain={freshdeskDomain} />
               </p>
             ),
           )}
-          {error && <p className="rounded-lg border border-red-400/30 bg-red-500/10 px-3 py-2 text-xs text-red-200">{error}</p>}
+          {error && <p className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-400/30 dark:bg-red-500/10 dark:text-red-200">{error}</p>}
         </div>
 
-        <footer className="relative flex items-center gap-2 border-t border-white/10 px-3 py-3">
+        <footer className="relative flex items-center gap-2 border-t border-slate-900/10 px-3 py-3 dark:border-white/10">
           {connected ? (
             <>
               <button
@@ -407,8 +408,8 @@ export function AssistantPanel({ freshdeskDomain }: { freshdeskDomain: string })
                 className={cn(
                   "flex size-10 shrink-0 items-center justify-center rounded-full border transition-all focus-visible:ring-2 focus-visible:ring-cyan-300/60 focus-visible:outline-none",
                   muted
-                    ? "border-white/15 bg-white/5 text-slate-400"
-                    : "border-cyan-300/50 bg-cyan-400/15 text-cyan-200 shadow-[0_0_18px_-4px_rgba(34,211,238,0.8)]",
+                    ? "border-slate-300 bg-slate-100 text-slate-500 dark:border-white/15 dark:bg-white/5 dark:text-slate-400"
+                    : "border-cyan-500/50 bg-cyan-500/10 text-cyan-700 shadow-[0_0_18px_-4px_rgba(6,182,212,0.6)] dark:border-cyan-300/50 dark:bg-cyan-400/15 dark:text-cyan-200 dark:shadow-[0_0_18px_-4px_rgba(34,211,238,0.8)]",
                 )}
               >
                 {muted ? <MicOff className="size-4" /> : <Mic className="size-4" />}
@@ -417,7 +418,7 @@ export function AssistantPanel({ freshdeskDomain }: { freshdeskDomain: string })
                 type="button"
                 onClick={end}
                 aria-label="End conversation"
-                className="flex size-10 shrink-0 items-center justify-center rounded-full border border-red-400/30 bg-red-500/10 text-red-300 transition-colors hover:bg-red-500/25 focus-visible:ring-2 focus-visible:ring-red-300/60 focus-visible:outline-none"
+                className="flex size-10 shrink-0 items-center justify-center rounded-full border border-red-300 bg-red-50 text-red-600 transition-colors hover:bg-red-100 dark:border-red-400/30 dark:bg-red-500/10 dark:text-red-300 dark:hover:bg-red-500/25 focus-visible:ring-2 focus-visible:ring-red-300/60 focus-visible:outline-none"
               >
                 <PhoneOff className="size-4" />
               </button>
@@ -426,25 +427,25 @@ export function AssistantPanel({ freshdeskDomain }: { freshdeskDomain: string })
             <button
               type="button"
               onClick={() => start()}
-              className="flex h-10 shrink-0 items-center gap-2 rounded-full border border-cyan-300/50 bg-cyan-400/15 px-4 text-sm text-cyan-100 shadow-[0_0_18px_-4px_rgba(34,211,238,0.8)] transition-colors hover:bg-cyan-400/25 focus-visible:ring-2 focus-visible:ring-cyan-300/60 focus-visible:outline-none"
+              className="flex h-10 shrink-0 items-center gap-2 rounded-full border border-cyan-500/50 bg-cyan-500/10 px-4 text-sm text-cyan-800 shadow-[0_0_18px_-4px_rgba(6,182,212,0.6)] transition-colors hover:bg-cyan-500/20 dark:border-cyan-300/50 dark:bg-cyan-400/15 dark:text-cyan-100 dark:shadow-[0_0_18px_-4px_rgba(34,211,238,0.8)] dark:hover:bg-cyan-400/25 focus-visible:ring-2 focus-visible:ring-cyan-300/60 focus-visible:outline-none"
             >
               <Mic className="size-4" aria-hidden />
               {state === "error" ? "Reconnect" : "Start"}
             </button>
           )}
-          <form onSubmit={submit} className="flex min-w-0 flex-1 items-center rounded-full border border-white/10 bg-white/5 pr-1 focus-within:border-cyan-300/50">
+          <form onSubmit={submit} className="flex min-w-0 flex-1 items-center rounded-full border border-slate-900/10 bg-white/80 pr-1 focus-within:border-cyan-500/50 dark:border-white/10 dark:bg-white/5 dark:focus-within:border-cyan-300/50">
             <input
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               placeholder="Or type…"
               aria-label="Type a question"
-              className="h-10 min-w-0 flex-1 bg-transparent px-4 text-sm text-slate-100 outline-none placeholder:text-slate-500"
+              className="h-10 min-w-0 flex-1 bg-transparent px-4 text-sm text-slate-800 outline-none placeholder:text-slate-400 dark:text-slate-100 dark:placeholder:text-slate-500"
             />
             <button
               type="submit"
               aria-label="Send"
               disabled={!draft.trim()}
-              className="flex size-8 shrink-0 items-center justify-center rounded-full text-cyan-300 transition-colors hover:bg-cyan-400/15 disabled:text-slate-600 disabled:hover:bg-transparent focus-visible:ring-2 focus-visible:ring-cyan-300/60 focus-visible:outline-none"
+              className="flex size-8 shrink-0 items-center justify-center rounded-full text-cyan-600 transition-colors hover:bg-cyan-500/10 disabled:text-slate-300 dark:text-cyan-300 dark:hover:bg-cyan-400/15 dark:disabled:text-slate-600 disabled:hover:bg-transparent focus-visible:ring-2 focus-visible:ring-cyan-300/60 focus-visible:outline-none"
             >
               <Send className="size-4" />
             </button>
@@ -462,9 +463,9 @@ function PanelLinkRow({ link }: { link: PanelLink }) {
     <a
       href={link.url}
       {...(internal ? {} : { target: "_blank", rel: "noopener noreferrer" })}
-      className="group flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-slate-200 transition-all hover:border-cyan-300/50 hover:bg-cyan-400/10 hover:shadow-[0_0_16px_-6px_rgba(34,211,238,0.8)] focus-visible:ring-2 focus-visible:ring-cyan-300/60 focus-visible:outline-none"
+      className="group flex items-center gap-2 rounded-lg border border-slate-900/10 bg-white/80 px-3 py-2 text-xs text-slate-700 transition-all hover:border-cyan-500/50 hover:bg-cyan-50 hover:shadow-[0_0_16px_-6px_rgba(6,182,212,0.6)] dark:border-white/10 dark:bg-white/[0.04] dark:text-slate-200 dark:hover:border-cyan-300/50 dark:hover:bg-cyan-400/10 dark:hover:shadow-[0_0_16px_-6px_rgba(34,211,238,0.8)] focus-visible:ring-2 focus-visible:ring-cyan-300/60 focus-visible:outline-none"
     >
-      <ExternalLink className="size-3.5 shrink-0 text-cyan-300" aria-hidden />
+      <ExternalLink className="size-3.5 shrink-0 text-cyan-600 dark:text-cyan-300" aria-hidden />
       <span className="min-w-0 flex-1 truncate">{link.label}</span>
     </a>
   );
@@ -488,7 +489,7 @@ function WithTicketLinks({ text, domain }: { text: string; domain: string }) {
             href={`https://${domain}/a/tickets/${id}`}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-cyan-300 underline decoration-cyan-300/40 decoration-dotted underline-offset-2 hover:text-cyan-200"
+            className="text-cyan-700 underline decoration-cyan-600/40 decoration-dotted underline-offset-2 hover:text-cyan-900 dark:text-cyan-300 dark:decoration-cyan-300/40 dark:hover:text-cyan-200"
           >
             {p}
           </a>
