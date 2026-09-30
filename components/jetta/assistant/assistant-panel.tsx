@@ -347,7 +347,13 @@ export function AssistantPanel({ freshdeskDomain }: { freshdeskDomain: string })
             <div className="space-y-3 pt-2 text-center">
               <p className="text-slate-500 dark:text-slate-400">Ask about tickets, support health, or how Jetta works.</p>
               <div className="flex flex-wrap justify-center gap-1.5">
-                {["What came in yesterday?", "Take me to what needs me", "Why is support slower?"].map((q) => (
+                {[
+                  "What came in yesterday?",
+                  "Take me to what needs me",
+                  "What's going well this week?",
+                  "How can we improve our support system?",
+                  "Which KB articles should we write next?",
+                ].map((q) => (
                   <button
                     key={q}
                     type="button"
