@@ -7,10 +7,13 @@
  * actual sent reply: near-identical means it was used as-is, partially similar
  * means edited, unrelated means not used.
  *
- * That measures ADOPTION ONLY. It deliberately writes no evaluation, because
- * "the human wrote something else" is not evidence the draft was worse — the
- * human benchmark had Jetta ahead 25/3/1. Quality is decided separately by the
- * blind judge in lib/judge.ts, which is what feeds the learning loop.
+ * That measures ADOPTION. A draft the human sent — as-is or edited — is recorded
+ * as an evaluation for the /evals learning loop: as-is is a clean "good", and an
+ * edit is the highest-signal feedback there is (the diff is exactly what the
+ * human changed). A draft that was NOT used writes no evaluation, because "the
+ * human wrote something else" is not evidence the draft was worse — the human
+ * benchmark had Jetta ahead 25/3/1 — and a "bad" row would tell the distiller
+ * to imitate every human reply, terse and mistaken ones included.
  *
  * Three callers share this: the agent-reply webhook (push, if the Freshdesk
  * automation rule is configured), the reconcile-drafts cron (poll, which works
@@ -20,6 +23,7 @@ import { getPendingReplyDraftForTicket, updateReplyDraft, listReplyDrafts, sched
 import { logOpsEvent } from "./events";
 import { normalizeReplyText, replySimilarity, classifyReplySimilarity } from "./reply-similarity";
 import { config } from "./config";
+import { recordEvaluation, EVAL_TAGS, type EvalTag } from "./evals";
 import * as freshdesk from "./tools/freshdesk";
 
 /** A follow-up only makes sense for a reply that just went out. */
@@ -160,11 +164,8 @@ export async function reconcileTicketDraft(
     const current = await getPendingReplyDraftForTicket(ticketId);
     if (!current || current.id !== draft.id) return await note("no_pending", { draftId: draft.id });
 
-    // Draft state still records what HAPPENED operationally: the ticket got a
-    // reply, either recognisably from the draft or not. No evaluation is written
-    // here — writing `rating: "bad"` off similarity alone would tell the
-    // distiller (lib/distill.ts renders it as "human wrote a different reply")
-    // to imitate every human reply, including the terse and the mistaken ones.
+    // Draft state records what HAPPENED operationally: the ticket got a reply,
+    // either recognisably from the draft or not.
     await updateReplyDraft(draft.id, {
       state: usage === "not_used" ? "discarded" : "approved",
       decidedAt: now,
@@ -174,6 +175,31 @@ export async function reconcileTicketDraft(
       agentReply: reply.body,
       similarity: Number(score.toFixed(3)),
     });
+
+    // Only a draft the human actually sent feeds the learning loop (see the
+    // header). Never blocks reconciliation.
+    if (usage !== "not_used") {
+      const tags = (draft.feedbackTags ?? []).filter((t): t is EvalTag =>
+        (EVAL_TAGS as readonly string[]).includes(t),
+      );
+      await recordEvaluation({
+        id: draft.id,
+        ticketId: draft.ticketId,
+        subject: draft.subject,
+        channel: draft.channel,
+        product: draft.product,
+        model: draft.model,
+        decidedBy,
+        at: now,
+        action: "approve",
+        rating: usage === "used_as_is" ? "good" : "partial",
+        tags,
+        note: draft.feedbackNote?.trim() || undefined,
+        suggestedReply: draft.suggestedReply,
+        finalBody: reply.body,
+        source: "reconcile",
+      }).catch(() => {});
+    }
 
     // A human answered the customer, whichever words they used.
     //
