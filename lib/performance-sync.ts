@@ -545,6 +545,24 @@ export async function getPerformanceRows(): Promise<PerfRow[] | null> {
   return r ? await r.get<PerfRow[]>(PERF_ROWS_KEY) : mem.perfRows;
 }
 
+/**
+ * The AI read on /health, cached against the payload it was written from.
+ * One entry: a newer payload makes it stale, and the route rewrites it.
+ */
+const HEALTH_INSIGHT_KEY = "jetta:perf:health:insight:v1";
+let memHealthInsight: unknown = null;
+
+export async function getHealthInsight<T>(): Promise<T | null> {
+  const r = client();
+  return r ? await r.get<T>(HEALTH_INSIGHT_KEY) : (memHealthInsight as T | null);
+}
+
+export async function saveHealthInsight(insight: unknown): Promise<void> {
+  const r = client();
+  if (r) await r.set(HEALTH_INSIGHT_KEY, insight, { ex: 7 * 86_400 });
+  else memHealthInsight = insight;
+}
+
 /** Exposed for the page footer: how complete the store is. */
 export async function syncStatus(): Promise<{ cursor: string; queued: number; lastRunAt: number | null; lastError: string | null; cursorWeek: string }> {
   const s = await getSyncState();
