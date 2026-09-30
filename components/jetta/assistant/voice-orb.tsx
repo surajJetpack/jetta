@@ -3,8 +3,21 @@
 import { useEffect, useRef } from "react";
 import type { VoiceState } from "./live-voice";
 
-/** The HUD palette. Fixed rather than themed: the panel is dark in both themes. */
-const HUES: Record<VoiceState | "deep", [string, string]> = {
+type Hues = Record<VoiceState | "deep", [string, string]>;
+
+/** Deeper, more saturated hues for the light panel — the dark set washes out on white. */
+const LIGHT: Hues = {
+  idle: ["#94a3b8", "#cbd5e1"],
+  error: ["#ef4444", "#fca5a5"],
+  connecting: ["#06b6d4", "#67e8f9"],
+  listening: ["#0891b2", "#22d3ee"],
+  speaking: ["#0284c7", "#6366f1"],
+  thinking: ["#7c3aed", "#6366f1"],
+  deep: ["#c026d3", "#7c3aed"],
+};
+
+/** The HUD palette for a dark console. */
+const DARK: Hues = {
   idle: ["#64748b", "#334155"],
   error: ["#f87171", "#7f1d1d"],
   connecting: ["#67e8f9", "#0e7490"],
@@ -67,7 +80,9 @@ export function VoiceOrb({
       level += (avg - level) * 0.18;
       for (let i = 0; i < BARS; i++) smooth[i] += (spectrum[i] - smooth[i]) * 0.35;
 
-      const [hot, cool] = HUES[dp && st === "thinking" ? "deep" : st];
+      // Read per frame: the theme can flip while the panel is open.
+      const dark = document.documentElement.classList.contains("dark");
+      const [hot, cool] = (dark ? DARK : LIGHT)[dp && st === "thinking" ? "deep" : st];
       const c = size / 2;
       const r = size * 0.2;
       const breathe = reduce ? 0 : Math.sin(t * (st === "idle" ? 1.2 : 2.2)) * 0.04;
@@ -76,8 +91,8 @@ export function VoiceOrb({
 
       // Halo.
       const halo = ctx.createRadialGradient(c, c, r * 0.4, c, c, size / 2);
-      halo.addColorStop(0, `${hot}55`);
-      halo.addColorStop(0.45, `${cool}22`);
+      halo.addColorStop(0, `${hot}${dark ? "55" : "30"}`);
+      halo.addColorStop(0.45, `${cool}${dark ? "22" : "18"}`);
       halo.addColorStop(1, "transparent");
       ctx.fillStyle = halo;
       ctx.beginPath();
