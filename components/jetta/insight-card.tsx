@@ -8,21 +8,27 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { StatusChip } from "@/components/jetta/status-chip";
 import { RelativeTime } from "@/components/jetta/relative-time";
 import { cn } from "@/lib/utils";
-import type { HealthInsight, HealthInsightPoint } from "@/lib/health-insight";
-import type { DrillRequest } from "./drill-sheet";
+import type { Insight, InsightPoint } from "@/lib/grounded-insight";
+
+/** What a cited point opens — the page's own drill request shape. */
+export interface InsightDrill<D> {
+  title: string;
+  description: string;
+  drill: D;
+}
 
 type State = "loading" | "ready" | "not_built" | "failed";
 
-function Points({
+function Points<D>({
   title,
   points,
   tone,
   open,
 }: {
   title: string;
-  points: HealthInsightPoint[];
+  points: InsightPoint<D>[];
   tone: string;
-  open: (r: DrillRequest) => void;
+  open: (r: InsightDrill<D>) => void;
 }) {
   if (!points.length) return null;
   return (
@@ -52,17 +58,29 @@ function Points({
 }
 
 /**
- * The AI read, above the numbers. Fetched after them — the page never waits
- * on the model — and again whenever the numbers change (`basedOn`).
+ * The AI read, above a page's numbers (/health, /performance). Fetched after
+ * them — the page never waits on the model — and again whenever the numbers
+ * change (`basedOn`). Each cited point opens the page's own drill sheet.
  */
-export function InsightCard({ basedOn, open }: { basedOn: number; open: (r: DrillRequest) => void }) {
-  const [insight, setInsight] = useState<HealthInsight | null>(null);
+export function InsightCard<D>({
+  endpoint,
+  basedOn,
+  open,
+  description = "Written from the numbers on this page. Each point links to the tickets behind it.",
+}: {
+  /** GET returns { insight, stale?, reason? }; `?refresh=1` rewrites. */
+  endpoint: string;
+  basedOn: number;
+  open: (r: InsightDrill<D>) => void;
+  description?: string;
+}) {
+  const [insight, setInsight] = useState<Insight<D> | null>(null);
   const [state, setState] = useState<State>("loading");
   const [stale, setStale] = useState(false);
 
   // No "loading" here: on a refresh the previous read stays up until the new one lands.
   const load = useCallback((force = false) => {
-    fetch(`/api/admin/support-health/insight${force ? "?refresh=1" : ""}`, { cache: "no-store" })
+    fetch(`${endpoint}${force ? "?refresh=1" : ""}`, { cache: "no-store" })
       .then(async (r) => {
         const d = await r.json();
         if (!r.ok) throw new Error(d.message ?? d.error ?? `HTTP ${r.status}`);
@@ -71,7 +89,7 @@ export function InsightCard({ basedOn, open }: { basedOn: number; open: (r: Dril
         setState(d.insight ? "ready" : d.reason === "not_built" ? "not_built" : "failed");
       })
       .catch(() => setState("failed"));
-  }, []);
+  }, [endpoint]);
   useEffect(() => {
     load();
   }, [load, basedOn]);
@@ -84,9 +102,7 @@ export function InsightCard({ basedOn, open }: { basedOn: number; open: (r: Dril
           <Sparkles className="size-3.5 text-muted-foreground" aria-hidden /> AI read
           {stale && <StatusChip tone="draft">stale</StatusChip>}
         </CardTitle>
-        <CardDescription className="text-xs">
-          Written from the numbers on this page. Each point links to the tickets behind it.
-        </CardDescription>
+        <CardDescription className="text-xs">{description}</CardDescription>
         <CardAction>
           <Button
             variant="ghost"

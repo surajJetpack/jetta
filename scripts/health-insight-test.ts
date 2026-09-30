@@ -5,6 +5,7 @@
  * No LLM, no storage — the model's output is hand-written here.
  */
 import { buildEvidence, numbers, reconcileInsight, renderHealth } from "../lib/health-insight";
+import { trend } from "../lib/grounded-insight";
 import { buildHealth, drillRows, healthRows, type HealthTicket } from "../lib/support-health";
 
 let failed = 0;
@@ -77,6 +78,24 @@ check("dropped count", r.dropped, 2 + 2 + 1);
 check("headline with real numbers kept", r.headline, "Support is steady; 1 customer is waiting on us.");
 const bad = reconcileInsight({ headline: "Reopens doubled to 44%.", goingWell: [], watch: [], actions: [] }, evidence, prompt);
 check("headline with an invented number blanked", [bad.headline, bad.dropped], ["", 1]);
+
+// ── "Going well" can't rest on a figure that got worse ──
+check("trend: lower is better", [trend(1.9, 2.0, "lower"), trend(0.13, 0.11, "lower"), trend(5, 5, "higher"), trend(null, 1, "higher")], [" better", " worse", " unchanged", ""]);
+{
+  const ev = [{ ...evidence[0], id: "E1", worse: true }, { ...evidence[0], id: "E2", worse: false }];
+  const out = reconcileInsight(
+    {
+      headline: "",
+      goingWell: [{ text: "Worse figure called good.", evidence: "E1" }, { text: "Better figure called good.", evidence: "E2" }],
+      watch: [{ text: "Worse figure worth watching.", evidence: "E1" }],
+      actions: [],
+    },
+    ev,
+    prompt,
+  );
+  check("going well citing a worsened figure is dropped", out.goingWell.map((p) => p.text), ["Better figure called good."]);
+  check("…but it may still be worth watching", out.watch.length, 1);
+}
 
 console.log(failed ? `\n${failed} FAILED` : "\nall passed");
 if (failed) process.exit(1);
