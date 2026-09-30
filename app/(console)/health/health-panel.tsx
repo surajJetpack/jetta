@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ReferenceLine, XAxis, YAxis } from "recharts";
 import { HeartPulse, RotateCw, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
@@ -15,6 +16,7 @@ import { CellLink } from "@/components/jetta/cell-link";
 import { EmptyState } from "@/components/jetta/empty-state";
 import { RelativeTime } from "@/components/jetta/relative-time";
 import { useDataVersion } from "@/lib/use-data-version";
+import { decodeHealthDrill } from "@/lib/drill-code";
 import { appName } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import {
@@ -274,7 +276,7 @@ function BallBar({ b, open }: { b: Backlog; open: Open }) {
 
 function RightNow({ b, base, open }: { b: Backlog; base: string; open: Open }) {
   return (
-    <Card className="py-4">
+    <Card id="right-now" className="scroll-mt-16 py-4">
       <CardHeader className="px-4">
         <CardTitle className="text-sm">Right now · {b.open} open</CardTitle>
         <CardDescription className="text-xs">
@@ -351,7 +353,7 @@ function ByApp({ apps, open }: { apps: AppHealth[]; open: Open }) {
   const show = (a: AppHealth, metric: Extract<DrillRequest["drill"], { kind: "app" }>["metric"], title: string, description: string) =>
     open({ title: `${appName(a.app)} · ${title}`, description, drill: { kind: "app", app: a.app, metric } });
   return (
-    <Card className="py-4">
+    <Card id="by-app" className="scroll-mt-16 py-4">
       <CardHeader className="px-4">
         <CardTitle className="text-sm">By app, last 28 days</CardTitle>
         <CardDescription className="text-xs">
@@ -442,7 +444,7 @@ function ByApp({ apps, open }: { apps: AppHealth[]; open: Open }) {
 function Topics({ h, open }: { h: SupportHealth; open: Open }) {
   const max = Math.max(1, ...h.topics.map((t) => t.count));
   return (
-    <Card className="gap-2 py-4">
+    <Card id="themes" className="scroll-mt-16 gap-2 py-4">
       <CardHeader className="px-4">
         <CardTitle className="text-sm">What customers asked about</CardTitle>
         <CardDescription className="text-xs">
@@ -515,7 +517,7 @@ function Load({ h, open }: { h: SupportHealth; open: Open }) {
     },
   ];
   return (
-    <Card className="gap-2 py-4">
+    <Card id="load" className="scroll-mt-16 gap-2 py-4">
       <CardHeader className="px-4">
         <CardTitle className="text-sm">Who carried the load</CardTitle>
         <CardDescription className="text-xs">Last 28 days. Every email reply is still sent by a person.</CardDescription>
@@ -553,6 +555,28 @@ export default function HealthPanel() {
   }, []);
 
   const open = useCallback<Open>((req) => setDrill(req), []);
+
+  // ?drill=<code> opens the ticket list behind a number — what a pasted link or
+  // the voice assistant lands on. Applied once per code, then dropped from the
+  // URL on close, so a background refresh never reopens a sheet someone shut.
+  const router = useRouter();
+  const pathname = usePathname();
+  const search = useSearchParams();
+  const drillParam = search.get("drill");
+  const titleParam = search.get("title");
+  // Adjusted during render rather than in an effect: the sheet follows the URL
+  // the moment the numbers are there, with no extra render in between.
+  const [appliedDrill, setAppliedDrill] = useState<string | null>(null);
+  if (data && drillParam && drillParam !== appliedDrill) {
+    setAppliedDrill(drillParam);
+    const d = decodeHealthDrill(drillParam);
+    if (d) setDrill({ title: titleParam || "Tickets", description: "Opened from a link to this list.", drill: d });
+  }
+  if (!drillParam && appliedDrill) setAppliedDrill(null);
+  const closeDrill = useCallback(() => {
+    setDrill(null);
+    if (drillParam) router.replace(pathname, { scroll: false });
+  }, [drillParam, pathname, router]);
   // Also re-runs when a refresh drops the rows under an open sheet.
   useEffect(() => {
     if (!drill || rows || rowsReq.current) return;
@@ -649,9 +673,11 @@ export default function HealthPanel() {
 
   return (
     <div className="grid min-w-0 gap-6 [&>*]:min-w-0">
-      <InsightCard endpoint="/api/admin/support-health/insight" basedOn={h.computedAt} open={open} />
+      <div id="ai-read" className="scroll-mt-16">
+        <InsightCard endpoint="/api/admin/support-health/insight" basedOn={h.computedAt} open={open} />
+      </div>
 
-      <Card className="py-4">
+      <Card id="last-28-days" className="scroll-mt-16 py-4">
         <CardHeader className="px-4">
           <CardTitle className="text-sm">Last 28 days</CardTitle>
           <CardDescription className="text-xs">
@@ -784,7 +810,7 @@ export default function HealthPanel() {
         notBuilt={rowsMissing}
         now={h.computedAt}
         base={ticketUrlBase}
-        onClose={() => setDrill(null)}
+        onClose={closeDrill}
       />
     </div>
   );

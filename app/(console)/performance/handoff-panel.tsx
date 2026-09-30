@@ -94,7 +94,7 @@ export default function HandoffPanel({ h, ticketUrlBase, open }: { h: HandoffSum
   });
   const r = h.recent;
   return (
-    <Card className="py-4">
+    <Card id="handoffs" className="scroll-mt-16 py-4">
       <CardHeader className="px-4">
         <CardTitle className="text-sm">Handoffs: real bugs or knowledge gaps?</CardTitle>
         <CardDescription className="text-xs">

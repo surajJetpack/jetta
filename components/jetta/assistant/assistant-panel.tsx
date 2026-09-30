@@ -2,13 +2,14 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { AudioLines, Mic, MicOff, Minus, PhoneOff, Send } from "lucide-react";
+import { AudioLines, ExternalLink, Mic, MicOff, Minus, PhoneOff, Send } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { navItemsFor } from "../console-nav";
+import { navItemsFor, PAGE_SECTIONS } from "../console-nav";
+import { drillHref } from "@/lib/drill-code";
 import { OPEN_ASSISTANT_EVENT } from "./events";
-import { LiveVoice, type AssistantMode, type ToolCall, type TranscriptLine, type VoiceState } from "./live-voice";
+import { LiveVoice, type AssistantMode, type PanelLink, type ToolCall, type TranscriptLine, type VoiceState } from "./live-voice";
 
 
 /** What the chip says while a lookup runs — her tool names are not for reading. */
@@ -29,6 +30,29 @@ const TOOL_LABELS: Record<string, string> = {
   performance_summary: "Reading performance",
   read_doc: "Opening the manual",
 };
+
+/** Every URL in a lookup result — the only external links she may show. */
+const URL_IN_TEXT = /https?:\/\/[^\s"'\\<>)\]]+/g;
+/** The full GetSign board-view URL is dead outside monday (see lib/tools/slack.ts stripBoardViewUrls). */
+const DEAD_LINK = /board-view\.getsign\.io/i;
+
+/**
+ * Pages render their numbers after a fetch, so the section a link points at
+ * usually does not exist yet when the route changes. Wait for it, then scroll
+ * and flash it so the eye lands where she said.
+ */
+function scrollToWhenReady(id: string, timeoutMs = 12_000) {
+  const t0 = Date.now();
+  const tick = () => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+      el.classList.add("ring-2", "ring-primary", "ring-offset-2", "ring-offset-background", "transition-shadow");
+      setTimeout(() => el.classList.remove("ring-2", "ring-primary", "ring-offset-2", "ring-offset-background"), 1800);
+    } else if (Date.now() - t0 < timeoutMs) setTimeout(tick, 250);
+  };
+  setTimeout(tick, 150);
+}
 
 const STATE_LABEL: Record<VoiceState, string> = {
   idle: "Not connected",
@@ -63,16 +87,65 @@ export function AssistantPanel({ freshdeskDomain }: { freshdeskDomain: string })
   const voice = useRef<LiveVoice | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const pathRef = useRef(pathname);
+  const seenUrls = useRef(new Set<string>());
+
+  /**
+   * A link she may show: one a lookup returned this session, a ticket on our
+   * own Freshdesk, or a page of this console. Anything else is refused — a
+   * link she made up reads exactly like one she found.
+   */
+  const allowed = useCallback(
+    (url: string): boolean => {
+      if (DEAD_LINK.test(url)) return false;
+      if (url.startsWith("/") && !url.startsWith("//")) {
+        const path = url.split(/[?#]/)[0];
+        return navItemsFor(true).some((i) => path === i.href || path.startsWith(`${i.href}/`));
+      }
+      if (freshdeskDomain && new RegExp(`^https://${freshdeskDomain.replace(/\./g, "\\.")}/a/tickets/\\d+$`).test(url)) return true;
+      return seenUrls.current.has(url);
+    },
+    [freshdeskDomain],
+  );
 
   const onToolCall = useCallback(
     async ({ name, args }: ToolCall): Promise<Record<string, unknown>> => {
       if (name === "navigate") {
         const item = navItemsFor(true).find((i) => i.id === args.page);
         if (!item) return { error: `No page "${String(args.page)}"` };
-        const href = args.section ? `${item.href}#${String(args.section)}` : item.href;
-        voice.current?.addLine("tool", `Opened ${item.label}`);
-        router.push(href);
-        return { ok: true, now_on: href };
+        const sections = PAGE_SECTIONS[item.id] ?? {};
+        const section = typeof args.section === "string" && args.section in sections ? args.section : undefined;
+        const drill = typeof args.drill === "string" && args.drill.trim() ? args.drill.trim() : undefined;
+        const title = typeof args.title === "string" ? args.title : undefined;
+        if (drill && item.href !== "/health" && item.href !== "/performance") {
+          return { error: "Drills exist only on health and performance." };
+        }
+        let href = drill ? drillHref(item.href as "/health" | "/performance", drill, title) : item.href;
+        if (section) href += `#${section}`;
+        router.push(href, { scroll: !section });
+        if (section) scrollToWhenReady(section);
+        const where = drill ? `${item.label} · ${title ?? "ticket list"}` : section ? `${item.label} · ${sections[section]}` : item.label;
+        voice.current?.addLine("tool", `Opened ${where}`, [{ label: where, url: href }]);
+        return {
+          ok: true,
+          now_on: href,
+          ...(args.section && !section ? { note: `No section "${String(args.section)}" on ${item.label}; opened the top of the page.` } : {}),
+        };
+      }
+      if (name === "show_links") {
+        const raw = Array.isArray(args.links) ? (args.links as Partial<PanelLink>[]) : [];
+        const ok: PanelLink[] = [];
+        const refused: string[] = [];
+        for (const l of raw.slice(0, 8)) {
+          const url = typeof l.url === "string" ? l.url.trim() : "";
+          const label = typeof l.label === "string" && l.label.trim() ? l.label.trim() : url;
+          if (url && allowed(url)) ok.push({ label, url });
+          else refused.push(url || "(empty)");
+        }
+        if (ok.length) voice.current?.addLine("tool", ok.length === 1 ? "Link" : `${ok.length} links`, ok);
+        return {
+          shown: ok.length,
+          ...(refused.length ? { refused, note: "Refused: not a URL any lookup returned. Do not claim those links are in the panel." } : {}),
+        };
       }
       if (name === "open_ticket") {
         const id = String(args.ticket_id ?? "").replace(/\D/g, "");
@@ -88,9 +161,12 @@ export function AssistantPanel({ freshdeskDomain }: { freshdeskDomain: string })
         body: JSON.stringify({ name, args }),
       });
       const body = await res.json().catch(() => ({ error: `Lookup failed (${res.status})` }));
+      if (typeof body.result === "string") {
+        for (const m of body.result.matchAll(URL_IN_TEXT)) seenUrls.current.add(m[0].replace(/[.,;:]+$/, ""));
+      }
       return body.error ? { error: body.error } : { result: body.result };
     },
-    [router, freshdeskDomain],
+    [router, freshdeskDomain, allowed],
   );
 
   const ensureVoice = useCallback(() => {
@@ -225,10 +301,18 @@ export function AssistantPanel({ freshdeskDomain }: { freshdeskDomain: string })
         )}
         {lines.map((l) =>
           l.who === "tool" ? (
-            <p key={l.id} className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <span className="size-1 rounded-full bg-current" aria-hidden />
-              {l.text}
-            </p>
+            l.links?.length ? (
+              <div key={l.id} className="space-y-1">
+                {l.links.map((k) => (
+                  <PanelLinkRow key={k.url} link={k} />
+                ))}
+              </div>
+            ) : (
+              <p key={l.id} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <span className="size-1 rounded-full bg-current" aria-hidden />
+                {l.text}
+              </p>
+            )
           ) : (
             <div key={l.id} className={cn("flex", l.who === "you" ? "justify-end" : "justify-start")}>
               <p
@@ -238,7 +322,7 @@ export function AssistantPanel({ freshdeskDomain }: { freshdeskDomain: string })
                   l.partial && "opacity-70",
                 )}
               >
-                {l.text}
+                {l.who === "jetta" ? <WithTicketLinks text={l.text} domain={freshdeskDomain} /> : l.text}
               </p>
             </div>
           ),
@@ -298,5 +382,50 @@ function Orb({ state }: { state: VoiceState }) {
         )}
       />
     </span>
+  );
+}
+
+/** One link in the panel. Console links stay in the tab; everything else opens a new one. */
+function PanelLinkRow({ link }: { link: PanelLink }) {
+  const internal = link.url.startsWith("/");
+  return (
+    <a
+      href={link.url}
+      {...(internal ? {} : { target: "_blank", rel: "noopener noreferrer" })}
+      className="flex items-center gap-2 rounded-md border bg-card px-2.5 py-1.5 text-xs transition-colors hover:bg-muted"
+    >
+      <ExternalLink className="size-3.5 shrink-0 text-primary" aria-hidden />
+      <span className="min-w-0 flex-1 truncate">{link.label}</span>
+    </a>
+  );
+}
+
+/**
+ * Ticket numbers she says become Freshdesk links. The transcript is of speech,
+ * so a URL is never in it — but "ticket 14457" is, and that is the thing
+ * someone wants to click.
+ */
+function WithTicketLinks({ text, domain }: { text: string; domain: string }) {
+  if (!domain) return <>{text}</>;
+  const parts = text.split(/((?:ticket|tickets|#)\s*#?\d{4,6})/gi);
+  return (
+    <>
+      {parts.map((p, i) => {
+        const id = /(\d{4,6})$/.exec(p)?.[1];
+        return id && i % 2 === 1 ? (
+          <a
+            key={i}
+            href={`https://${domain}/a/tickets/${id}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline decoration-dotted underline-offset-2 hover:text-primary"
+          >
+            {p}
+          </a>
+        ) : (
+          <span key={i}>{p}</span>
+        );
+      })}
+    </>
   );
 }

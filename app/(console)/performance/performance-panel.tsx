@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ReferenceLine, XAxis, YAxis } from "recharts";
 import { toast } from "sonner";
 import { Gauge, RotateCw, TriangleAlert } from "lucide-react";
@@ -22,6 +23,7 @@ import { CellLink } from "@/components/jetta/cell-link";
 import { EmptyState } from "@/components/jetta/empty-state";
 import { RelativeTime } from "@/components/jetta/relative-time";
 import { useDataVersion } from "@/lib/use-data-version";
+import { decodePerfDrill } from "@/lib/drill-code";
 import { JETTA_LIVE_DATE, weekStart, type PerfRow, type PerformanceSummary, type PeriodStats } from "@/lib/performance";
 import HandoffPanel from "./handoff-panel";
 import { PerfDrillSheet, type OpenPerf, type PerfDrillRequest } from "./perf-drill";
@@ -170,6 +172,28 @@ export default function PerformancePanel() {
   const rowsReq = useRef<Promise<void> | null>(null);
   const open = useCallback<OpenPerf>((req) => setDrill(req), []);
 
+  // ?drill=<code> opens the ticket list behind a number — what a pasted link or
+  // the voice assistant lands on. Applied once per code, then dropped from the
+  // URL on close, so a background refresh never reopens a sheet someone shut.
+  const router = useRouter();
+  const pathname = usePathname();
+  const search = useSearchParams();
+  const drillParam = search.get("drill");
+  const titleParam = search.get("title");
+  // Adjusted during render rather than in an effect: the sheet follows the URL
+  // the moment the numbers are there, with no extra render in between.
+  const [appliedDrill, setAppliedDrill] = useState<string | null>(null);
+  if (data && drillParam && drillParam !== appliedDrill) {
+    setAppliedDrill(drillParam);
+    const d = decodePerfDrill(drillParam);
+    if (d) setDrill({ title: titleParam || "Tickets", description: "Opened from a link to this list.", drill: d });
+  }
+  if (!drillParam && appliedDrill) setAppliedDrill(null);
+  const closeDrill = useCallback(() => {
+    setDrill(null);
+    if (drillParam) router.replace(pathname, { scroll: false });
+  }, [drillParam, pathname, router]);
+
   const load = useCallback(() => {
     fetch("/api/admin/performance", { cache: "no-store" })
       .then(async (r) => {
@@ -275,14 +299,16 @@ export default function PerformancePanel() {
 
   return (
     <div className="grid min-w-0 gap-6 [&>*]:min-w-0">
-      <InsightCard
-        endpoint="/api/admin/performance/insight"
-        basedOn={summary.computedAt}
-        open={open}
-        description="Is Jetta helping? Written from the numbers on this page; each point links to the tickets behind it. It may name agents — read it as a question about the drafts, not a score."
-      />
+      <div id="ai-read" className="scroll-mt-16">
+        <InsightCard
+          endpoint="/api/admin/performance/insight"
+          basedOn={summary.computedAt}
+          open={open}
+          description="Is Jetta helping? Written from the numbers on this page; each point links to the tickets behind it. It may name agents — read it as a question about the drafts, not a score."
+        />
+      </div>
 
-      <Card className="py-4">
+      <Card id="last-28-days" className="scroll-mt-16 py-4">
         <CardHeader className="px-4">
           <CardTitle className="text-sm">Last 28 days</CardTitle>
           <CardDescription className="text-xs">
@@ -386,7 +412,7 @@ export default function PerformancePanel() {
         </ChartCard>
       </div>
 
-      <Card className="py-4">
+      <Card id="by-agent" className="scroll-mt-16 py-4">
         <CardHeader className="px-4">
           <CardTitle className="text-sm">By agent, last 28 days</CardTitle>
           <CardDescription className="text-xs">
@@ -469,7 +495,7 @@ export default function PerformancePanel() {
         notBuilt={rowsMissing}
         now={summary.computedAt}
         base={summary.ticketUrlBase ?? ""}
-        onClose={() => setDrill(null)}
+        onClose={closeDrill}
       />
     </div>
   );

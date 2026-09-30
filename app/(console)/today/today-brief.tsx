@@ -350,7 +350,7 @@ export default function TodayBrief({ isAdmin }: { isAdmin: boolean }) {
       {brief && s && (
         <>
           {/* ── Overnight ───────────────────────────────────────── */}
-          <Card>
+          <Card id="last-24h" className="scroll-mt-16">
             <CardHeader>
               <CardTitle>Last {brief.windowHours} hours</CardTitle>
               <CardAction>
@@ -455,7 +455,7 @@ export default function TodayBrief({ isAdmin }: { isAdmin: boolean }) {
           </Card>
 
           {/* ── Emerging issues ─────────────────────────────────── */}
-          <Card>
+          <Card id="emerging" className="scroll-mt-16">
             <CardHeader>
               <CardTitle>Emerging issues</CardTitle>
             </CardHeader>
@@ -546,7 +546,7 @@ export default function TodayBrief({ isAdmin }: { isAdmin: boolean }) {
           </Card>
 
           {/* ── ① What needs you now ────────────────────────────── */}
-          <Card>
+          <Card id="needs-you" className="scroll-mt-16">
             <CardHeader>
               <CardTitle>
                 What needs you now
@@ -578,7 +578,7 @@ export default function TodayBrief({ isAdmin }: { isAdmin: boolean }) {
           </Card>
 
           {/* ── ② What's going wrong ────────────────────────────── */}
-          <Card>
+          <Card id="going-wrong" className="scroll-mt-16">
             <CardHeader>
               <CardTitle>What&apos;s going wrong</CardTitle>
             </CardHeader>
@@ -640,7 +640,7 @@ export default function TodayBrief({ isAdmin }: { isAdmin: boolean }) {
           </Card>
 
           {/* ── ③ What would help ───────────────────────────────── */}
-          <Card>
+          <Card id="would-help" className="scroll-mt-16">
             <CardHeader>
               <CardTitle>What would help</CardTitle>
             </CardHeader>
@@ -666,7 +666,7 @@ export default function TodayBrief({ isAdmin }: { isAdmin: boolean }) {
               everyone else. Display preference, not a permission — the data
               is the same /api/admin/today payload every user already gets. */}
           {isAdmin && (
-          <Card>
+          <Card id="worth-documenting" className="scroll-mt-16">
             <CardHeader>
               <CardTitle>Worth documenting</CardTitle>
             </CardHeader>

@@ -24,10 +24,17 @@ type ClientContent = Parameters<Session["sendClientContent"]>[0];
 export type AssistantMode = "live" | "deep";
 export type VoiceState = "idle" | "connecting" | "listening" | "thinking" | "speaking" | "error";
 
+export interface PanelLink {
+  label: string;
+  url: string;
+}
+
 export interface TranscriptLine {
   id: number;
   who: "you" | "jetta" | "tool";
   text: string;
+  /** Clickable links Jetta put in the panel (show_links). */
+  links?: PanelLink[];
   /** Still being spoken — the transcription streams in fragments. */
   partial?: boolean;
 }
@@ -489,8 +496,8 @@ export class LiveVoice {
 
   // ── transcript ─────────────────────────────────────────────────────────
 
-  addLine(who: TranscriptLine["who"], text: string): void {
-    this.lines = [...this.lines, { id: ++this.seq, who, text }];
+  addLine(who: TranscriptLine["who"], text: string, links?: PanelLink[]): void {
+    this.lines = [...this.lines, { id: ++this.seq, who, text, ...(links?.length ? { links } : {}) }];
     this.cb.onTranscript(this.lines);
   }
 
