@@ -21,6 +21,8 @@ export interface MetricSpec {
   hint?: React.ReactNode;
   /** Defaults to neutral ink. Use sparingly — a row of colours has no emphasis. */
   tone?: Tone;
+  /** Makes the whole metric a button — for opening the records behind the number. */
+  onClick?: () => void;
 }
 
 export function MetricRow({
@@ -39,7 +41,10 @@ export function MetricRow({
       )}
     >
       {metrics.map((m) => (
-        <div key={m.label} className="min-w-0">
+        <div
+          key={m.label}
+          className={cn("min-w-0", m.onClick && "group relative -m-1.5 rounded-md p-1.5 transition-colors hover:bg-muted/60")}
+        >
           <dt className="truncate text-[11px] font-medium tracking-wider text-muted-foreground uppercase">
             {m.label}
           </dt>
@@ -47,11 +52,21 @@ export function MetricRow({
             className={cn(
               "mt-1 text-2xl leading-none font-semibold tabular-nums",
               m.tone ? TONE_TEXT[m.tone] : "text-foreground",
+              m.onClick && "underline decoration-dotted decoration-1 underline-offset-4 group-hover:decoration-solid",
             )}
           >
             {m.value}
           </dd>
           {m.hint && <p className="mt-1 truncate text-xs text-muted-foreground">{m.hint}</p>}
+          {m.onClick && (
+            // Covers the cell so the label and hint are part of the target; dt/dd can't live inside a <button>.
+            <button
+              type="button"
+              onClick={m.onClick}
+              aria-label={`Show the records behind ${m.label}`}
+              className="absolute inset-0 rounded-md focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+            />
+          )}
         </div>
       ))}
     </dl>

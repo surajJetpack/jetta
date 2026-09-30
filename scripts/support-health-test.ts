@@ -9,7 +9,10 @@ import {
   backlog,
   backlogBucket,
   buildHealth,
+  drillRows,
   healthPeriod,
+  healthRows,
+  hitWithin,
   owesReply,
   percentile,
   toneAbove,
@@ -145,6 +148,51 @@ check("percentile of nothing", percentile([null], 0.9), null);
   check("load: drafts + chats alone", [h.load.ticketsDrafted, h.load.chatsFinishedAlone], [1, 2]);
   check("current week flagged partial", h.weeks.at(-1)?.partial, true);
   check("nothing per agent in the payload", JSON.stringify(h).includes("Cherryl"), false);
+}
+
+// ── The tickets behind the numbers: every list adds up to its number ──
+{
+  const outcomes = new Map<number, HandoffOutcome>([
+    [20, { ticketId: 20, category: "real_bug", confidence: "high", evidence: "", missingKnowledge: null, kbArticleTitle: null, kbCoverage: null, kbArticle: null, judgedAt: 0, basisUpdatedAt: "", model: "" }],
+    [21, { ticketId: 21, category: "knowledge_gap", confidence: "high", evidence: "", missingKnowledge: null, kbArticleTitle: null, kbCoverage: null, kbArticle: null, judgedAt: 0, basisUpdatedAt: "", model: "" }],
+  ]);
+  const tickets: HealthTicket[] = [
+    rec({ id: 20, app: "getsign", topic: "signer email", handoff: { kinds: ["dev_item"], at: hoursAgo(40), itemIds: [] }, devWork: true }),
+    rec({ id: 21, app: "getsign", firstReplyH: 30, reopened: true, handoff: { kinds: ["slack"], at: hoursAgo(40), itemIds: [] }, suggestions: [{ at: hoursAgo(47), sim: 0.9, replyBy: "x", waitH: 1 }] }),
+    rec({ id: 22, app: "vlookup", topic: "sync not working", status: 6, lastPublicFrom: "customer", lastPublicAt: hoursAgo(30) }),
+    rec({ id: 23, app: "vlookup", status: 2, agentReplies: 0, firstReplyH: null, resolvedH: null, createdAt: hoursAgo(1) }),
+    rec({ id: 24, app: "vlookup", status: 8, lastPublicFrom: "agent" }),
+    rec({ id: 25, status: 5, agentReplies: 0, firstReplyH: null }), // marketing: in no list
+    rec({ id: 26, app: "vlookup", createdAt: hoursAgo(24 * 40) }), // previous window
+  ];
+  const h = buildHealth(tickets, outcomes, null, NOW);
+  const rows = healthRows(tickets, outcomes, NOW);
+  const ids = (d: Parameters<typeof drillRows>[1]) => drillRows(rows, d, NOW).map((r) => r.id);
+  check("rows carry nobody's name", JSON.stringify(rows).includes("Cherryl"), false);
+  check("tickets list = Tickets", ids({ kind: "tickets" }).length, h.recent.tickets);
+  const within = drillRows(rows, { kind: "within", hours: 24 }, NOW);
+  check(
+    "within list: hit share = the headline share",
+    Number((within.filter((r) => hitWithin(r, 24, NOW)).length / within.length).toFixed(3)),
+    h.recent.withinTarget,
+  );
+  check("within list: misses first, not-yet-due left out", ids({ kind: "within", hours: 24 })[0], 21);
+  check("within list excludes the 1h-old ticket", ids({ kind: "within", hours: 24 }).includes(23), false);
+  check("first replies slowest first", ids({ kind: "firstReply" })[0], 21);
+  check("reopened", ids({ kind: "reopened" }), [21]);
+  check("sent to engineering", ids({ kind: "engineering" }).sort(), [20, 21]);
+  check("drafted = load count", ids({ kind: "drafted" }).length, h.load.ticketsDrafted);
+  check("waiting on us = backlog count, longest first", ids({ kind: "bucket", bucket: "owes_reply" }), [22, 23]);
+  check("waiting count matches", ids({ kind: "bucket", bucket: "owes_reply" }).length, h.backlog.owesReply);
+  check("with engineering", ids({ kind: "bucket", bucket: "engineering" }), [24]);
+  const vl = h.apps.find((a) => a.app === "vlookup")!;
+  check("app tickets = app row", ids({ kind: "app", app: "vlookup", metric: "tickets" }).length, vl.tickets);
+  check("app open = app row", ids({ kind: "app", app: "vlookup", metric: "open" }).length, vl.open);
+  check("app waiting = app row", ids({ kind: "app", app: "vlookup", metric: "owesReply" }).length, vl.owesReply);
+  check("app bugs / gaps", [ids({ kind: "app", app: "getsign", metric: "bugs" }), ids({ kind: "app", app: "getsign", metric: "gaps" })], [[20], [21]]);
+  check("topic list = topic count", ids({ kind: "topic", topic: "signer email" }).length, h.topics.find((t) => t.topic === "signer email")?.count);
+  const wk = h.weeks.find((w) => !w.partial && w.tickets)!;
+  check("week list = week bar", ids({ kind: "week", week: wk.week, metric: "tickets" }).length, wk.tickets);
 }
 
 // ── Chats ──
