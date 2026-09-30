@@ -543,6 +543,8 @@ export default function HealthPanel() {
   // The tickets behind the numbers: fetched on the first click, dropped when the numbers change.
   const [rows, setRows] = useState<HealthRow[] | null>(null);
   const [rowsErr, setRowsErr] = useState<string | null>(null);
+  // The sync hasn't built the lists yet (first click after a deploy).
+  const [rowsMissing, setRowsMissing] = useState(false);
   const rowsReq = useRef<Promise<void> | null>(null);
 
   const load = useCallback(() => {
@@ -567,7 +569,8 @@ export default function HealthPanel() {
       .then(async (r) => {
         const d = await r.json();
         if (!r.ok) throw new Error(d.message ?? d.error ?? `HTTP ${r.status}`);
-        setRows(d.rows);
+        setRowsMissing(d.rows == null);
+        setRows(d.rows ?? []);
       })
       .catch((e) => {
         setRowsErr(e instanceof Error ? e.message : String(e));
@@ -784,6 +787,7 @@ export default function HealthPanel() {
         request={drill}
         rows={rows}
         error={rowsErr}
+        notBuilt={rowsMissing}
         now={h.computedAt}
         base={ticketUrlBase}
         onClose={() => setDrill(null)}

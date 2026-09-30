@@ -99,6 +99,7 @@ export function DrillSheet({
   request,
   rows,
   error,
+  notBuilt,
   now,
   base,
   onClose,
@@ -107,6 +108,8 @@ export function DrillSheet({
   /** Null while the first fetch is in flight. */
   rows: HealthRow[] | null;
   error: string | null;
+  /** The last sync predates the ticket lists: say so, rather than "no tickets". */
+  notBuilt: boolean;
   now: number;
   base: string;
   onClose: () => void;
@@ -140,7 +143,7 @@ export function DrillSheet({
         <SheetHeader className="border-b">
           <SheetTitle>{request?.title}</SheetTitle>
           <SheetDescription className="text-xs">{request?.description}</SheetDescription>
-          {rows && request && (
+          {rows && request && !notBuilt && (
             <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
               <p className="text-sm font-medium tabular-nums">{summary(request.drill, list, now)}</p>
               {list.length > 8 && (
@@ -160,6 +163,11 @@ export function DrillSheet({
               <TriangleAlert />
               <AlertTitle>{error}</AlertTitle>
             </Alert>
+          ) : notBuilt ? (
+            <EmptyState
+              title="The ticket lists haven't been built yet"
+              hint="Each sync builds them. Press Sync now on the page (a minute or two), or wait for the hourly run, then click the number again."
+            />
           ) : !rows ? (
             <div className="grid gap-2 pt-4">
               {Array.from({ length: 8 }, (_, i) => (
