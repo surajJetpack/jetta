@@ -222,7 +222,7 @@ export function consoleTools(): ToolSet {
 }
 
 /** Names of tools that run in the browser. The server refuses to execute these. */
-export const CLIENT_TOOLS = ["navigate", "open_ticket", "suggest_deep_mode"] as const;
+export const CLIENT_TOOLS = ["navigate", "open_ticket", "think_deeper"] as const;
 export type ClientToolName = (typeof CLIENT_TOOLS)[number];
 
 /** Every console page id she may send the asker to. */
@@ -257,12 +257,12 @@ function clientDeclarations(mode: AssistantMode): FunctionDeclaration[] {
   ];
   if (mode === "live") {
     decls.push({
-      name: "suggest_deep_mode",
+      name: "think_deeper",
       description:
-        "Offer to switch to Deep mode — a slower model that reasons in the background — for 'why' questions, comparisons across weeks, root causes, or anything needing several lookups combined. Call it, then tell the user they can tap Deep. Do not call it for simple lookups.",
+        "Hand the user's current question to your deep-reasoning mode, which answers it in your place. Use for 'why' questions, root causes, comparisons across weeks or apps, recommendations, or anything that needs several lookups combined and weighed. Call it INSTEAD of answering, and say nothing before calling — the deep mode speaks next. Do not use it for a single lookup, navigation, or a fact you already have.",
       parametersJsonSchema: {
         type: "object",
-        properties: { reason: { type: "string", description: "Half a sentence on why." } },
+        properties: { reason: { type: "string", description: "Half a sentence on why this needs reasoning." } },
         required: ["reason"],
       },
     });
@@ -340,8 +340,8 @@ export async function buildInstructions(ctx: InstructionContext): Promise<string
     `You are talking to "${ctx.user}". They are currently on ${ctx.pathname}. The panel will tell you when they move ("[context] …" messages) — those are not the user speaking; never answer them aloud.`,
     `Today is ${todayInWords()}. Resolve relative dates against that. The Freshdesk domain is ${config.freshdesk.domain ?? "jetpackwork.freshdesk.com"}.`,
     ctx.mode === "deep"
-      ? "You are in DEEP mode: take the time to combine several lookups and reason about causes. Say one short line that you are looking into it, then give the reasoned answer."
-      : "You are in LIVE mode: answer fast. For a question that needs real digging across data, call suggest_deep_mode.",
+      ? "You are in DEEP mode — the quick mode handed you this question because it needs reasoning. Combine several lookups and reason about causes. Say one short line that you are looking into it, then give the reasoned answer. Do not mention modes or handovers; to the user you are simply Jetta thinking harder."
+      : "You are in QUICK mode: answer fast. When a question needs real reasoning across data, call think_deeper instead of answering — you will switch to a slower mode that reasons, and come back afterwards on your own.",
     `CONSOLE MAP (page ids for navigate):\n${consoleMap()}`,
     `LIVE CONFIGURATION (from /system, current as of this session):\n${systemStatusText()}`,
     `ARCHITECTURE OVERVIEW:\n${overview}`,

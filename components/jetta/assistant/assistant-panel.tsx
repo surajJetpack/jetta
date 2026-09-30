@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { AudioLines, Brain, Mic, MicOff, PhoneOff, Send, Sparkles, X } from "lucide-react";
+import { AudioLines, Mic, MicOff, Minus, PhoneOff, Send } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -59,7 +59,6 @@ export function AssistantPanel({ freshdeskDomain }: { freshdeskDomain: string })
   const [muted, setMuted] = useState(false);
   const [lines, setLines] = useState<TranscriptLine[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [deepHint, setDeepHint] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const voice = useRef<LiveVoice | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
@@ -82,11 +81,6 @@ export function AssistantPanel({ freshdeskDomain }: { freshdeskDomain: string })
         window.open(`https://${freshdeskDomain}/a/tickets/${id}`, "_blank", "noopener,noreferrer");
         return { ok: true };
       }
-      if (name === "suggest_deep_mode") {
-        setDeepHint(String(args.reason ?? "This needs some digging"));
-        return { ok: true, note: "A 'Go deeper' button is now showing. Tell the user they can tap it." };
-      }
-
       voice.current?.addLine("tool", TOOL_LABELS[name] ?? name);
       const res = await fetch("/api/admin/assistant/tool", {
         method: "POST",
@@ -105,22 +99,31 @@ export function AssistantPanel({ freshdeskDomain }: { freshdeskDomain: string })
       onTranscript: setLines,
       onToolCall,
       onError: setError,
+      onMode: setMode,
     });
     return voice.current;
   }, [onToolCall]);
 
-  const start = useCallback(
-    (m: AssistantMode = mode) => {
-      setError(null);
-      setMuted(false);
-      void ensureVoice().start(m, pathRef.current);
-    },
-    [ensureVoice, mode],
-  );
+  const start = useCallback(() => {
+    setError(null);
+    setMuted(false);
+    void ensureVoice().start(pathRef.current);
+  }, [ensureVoice]);
 
+  /**
+   * Minimising PAUSES: the microphone and the socket close — nothing is heard
+   * or sent while the panel is out of sight — but the transcript stays, and
+   * reopening hands it to the new session so the conversation picks up.
+   */
+  const minimise = useCallback(() => {
+    void voice.current?.stop();
+    setOpen(false);
+  }, []);
+
+  /** Ending clears the slate: the next conversation starts from nothing. */
   const end = useCallback(() => {
     void voice.current?.stop();
-    setDeepHint(null);
+    voice.current?.clearTranscript();
   }, []);
 
   const connected = state !== "idle" && state !== "error";
@@ -135,10 +138,8 @@ export function AssistantPanel({ freshdeskDomain }: { freshdeskDomain: string })
     function onKey(e: KeyboardEvent) {
       if (e.key.toLowerCase() === "j" && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
-        if (open && connected) {
-          end();
-          setOpen(false);
-        } else openAndStart();
+        if (open) minimise();
+        else openAndStart();
       }
     }
     window.addEventListener("keydown", onKey);
@@ -147,7 +148,7 @@ export function AssistantPanel({ freshdeskDomain }: { freshdeskDomain: string })
       window.removeEventListener("keydown", onKey);
       window.removeEventListener(OPEN_ASSISTANT_EVENT, openAndStart);
     };
-  }, [open, connected, state, start, end]);
+  }, [open, state, start, minimise]);
 
   // Tell her where the user is, so "what am I looking at?" just works.
   useEffect(() => {
@@ -168,12 +169,6 @@ export function AssistantPanel({ freshdeskDomain }: { freshdeskDomain: string })
     voice.current?.setMuted(next);
   }
 
-  function switchMode(next: AssistantMode) {
-    setMode(next);
-    setDeepHint(null);
-    if (connected) void voice.current?.switchMode(next);
-  }
-
   function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!draft.trim()) return;
@@ -190,13 +185,12 @@ export function AssistantPanel({ freshdeskDomain }: { freshdeskDomain: string })
             type="button"
             onClick={() => {
               setOpen(true);
-              if (!connected) start();
+              start();
             }}
             aria-label="Talk to Jetta"
             className="fixed right-5 bottom-5 z-40 flex size-12 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform hover:scale-105 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
           >
             <AudioLines className="size-5" aria-hidden />
-            {connected && <span className="absolute top-0.5 right-0.5 size-2.5 rounded-full bg-tone-good ring-2 ring-background" />}
           </button>
         </TooltipTrigger>
         <TooltipContent side="left">Talk to Jetta (⌘J)</TooltipContent>
@@ -214,29 +208,11 @@ export function AssistantPanel({ freshdeskDomain }: { freshdeskDomain: string })
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium leading-tight">Jetta</p>
           <p className="text-xs text-muted-foreground" aria-live="polite">
-            {STATE_LABEL[state]}
-            {mode === "deep" && connected ? " · Deep" : ""}
+            {mode === "deep" && connected && state === "thinking" ? "Thinking deeper…" : STATE_LABEL[state]}
           </p>
         </div>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              size="sm"
-              variant={mode === "deep" ? "default" : "outline"}
-              className="h-7 gap-1 px-2 text-xs"
-              onClick={() => switchMode(mode === "deep" ? "live" : "deep")}
-              aria-pressed={mode === "deep"}
-            >
-              <Brain className="size-3.5" aria-hidden />
-              Deep
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent className="max-w-60">
-            Deep mode uses a slower model that reasons in the background — for why-questions and anything that needs several lookups combined.
-          </TooltipContent>
-        </Tooltip>
-        <Button size="icon" variant="ghost" className="size-7" onClick={() => setOpen(false)} aria-label="Minimise">
-          <X className="size-4" />
+        <Button size="icon" variant="ghost" className="size-7" onClick={minimise} aria-label="Minimise — stops listening">
+          <Minus className="size-4" />
         </Button>
       </header>
 
@@ -269,19 +245,6 @@ export function AssistantPanel({ freshdeskDomain }: { freshdeskDomain: string })
         )}
         {error && <p className="rounded-md bg-tone-warn-bg px-2.5 py-2 text-xs text-tone-warn">{error}</p>}
       </div>
-
-      {deepHint && mode === "live" && (
-        <button
-          type="button"
-          onClick={() => switchMode("deep")}
-          className="mx-3 mb-2 flex items-center gap-2 rounded-md border border-dashed px-2.5 py-1.5 text-left text-xs hover:bg-muted"
-        >
-          <Sparkles className="size-3.5 shrink-0 text-primary" aria-hidden />
-          <span className="flex-1">
-            <b>Go deeper</b> — {deepHint}
-          </span>
-        </button>
-      )}
 
       <footer className="flex items-center gap-1.5 border-t px-2 py-2">
         {connected ? (

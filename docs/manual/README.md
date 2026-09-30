@@ -177,8 +177,9 @@ Escalations land in **#jetta-escalations**. When Jetta posts there, it's because
 Admins can also talk to Jetta **by voice, inside the console**. Press **⌘J**, click the round button at the bottom right, or choose **Ask Jetta** in ⌘K. Ask out loud or type in the box. It knows this manual, the live configuration on System, and which page you are on. It can look up tickets, the knowledge base, billing, the dev board, Today, Support health, Performance and the event log, and it can **take you to a page** while you keep talking.
 
 - It is **read-only**, the same as in Slack. It cannot reply to a customer, change a ticket, approve anything or write to the dev board. Ask it where to do that and it will take you there.
-- **Deep** switches to a slower model that thinks in the background, for "why" questions and anything that combines several lookups. For a question like that, Jetta will suggest Deep on its own.
-- Talk over it to interrupt. The mic button mutes you, and the red button ends the conversation.
+- For "why" questions, and anything that combines several lookups, Jetta **thinks deeper on its own**. It hands the question to a slower reasoning model, answers, then switches back to the quick model. The panel shows "Thinking deeper…" while it works. There is no button for this.
+- Talk over it to interrupt, and the mic button mutes you.
+- **Minimising stops listening.** The microphone closes, and nothing you say is heard until you reopen the panel. Reopening picks the conversation back up. The red button ends the conversation and clears it.
 - Every lookup it makes is logged as `assistant.tool` in the event log, with who asked.
 
 ---
