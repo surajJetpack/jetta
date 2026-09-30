@@ -14,7 +14,10 @@ import {
 import { MetricRow } from "@/components/jetta/metric-row";
 import { EmptyState } from "@/components/jetta/empty-state";
 import { StatusChip } from "@/components/jetta/status-chip";
-import type { HandoffCategory, HandoffKind, HandoffStats, HandoffSummary } from "@/lib/performance";
+import { CellLink } from "@/components/jetta/cell-link";
+import { cn } from "@/lib/utils";
+import type { HandoffBucket, HandoffCategory, HandoffKind, HandoffStats, HandoffSummary } from "@/lib/performance";
+import type { OpenPerf } from "./perf-drill";
 
 const bucketConfig = {
   real_bug: { label: "Real bug", color: "var(--chart-5)" },
@@ -27,6 +30,13 @@ const KIND_LABEL: Record<HandoffKind, string> = {
   dev_item: "Filed a dev item",
   slack: "Escalated in Slack",
   chat: "Live chat she couldn't finish",
+};
+
+const BUCKET_TITLE: Record<HandoffBucket, string> = {
+  real_bug: "real bugs",
+  knowledge_gap: "knowledge gaps",
+  other: "other",
+  awaiting: "awaiting outcome",
 };
 
 const CATEGORY_LABEL: Record<HandoffCategory, string> = {
@@ -70,7 +80,18 @@ function Coverage({ c, article }: { c: "covered" | "partly_covered" | "not_cover
   return <StatusChip tone="stale">Not in KB</StatusChip>;
 }
 
-export default function HandoffPanel({ h, ticketUrlBase }: { h: HandoffSummary; ticketUrlBase?: string }) {
+export default function HandoffPanel({ h, ticketUrlBase, open }: { h: HandoffSummary; ticketUrlBase?: string; open: OpenPerf }) {
+  const recentList = (bucket: HandoffBucket | "total", title: string, description: string) => () =>
+    open({ title, description, drill: { kind: "handoffs", bucket, scope: "recent" } });
+  const routeList = (route: HandoffKind, bucket: HandoffBucket | "total", n: number) => ({
+    n,
+    onClick: () =>
+      open({
+        title: `${KIND_LABEL[route]} · ${bucket === "total" ? "all handoffs" : BUCKET_TITLE[bucket]}`,
+        description: "Handoffs by this route since Jetta went live, newest first.",
+        drill: { kind: "handoffs", bucket, scope: "all", route },
+      }),
+  });
   const r = h.recent;
   return (
     <Card className="py-4">
@@ -85,11 +106,36 @@ export default function HandoffPanel({ h, ticketUrlBase }: { h: HandoffSummary; 
       <CardContent className="grid gap-6 px-4">
         <MetricRow
           metrics={[
-            { label: "Handed off, 28 days", value: r.total, hint: `${h.all.total} since Jetta went live` },
-            { label: "Real bugs", value: r.real_bug, hint: share(r.real_bug, r) },
-            { label: "Knowledge gaps", value: r.knowledge_gap, hint: share(r.knowledge_gap, r) },
-            { label: "Other", value: r.other, hint: "features, account work, platform" },
-            { label: "Awaiting outcome", value: r.awaiting, hint: "still open, judged once settled" },
+            {
+              label: "Handed off, 28 days",
+              value: r.total,
+              hint: `${h.all.total} since Jetta went live`,
+              onClick: recentList("total", "Handed off, last 28 days", "Every ticket Jetta passed to people in the last 28 days, newest first."),
+            },
+            {
+              label: "Real bugs",
+              value: r.real_bug,
+              hint: share(r.real_bug, r),
+              onClick: recentList("real_bug", "Real bugs", "Handoffs in the last 28 days that needed a developer."),
+            },
+            {
+              label: "Knowledge gaps",
+              value: r.knowledge_gap,
+              hint: share(r.knowledge_gap, r),
+              onClick: recentList("knowledge_gap", "Knowledge gaps", "Handoffs in the last 28 days that only needed a fact Jetta didn't have."),
+            },
+            {
+              label: "Other",
+              value: r.other,
+              hint: "features, account work, platform",
+              onClick: recentList("other", "Other handoffs", "Feature requests, account work and platform issues from the last 28 days."),
+            },
+            {
+              label: "Awaiting outcome",
+              value: r.awaiting,
+              hint: "still open, judged once settled",
+              onClick: recentList("awaiting", "Awaiting outcome", "Handoffs from the last 28 days not judged yet — still open, judged once settled."),
+            },
           ]}
         />
 
@@ -97,8 +143,20 @@ export default function HandoffPanel({ h, ticketUrlBase }: { h: HandoffSummary; 
           <div>
             <p className="mb-2 text-xs font-medium text-muted-foreground">By week of the handoff</p>
             {h.weeks.length ? (
-              <ChartContainer config={bucketConfig} className="h-[200px] w-full">
-                <BarChart data={h.weeks} margin={{ left: -24, right: 0, top: 4 }}>
+              <ChartContainer config={bucketConfig} className="h-[200px] w-full cursor-pointer">
+                <BarChart
+                  data={h.weeks}
+                  margin={{ left: -24, right: 0, top: 4 }}
+                  onClick={(state: { activeLabel?: string | number }) => {
+                    if (state.activeLabel == null) return;
+                    const week = String(state.activeLabel);
+                    open({
+                      title: `Handoffs · week of ${weekTick(week)}`,
+                      description: "Tickets Jetta passed to people this week, with what each turned out to be.",
+                      drill: { kind: "handoffs", bucket: "total", scope: "all", week },
+                    });
+                  }}
+                >
                   <CartesianGrid vertical={false} strokeOpacity={0.4} />
                   <XAxis dataKey="week" tickFormatter={weekTick} tickLine={false} axisLine={false} fontSize={10} />
                   <YAxis allowDecimals={false} tickLine={false} axisLine={false} fontSize={10} />
@@ -131,11 +189,11 @@ export default function HandoffPanel({ h, ticketUrlBase }: { h: HandoffSummary; 
                 {h.byKind.map((k) => (
                   <TableRow key={k.kind}>
                     <TableCell>{KIND_LABEL[k.kind]}</TableCell>
-                    <TableCell className="text-right tabular-nums">{k.total}</TableCell>
-                    <TableCell className="text-right tabular-nums">{k.real_bug}</TableCell>
-                    <TableCell className="text-right tabular-nums">{k.knowledge_gap}</TableCell>
-                    <TableCell className="text-right tabular-nums">{k.other}</TableCell>
-                    <TableCell className="text-right tabular-nums text-muted-foreground">{k.awaiting}</TableCell>
+                    {(["total", "real_bug", "knowledge_gap", "other", "awaiting"] as const).map((b) => (
+                      <TableCell key={b} className={cn("text-right tabular-nums", b === "awaiting" && "text-muted-foreground")}>
+                        <CellLink {...routeList(k.kind, b, k[b])}>{k[b]}</CellLink>
+                      </TableCell>
+                    ))}
                   </TableRow>
                 ))}
               </TableBody>

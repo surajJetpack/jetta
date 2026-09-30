@@ -28,6 +28,7 @@ import { appProductFromHint, inferAppProduct } from "./context";
 import { ticketRecords } from "./topics";
 import { buildHealth, healthRows, type HealthRow, type HealthTicket, type SupportHealth } from "./support-health";
 import {
+  perfRows,
   BASELINE_START,
   JETTA_LIVE_DATE,
   PERF_SCHEMA,
@@ -42,6 +43,7 @@ import {
   type HandoffOutcome,
   type PerfConversation,
   type PerfListTicket,
+  type PerfRow,
   type PerfTicket,
   type PerformanceSummary,
 } from "./performance";
@@ -52,6 +54,8 @@ const SUMMARY_KEY = "jetta:perf:summary:v1";
 const HEALTH_KEY = "jetta:perf:health:v1";
 /** The tickets behind /health's numbers — read only when someone clicks one. */
 const HEALTH_ROWS_KEY = "jetta:perf:health:rows:v1";
+/** The tickets behind /performance's numbers (admin; carries agent names). */
+const PERF_ROWS_KEY = "jetta:perf:rows:v1";
 const STATE_KEY = "jetta:perf:state:v1";
 /** Handoff verdicts, field per ticket id. Written by the judge step, read once per rebuild. */
 const OUTCOMES_KEY = "jetta:perf:handoffs:v1";
@@ -147,6 +151,7 @@ const mem = {
   summary: null as PerformanceSummary | null,
   health: null as SupportHealth | null,
   healthRows: null as HealthRow[] | null,
+  perfRows: null as PerfRow[] | null,
   state: null as PerfSyncState | null,
 };
 
@@ -480,12 +485,20 @@ export async function rebuildSummary(): Promise<number> {
   const healthTickets = records.map((t) => healthTicket(t, meta, labels));
   const health = buildHealth(healthTickets, outcomes, chatForHealth(chat), now);
   const rows = healthRows(healthTickets, outcomes, now);
+  const pRows = perfRows(healthTickets, outcomes, now);
   const r = client();
-  if (r) await Promise.all([r.set(SUMMARY_KEY, summary), r.set(HEALTH_KEY, health), r.set(HEALTH_ROWS_KEY, rows)]);
-  else {
+  if (r) {
+    await Promise.all([
+      r.set(SUMMARY_KEY, summary),
+      r.set(HEALTH_KEY, health),
+      r.set(HEALTH_ROWS_KEY, rows),
+      r.set(PERF_ROWS_KEY, pRows),
+    ]);
+  } else {
     mem.summary = summary;
     mem.health = health;
     mem.healthRows = rows;
+    mem.perfRows = pRows;
   }
   await bumpDataVersion("performance");
   return kept.length;
@@ -524,6 +537,12 @@ export async function getSupportHealth(): Promise<SupportHealth | null> {
 export async function getSupportHealthRows(): Promise<HealthRow[] | null> {
   const r = client();
   return r ? await r.get<HealthRow[]>(HEALTH_ROWS_KEY) : mem.healthRows;
+}
+
+/** The tickets behind /performance's numbers. Admin only — rows carry agent names. */
+export async function getPerformanceRows(): Promise<PerfRow[] | null> {
+  const r = client();
+  return r ? await r.get<PerfRow[]>(PERF_ROWS_KEY) : mem.perfRows;
 }
 
 /** Exposed for the page footer: how complete the store is. */

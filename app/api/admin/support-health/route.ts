@@ -26,7 +26,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
   if (req.nextUrl.searchParams.get("rows")) {
-    return NextResponse.json({ rows: (await getSupportHealthRows()) ?? [] });
+    // Null until the first sync after a deploy has built them — not "no tickets".
+    return NextResponse.json({ rows: await getSupportHealthRows() });
   }
   const [health, sync] = await Promise.all([getSupportHealth(), syncStatus()]);
   return NextResponse.json({

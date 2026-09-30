@@ -11,6 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
 import { MetricRow, type MetricSpec } from "@/components/jetta/metric-row";
+import { CellLink } from "@/components/jetta/cell-link";
 import { EmptyState } from "@/components/jetta/empty-state";
 import { RelativeTime } from "@/components/jetta/relative-time";
 import { useDataVersion } from "@/lib/use-data-version";
@@ -345,16 +346,6 @@ function Delta({ now, before }: { now: number; before: number }) {
   return <span className="text-muted-foreground">{d > 0 ? `+${d}` : `−${-d}`}</span>;
 }
 
-/** A table number that opens its tickets. Zero stays plain text: there is nothing behind it. */
-function CellLink({ n, onClick, children }: { n: number; onClick: () => void; children: React.ReactNode }) {
-  if (!n) return <>{children}</>;
-  return (
-    <button type="button" onClick={onClick} className="tabular-nums underline decoration-dotted underline-offset-4 hover:decoration-solid">
-      {children}
-    </button>
-  );
-}
-
 function ByApp({ apps, open }: { apps: AppHealth[]; open: Open }) {
   const show = (a: AppHealth, metric: Extract<DrillRequest["drill"], { kind: "app" }>["metric"], title: string, description: string) =>
     open({ title: `${appName(a.app)} · ${title}`, description, drill: { kind: "app", app: a.app, metric } });
@@ -543,6 +534,8 @@ export default function HealthPanel() {
   // The tickets behind the numbers: fetched on the first click, dropped when the numbers change.
   const [rows, setRows] = useState<HealthRow[] | null>(null);
   const [rowsErr, setRowsErr] = useState<string | null>(null);
+  // The sync hasn't built the lists yet (first click after a deploy).
+  const [rowsMissing, setRowsMissing] = useState(false);
   const rowsReq = useRef<Promise<void> | null>(null);
 
   const load = useCallback(() => {
@@ -567,7 +560,8 @@ export default function HealthPanel() {
       .then(async (r) => {
         const d = await r.json();
         if (!r.ok) throw new Error(d.message ?? d.error ?? `HTTP ${r.status}`);
-        setRows(d.rows);
+        setRowsMissing(d.rows == null);
+        setRows(d.rows ?? []);
       })
       .catch((e) => {
         setRowsErr(e instanceof Error ? e.message : String(e));
@@ -784,6 +778,7 @@ export default function HealthPanel() {
         request={drill}
         rows={rows}
         error={rowsErr}
+        notBuilt={rowsMissing}
         now={h.computedAt}
         base={ticketUrlBase}
         onClose={() => setDrill(null)}

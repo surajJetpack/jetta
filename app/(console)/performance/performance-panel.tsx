@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ReferenceLine, XAxis, YAxis } from "recharts";
 import { toast } from "sonner";
 import { Gauge, RotateCw, TriangleAlert } from "lucide-react";
@@ -18,11 +18,13 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart";
 import { MetricRow, type MetricSpec } from "@/components/jetta/metric-row";
+import { CellLink } from "@/components/jetta/cell-link";
 import { EmptyState } from "@/components/jetta/empty-state";
 import { RelativeTime } from "@/components/jetta/relative-time";
 import { useDataVersion } from "@/lib/use-data-version";
-import { JETTA_LIVE_DATE, weekStart, type PerformanceSummary, type PeriodStats } from "@/lib/performance";
+import { JETTA_LIVE_DATE, weekStart, type PerfRow, type PerformanceSummary, type PeriodStats } from "@/lib/performance";
 import HandoffPanel from "./handoff-panel";
+import { PerfDrillSheet, type OpenPerf, type PerfDrillRequest } from "./perf-drill";
 
 interface SyncInfo {
   cursor: string;
@@ -84,32 +86,72 @@ function ChartCard({ title, description, children }: { title: string; descriptio
   );
 }
 
-function Headline({ recent, previous, baseline }: { recent: PeriodStats; previous: PeriodStats; baseline: PeriodStats }) {
+function Headline({
+  recent,
+  previous,
+  baseline,
+  open,
+}: {
+  recent: PeriodStats;
+  previous: PeriodStats;
+  baseline: PeriodStats;
+  open: OpenPerf;
+}) {
   const metrics: MetricSpec[] = [
     {
       label: "Jetta drafted on",
       value: pct(recent.coverage),
       hint: `${recent.answered} answered tickets`,
+      onClick: () =>
+        open({
+          title: "Jetta drafted on",
+          description: "Tickets from the last 28 days an agent answered, the ones without a Jetta draft first.",
+          drill: { kind: "coverage" },
+        }),
     },
     {
       label: "Drafts used",
       value: pct(recent.usedRate),
       hint: delta(recent.usedRate, previous.usedRate, "pct") ?? "sent as-is or edited",
+      onClick: () =>
+        open({
+          title: "Drafts used",
+          description: "Tickets from the last 28 days with a draft an agent replied after, unused drafts first.",
+          drill: { kind: "used" },
+        }),
     },
     {
       label: "Median first reply",
       value: hrs(recent.firstReplyH),
       hint: `before Jetta: ${hrs(baseline.firstReplyH)}`,
+      onClick: () =>
+        open({
+          title: "First reply times",
+          description: "Answered tickets from the last 28 days, slowest first, with who sent the first reply.",
+          drill: { kind: "firstReply" },
+        }),
     },
     {
       label: "First reply links a doc",
       value: pct(recent.linkRate),
       hint: `before Jetta: ${pct(baseline.linkRate)}`,
+      onClick: () =>
+        open({
+          title: "First reply links a doc",
+          description: "Answered tickets from the last 28 days, the ones whose first reply linked a doc first.",
+          drill: { kind: "link" },
+        }),
     },
     {
       label: "Reopened",
       value: pct(recent.reopenRate),
       hint: `before Jetta: ${pct(baseline.reopenRate)}`,
+      onClick: () =>
+        open({
+          title: "Reopened tickets",
+          description: "Answered tickets from the last 28 days the customer came back on after they were resolved.",
+          drill: { kind: "reopened" },
+        }),
     },
   ];
   return <MetricRow metrics={metrics} />;
@@ -119,6 +161,13 @@ export default function PerformancePanel() {
   const [data, setData] = useState<{ summary: PerformanceSummary | null; sync: SyncInfo } | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const [drill, setDrill] = useState<PerfDrillRequest | null>(null);
+  // The tickets behind the numbers: fetched on the first click, dropped when the numbers change.
+  const [rows, setRows] = useState<PerfRow[] | null>(null);
+  const [rowsErr, setRowsErr] = useState<string | null>(null);
+  const [rowsMissing, setRowsMissing] = useState(false);
+  const rowsReq = useRef<Promise<void> | null>(null);
+  const open = useCallback<OpenPerf>((req) => setDrill(req), []);
 
   const load = useCallback(() => {
     fetch("/api/admin/performance", { cache: "no-store" })
@@ -127,6 +176,8 @@ export default function PerformancePanel() {
         if (!r.ok) throw new Error(d.message ?? d.error ?? `HTTP ${r.status}`);
         setData(d);
         setErr(null);
+        setRows(null);
+        rowsReq.current = null;
       })
       .catch((e) => setErr(e instanceof Error ? e.message : String(e)));
   }, []);
@@ -135,6 +186,22 @@ export default function PerformancePanel() {
   }, [load]);
   // The hourly sync bumps this marker; an open tab picks it up without polling the data.
   useDataVersion(["performance"], load);
+  // Also re-runs when a refresh drops the rows under an open sheet.
+  useEffect(() => {
+    if (!drill || rows || rowsReq.current) return;
+    setRowsErr(null);
+    rowsReq.current = fetch("/api/admin/performance?rows=1", { cache: "no-store" })
+      .then(async (r) => {
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.message ?? d.error ?? `HTTP ${r.status}`);
+        setRowsMissing(d.rows == null);
+        setRows(d.rows ?? []);
+      })
+      .catch((e) => {
+        setRowsErr(e instanceof Error ? e.message : String(e));
+        rowsReq.current = null;
+      });
+  }, [drill, rows]);
 
   const syncNow = async () => {
     setSyncing(true);
@@ -196,22 +263,32 @@ export default function PerformancePanel() {
   const liveWeeks = weeks.filter((w) => w.week >= LIVE_WEEK);
   const chatWeeks = summary.chat?.weeks ?? [];
 
+  /** A click anywhere in a weekly chart opens the week under the cursor. */
+  const onWeek =
+    (metric: "drafts" | "firstReply" | "answered", title: string, description: string) =>
+    (state: { activeLabel?: string | number }) => {
+      const week = state.activeLabel != null ? String(state.activeLabel) : null;
+      if (!week) return;
+      open({ title: `${title} · week of ${weekTick(week)}`, description, drill: { kind: "week", week, metric } });
+    };
+
   return (
     <div className="grid min-w-0 gap-6 [&>*]:min-w-0">
       <Card className="py-4">
         <CardHeader className="px-4">
           <CardTitle className="text-sm">Last 28 days</CardTitle>
           <CardDescription className="text-xs">
-            Tickets with at least one agent reply. Marketing and vendor mail nobody answers is left out.
+            Tickets with at least one agent reply. Marketing and vendor mail nobody answers is left out. Click any
+            number to see the tickets behind it.
           </CardDescription>
           <CardAction>{syncButton}</CardAction>
         </CardHeader>
         <CardContent className="px-4">
-          <Headline recent={summary.recent} previous={summary.previous} baseline={summary.baseline} />
+          <Headline recent={summary.recent} previous={summary.previous} baseline={summary.baseline} open={open} />
         </CardContent>
       </Card>
 
-      {summary.handoffs && <HandoffPanel h={summary.handoffs} ticketUrlBase={summary.ticketUrlBase} />}
+      {summary.handoffs && <HandoffPanel h={summary.handoffs} ticketUrlBase={summary.ticketUrlBase} open={open} />}
 
       <div className="grid gap-4 md:grid-cols-2 [&>*]:min-w-0">
         <ChartCard
@@ -219,8 +296,12 @@ export default function PerformancePanel() {
           description="Each suggestion against the reply the agent sent next, by the week the ticket arrived."
         >
           {liveWeeks.some((w) => w.judged > 0) ? (
-            <ChartContainer config={useConfig} className="h-[200px] w-full">
-              <BarChart data={liveWeeks} margin={{ left: -24, right: 0, top: 4 }}>
+            <ChartContainer config={useConfig} className="h-[200px] w-full cursor-pointer">
+              <BarChart
+                data={liveWeeks}
+                margin={{ left: -24, right: 0, top: 4 }}
+                onClick={onWeek("drafts", "Drafts", "This week's tickets with a draft an agent replied after, unused drafts first.")}
+              >
                 <CartesianGrid vertical={false} strokeOpacity={0.4} />
                 <XAxis dataKey="week" tickFormatter={weekTick} tickLine={false} axisLine={false} fontSize={10} />
                 <YAxis allowDecimals={false} tickLine={false} axisLine={false} fontSize={10} />
@@ -240,8 +321,12 @@ export default function PerformancePanel() {
           title="How long customers waited"
           description="Median hours to the first agent reply, and how long Jetta's draft sat before an agent sent a reply."
         >
-          <ChartContainer config={timeConfig} className="h-[200px] w-full">
-            <LineChart data={weeks} margin={{ left: -24, right: 8, top: 4 }}>
+          <ChartContainer config={timeConfig} className="h-[200px] w-full cursor-pointer">
+            <LineChart
+              data={weeks}
+              margin={{ left: -24, right: 8, top: 4 }}
+              onClick={onWeek("firstReply", "First replies", "This week's answered tickets, slowest first.")}
+            >
               <CartesianGrid vertical={false} strokeOpacity={0.4} />
               <XAxis dataKey="week" tickFormatter={weekTick} tickLine={false} axisLine={false} fontSize={10} minTickGap={24} />
               <YAxis tickLine={false} axisLine={false} fontSize={10} unit="h" />
@@ -255,8 +340,12 @@ export default function PerformancePanel() {
         </ChartCard>
 
         <ChartCard title="Answered tickets per week" description="The queue the team worked, before and after Jetta.">
-          <ChartContainer config={volumeConfig} className="h-[200px] w-full">
-            <BarChart data={weeks} margin={{ left: -24, right: 0, top: 4 }}>
+          <ChartContainer config={volumeConfig} className="h-[200px] w-full cursor-pointer">
+            <BarChart
+              data={weeks}
+              margin={{ left: -24, right: 0, top: 4 }}
+              onClick={onWeek("answered", "Answered tickets", "Tickets that arrived this week and got at least one agent reply.")}
+            >
               <CartesianGrid vertical={false} strokeOpacity={0.4} />
               <XAxis dataKey="week" tickFormatter={weekTick} tickLine={false} axisLine={false} fontSize={10} minTickGap={24} />
               <YAxis allowDecimals={false} tickLine={false} axisLine={false} fontSize={10} />
@@ -312,9 +401,35 @@ export default function PerformancePanel() {
                 {summary.agents.map((a) => (
                   <TableRow key={a.agent}>
                     <TableCell className="font-medium">{a.agent}</TableCell>
-                    <TableCell className="text-right tabular-nums">{a.firstReplies}</TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      <CellLink
+                        n={a.firstReplies}
+                        onClick={() =>
+                          open({
+                            title: `${a.agent} · first replies`,
+                            description: "Tickets from the last 28 days where this agent sent the first reply, slowest first.",
+                            drill: { kind: "agent", agent: a.agent, metric: "firstReplies" },
+                          })
+                        }
+                      >
+                        {a.firstReplies}
+                      </CellLink>
+                    </TableCell>
                     <TableCell className="text-right tabular-nums">{hrs(a.firstReplyH)}</TableCell>
-                    <TableCell className="text-right tabular-nums">{a.afterSuggestion}</TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      <CellLink
+                        n={a.afterSuggestion}
+                        onClick={() =>
+                          open({
+                            title: `${a.agent} · replies after a Jetta draft`,
+                            description: "Tickets from the last 28 days where this agent replied after a Jetta draft, unused drafts first.",
+                            drill: { kind: "agent", agent: a.agent, metric: "afterSuggestion" },
+                          })
+                        }
+                      >
+                        {a.afterSuggestion}
+                      </CellLink>
+                    </TableCell>
                     <TableCell className="text-right tabular-nums">{pct(a.usedRate)}</TableCell>
                   </TableRow>
                 ))}
@@ -338,6 +453,16 @@ export default function PerformancePanel() {
         Draft use compares text, so an agent who sends the
         same answer in their own words counts as &ldquo;not used&rdquo;.
       </p>
+
+      <PerfDrillSheet
+        request={drill}
+        rows={rows}
+        error={rowsErr}
+        notBuilt={rowsMissing}
+        now={summary.computedAt}
+        base={summary.ticketUrlBase ?? ""}
+        onClose={() => setDrill(null)}
+      />
     </div>
   );
 }
