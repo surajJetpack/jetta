@@ -23,6 +23,8 @@ import { getOutcomes, markEventSeen, unmarkEventSeen } from "./kv";
 import { listConversations } from "./chat-store";
 import { fd, freshdeskTicketUrl } from "./tools/freshdesk";
 import { devItemsByTicket } from "./tools/monday";
+import { activitiesFromThread, type Activity } from "./activity";
+import { recordActivities } from "./activity-store";
 import { judgeHandoff } from "./handoff-judge";
 import { appProductFromHint, inferAppProduct } from "./context";
 import { ticketRecords } from "./topics";
@@ -125,6 +127,11 @@ export interface PerfSyncState {
    * ticket, is where some of her handoffs are recorded.
    */
   boardHandoffs?: Record<string, { itemIds: string[]; jettaFiledAt: string }>;
+  /**
+   * The one-time re-read that gives /activity its first window of Freshdesk
+   * replies: an updated_since cursor, then "done".
+   */
+  activityCursor?: string;
   /**
    * The one-time re-list that fills META_KEY for tickets listed before it
    * existed, and re-queues every unresolved one so its record gains
@@ -298,6 +305,9 @@ async function listChanged(
   return { tickets: found, cursor: next, complete };
 }
 
+/** How far back /activity's one-time Freshdesk backfill reaches — its widest window. */
+const ACTIVITY_BACKFILL_DAYS = 28;
+
 /** Meta re-list pages per run. ~1,500 tickets since BASELINE_START is two runs. */
 const META_LIST_PAGES = 8;
 
@@ -332,6 +342,7 @@ export async function syncPerformance(budget = MAX_PER_RUN): Promise<SyncResult>
   let listed = 0;
   let read = 0;
   const done: PerfTicket[] = [];
+  const activity: Activity[] = [];
   try {
     const changed = await listChanged(state.cursor);
     listed = changed.tickets.length;
@@ -354,15 +365,30 @@ export async function syncPerformance(budget = MAX_PER_RUN): Promise<SyncResult>
     }
     state.queue = [...queue.values()];
 
+    // One-time: re-read the last ACTIVITY_BACKFILL_DAYS of tickets so /activity
+    // starts with a full window instead of filling in as tickets change.
+    if (state.activityCursor !== "done") {
+      const since = state.activityCursor ?? new Date(Date.now() - ACTIVITY_BACKFILL_DAYS * 86_400_000).toISOString();
+      const relist = await listChanged(since, META_LIST_PAGES);
+      for (const t of relist.tickets) if (!queue.has(t.id)) queue.set(t.id, t);
+      state.activityCursor = relist.complete ? "done" : relist.cursor;
+      state.queue = [...queue.values()];
+    }
+
     const agents = await fetchAgents();
     const jettaId = config.freshdesk.agentId ? Number(config.freshdesk.agentId) : null;
+    const ticketBase = freshdeskTicketUrl("").replace(/\/$/, "/");
     // Newest change first: during a backfill the last-28-days headline is what
     // the team reads, so it fills in within hours instead of after the baseline.
     while (state.queue.length && read < budget && Date.now() - started < READ_DEADLINE_MS) {
       const t = state.queue[state.queue.length - 1];
       await sleep(PACE_MS);
       try {
-        done.push(summarizeTicket(t, await fetchThread(t.id), agents, jettaId));
+        const thread = await fetchThread(t.id);
+        done.push(summarizeTicket(t, thread, agents, jettaId));
+        // The same thread, read once, is also every agent's reply and note on
+        // it for /activity — no extra Freshdesk call.
+        activity.push(...activitiesFromThread(t.id, t.subject, thread, agents, jettaId, ticketBase));
       } catch (e) {
         // A deleted or merged-away ticket 404s forever; dropping it keeps one
         // dead id from blocking the head of the queue. Anything else (a 429
@@ -376,6 +402,8 @@ export async function syncPerformance(budget = MAX_PER_RUN): Promise<SyncResult>
   } catch (e) {
     state.lastError = e instanceof Error ? e.message : String(e);
   }
+  // Kept even when the run stopped early: these threads were read either way.
+  await recordActivities(activity);
 
   try {
     // Saved on the failure path too: the cursor, the queue and every thread

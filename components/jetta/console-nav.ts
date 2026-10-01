@@ -20,6 +20,7 @@ import {
   CreditCard,
   FlaskConical,
   Gauge,
+  Activity,
   GraduationCap,
   HeartPulse,
   LifeBuoy,
@@ -100,6 +101,14 @@ export const NAV: NavGroup[] = [
         label: "Performance",
         icon: Gauge,
         hint: "What customers got — reply times, and how much of it was Jetta's",
+        adminOnly: true,
+      },
+      {
+        id: "activity",
+        href: "/activity",
+        label: "Team activity",
+        icon: Activity,
+        hint: "What each person did, and where — Freshdesk, chats, Slack, monday, the console",
         adminOnly: true,
       },
       {
@@ -220,6 +229,10 @@ export const PAGE_SECTIONS: Record<string, Record<string, string>> = {
     "last-28-days": "Last 28 days — reply times and Jetta's share",
     handoffs: "Handoffs: real bugs or knowledge gaps",
     "by-agent": "By agent, last 28 days",
+  },
+  activity: {
+    scorecard: "Who did what — the scorecard",
+    timeline: "The timeline of every action",
   },
   insights: {
     overview: "Overview",
