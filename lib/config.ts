@@ -410,6 +410,13 @@ export const config = {
     .map((s) => s.trim())
     .filter(Boolean),
 
+  /**
+   * /activity identity merging: "Cherryl=Cherryl B,U07ABC;Suraj=suraj,Suraj Malla".
+   * The same person is a Freshdesk agent name, a console login, a Slack user
+   * and a monday user; first names line up on their own, this covers the rest.
+   */
+  agentAliases: env("AGENT_ALIASES"),
+
   /** HMAC key for session cookies; falls back to ADMIN_SECRET. */
   sessionSecret: env("SESSION_SECRET") ?? env("ADMIN_SECRET"),
 

@@ -13,6 +13,8 @@
  */
 import { Redis } from "@upstash/redis";
 import { config } from "./config";
+import { activityFromEvent } from "./activity";
+import { recordActivities } from "./activity-store";
 
 export type EventLevel = "info" | "warn" | "error";
 
@@ -48,6 +50,10 @@ const memEvents: OpsEvent[] = [];
 export async function logOpsEvent(e: Omit<OpsEvent, "id" | "at">): Promise<void> {
   try {
     const full: OpsEvent = { ...e, id: `evt-${crypto.randomUUID()}`, at: Date.now() };
+    // A person's action is also kept in the activity store (/activity), which
+    // outlives this capped list. Most events are machine events and map to null.
+    const act = activityFromEvent(full);
+    if (act) await recordActivities([act]);
     const r = client();
     if (r) {
       await r.lpush(EVENTS_KEY, JSON.stringify(full));
