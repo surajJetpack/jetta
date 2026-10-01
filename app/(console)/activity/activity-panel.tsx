@@ -15,6 +15,7 @@ import { CellLink } from "@/components/jetta/cell-link";
 import { EmptyState } from "@/components/jetta/empty-state";
 import { RelativeTime } from "@/components/jetta/relative-time";
 import { useDataVersion } from "@/lib/use-data-version";
+import { useNow } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import {
   ACTION_LABEL,
@@ -34,6 +35,8 @@ interface SourceReport {
   ok: boolean;
   added: number;
   problem?: string;
+  mode?: "push" | "poll";
+  pushAt?: number;
 }
 
 interface Payload {
@@ -47,6 +50,8 @@ interface Payload {
     lastRunAt: number | null;
     sources: Partial<Record<"kb" | "slack" | "monday", SourceReport>>;
     mondaySelf: { id: string; name: string } | null;
+    push: Partial<Record<"slack" | "monday", number>>;
+    mondayWebhooks: boolean;
     freshdesk: { lastRunAt: number | null; queued: number; lastError: string | null } | null;
   };
   aliasesConfigured: boolean;
@@ -311,7 +316,7 @@ export default function ActivityPanel() {
         </CardContent>
       </Card>
 
-      <SourcesCard data={data} />
+      <SourcesCard data={data} onChanged={load} />
     </div>
   );
 }
@@ -427,37 +432,114 @@ function Chip({ children, onClear }: { children: React.ReactNode; onClear: () =>
   );
 }
 
-/** Where each place's rows come from, and which ones aren't reporting. */
-function SourcesCard({ data }: { data: Payload }) {
-  const { sources, freshdesk, mondaySelf, lastRunAt } = data.sync;
-  const lines: { place: string; how: string; at: number | null; problem?: string | null }[] = [
+function Mode({ isLive, pushAt }: { isLive: boolean; pushAt?: number }) {
+  return isLive ? (
+    <Badge variant="secondary" className="gap-1">
+      <span className="size-1.5 rounded-full bg-[var(--chart-2)]" aria-hidden />
+      Live
+      {pushAt ? (
+        <>
+          {" "}
+          · last event <RelativeTime at={Math.floor(pushAt / 1000)} />
+        </>
+      ) : null}
+    </Badge>
+  ) : (
+    <Badge variant="outline">Checked hourly</Badge>
+  );
+}
+
+/** A push source counts as live if it has delivered within this window. */
+const LIVE_MS = 72 * 3600_000;
+
+/** Where each place's rows come from, how fresh they are, and which ones aren't reporting. */
+function SourcesCard({ data, onChanged }: { data: Payload; onChanged: () => void }) {
+  const { sources, freshdesk, mondaySelf, lastRunAt, push, mondayWebhooks } = data.sync;
+  const [registering, setRegistering] = useState(false);
+  const now = useNow(60_000);
+  const live = (s: "slack" | "monday") => push[s] != null && now - push[s]! < LIVE_MS;
+
+  const connectMonday = async () => {
+    setRegistering(true);
+    try {
+      const r = await fetch("/api/admin/activity", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "register-monday" }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.problem ?? d.error ?? `HTTP ${r.status}`);
+      toast.success(d.created ? `Subscribed to ${d.created} monday board events` : "monday was already connected");
+      onChanged();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRegistering(false);
+    }
+  };
+
+  const lines: {
+    place: string;
+    mode: React.ReactNode;
+    how: React.ReactNode;
+    problem?: string | null;
+  }[] = [
     {
       place: "Freshdesk",
+      mode: <Badge variant="outline">Hourly, with /performance</Badge>,
       how: freshdesk?.queued
-        ? `Replies and notes, read with the hourly performance sync — ${freshdesk.queued} ticket${freshdesk.queued === 1 ? "" : "s"} still queued, so recent replies may not be in yet.`
-        : "Replies and notes, read with the hourly performance sync. Status changes and assignments are not read (they would cost Freshdesk calls live Jetta needs).",
-      at: freshdesk?.lastRunAt ?? null,
+        ? `Replies and notes come from the threads the performance sync reads anyway — no extra Freshdesk calls. ${freshdesk.queued} ticket${freshdesk.queued === 1 ? "" : "s"} still queued, so the newest replies may not be in yet.`
+        : "Replies and notes come from the threads the performance sync reads anyway — no extra Freshdesk calls. Status changes and assignments aren't available: Freshdesk's activity export is not on this plan.",
       problem: freshdesk?.lastError,
     },
-    { place: "Chats", how: "Takeovers, messages, tickets, resolves and hand-backs — recorded as they happen.", at: null },
+    {
+      place: "Chats",
+      mode: <Badge variant="secondary">Live</Badge>,
+      how: "Takeovers, messages, tickets, resolves and hand-backs, recorded as they happen.",
+    },
     {
       place: "Slack",
-      how: "Human messages in Jetta's channels and replies under her posts, plus Jetta commands. Direct messages are not read.",
-      at: sources.slack?.at ?? null,
+      mode: <Mode isLive={live("slack")} pushAt={push.slack} />,
+      how: live("slack") ? (
+        "Messages in Jetta's channels arrive as they're posted; replies under her posts carry how long they waited. Read in full once a day as a safety net."
+      ) : (
+        <>
+          Read hourly from channel history. To make it live (and stop the hourly reads), add the bot events{" "}
+          <code className="text-foreground">message.channels</code> and <code className="text-foreground">message.groups</code> under
+          Event Subscriptions in the Slack app settings.
+        </>
+      ),
       problem: sources.slack?.problem,
     },
     {
       place: "monday",
-      how: `Comments, status and assignee changes, moves and new items on the dev boards.${
-        mondaySelf ? ` Jetta posts as ${mondaySelf.name}, so that account's new items and "Product:" context posts are left out; the rest of their activity counts.` : ""
-      }`,
-      at: sources.monday?.at ?? null,
+      mode: <Mode isLive={mondayWebhooks && live("monday")} pushAt={push.monday} />,
+      how: (
+        <>
+          Comments, status and assignee changes, moves and new items on the dev boards.{" "}
+          {mondayWebhooks
+            ? live("monday")
+              ? "Board webhooks deliver each change as it happens; a full read runs once a day as a safety net."
+              : "Webhooks are registered but nothing has arrived yet — the boards are read hourly until something does."
+            : "Read hourly from the board activity log."}
+          {mondaySelf
+            ? ` Jetta posts as ${mondaySelf.name}, so that account's new items and "Product:" context posts are left out; the rest of their activity counts.`
+            : ""}
+          {!mondayWebhooks && (
+            <div className="mt-1.5">
+              <Button size="sm" variant="outline" className="h-7" onClick={connectMonday} disabled={registering}>
+                {registering ? "Connecting…" : "Connect live updates"}
+              </Button>
+            </div>
+          )}
+        </>
+      ),
       problem: sources.monday?.problem,
     },
     {
       place: "Console",
-      how: "Draft decisions, learnings, billing approvals, chat settings — as they happen; KB edits from the KB's own audit trail.",
-      at: sources.kb?.at ?? null,
+      mode: <Badge variant="secondary">Live</Badge>,
+      how: "Draft decisions, learnings, billing approvals, chat settings and KB edits, recorded as they happen.",
       problem: sources.kb?.problem,
     },
   ];
@@ -468,7 +550,7 @@ function SourcesCard({ data }: { data: Payload }) {
         <CardDescription className="text-xs">
           {lastRunAt ? (
             <>
-              Last activity sync <RelativeTime at={Math.floor(lastRunAt / 1000)} />.
+              Last check <RelativeTime at={Math.floor(lastRunAt / 1000)} />.
             </>
           ) : (
             "The activity sync hasn't run yet — Sync now reads Slack, monday and the KB."
@@ -478,19 +560,20 @@ function SourcesCard({ data }: { data: Payload }) {
             : "Names are merged by first name. If one person shows up twice, set AGENT_ALIASES (e.g. Cherryl=Cherryl B,U07ABC)."}
         </CardDescription>
       </CardHeader>
-      <CardContent className="grid gap-2 px-4">
+      <CardContent className="grid gap-3 px-4">
         {lines.map((l) => (
-          <div key={l.place} className="grid gap-0.5 text-xs sm:grid-cols-[6rem_1fr]">
+          <div key={l.place} className="grid gap-1 text-xs sm:grid-cols-[6rem_1fr]">
             <span className="font-medium">{l.place}</span>
-            <span className="text-muted-foreground">
-              {l.how}
+            <div className="grid gap-1">
+              <div>{l.mode}</div>
+              <div className="text-muted-foreground">{l.how}</div>
               {l.problem && (
-                <Alert variant="destructive" className="mt-1 py-1.5">
+                <Alert variant="destructive" className="py-1.5">
                   <TriangleAlert />
                   <AlertDescription className="text-xs">{l.problem}</AlertDescription>
                 </Alert>
               )}
-            </span>
+            </div>
           </div>
         ))}
       </CardContent>

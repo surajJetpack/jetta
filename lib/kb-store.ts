@@ -26,6 +26,8 @@ import crypto from "node:crypto";
 import { Redis } from "@upstash/redis";
 import { config } from "./config";
 import { bumpDataVersion } from "./data-version";
+import { activityFromKbAudit } from "./activity";
+import { recordActivities } from "./activity-store";
 import { vectorEnabled, upsertDocs, deleteDocs, queryVector } from "./vector";
 import type { KbScope } from "./profiles";
 
@@ -302,9 +304,11 @@ async function persist(
     p.ltrim(auditKey(a.id), 0, ARTICLE_AUDIT_CAP - 1);
     await p.exec();
     await bumpDataVersion("kb");
+    await recordKbActivity(opts.audit);
     return;
   }
   memArts.set(a.id, a);
+  await recordKbActivity(opts.audit);
   await bumpDataVersion("kb");
   if (opts.snapshot) {
     const list = memVers.get(a.id) ?? [];
@@ -313,6 +317,15 @@ async function persist(
   }
   memAudit.unshift(opts.audit);
   if (memAudit.length > AUDIT_CAP) memAudit.length = AUDIT_CAP;
+}
+
+/**
+ * A person's KB change goes to /activity as it happens. Same id the hourly
+ * audit import uses, so the import (kept as a net) never double-counts.
+ */
+async function recordKbActivity(audit: AuditEvent): Promise<void> {
+  const act = activityFromKbAudit(audit);
+  if (act) await recordActivities([act]);
 }
 
 /** Keep the vector index consistent with lifecycle state. Never throws. */
@@ -501,6 +514,7 @@ export async function deleteArticle(id: string, actor: string): Promise<boolean>
     memVers.delete(id);
     memAudit.unshift(audit);
   }
+  await recordKbActivity(audit);
   if (prev.state === "published" && vectorEnabled()) {
     await deleteDocs([id]).catch(() => {});
   }

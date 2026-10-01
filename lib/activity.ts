@@ -562,7 +562,7 @@ export function activityFromMondayLog(
     const value = d.value as { label?: { text?: string } } | null;
     const to = value?.label?.text;
     if (!to) return null;
-    return { ...base, action: "monday.status", detail: `${str(d.column_title) ?? "Status"} → ${to}${on}` };
+    return { ...base, action: "monday.status", detail: `${str(d.column_title)?.replace(/\s*↗️?\s*$/, "") ?? "Status"} → ${to}${on}` };
   }
   if (log.event === "move_pulse_into_group") {
     const dest = (d.dest_group as { title?: string } | undefined)?.title;
@@ -744,4 +744,164 @@ export function filterTimeline(
 
 export function clip(s: string, n: number): string {
   return s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s;
+}
+
+// ── Pushed events ───────────────────────────────────────────────────
+//
+// Slack and monday tell us when something happens, so the hourly reads above
+// become a once-a-day safety net. A pushed row and a polled row for the same
+// action must not both count — Slack's ts is the same either way (same id);
+// monday's webhook and activity log carry different ids, so the reconcile
+// skips log rows that match a pushed one (see sameMondayAction).
+
+/** A Slack `message` event, as the Events API delivers it. */
+export interface SlackMessageEvent extends SlackMsg {
+  channel: string;
+  channel_type?: string;
+}
+
+/**
+ * One pushed Slack message → activity. `parent` is what Jetta recorded when
+ * she posted the thread's parent (null when a person started it, or when the
+ * thread predates the record); `first` says no person had replied in that
+ * thread before — only then does the reply carry a response time.
+ */
+export function activityFromSlackEvent(
+  e: SlackMessageEvent,
+  channelName: string,
+  parent: { topic?: string; ticketId?: string } | null,
+  first: boolean,
+): Activity | null {
+  if (!isHumanSlack(e)) return null;
+  const link = `https://slack.com/archives/${e.channel}/p${e.ts.replace(".", "")}${
+    e.thread_ts && e.thread_ts !== e.ts ? `?thread_ts=${e.thread_ts}&cid=${e.channel}` : ""
+  }`;
+  const isReply = !!e.thread_ts && e.thread_ts !== e.ts;
+  if (!isReply) {
+    return {
+      id: `slack:${e.channel}:${e.ts}`,
+      at: slackMs(e.ts),
+      place: "slack",
+      who: `slack:${e.user}`,
+      action: "slack.message",
+      ref: e.ts,
+      detail: `#${channelName}: ${clip(slackText(e.text ?? ""), 80)}`,
+      url: link,
+    };
+  }
+  return {
+    id: `slack:${e.channel}:${e.ts}`,
+    at: slackMs(e.ts),
+    place: "slack",
+    who: `slack:${e.user}`,
+    action: "slack.reply",
+    ref: e.thread_ts,
+    detail: `#${channelName}: ${parent?.topic ?? clip(slackText(e.text ?? ""), 80)}`,
+    waitMs: parent && first ? slackMs(e.ts) - slackMs(e.thread_ts!) : undefined,
+    ticketId: parent?.ticketId,
+    url: link,
+  };
+}
+
+/** monday's webhook body.event — the fields we read, all optional by type. */
+export interface MondayWebhookEvent {
+  type?: string;
+  userId?: number | string;
+  boardId?: number | string;
+  pulseId?: number | string;
+  pulseName?: string;
+  columnId?: string;
+  columnType?: string;
+  columnTitle?: string;
+  value?: unknown;
+  textBody?: string;
+  body?: string;
+  updateId?: number | string;
+  replyId?: number | string;
+  destGroup?: { title?: string } | null;
+  groupName?: string;
+  triggerTime?: string;
+  triggerUuid?: string;
+}
+
+export function activityFromMondayWebhook(
+  e: MondayWebhookEvent,
+  users: Map<string, string>,
+  accountUrl: string,
+  boardName: string,
+  selfId: string | null,
+): Activity | null {
+  const userId = e.userId != null ? String(e.userId) : "";
+  const who = users.get(userId);
+  if (!who) return null;
+  const at = e.triggerTime ? Date.parse(e.triggerTime) : Date.now();
+  const item = e.pulseId != null ? String(e.pulseId) : undefined;
+  const url = item && e.boardId ? `${accountUrl}/boards/${e.boardId}/pulses/${item}` : undefined;
+  const on = e.pulseName ? ` — ${clip(e.pulseName, 70)}` : "";
+  const base = { at: Number.isFinite(at) ? at : Date.now(), place: "monday" as const, who, ref: item, url };
+  const uuid = e.triggerUuid ?? `${item}:${at}`;
+
+  switch (e.type) {
+    case "create_update": {
+      // Jetta's own context post, made with a person's token.
+      if (userId === selfId && /^\s*Product:/.test(e.textBody ?? "")) return null;
+      const id = e.replyId ?? e.updateId;
+      const text = clip((e.textBody ?? "").replace(/\s+/g, " ").trim(), 90);
+      return {
+        ...base,
+        // Same id the board read uses, so the two never double-count.
+        id: id != null ? `monu:${id}` : `monw:${uuid}`,
+        action: "monday.comment",
+        detail: [e.pulseName ? clip(e.pulseName, 60) : null, text || null].filter(Boolean).join(": ") || undefined,
+        ticketId: ticketFromText(e.textBody ?? ""),
+      };
+    }
+    case "update_column_value":
+    case "change_column_value":
+    case "change_status_column_value": {
+      const type = e.columnType;
+      const title = e.columnTitle?.replace(/\s*↗️?\s*$/, "");
+      if (type === "color" || type === "status") {
+        const to = (e.value as { label?: { text?: string } } | null)?.label?.text;
+        if (!to) return null;
+        return { ...base, id: `monw:${uuid}`, action: "monday.status", detail: `${title ?? "Status"} → ${to}${on}` };
+      }
+      if (type === "multiple-person" || type === "people") {
+        const ids =
+          (e.value as { personsAndTeams?: { id: number | string; kind?: string }[] } | null)?.personsAndTeams ?? [];
+        const names = ids.filter((p) => p.kind !== "team").map((p) => users.get(String(p.id))).filter(Boolean);
+        if (!names.length) return null;
+        return { ...base, id: `monw:${uuid}`, action: "monday.status", detail: `${title ?? "People"} → ${names.join(", ")}${on}` };
+      }
+      return null;
+    }
+    case "create_pulse":
+    case "create_item":
+      if (userId === selfId) return null; // Jetta files items under a person's token
+      return { ...base, id: `monw:${uuid}`, action: "monday.created", detail: `${boardName}${on}` };
+    case "move_pulse_into_group":
+    case "item_moved_to_any_group": {
+      const dest = e.destGroup?.title ?? e.groupName;
+      return { ...base, id: `monw:${uuid}`, action: "monday.moved", detail: `${dest ? `to ${dest}` : "between groups"}${on}` };
+    }
+    default:
+      return null;
+  }
+}
+
+/**
+ * Whether a board-log row is an action a webhook already delivered: same
+ * item, same kind, same person, within two minutes. Log and webhook stamp
+ * the same click a few hundred ms apart, and nobody makes the same change to
+ * the same item twice inside two minutes in a way worth counting twice.
+ */
+export function sameMondayAction(a: Activity, b: Activity): boolean {
+  return (
+    a.id !== b.id &&
+    a.ref === b.ref &&
+    a.action === b.action &&
+    a.who === b.who &&
+    a.detail === b.detail &&
+    Math.abs(a.at - b.at) < 120_000
+  );
 }

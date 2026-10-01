@@ -11,6 +11,9 @@ import {
   activityFromKbAudit,
   activityFromMondayLog,
   activityFromMondayUpdate,
+  activityFromMondayWebhook,
+  activityFromSlackEvent,
+  sameMondayAction,
   buildScorecard,
   filterTimeline,
   isMachineActor,
@@ -173,6 +176,37 @@ check(
 );
 check("timeline: logins hidden by default", filterTimeline(acts, {}, { aliases }).some((a) => a.action === "console.login"), false);
 check("timeline: place filter", filterTimeline(acts, { place: "freshdesk" }, { aliases }).map((a) => a.id), ["7", "1", "2"]); // equal times keep their order
+
+// ── Pushed events ───────────────────────────────────────────────────
+const reply = { channel: "C1", channel_type: "group", ts: "1790000600.000200", thread_ts: "1790000000.000100", user: "U07CHER", text: "on it" };
+const jettaParent = { topic: "Escalation #14464", ticketId: "14464" };
+const r1 = activityFromSlackEvent(reply, "jetta-escalations", jettaParent, true);
+check("Slack push: first reply under Jetta's post is timed", [r1?.action, r1?.waitMs, r1?.ticketId, r1?.id], ["slack.reply", 600_000, "14464", "slack:C1:1790000600.000200"]);
+check("Slack push: same id as the polled row", r1?.id, sl[0].id);
+check("Slack push: later reply not timed", activityFromSlackEvent(reply, "x", jettaParent, false)?.waitMs, undefined);
+check("Slack push: reply in a person's thread not timed", activityFromSlackEvent(reply, "x", null, true)?.waitMs, undefined);
+check("Slack push: bot ignored", activityFromSlackEvent({ ...reply, bot_id: "B1" }, "x", null, true), null);
+check("Slack push: edit ignored", activityFromSlackEvent({ ...reply, subtype: "message_changed" }, "x", null, true), null);
+check("Slack push: top-level post", activityFromSlackEvent({ channel: "C1", ts: "1790000000.1", user: "U1", text: "hi" }, "ops", null, false)?.action, "slack.message");
+
+const mu = new Map([["64260832", "Gabriel Villegas"], ["82879261", "Suraj Malla"], ["63706225", "Prashant Uprety"]]);
+const wStatus = activityFromMondayWebhook(
+  { type: "update_column_value", userId: 64260832, boardId: 2978633042, pulseId: 13162444300, pulseName: "Credit usage restarted", columnTitle: "Dev Status", columnType: "color", value: { label: { text: "Ready to start" } }, triggerTime: "2026-09-30T07:55:04.610Z", triggerUuid: "u1" },
+  mu, "https://m.monday.com", "Dev Tasks", "82879261",
+);
+check("monday push: status", [wStatus?.action, wStatus?.detail, wStatus?.who], ["monday.status", "Dev Status → Ready to start — Credit usage restarted", "Gabriel Villegas"]);
+check("monday push: matches the log row for the same change", sameMondayAction(wStatus!, { ...st!, at: wStatus!.at + 400 }), true);
+check("monday push: a different value is a different action", sameMondayAction(wStatus!, { ...st!, at: wStatus!.at + 400, detail: "Dev Status → Done — Credit usage restarted" }), false);
+check("monday push: assignee names from ids",
+  activityFromMondayWebhook({ type: "update_column_value", userId: 64260832, pulseId: 1, pulseName: "X", columnTitle: "Developer  ↗️", columnType: "multiple-person", value: { personsAndTeams: [{ id: 63706225, kind: "person" }] }, triggerUuid: "u2" }, mu, "", "B", null)?.detail,
+  "Developer → Prashant Uprety — X");
+check("monday push: Jetta's context post dropped",
+  activityFromMondayWebhook({ type: "create_update", userId: 82879261, pulseId: 1, textBody: "Product: getsign\nAccount: …", updateId: 9 }, mu, "", "B", "82879261"), null);
+const myComment = activityFromMondayWebhook({ type: "create_update", userId: 82879261, pulseId: 1, pulseName: "X", textBody: "checked with the dev", updateId: 9 }, mu, "", "B", "82879261");
+check("monday push: the token owner's own comment counts", [myComment?.who, myComment?.id], ["Suraj Malla", "monu:9"]);
+check("monday push: Jetta-created item dropped", activityFromMondayWebhook({ type: "create_pulse", userId: 82879261, pulseId: 1 }, mu, "", "B", "82879261"), null);
+check("monday push: unknown user dropped", activityFromMondayWebhook({ type: "create_update", userId: 5, updateId: 1 }, mu, "", "B", null), null);
+check("monday push: move", activityFromMondayWebhook({ type: "move_pulse_into_group", userId: 64260832, pulseId: 1, pulseName: "X", destGroup: { title: "Done" }, triggerUuid: "u3" }, mu, "", "B", null)?.detail, "to Done — X");
 
 if (failed) {
   console.log(`\n${failed} failed`);

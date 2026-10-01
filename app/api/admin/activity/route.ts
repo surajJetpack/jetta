@@ -4,7 +4,8 @@
  * GET computes the scorecard and one page of the timeline from the activity
  * store for the chosen window: ?days=1|7|28, plus timeline filters ?person=
  * (a scorecard key), ?place=, ?column= and ?before=<ms> for the next page.
- * POST runs one activity sync now (Slack, monday, KB — the same as the cron).
+ * POST runs one activity sync now (Slack, monday, KB — the same as the cron);
+ * POST {action:"register-monday"} subscribes the dev boards' webhooks once.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/roles";
@@ -22,7 +23,8 @@ import {
   type ColumnId,
   type Place,
 } from "@/lib/activity";
-import { getActivityState, getSlackNames, loadActivities } from "@/lib/activity-store";
+import { getActivityState, getPushTimes, getSlackNames, loadActivities } from "@/lib/activity-store";
+import { registerMondayWebhooks } from "@/lib/activity-push";
 import { syncActivity } from "@/lib/activity-sync";
 import { syncStatus } from "@/lib/performance-sync";
 
@@ -44,11 +46,12 @@ export async function GET(req: NextRequest) {
   const before = Number(q.get("before")) || Infinity;
 
   const sinceMs = Date.now() - days * 86_400_000;
-  const [acts, slackNames, state, perf] = await Promise.all([
+  const [acts, slackNames, state, perf, push] = await Promise.all([
     loadActivities(sinceMs),
     getSlackNames(),
     getActivityState(),
     syncStatus().catch(() => null),
+    getPushTimes(),
   ]);
   const aliases = parseAliases(config.agentAliases);
   const opts = { aliases, slackNames, tz: supportTimeZone() };
@@ -69,6 +72,8 @@ export async function GET(req: NextRequest) {
       lastRunAt: state.lastRunAt ?? null,
       sources: state.sources ?? {},
       mondaySelf: state.mondaySelf ?? null,
+      push,
+      mondayWebhooks: Object.keys(state.mondayWebhooks ?? {}).length > 0,
       // Freshdesk rides the performance sync: its queue is how far behind replies are.
       freshdesk: perf ? { lastRunAt: perf.lastRunAt, queued: perf.queued, lastError: perf.lastError } : null,
     },
@@ -79,7 +84,24 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const denied = requireAdmin(req);
   if (denied) return denied;
-  const result = await syncActivity();
+  const body = (await req.json().catch(() => ({}))) as { action?: string };
+  if (body.action === "register-monday") {
+    const r = await registerMondayWebhooks().catch((e) => ({
+      ok: false,
+      created: 0,
+      already: 0,
+      problem: e instanceof Error ? e.message : String(e),
+    }));
+    await logOpsEvent({
+      level: r.ok ? "info" : "warn",
+      event: "activity.monday_webhooks_registered",
+      source: "console",
+      actor: adminActor(req) ?? undefined,
+      data: { ...r },
+    });
+    return NextResponse.json(r, { status: r.ok ? 200 : 400 });
+  }
+  const result = await syncActivity({ force: true });
   await logOpsEvent({
     level: result.status === "partial" ? "warn" : "info",
     event: "activity.sync_manual",

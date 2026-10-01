@@ -3,6 +3,8 @@
  * the admin command interface to post threaded replies.
  */
 import { config } from "../config";
+import { clip, slackText, ticketFromText } from "../activity";
+import { recordJettaPost } from "../activity-store";
 import { clearEscalation, getEscalationTs, recordEscalation } from "../kv";
 import type { AttachmentFile } from "../types";
 
@@ -75,8 +77,19 @@ async function postMessage(
       reply_broadcast: threadTs && broadcast ? true : undefined,
     }),
   });
-  const json = (await res.json()) as { ok: boolean; error?: string; ts?: string };
-  if (json.ok) return json.ts ?? "";
+  const json = (await res.json()) as { ok: boolean; error?: string; ts?: string; channel?: string };
+  if (json.ok) {
+    // Her own thread parents, remembered for /activity: a person's pushed reply
+    // under one is then known to be answering her, with no Slack read.
+    if (!threadTs && json.ts && json.channel) {
+      await recordJettaPost(json.channel, json.ts, {
+        at: Date.now(),
+        topic: clip(slackText(text), 80),
+        ticketId: ticketFromText(text),
+      });
+    }
+    return json.ts ?? "";
+  }
 
   // A channel that does not exist, or that Jetta was never invited to, is the
   // predictable failure of splitting notifications across channels: someone
