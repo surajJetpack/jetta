@@ -26,14 +26,20 @@ import {
   activityFromMondayLog,
   activityFromMondayUpdate,
   type Activity,
+  sameMondayAction,
   type MondayLog,
   type MondayUpdate,
   type SlackMsg,
 } from "./activity";
 import {
   getActivityState,
+  getMondayUsers,
+  getPushTimes,
   getSlackNames,
+  loadActivities,
   pruneActivities,
+  pruneJettaPosts,
+  saveMondayUsers,
   recordActivities,
   saveActivityState,
   saveSlackNames,
@@ -52,6 +58,14 @@ const SLACK_THREADS_PER_RUN = 40;
 const MONDAY_BACKFILL_DAYS = 28;
 /** Comments read per board per run (newest first, paged). */
 const MONDAY_UPDATE_PAGES = 3;
+/**
+ * A pushed source still gets one full read a day — the net under a dropped
+ * webhook or a Slack event lost to a cold start. Quiet for longer than
+ * PUSH_STALE_MS (a long weekend) and it is read hourly again, in case the
+ * push itself has stopped.
+ */
+const SAFETY_NET_MS = 24 * 3600_000;
+const PUSH_STALE_MS = 72 * 3600_000;
 
 export interface ActivitySyncResult {
   status: "ok" | "busy" | "partial";
@@ -60,7 +74,8 @@ export interface ActivitySyncResult {
   sources: ActivitySyncState["sources"];
 }
 
-export async function syncActivity(): Promise<ActivitySyncResult> {
+/** `force` (the page's Sync now) reads every source regardless of push health. */
+export async function syncActivity(opts: { force?: boolean } = {}): Promise<ActivitySyncResult> {
   if (!(await markEventSeen(LOCK_ID, 280))) return { status: "busy", added: 0, pruned: 0, sources: {} };
   try {
     const state = await getActivityState();
@@ -87,10 +102,36 @@ export async function syncActivity(): Promise<ActivitySyncResult> {
       if (sources.events?.ok) state.eventsImported = true;
     }
     await run("kb", () => readKb(state));
-    await run("slack", () => readSlack(state));
-    await run("monday", () => readMonday(state));
+
+    const push = await getPushTimes();
+    const now = Date.now();
+    const due = (source: "slack" | "monday", pushReady: boolean) => {
+      const fresh = pushReady && push[source] != null && now - push[source]! < PUSH_STALE_MS;
+      const last = state.lastFullRead?.[source] ?? 0;
+      return opts.force || !fresh || now - last >= SAFETY_NET_MS;
+    };
+    const mark = (source: "slack" | "monday") => {
+      state.lastFullRead = { ...state.lastFullRead, [source]: now };
+    };
+    const modeOf = (source: "slack" | "monday", pushReady: boolean): SourceReport["mode"] =>
+      pushReady && push[source] != null && now - push[source]! < PUSH_STALE_MS ? "push" : "poll";
+
+    const slackPush = true; // Slack pushes once the app subscribes; nothing to register here.
+    if (due("slack", slackPush)) {
+      await run("slack", () => readSlack(state));
+      mark("slack");
+    }
+    const mondayPush = Object.keys(state.mondayWebhooks ?? {}).length > 0;
+    if (due("monday", mondayPush)) {
+      await run("monday", () => readMonday(state));
+      mark("monday");
+    }
+    for (const [source, ready] of [["slack", slackPush], ["monday", mondayPush]] as const) {
+      if (sources[source]) sources[source] = { ...sources[source]!, mode: modeOf(source, ready), pushAt: push[source] };
+    }
 
     const pruned = await pruneActivities().catch(() => 0);
+    await pruneJettaPosts(now - 90 * 86_400_000).catch(() => {});
     state.sources = sources;
     state.lastRunAt = Date.now();
     await saveActivityState(state);
@@ -148,8 +189,12 @@ async function readSlack(state: ActivitySyncState): Promise<{ acts: Activity[]; 
   const oldest = String((Date.now() - SLACK_LOOKBACK_DAYS * 86_400_000) / 1000);
 
   for (const channel of slackChannels()) {
-    const info = await slackGet<{ channel?: { name?: string } }>("conversations.info", { channel });
-    const name = info.channel?.name ?? channel;
+    let name = state.slackChannelNames?.[channel];
+    if (!name) {
+      const info = await slackGet<{ channel?: { name?: string } }>("conversations.info", { channel });
+      name = info.channel?.name ?? channel;
+      if (info.ok) state.slackChannelNames = { ...state.slackChannelNames, [channel]: name };
+    }
     // Parents posted in the lookback window. Replies to an older parent are
     // missed; escalations that old are closed or pruned in practice.
     const parents: SlackMsg[] = [];
@@ -275,9 +320,14 @@ async function readMonday(state: ActivitySyncState): Promise<{ acts: Activity[];
     }`,
     { ids: boardIds, from },
   );
-  const users = new Map(head.users.map((u) => [String(u.id), u.name]));
+  const users = await getMondayUsers();
+  for (const u of head.users) users.set(String(u.id), u.name);
+  await saveMondayUsers(users);
   const self = String(head.me.id);
   state.mondaySelf = { id: self, name: head.me.name };
+  state.mondayBoards = Object.fromEntries(head.boards.map((b) => [String(b.id), b.name]));
+  // What webhooks already delivered, so the safety-net read adds only what they missed.
+  const pushed = (await loadActivities(fromMs - 120_000)).filter((a) => a.place === "monday");
   const accountUrl = config.monday.accountUrl;
 
   const acts: Activity[] = [];
@@ -325,5 +375,7 @@ async function readMonday(state: ActivitySyncState): Promise<{ acts: Activity[];
   }
   // A little overlap: monday's log can land a few seconds after the action.
   state.mondayFrom = new Date(Date.parse(runStart) - 10 * 60_000).toISOString();
-  return { acts };
+  const viaWebhook = pushed.filter((a) => a.id.startsWith("monw:") || a.id.startsWith("monu:"));
+  const missing = acts.filter((a) => !viaWebhook.some((p) => sameMondayAction(p, a)));
+  return { acts: missing };
 }

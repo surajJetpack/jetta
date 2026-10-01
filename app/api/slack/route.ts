@@ -29,6 +29,8 @@ import { answerInSlack, SUGGESTED_PROMPTS } from "@/lib/slack-assistant";
 import type { ModelMessage } from "ai";
 import { draftKbArticle } from "@/lib/knowledge-loop";
 import { logOpsEvent } from "@/lib/events";
+import { isActivityChannel, recordSlackActivity } from "@/lib/activity-push";
+import type { SlackMessageEvent } from "@/lib/activity";
 
 /** Audit trail for privileged Slack commands and their rejections. */
 async function logSlackEvent(
@@ -414,6 +416,19 @@ export async function POST(req: NextRequest) {
 
   if (body.type === "event_callback") {
     const event = body.event as Record<string, unknown> | undefined;
+
+    // A message in one of Jetta's channels (message.channels / message.groups
+    // subscriptions) is /activity's, and nothing else's: it is recorded and
+    // acknowledged without the generic receipt log, which every channel
+    // message would otherwise flood.
+    if (
+      event?.type === "message" &&
+      (event.channel_type === "channel" || event.channel_type === "group") &&
+      isActivityChannel(String(event.channel ?? ""))
+    ) {
+      await recordSlackActivity(event as unknown as SlackMessageEvent);
+      return NextResponse.json({ ok: true });
+    }
 
     // Every inbound event, before any matching. Without this an event that
     // arrives but matches no branch below leaves no trace, which reads exactly
