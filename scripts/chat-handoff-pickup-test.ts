@@ -9,6 +9,7 @@ import assert from "node:assert/strict";
 import { handoffPickupAction, pickUpHandoff, HANDOFF_STALE_MS } from "../lib/chat-run";
 import * as store from "../lib/chat-store";
 import type { ChatMessage } from "../lib/types";
+import { getChatSettings } from "../lib/chat-settings";
 
 const MIN = 60_000;
 const now = Date.parse("2026-10-05T16:00:00Z");
@@ -53,6 +54,29 @@ async function main() {
   await store.updateConversation(t.id, { status: "waiting_human", humanRequestedAt: Date.now() - MIN, ticketId: "14500" } as never);
   assert.equal(await store.endHandoff(t.id, { touch: true }), true);
   assert.equal((await store.getConversation(t.id))!.status, "ticketed");
+
+  // The silent visitor, end to end on the timer path: call 1 → call 2 → ticket.
+  assert.equal((await getChatSettings()).handoffAttempts, 2, "two calls by default");
+  const q = await store.createConversation({ surface: "wordpress", visitor: { name: "Nir", email: "nir@example.com" } } as never);
+  await store.appendMessage(q.id, "visitor", "hey need a human rep please");
+  await store.updateConversation(q.id, { status: "waiting_human", humanRequestedAt: Date.now() - 2 * MIN, handoffPings: 1 });
+  // appendMessage stamped "now"; age the visitor's message past the in-flight window.
+  (await store.getConversation(q.id))!.messages[0].createdAt = new Date(Date.now() - 2 * MIN).toISOString();
+  assert.equal(await pickUpHandoff(q.id, "timer"), "repinged");
+  let qc = (await store.getConversation(q.id))!;
+  assert.equal(qc.status, "waiting_human");
+  assert.equal(qc.handoffPings, 2);
+  assert.match(qc.messages.at(-1)!.text, /still trying/i);
+  // Two racing callers can't both send the second call.
+  assert.equal(await store.repingHandoff(q.id, 1), false);
+
+  await store.updateConversation(q.id, { humanRequestedAt: Date.now() - 2 * MIN });
+  assert.equal(await pickUpHandoff(q.id, "cron"), "ticketed");
+  qc = (await store.getConversation(q.id))!;
+  assert.equal(qc.status, "ticketed");
+  assert.ok(qc.ticketId);
+  assert.match(qc.messages.at(-1)!.text, new RegExp(`opened ticket #${qc.ticketId}.*nir@example\\.com`));
+  assert.equal(qc.messages.length, 3, "visitor ask, still trying, ticket — no model turn needed");
 
   console.log("chat-handoff-pickup-test: all assertions passed");
 }

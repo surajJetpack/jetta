@@ -123,8 +123,13 @@ export interface ChatSettings {
   sessionIdleHours: number;
   /** Whether Jetta may hand a live conversation to a person at all. */
   handoffEnabled: boolean;
-  /** How long a visitor waits before Jetta takes the conversation back. */
+  /** How long each ping waits for someone before the next step. */
   handoffTimeoutMinutes: number;
+  /**
+   * How many times the team is pinged before Jetta gives up and opens a ticket
+   * (1 = no second ping). Each wait is handoffTimeoutMinutes.
+   */
+  handoffAttempts: number;
   /** Slack channel for "a visitor wants a human". Falls back to the escalation channel. */
   handoffChannel?: string;
 
@@ -324,6 +329,10 @@ export function defaultSettings(): ChatSettings {
      * within a minute, an answer from Jetta beats a longer wait for a maybe.
      */
     handoffTimeoutMinutes: 1,
+    // Two pings, then a ticket (suraj, 2026-10-06). Four handoffs in a row went
+    // unanswered; a second, louder call is cheap, and a ticket means the visitor
+    // leaves with a number and an email promise instead of an apology.
+    handoffAttempts: 2,
     handoffChannel: undefined,
     // On by default, but inert until JETTACHAT_FOLLOWUP arms the channel — so
     // the field is a switch someone can reach for, not a second thing to
@@ -399,6 +408,7 @@ export async function saveChatSettings(
   // exact failure the one-thread rule exists to prevent.
   next.sessionIdleHours = clamp(Number(next.sessionIdleHours), 1, 8760, current.sessionIdleHours);
   next.handoffTimeoutMinutes = clamp(Number(next.handoffTimeoutMinutes), 1, 120, current.handoffTimeoutMinutes);
+  next.handoffAttempts = clamp(Number(next.handoffAttempts), 1, 5, current.handoffAttempts ?? 2);
   // Floor of 5 minutes, which is also the sweep's own cadence: anything shorter
   // is a promise the cron cannot keep, and a nudge that lands while someone is
   // still reading the answer reads as impatience.

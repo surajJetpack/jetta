@@ -74,7 +74,7 @@ export async function GET(req: NextRequest) {
    * Handoffs nobody answered — before the follow-up arm, on purpose.
    *
    * This is not her starting a conversation: she already told the visitor
-   * "if nobody is free, I'll pick this back up in a minute", and this keeps
+   * "if nobody can, I'll open a ticket so they can get back to you", and this keeps
    * that promise for anyone the in-process handoff timer missed (a timeout
    * longer than one function can wait, or a crashed invocation). A follow-up
    * kill switch must not be able to strand a visitor in "waiting for a person".

@@ -719,13 +719,16 @@ const HANDOFF_AVAILABLE = `
   "a person will join", "someone is joining", "connecting you now", "please
   hold". They all state an outcome you cannot know.
   Say instead: "I've asked the team — if someone's free they'll jump in here.
-  If nobody is, I'll pick this back up in a minute."
+  If nobody can, I'll open a ticket so they can get back to you by email."
 - Send EXACTLY ONE short message after calling request_human, and then stop.
   One message, because silence right after asking for a person reads as the
   chat having died. Then stop, because a colleague is taking over and two
   voices answering one visitor is the failure that makes a handoff feel broken.
-- If no one comes within a minute the conversation returns to you
-  automatically. Answer it yourself then, or offer a ticket.`.trim();
+- If no one comes, the team is pinged again, and if still nobody comes a
+  ticket is opened for the customer with the transcript and the chat returns
+  to you, already ticketed. You do not open that ticket yourself. If you then
+  hear from the customer, answer what you can and put anything new on that
+  ticket.`.trim();
 
 /** …and when the console has switched handoffs off. */
 const HANDOFF_UNAVAILABLE = `

@@ -345,7 +345,7 @@ export function buildTools(
       ? {
           request_human: tool({
             description:
-              "Ask a member of the team to join this chat, right now. Use ONLY when the customer explicitly asks for a person, or is angry enough that a human should take over. It pings the team in Slack and you then go SILENT — do not send anything further, they are taking over. Nobody may be free: if no one joins within a few minutes the conversation comes back to you automatically, so do not promise the customer a person will definitely appear. For anything that can be answered by email later, use create_support_ticket instead.",
+              "Ask a member of the team to join this chat, right now. Use ONLY when the customer explicitly asks for a person, or is angry enough that a human should take over. It pings the team in Slack and you then go SILENT — do not send anything further, they are taking over. Nobody may be free: if no one joins, the team is pinged once more and then a ticket is opened for the customer automatically — you do not need to do either, and must not promise a person will definitely appear. For anything that can be answered by email later, use create_support_ticket instead.",
             inputSchema: z.object({
               reason: z
                 .string()
@@ -374,6 +374,7 @@ export function buildTools(
               await chatStoreForTools.updateConversation(ticketId, {
                 status: "waiting_human",
                 humanRequestedAt: Date.now(),
+                handoffPings: 1,
               });
               const last = [...conv.messages].reverse().find((m) => m.author === "visitor");
               await slack

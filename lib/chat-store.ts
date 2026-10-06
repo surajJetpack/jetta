@@ -238,6 +238,7 @@ type ConversationPatch = Partial<
     | "ticketedAt"
     | "lastTicketSyncAt"
     | "humanRequestedAt"
+    | "handoffPings"
     | "humanAgent"
   >
 > & { visitor?: Partial<ChatVisitor> };
@@ -364,6 +365,23 @@ export async function reopenConversation(
  * that went cold hours ago is not activity, and bumping it would float a dead
  * conversation to the top of the inbox (the resolveConversation reasoning).
  */
+/**
+ * Ping the team again for a handoff nobody has answered: count it and restart
+ * the wait. Compare-and-set on the ping count, for the same reason as
+ * endHandoff — the timer and the cron must not both send the second call.
+ */
+export async function repingHandoff(conversationId: string, expectedPings: number): Promise<boolean> {
+  return withConversationLock(conversationId, async () => {
+    const conv = await getConversation(conversationId);
+    if (!conv || conv.status !== "waiting_human" || (conv.handoffPings ?? 1) !== expectedPings) return false;
+    conv.handoffPings = expectedPings + 1;
+    conv.humanRequestedAt = Date.now();
+    conv.lastActivityAt = nowIso();
+    await save(conv);
+    return true;
+  });
+}
+
 export async function endHandoff(conversationId: string, opts: { touch: boolean }): Promise<boolean> {
   return withConversationLock(conversationId, async () => {
     const conv = await getConversation(conversationId);
@@ -439,6 +457,7 @@ async function updateConversationLocked(
   // humanAgent: undefined to CLEAR it, and an undefined check would silently
   // keep the previous person's name on a conversation they had left.
   if ("humanRequestedAt" in patch) conv.humanRequestedAt = patch.humanRequestedAt;
+  if ("handoffPings" in patch) conv.handoffPings = patch.handoffPings;
   if ("humanAgent" in patch) conv.humanAgent = patch.humanAgent;
   if (patch.ticketId) conv.ticketId = patch.ticketId;
   if (patch.ticketSubject) conv.ticketSubject = patch.ticketSubject;

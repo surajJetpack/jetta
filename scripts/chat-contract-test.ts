@@ -384,7 +384,9 @@ async function main() {
   check("status is still waiting_human", waitingAfter!.status === "waiting_human");
 
   // …and the exception, which is nobody arriving. A silence that never ends is
-  // worse than an apology.
+  // worse than an apology. Since 2026-10-06 the ending is: call the team again
+  // (handoffAttempts, default 2), then open a ticket so the visitor leaves with
+  // a number and an email promise.
   const timedOut = await newConv("TimedOut", "timedout@example.com");
   const tm = await store.appendMessage(timedOut.id, "visitor", "hello? anyone?");
   await store.setPendingTurn(timedOut.id, tm!.id);
@@ -392,18 +394,46 @@ async function main() {
     status: "waiting_human",
     // Well past any configured timeout (the ceiling is 120 minutes).
     humanRequestedAt: Date.now() - 1000 * 60 * 60 * 24,
+    handoffPings: 1,
   });
   await runChatTurn(timedOut.id, tm!.id);
-  const timedOutAfter = await store.getConversation(timedOut.id);
-  check(
-    "an unanswered handoff reverts to Jetta",
-    timedOutAfter!.status === "open",
-    timedOutAfter!.status,
-  );
+  const repinged = await store.getConversation(timedOut.id);
+  check("first timeout calls the team again", repinged!.status === "waiting_human" && repinged!.handoffPings === 2, `${repinged!.status} pings=${repinged!.handoffPings}`);
   check(
     "the visitor is told, rather than left in silence",
-    timedOutAfter!.messages.some((m) => m.author === "agent" && /nobody's free/i.test(m.text)),
+    repinged!.messages.some((m) => m.author === "agent" && /still trying/i.test(m.text)),
+    repinged!.messages.map((m) => m.text).join(" | "),
+  );
+
+  const tm2 = await store.appendMessage(timedOut.id, "visitor", "still here");
+  await store.setPendingTurn(timedOut.id, tm2!.id);
+  await store.updateConversation(timedOut.id, { humanRequestedAt: Date.now() - 1000 * 60 * 60 * 24 });
+  await runChatTurn(timedOut.id, tm2!.id);
+  const timedOutAfter = await store.getConversation(timedOut.id);
+  check(
+    "after the last call, an unanswered handoff becomes a ticket",
+    timedOutAfter!.status === "ticketed" && !!timedOutAfter!.ticketId,
+    `${timedOutAfter!.status} ticket=${timedOutAfter!.ticketId}`,
+  );
+  check(
+    "…and the visitor is given the number and the email it goes to",
+    timedOutAfter!.messages.some(
+      (m) => m.author === "agent" && /opened ticket #\S+/.test(m.text) && m.text.includes("timedout@example.com"),
+    ),
     timedOutAfter!.messages.map((m) => m.text).join(" | "),
+  );
+
+  // No email → no ticket to open; she takes it back herself, as before.
+  const anon = await newConv("Anon", "");
+  const am = await store.appendMessage(anon.id, "visitor", "anyone?");
+  await store.setPendingTurn(anon.id, am!.id);
+  await store.updateConversation(anon.id, { status: "waiting_human", humanRequestedAt: Date.now() - 86_400_000, handoffPings: 2 });
+  await runChatTurn(anon.id, am!.id);
+  const anonAfter = await store.getConversation(anon.id);
+  check(
+    "without an email the handoff ends with her, not a ticket",
+    anonAfter!.status === "open" && !anonAfter!.ticketId && anonAfter!.messages.some((m) => /nobody's free/i.test(m.text)),
+    `${anonAfter!.status} | ${anonAfter!.messages.map((m) => m.text).join(" | ")}`,
   );
   // Whatever happens next, the widget must never be left showing "typing…".
   check(
