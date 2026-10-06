@@ -414,6 +414,152 @@ export function itemCarriesTicket(
 }
 
 /**
+ * Dev Status values that mean engineering is FINISHED with an item and the
+ * customer's issue is not sitting with them any more.
+ *
+ * Read off the live boards on 2026-10-06. Deliberately short: "Done" is NOT
+ * here, because on the GetSign board "Done" sits upstream of "Pending Deploy"
+ * and "Deployed to Prod" — code done, fix not in the customer's hands — and
+ * "Duplicated" / "Related another task" mean the work moved to an item we
+ * cannot see, which is still open as far as this customer is concerned. The
+ * only statuses that end the customer's wait are a fix in prod, or a verdict
+ * that there is nothing to fix. Everything else, including a blank, is in
+ * flight.
+ */
+const FINISHED_DEV_STATUS =
+  /^(deployed to prod|test passed on prod|archived|not an issue|not bug|not a bug|could not replicate)$/i;
+
+/**
+ * Is engineering still on this item?
+ *
+ * Pure, and stricter than the search's `state` (which reads the group alone):
+ * this answers "may the follow-up cron close the customer's ticket", and the
+ * cost of a wrong "no" there is a customer told "I'll assume this is resolved"
+ * while a developer is mid-fix (ticket 14453). An item is finished only when
+ * its GROUP says so ("Done", "Deployed To Prod") or its Dev Status is one of
+ * the terminal values above. Both boards keep live work in live groups, so a
+ * "Done" status still in "Client reported Field Issues" counts as in flight —
+ * nobody has moved it, and on GetSign that usually means not yet deployed.
+ */
+export function devItemInFlight(item: { group?: string | null; status?: string | null }): boolean {
+  const group = (item.group ?? "").trim().toLowerCase();
+  if (group && CLOSED_GROUP.test(group)) return false;
+  const status = (item.status ?? "").trim();
+  return !FINISHED_DEV_STATUS.test(status);
+}
+
+/** Row → the DevBoardItem shape the agent and the cron carry around. */
+function rowToItem(i: BoardItemRow, product: Product): DevBoardItem {
+  const groupTitle = i.group?.title?.trim() ?? "";
+  const status = pickColumn(i.column_values, "status", PROGRESS_COLUMN_TITLES) ?? "unknown";
+  return {
+    id: i.id,
+    title: i.name,
+    status,
+    url: itemUrl(i.id, product),
+    updatedAt: pickColumn(i.column_values, "last_updated", ["last updated"]),
+    state: devItemInFlight({ group: groupTitle, status }) ? "open" : "closed",
+    group: groupTitle || undefined,
+  };
+}
+
+/**
+ * The dev items filed for THIS ticket that engineering has not finished with,
+ * on either board, in flight first.
+ *
+ * This is the exact lookup — the ticket link createDevItem writes into every
+ * item (and that a person filing by hand pastes too) — not the similarity
+ * search, which answers a different question ("might someone else's item be
+ * this bug?"). Two callers need the exact answer:
+ *
+ *   - the follow-up cron, before it tells a customer "I'll assume this is
+ *     resolved": an item still in flight means the issue is NOT resolved,
+ *     whatever Freshdesk's status says and whether or not the Slack
+ *     escalation key survived (a human filing the item, or a 90-day TTL, both
+ *     leave no key);
+ *   - the agent, when the customer comes back on a ticket that already has an
+ *     item: her own private note naming the item is filtered out of the
+ *     replayed history, so without this she has to re-find her own item by
+ *     fuzzy search and may not.
+ *
+ * Only the LIVE groups are read. Measured 2026-10-06: every live group on
+ * both boards fits in one page (the biggest, GetSign's Backlog, is 86 rows),
+ * while "Done" holds 926 rows on Dev Tasks and 1,287 on GetSign — ten-plus
+ * pages at ~3.5s each, for items that by definition cannot block a close.
+ * So an item that was moved to Done is simply not returned, and "finished"
+ * here can only mean a terminal Dev Status still sitting in a live group.
+ *
+ * Both boards are read, not just the product's: the product is inferred, and
+ * a misrouted ticket's item is still its item. Throws when monday is
+ * unreachable — the cron must hold on "don't know", not close on "none".
+ */
+/**
+ * A board's live group ids, remembered for a few minutes per process. Groups
+ * change about never, the lookup runs on every Freshdesk turn, and this
+ * halves its round trips. A new group shows up within the TTL.
+ */
+const liveGroupCache = new Map<string, { ids: string[]; at: number }>();
+const LIVE_GROUP_TTL_MS = 10 * 60 * 1000;
+
+async function liveGroupIds(board: string): Promise<string[]> {
+  const hit = liveGroupCache.get(board);
+  if (hit && Date.now() - hit.at < LIVE_GROUP_TTL_MS) return hit.ids;
+  const meta = await gql<{ boards: { groups: { id: string; title: string }[] }[] }>(
+    `query ($board: [ID!]) { boards(ids: $board) { groups { id title } } }`,
+    { board: [board] },
+  );
+  const ids = (meta.boards?.[0]?.groups ?? [])
+    .filter((g) => !CLOSED_GROUP.test(g.title.trim().toLowerCase()))
+    .map((g) => g.id);
+  liveGroupCache.set(board, { ids, at: Date.now() });
+  return ids;
+}
+
+export async function devItemsForTicket(ticketId: string): Promise<DevBoardItem[]> {
+  if (!config.monday.live || !/^\d+$/.test(ticketId)) return [];
+  const boards: [Product, string | undefined][] = [
+    ["jetpackapps", config.monday.boardIds.jetpackapps],
+    ["getsign", config.monday.boardIds.getsign],
+  ];
+  const fields = `cursor items { id name group { title } column_values(types: [status, last_updated]) { text type column { title } } updates(limit: ${UPDATES_PER_ITEM}) { text_body } }`;
+  type Page = { cursor: string | null; items: BoardItemRow[] };
+  const perBoard = async ([product, board]: [Product, string | undefined]): Promise<DevBoardItem[]> => {
+    const out: DevBoardItem[] = [];
+    if (!board) return out;
+    const live = await liveGroupIds(board);
+    if (!live.length) return out;
+    const data = await gql<{ boards: { groups: { items_page: Page }[] }[] }>(
+      `query ($board: [ID!], $groups: [String!]) {
+        boards(ids: $board) { groups(ids: $groups) { items_page(limit: 100) { ${fields} } } }
+      }`,
+      { board: [board], groups: live },
+    );
+    for (const group of data.boards?.[0]?.groups ?? []) {
+      let page: Page | null = group.items_page;
+      // A live group outgrowing one page is not what the boards look like
+      // today, but it is not an error either — follow the cursor, bounded.
+      for (let guard = 0; page && guard < 5; guard++) {
+        for (const row of page.items) {
+          if (itemCarriesTicket(row, ticketId)) out.push(rowToItem(row, product));
+        }
+        if (!page.cursor) break;
+        page = (
+          await gql<{ next_items_page: Page }>(
+            `query ($c: String!) { next_items_page(limit: 100, cursor: $c) { ${fields} } }`,
+            { c: page.cursor },
+          )
+        ).next_items_page;
+      }
+    }
+    return out;
+  };
+  // Both boards at once; one failing fails the lookup, which is the point.
+  return (await Promise.all(boards.map(perBoard)))
+    .flat()
+    .sort((a, b) => Number(b.state === "open") - Number(a.state === "open"));
+}
+
+/**
  * Find the dev items that might be this customer's problem, with an explicit
  * confidence on each.
  *

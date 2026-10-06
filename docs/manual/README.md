@@ -122,10 +122,13 @@ It only closes a ticket that is actually waiting on the customer:
 
 - **Only Open, Pending or Waiting on Customer.** Escalated to Dev, Working on it, HOLD, Validating, Customer responded: all mean the next move is ours, so the ticket is left alone.
 - **Never while an escalation is open.** If Jetta escalated the ticket to the team, it is not closed automatically, whatever the status says.
+- **Never while the dev board still has it.** Before closing, Jetta looks up the dev items filed for that ticket on both boards (by the ticket link every item carries, whoever filed it). If one is still in flight, the issue is not resolved and the ticket stays open. "In flight" means anything in a live group — ToDo, Working on it, Waiting Customer, HOLD, Testing Failed, even Done until it is moved or marked Deployed to Prod. Only the Done / Deployed To Prod groups, or a status of Deployed to Prod, Archived, Not an Issue, Not Bug or Could not Replicate, count as finished. If monday can't be read, the ticket is held and checked again tomorrow.
 - **No follow-up for a suggestion you replaced.** If you wrote your own reply instead ("passed to the devs, we'll update you"), Jetta's suggestion doesn't count as a resolution, and nothing is scheduled.
 - **An escalation is never a resolution.** A turn where Jetta escalated or filed a dev item can't schedule a follow-up.
 
-If the customer replies to a closed ticket, Jetta picks it up and writes a suggestion even if Freshdesk hasn't reopened the ticket yet. Held tickets show in the event log as `cron.followup_held`. Ask Jetta in the console "what's going to be auto-closed?" to see the queue.
+When the customer does reply on a ticket that has a dev item, Jetta sees that item and its Dev Status in her context (not just fuzzy matches by subject), reads engineering's comments on it before answering, and treats the issue as unresolved while the item is in flight: she won't close the ticket, won't tag the turn as a resolution (so no follow-up gets scheduled), and won't file a second item for the same problem. If the item is finished but the customer says it still happens, that goes back to engineering as new information.
+
+If the customer replies to a closed ticket, Jetta picks it up and writes a suggestion even if Freshdesk hasn't reopened the ticket yet. Held tickets show in the event log as `cron.followup_held`, with the dev item named when that is the reason. Ask Jetta in the console "what's going to be auto-closed?" to see the queue.
 
 These rules exist because of tickets 14453 and 14404, where escalated customers were told their issue was assumed resolved.
 

@@ -159,10 +159,16 @@ export async function runAgentLoop(
   const handedOff = trace.some(
     (t) => !t.failed && (t.tool === "send_escalation" || t.tool === "create_dev_item"),
   );
+  // Same rule for a handoff that happened on an EARLIER turn: while the dev
+  // board still has an item for this ticket in flight, the issue is not
+  // resolved, whatever this turn's note says. "Still with the team, I'll keep
+  // you posted" tagged resolution_sent is exactly how a follow-up gets
+  // scheduled against a customer who is waiting on engineering.
+  const withEngineering = (ctx.ticketDevItems ?? []).some((i) => i.state === "open");
 
   return {
     text: result.text.trim(),
-    resolutionSent: signals.resolutionSent && !handedOff,
+    resolutionSent: signals.resolutionSent && !handedOff && !withEngineering,
     toolsUsed: trace.map((t) => t.tool),
     trace,
     dryRun,

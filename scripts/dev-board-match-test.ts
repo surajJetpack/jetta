@@ -17,6 +17,7 @@
  * against what people actually write, not against invented examples.
  */
 import {
+  devItemInFlight,
   devItemUpdateText,
   freshdeskTicketId,
   itemCarriesTicket,
@@ -229,6 +230,27 @@ console.log("\nOne item per Freshdesk ticket");
     itemCarriesTicket({ column_values: [{ text: "https://jetpackwork.freshdesk.com/a/tickets/14331" }] }, "14331"),
   );
   check("an item with nothing on it carries no ticket", !itemCarriesTicket({}, "14331"));
+}
+
+console.log("\nIs engineering still on it? (what the follow-up cron may close over)");
+{
+  // Group and status values are the live boards' own, read 2026-10-06.
+  const inFlight = (group: string, status: string) => devItemInFlight({ group, status });
+  check("a fresh field issue is in flight", inFlight(FIELD, "ToDo"));
+  check("…so is one being worked", inFlight(FIELD, "Working on it"));
+  check("…and one that failed testing", inFlight("Internal Bug", "Testing Failed"));
+  check("…and one waiting on the customer — the ticket is not resolved", inFlight(FIELD, "Waiting Customer"));
+  check("…and one with no status at all", inFlight("Bugs and Field Issues", ""));
+  check("On Hold is parked, not finished", inFlight("On Hold", "HOLD"));
+  check("Done status in a live group is NOT finished (GetSign: code done, not deployed)", inFlight(FIELD, "Done"));
+  check("Duplicated points at work we cannot see — still open for this customer", inFlight("Backlog", "Duplicated"));
+  check("the Done group is finished, whatever the status says", !inFlight("Done", "Working on it"));
+  check("Deployed To Prod group is finished", !inFlight("Deployed To Prod", "Deployed to Prod"));
+  check("Deployed to Prod status is finished even before the move", !inFlight(FIELD, "Deployed to Prod"));
+  check("'Not an Issue' ends the wait", !inFlight(FIELD, "Not an Issue"));
+  check("'Could not Replicate' ends the wait", !inFlight("Internal Bug", "Could not Replicate"));
+  check("'Archived' ends the wait", !inFlight("Coming Up", "Archived"));
+  check("a missing group falls back to the status", inFlight("", "ToDo") && !inFlight("", "Not Bug"));
 }
 
 console.log(failures ? `\n${failures} FAILED` : "\nall passed");
