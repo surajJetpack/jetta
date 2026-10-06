@@ -114,6 +114,21 @@ Two behaviours worth knowing:
 - If the customer writes again while a suggestion is waiting, the old one is marked **superseded** and Jetta writes a fresh one against the new message.
 - If nobody ever replies, the suggestion quietly **expires** after two weeks instead of piling up. An expired suggestion is not a black mark against anyone.
 
+### When the customer goes quiet
+
+When you send a reply that **resolves** the ticket, and it was Jetta's suggestion (as-is or edited), Jetta schedules a follow-up. The follow-up sweep runs once a day at **09:00 UTC** and picks up anything at least 24 hours old. If the customer still hasn't answered, it posts one fixed note ("I haven't heard back, so I'll assume this is resolved…") and sets the ticket to **Resolved**.
+
+It only closes a ticket that is actually waiting on the customer:
+
+- **Only Open, Pending or Waiting on Customer.** Escalated to Dev, Working on it, HOLD, Validating, Customer responded: all mean the next move is ours, so the ticket is left alone.
+- **Never while an escalation is open.** If Jetta escalated the ticket to the team, it is not closed automatically, whatever the status says.
+- **No follow-up for a suggestion you replaced.** If you wrote your own reply instead ("passed to the devs, we'll update you"), Jetta's suggestion doesn't count as a resolution, and nothing is scheduled.
+- **An escalation is never a resolution.** A turn where Jetta escalated or filed a dev item can't schedule a follow-up.
+
+If the customer replies to a closed ticket, Jetta picks it up and writes a suggestion even if Freshdesk hasn't reopened the ticket yet. Held tickets show in the event log as `cron.followup_held`. Ask Jetta in the console "what's going to be auto-closed?" to see the queue.
+
+These rules exist because of tickets 14453 and 14404, where escalated customers were told their issue was assumed resolved.
+
 ### The audit trail
 
 ![Suggestions — an audit trail, not a queue](images/drafts.webp)
@@ -174,7 +189,7 @@ Escalations land in **#jetta-escalations**. When Jetta posts there, it's because
 
 ### Talking to Jetta in the console
 
-Admins can also talk to Jetta **by voice, inside the console**. Press **⌘J**, click the round button at the bottom right, or choose **Ask Jetta** in ⌘K. Ask out loud or type in the box. It knows this manual, the live configuration on System, and which page you are on. It can look up tickets, the knowledge base, billing, the dev board, Today, Support health, Performance and the event log, and it can **take you there** while you keep talking. It goes to the specific thing, not just the page: a section ("what needs me today"), or the list of tickets behind a number on Support health or Performance ("show me the reopened GetSign tickets").
+Admins can also talk to Jetta **by voice, inside the console**. Press **⌘J**, click the round button at the bottom right, or choose **Ask Jetta** in ⌘K. Ask out loud or type in the box. It knows this manual, the live configuration on System, and which page you are on. It can look up tickets, the knowledge base, billing, the dev board, Today, Support health, Performance, the ticket follow-up queue and the event log, and it can **take you there** while you keep talking. It goes to the specific thing, not just the page: a section ("what needs me today"), or the list of tickets behind a number on Support health or Performance ("show me the reopened GetSign tickets").
 - When it mentions tickets, dev board items or articles, it puts **clickable links** in the panel, and ticket numbers in its answers are links too. It only shows links its lookups actually returned.
 - The ticket lists behind numbers have their own links now (`/health?drill=…`), so you can paste one into Slack and it opens the same list.
 
@@ -253,7 +268,23 @@ Approving does two things at once — it publishes the article *and* embeds it f
 
 ![Trials and discounts waiting on a person](images/billing.webp)
 
-Trial extensions and discounts Jetta won't grant itself, filed for a human. Approve or reject here or in Slack. Pending requests expire after three days, so an ignored one never quietly grants itself.
+Trial extensions and discounts Jetta won't grant itself, filed for a human. Approve or reject here or in Slack. Pending requests expire after three days, so an ignored one never quietly grants itself. The **History** card below the queue lists past decisions: who approved or rejected what, and when.
+
+### Support health
+
+Team-level support health over the last 28 days: volume, first-reply times against target, who is waiting on a reply, reopens, and which apps and themes drive the load. Every number opens the list of tickets behind it, and those lists have their own links (`/health?drill=…`) you can paste into Slack. **Sync** pulls fresh Freshdesk data, and there is a written AI read of the numbers. Everyone can see this page.
+
+### Performance (admin)
+
+What customers got before and after Jetta went live: reply times, how much of the work was Jetta's, handoffs to people, knowledge gaps worth writing up, and per-agent numbers. Like Support health, every number opens its tickets, and there's a written AI read that cites them.
+
+### Team activity (admin)
+
+What each person did and where: Freshdesk replies, chats, Slack, monday dev items and console actions, as a scorecard and a timeline. It's kept current from Slack and monday as things happen, with an hourly catch-up sync.
+
+### Test Jetta
+
+The testing playbook: you play the customer, through a guided wizard, to learn how Jetta behaves. Test tickets and dev items are marked `[TEST]`, and the page offers to clean them up when you are done.
 
 ### Insights
 

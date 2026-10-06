@@ -169,6 +169,18 @@ export async function scheduleFollowUp(
   memJobs.set(ticketId, job);
 }
 
+/** Every scheduled follow-up job, due or not, soonest first. */
+export async function listFollowUps(): Promise<FollowUpJob[]> {
+  const r = client();
+  if (r) {
+    const ids = await r.smembers(FOLLOWUP_SET);
+    if (!ids.length) return [];
+    const raw = await Promise.all(ids.map((id) => r.get<FollowUpJob>(followupKey(id))));
+    return raw.filter((j): j is FollowUpJob => !!j).sort((a, b) => a.dueAt - b.dueAt);
+  }
+  return [...memJobs.values()].sort((a, b) => a.dueAt - b.dueAt);
+}
+
 /** Return all follow-up jobs that are due (dueAt in the past). */
 export async function getDueFollowUps(): Promise<FollowUpJob[]> {
   const now = Math.floor(Date.now() / 1000);

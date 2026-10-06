@@ -389,8 +389,16 @@ export const ENDPOINTS: readonly EndpointRow[] = [
 ] as const;
 
 export const CRONS: readonly EndpointRow[] = [
-  { path: "/api/cron/followup", detail: "Checks tickets waiting 24h on a customer", schedule: "daily 09:00" },
+  {
+    path: "/api/cron/followup",
+    detail:
+      "Ticket follow-ups, 24h+ after a resolution a human sent: customer silent → closing note + resolve, but only if the ticket is open/pending/waiting on customer and has no open escalation; customer replied → nothing if the webhook already answered",
+    schedule: "daily 09:00",
+  },
+  { path: "/api/cron/chat-followup", detail: "Chat sweep: one check-in after 15 min of visitor silence, auto-resolve after 24h", schedule: "every 5 min" },
   { path: "/api/cron/kb-sync", detail: "Re-crawls the sites into the knowledge base", schedule: "daily 05:00" },
   { path: "/api/cron/reconcile-drafts", detail: "Matches suggestions to what humans actually sent", schedule: "hourly at :15" },
   { path: "/api/cron/daily-overview", detail: "Yesterday's rollup and its written narrative", schedule: "daily 06:10" },
+  { path: "/api/cron/performance-sync", detail: "Reads changed Freshdesk tickets into the Support health and Performance stores", schedule: "hourly at :40" },
+  { path: "/api/cron/activity-sync", detail: "Reads Slack, monday and the KB audit into Team activity", schedule: "hourly at :25" },
 ] as const;

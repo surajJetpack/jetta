@@ -55,6 +55,9 @@ import {
   drillHref,
 } from "./drill-code";
 import { config } from "./config";
+import { listFollowUps, getEscalationTs } from "./kv";
+import { getTicketStatus } from "./tools/freshdesk";
+import { followUpCloseBlocker } from "./followup-guard";
 
 export type AssistantMode = "live" | "deep";
 
@@ -229,6 +232,34 @@ export function consoleTools(): ToolSet {
             drillLines("/performance", evidence.map((e) => ({ id: e.id, title: e.title, code: encodePerfDrill(e.drill) }))),
             insight ? `\nCACHED AI READ:\n${JSON.stringify(insight).slice(0, 2500)}` : "",
           ].join("\n"),
+        );
+      },
+    }),
+
+    followup_queue: tool({
+      description:
+        "The ticket follow-up queue: tickets scheduled for the daily 09:00 UTC follow-up sweep, when each is due, and what the sweep would do with it today — send the closing \"I'll assume this is resolved\" note and resolve, or hold it (escalated, team owes a reply, open escalation). Use for 'what will be auto-closed', 'why did ticket N get closed', 'is N going to be closed'.",
+      inputSchema: z.object({}),
+      execute: async () => {
+        const jobs = await listFollowUps().catch(() => []);
+        if (!jobs.length) return "No ticket follow-ups are scheduled.";
+        // A handful of jobs at most; one status read each, inside the shared FD budget.
+        const rows = await Promise.all(
+          jobs.slice(0, 20).map(async (j) => {
+            const [status, esc] = await Promise.all([getTicketStatus(j.ticketId), getEscalationTs(j.ticketId).catch(() => null)]);
+            const block = followUpCloseBlocker(status, !!esc);
+            return {
+              ticket: j.ticketId,
+              due: new Date(j.dueAt * 1000).toISOString(),
+              status,
+              ifCustomerStaysSilent: block
+                ? `held (${block.reason === "status" ? `status: ${block.status}` : block.reason})`
+                : "closing note + resolve",
+            };
+          }),
+        );
+        return clip(
+          `The sweep runs daily at 09:00 UTC and takes every job due by then. If the customer has replied, it only runs Jetta when the webhook has not already answered.\n${JSON.stringify(rows)}`,
         );
       },
     }),
