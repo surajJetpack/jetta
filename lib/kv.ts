@@ -182,6 +182,13 @@ export async function getDueFollowUps(): Promise<FollowUpJob[]> {
   return [...memJobs.values()].filter((j) => j.dueAt <= now);
 }
 
+/** The follow-up job for one ticket, due or not. */
+export async function getFollowUp(ticketId: string): Promise<FollowUpJob | null> {
+  const r = client();
+  if (r) return (await r.get<FollowUpJob>(followupKey(ticketId))) ?? null;
+  return memJobs.get(ticketId) ?? null;
+}
+
 /** Remove a follow-up job once handled. */
 export async function clearFollowUp(ticketId: string): Promise<void> {
   const r = client();

@@ -1,14 +1,18 @@
 /**
- * 24-hour follow-up checker. Runs hourly (see vercel.json).
+ * 24-hour follow-up checker. Runs daily at 09:00 UTC (see vercel.json), so a
+ * job fires 24–47h after it was scheduled.
  *
  * For each due follow-up job:
  *   - If the customer has replied since the resolution was sent: re-run the
  *     agent loop so Jetta handles the reply normally.
- *   - If not: send a follow-up message and close the ticket.
+ *   - If not, and the ticket is still waiting on the customer
+ *     (lib/followup-guard.ts): send a follow-up message and close the ticket.
+ *   - Otherwise leave it alone — the team owes the next reply.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { config } from "@/lib/config";
-import { getDueFollowUps, clearFollowUp, recordOutcome } from "@/lib/kv";
+import { getDueFollowUps, clearFollowUp, recordOutcome, getEscalationTs } from "@/lib/kv";
+import { followUpCloseBlocker } from "@/lib/followup-guard";
 import { modelLabel } from "@/lib/llm";
 import { buildContext, buildMessages } from "@/lib/context";
 import { buildSystemPrompt } from "@/lib/system-prompt";
@@ -37,6 +41,7 @@ export async function GET(req: NextRequest) {
   const handled: { ticketId: string; action: string }[] = [];
 
   for (const job of due) {
+    let keep = false;
     try {
       const replied = await freshdesk.hasCustomerReplySince(job.ticketId, job.resolutionSentAt);
 
@@ -78,11 +83,32 @@ export async function GET(req: NextRequest) {
           }).catch(() => {});
         }
       } else {
-        // No response — send a closing follow-up, then resolve the ticket.
+        const block = followUpCloseBlocker(
+          await freshdesk.getTicketStatus(job.ticketId),
+          !!(await getEscalationTs(job.ticketId)),
+        );
+        if (block) {
+          keep = block.retry;
+          handled.push({
+            ticketId: job.ticketId,
+            action: `no reply → held (${block.reason === "status" ? `status: ${block.status}` : block.reason})`,
+          });
+          await logOpsEvent({
+            level: "info",
+            event: "cron.followup_held",
+            source: "cron",
+            ticketId: job.ticketId,
+            data: { ...block },
+          });
+          continue;
+        }
+        // No response, still waiting on the customer — send a closing
+        // follow-up, then resolve the ticket.
         // Deliberately automatic even in draft mode: the message is a fixed
         // template (not model-generated), and follow-ups are only scheduled
-        // when a human approved the resolution, so this path only fires for
-        // tickets a reviewer already signed off on.
+        // when a human sent the resolution (console approve, or the reconciler
+        // seeing the draft used), and the guard above has just confirmed the
+        // ticket is waiting on the customer.
         await freshdesk.replyToTicket(
           job.ticketId,
           "Following up — I haven't heard back, so I'll assume this is resolved and close the ticket. " +
@@ -116,7 +142,7 @@ export async function GET(req: NextRequest) {
         data: { error: err instanceof Error ? err.message : String(err) },
       });
     } finally {
-      await clearFollowUp(job.ticketId);
+      if (!keep) await clearFollowUp(job.ticketId);
     }
   }
 
