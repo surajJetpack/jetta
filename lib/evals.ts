@@ -110,6 +110,9 @@ const EVAL_UNDISTILLED = "jetta:evals:undistilled";
 const evalKey = (id: string) => `jetta:eval:${id}`;
 const EVAL_TTL = 180 * 86400;
 
+/** Id of the evaluation a mined ticket writes — one per ticket, ever (mine-human-replies). */
+export const minedEvalId = (ticketId: string) => `mined-${ticketId}`;
+
 const LEARNING_IDS = "jetta:learnings:ids";
 const learningKey = (id: string) => `jetta:learning:${id}`;
 

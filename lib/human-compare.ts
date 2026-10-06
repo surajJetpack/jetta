@@ -14,7 +14,6 @@ import { buildContext, buildMessages } from "./context";
 import { buildSystemPrompt } from "./system-prompt";
 import { runAgentLoop } from "./agent";
 import { getModel } from "./llm";
-import { config } from "./config";
 import type { EvalTag } from "./evals";
 import { JUNK } from "./intake";
 
