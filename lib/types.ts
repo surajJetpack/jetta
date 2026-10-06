@@ -350,7 +350,16 @@ export interface ConversationContext {
   channel: Channel;
   ticket: Ticket | null;
   account: FastSpringAccount | null;
+  /** Fuzzy subject matches off the board — leads, not this ticket's item. */
   relatedDevItems: DevBoardItem[];
+  /**
+   * The dev items filed for THIS ticket (exact, by ticket link), in flight
+   * first. Freshdesk only. The agent's own note naming the item is dropped from
+   * the replayed history, so this is how she knows, on a later turn, that the
+   * issue is with engineering and what state it is in — and while one is
+   * still open, a turn can't count as a resolution. Absent = not looked up.
+   */
+  ticketDevItems?: DevBoardItem[];
   product: Product;
   /**
    * How `product` was determined. Drives brand-profile selection only — the

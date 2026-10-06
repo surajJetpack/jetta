@@ -6,13 +6,15 @@
  *   - If the customer has replied since the resolution was sent: re-run the
  *     agent loop so Jetta handles the reply normally.
  *   - If not, and the ticket is still waiting on the customer
- *     (lib/followup-guard.ts): send a follow-up message and close the ticket.
- *   - Otherwise leave it alone — the team owes the next reply.
+ *     (lib/followup-guard.ts — Freshdesk status, no open escalation, and no
+ *     dev-board item still in flight): send a follow-up message and close
+ *     the ticket.
+ *   - Otherwise leave it alone — the team or engineering owes the next move.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { config } from "@/lib/config";
 import { getDueFollowUps, clearFollowUp, recordOutcome, getEscalationTs, markEventSeen, unmarkEventSeen } from "@/lib/kv";
-import { followUpCloseBlocker } from "@/lib/followup-guard";
+import { describeFollowUpBlock, followUpCloseBlocker } from "@/lib/followup-guard";
 import { modelLabel } from "@/lib/llm";
 import { buildContext, buildMessages } from "@/lib/context";
 import { buildSystemPrompt } from "@/lib/system-prompt";
@@ -20,6 +22,7 @@ import { runAgentLoop } from "@/lib/agent";
 import { recordRun } from "@/lib/runlog";
 import { createDraftFromRun } from "@/lib/drafts";
 import * as freshdesk from "@/lib/tools/freshdesk";
+import { devItemsForTicket } from "@/lib/tools/monday";
 import { logOpsEvent } from "@/lib/events";
 
 export const runtime = "nodejs";
@@ -94,15 +97,25 @@ export async function GET(req: NextRequest) {
           }).catch(() => {});
         }
       } else {
+        // The dev board is read for every job, not only when Freshdesk says
+        // "waiting on customer": a null here means "monday could not be
+        // read", and the guard treats that as a reason to hold, never as
+        // "no items". A handful of jobs a day, two board pages each.
+        const [status, escalationTs, devItems] = await Promise.all([
+          freshdesk.getTicketStatus(job.ticketId),
+          getEscalationTs(job.ticketId),
+          devItemsForTicket(job.ticketId).catch(() => null),
+        ]);
         const block = followUpCloseBlocker(
-          await freshdesk.getTicketStatus(job.ticketId),
-          !!(await getEscalationTs(job.ticketId)),
+          status,
+          !!escalationTs,
+          devItems ? devItems.filter((i) => i.state === "open") : null,
         );
         if (block) {
           keep = block.retry;
           handled.push({
             ticketId: job.ticketId,
-            action: `no reply → held (${block.reason === "status" ? `status: ${block.status}` : block.reason})`,
+            action: `no reply → held (${describeFollowUpBlock(block)})`,
           });
           await logOpsEvent({
             level: "info",
@@ -113,8 +126,9 @@ export async function GET(req: NextRequest) {
           });
           continue;
         }
-        // No response, still waiting on the customer — send a closing
-        // follow-up, then resolve the ticket.
+        // No response, still waiting on the customer, and nothing for this
+        // ticket in flight on the dev board — send a closing follow-up, then
+        // resolve the ticket.
         // Deliberately automatic even in draft mode: the message is a fixed
         // template (not model-generated), and follow-ups are only scheduled
         // when a human sent the resolution (console approve, or the reconciler

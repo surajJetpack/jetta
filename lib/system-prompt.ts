@@ -804,6 +804,25 @@ function contextBlock(ctx: ConversationContext, profile: Profile): string {
     );
   }
 
+  if (ctx.ticketDevItems?.length) {
+    // The exact items for THIS ticket, found by ticket link — unlike the
+    // fuzzy block below, these are hers to act on. The private note that named
+    // the item is filtered out of the replayed history, so on a "any update?"
+    // turn this is the only way she knows the issue is with engineering, which
+    // item, and whether it has moved.
+    const open = ctx.ticketDevItems.filter((i) => i.state === "open");
+    lines.push(
+      `THIS TICKET'S OWN Dev board item${ctx.ticketDevItems.length === 1 ? "" : "s"} (filed for this exact ticket — INTERNAL, never name or link to the customer):`,
+      ...ctx.ticketDevItems.map(
+        (i) =>
+          `  - id ${i.id}: ${i.title} — Dev Status: ${i.status}${i.group ? `, group: ${i.group}` : ""} → ${i.state === "open" ? "STILL IN FLIGHT with engineering" : "finished"}`,
+      ),
+      open.length
+        ? `  The issue on this ticket is NOT resolved: engineering still has it. Before you reply, call read_dev_item_comments on the open item to see whether anything has moved (a workaround or a fix are worth passing on in your own words; nothing else is). Do NOT call close_ticket, do NOT tag the note resolution_sent, and do not file another item for the same problem. If the customer is asking for an update and nothing has moved, say it is still with the team — no timeline.`
+        : `  Engineering has finished with it. If the customer says it still happens, that is new information: add it with create_dev_item (it attaches to the item for this ticket) and escalate.`,
+    );
+  }
+
   if (ctx.relatedDevItems.length) {
     // Confidence travels with the item. This block is assembled from the same
     // search the tool calls, off the ticket SUBJECT — a line written by a

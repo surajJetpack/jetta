@@ -61,7 +61,8 @@ import { buildScorecard, filterTimeline, parseAliases, resolvePerson, PLACES, AC
 import { getSlackNames, loadActivities } from "./activity-store";
 import { supportTimeZone } from "./tz";
 import { getTicketStatus } from "./tools/freshdesk";
-import { followUpCloseBlocker } from "./followup-guard";
+import { devItemsForTicket } from "./tools/monday";
+import { describeFollowUpBlock, followUpCloseBlocker } from "./followup-guard";
 
 export type AssistantMode = "live" | "deep";
 
@@ -242,7 +243,7 @@ export function consoleTools(): ToolSet {
 
     followup_queue: tool({
       description:
-        "The ticket follow-up queue: tickets scheduled for the daily 09:00 UTC follow-up sweep, when each is due, and what the sweep would do with it today — send the closing \"I'll assume this is resolved\" note and resolve, or hold it (escalated, team owes a reply, open escalation). Use for 'what will be auto-closed', 'why did ticket N get closed', 'is N going to be closed'.",
+        "The ticket follow-up queue: tickets scheduled for the daily 09:00 UTC follow-up sweep, when each is due, and what the sweep would do with it today — send the closing \"I'll assume this is resolved\" note and resolve, or hold it (escalated, team owes a reply, open escalation, or a dev-board item for the ticket still in flight). Use for 'what will be auto-closed', 'why did ticket N get closed', 'is N going to be closed'.",
       inputSchema: z.object({}),
       execute: async () => {
         const jobs = await listFollowUps().catch(() => []);
@@ -250,15 +251,18 @@ export function consoleTools(): ToolSet {
         // A handful of jobs at most; one status read each, inside the shared FD budget.
         const rows = await Promise.all(
           jobs.slice(0, 20).map(async (j) => {
-            const [status, esc] = await Promise.all([getTicketStatus(j.ticketId), getEscalationTs(j.ticketId).catch(() => null)]);
-            const block = followUpCloseBlocker(status, !!esc);
+            const [status, esc, devItems] = await Promise.all([
+              getTicketStatus(j.ticketId),
+              getEscalationTs(j.ticketId).catch(() => null),
+              devItemsForTicket(j.ticketId).catch(() => null),
+            ]);
+            const block = followUpCloseBlocker(status, !!esc, devItems ? devItems.filter((i) => i.state === "open") : null);
             return {
               ticket: j.ticketId,
               due: new Date(j.dueAt * 1000).toISOString(),
               status,
-              ifCustomerStaysSilent: block
-                ? `held (${block.reason === "status" ? `status: ${block.status}` : block.reason})`
-                : "closing note + resolve",
+              devItems: devItems === null ? "unreadable" : devItems.map((i) => `${i.title} — ${i.status}, ${i.state}`),
+              ifCustomerStaysSilent: block ? `held (${describeFollowUpBlock(block)})` : "closing note + resolve",
             };
           }),
         );
