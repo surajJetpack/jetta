@@ -55,6 +55,13 @@ import {
   drillHref,
 } from "./drill-code";
 import { config } from "./config";
+import { listFollowUps, getEscalationTs, listMonetApprovals, listMonetDecisions } from "./kv";
+import { listConversations, getConversation } from "./chat-store";
+import { buildScorecard, filterTimeline, parseAliases, resolvePerson, PLACES, ACTION_LABEL, type Place } from "./activity";
+import { getSlackNames, loadActivities } from "./activity-store";
+import { supportTimeZone } from "./tz";
+import { getTicketStatus } from "./tools/freshdesk";
+import { followUpCloseBlocker } from "./followup-guard";
 
 export type AssistantMode = "live" | "deep";
 
@@ -230,6 +237,169 @@ export function consoleTools(): ToolSet {
             insight ? `\nCACHED AI READ:\n${JSON.stringify(insight).slice(0, 2500)}` : "",
           ].join("\n"),
         );
+      },
+    }),
+
+    followup_queue: tool({
+      description:
+        "The ticket follow-up queue: tickets scheduled for the daily 09:00 UTC follow-up sweep, when each is due, and what the sweep would do with it today — send the closing \"I'll assume this is resolved\" note and resolve, or hold it (escalated, team owes a reply, open escalation). Use for 'what will be auto-closed', 'why did ticket N get closed', 'is N going to be closed'.",
+      inputSchema: z.object({}),
+      execute: async () => {
+        const jobs = await listFollowUps().catch(() => []);
+        if (!jobs.length) return "No ticket follow-ups are scheduled.";
+        // A handful of jobs at most; one status read each, inside the shared FD budget.
+        const rows = await Promise.all(
+          jobs.slice(0, 20).map(async (j) => {
+            const [status, esc] = await Promise.all([getTicketStatus(j.ticketId), getEscalationTs(j.ticketId).catch(() => null)]);
+            const block = followUpCloseBlocker(status, !!esc);
+            return {
+              ticket: j.ticketId,
+              due: new Date(j.dueAt * 1000).toISOString(),
+              status,
+              ifCustomerStaysSilent: block
+                ? `held (${block.reason === "status" ? `status: ${block.status}` : block.reason})`
+                : "closing note + resolve",
+            };
+          }),
+        );
+        return clip(
+          `The sweep runs daily at 09:00 UTC and takes every job due by then. If the customer has replied, it only runs Jetta when the webhook has not already answered.\n${JSON.stringify(rows)}`,
+        );
+      },
+    }),
+
+    chat_conversations: tool({
+      description:
+        "JettaChat, the live website and in-app chat (/chats). Without conversation_id: recent conversations with status (open = Jetta answering, waiting_human = visitor asked for a person, human = a colleague took it, ticketed, resolved), app, visitor, and the last thing the visitor said. With conversation_id: that full transcript. Use for 'anyone waiting in chat', 'what did Jetta tell the visitor about X', 'show me today's chats'.",
+      inputSchema: z.object({
+        conversation_id: z.string().optional().describe("A conversation id, or its first 8 characters, from an earlier list."),
+        status: z.enum(["open", "waiting_human", "human", "ticketed", "resolved"]).optional(),
+        hours: z.number().optional().describe("Only conversations active in the last N hours. Default 48."),
+      }),
+      execute: async ({ conversation_id, status, hours }) => {
+        const all = await listConversations(100).catch(() => []);
+        if (conversation_id) {
+          const id = all.find((c) => c.id === conversation_id || c.id.startsWith(conversation_id))?.id ?? conversation_id;
+          const c = await getConversation(id).catch(() => null);
+          if (!c) return `No conversation ${conversation_id}.`;
+          const lines = c.messages.map(
+            (m) =>
+              `[${m.createdAt}] ${m.system ? "system" : m.author === "visitor" ? "visitor" : m.via === "human" ? (m.authorName ?? "colleague") : "Jetta"}: ${m.text.slice(0, 600)}${m.attachments?.length ? ` (+${m.attachments.length} file)` : ""}`,
+          );
+          return clip(
+            [
+              `Conversation ${c.id} · ${c.status}${c.resolvedBy ? ` by ${c.resolvedBy}` : ""} · app ${c.app ?? "unknown"} · ${c.surface} · visitor ${c.visitor.name ?? "anonymous"}${c.ticketId ? ` · Freshdesk ticket ${c.ticketId}` : ""}${c.humanAgent ? ` · taken by ${c.humanAgent}` : ""}`,
+              `Console link: /chats?c=${c.id}`,
+              ...lines,
+            ].join("\n"),
+          );
+        }
+        const since = Date.now() - (hours ?? 48) * 3_600_000;
+        const rows = all
+          .filter((c) => Date.parse(c.lastActivityAt) >= since && (!status || c.status === status))
+          .slice(0, 40)
+          .map((c) => {
+            const lastVisitor = [...c.messages].reverse().find((m) => m.author === "visitor" && !m.system);
+            return {
+              id: c.id.slice(0, 8),
+              status: c.status,
+              app: c.app ?? "unknown",
+              visitor: c.visitor.name ?? "anonymous",
+              lastActivity: c.lastActivityAt,
+              messages: c.messages.length,
+              ...(c.ticketId ? { ticket: c.ticketId } : {}),
+              ...(c.humanAgent ? { takenBy: c.humanAgent } : {}),
+              lastVisitorSaid: lastVisitor?.text.slice(0, 160),
+              link: `/chats?c=${c.id}`,
+            };
+          });
+        return rows.length ? clip(JSON.stringify(rows)) : "No chat conversations matched in that window.";
+      },
+    }),
+
+    billing_requests: tool({
+      description:
+        "The /billing page: trial extensions and discounts Jetta filed for a person to approve (pending ones expire after 3 days), and the decision history — who approved or rejected what, and whether monday applied it. Read-only: you cannot approve or reject; take them to /billing for that. Use for 'any billing approvals waiting', 'who approved the discount for X', 'what did we give account Y'.",
+      inputSchema: z.object({
+        account: z.string().optional().describe("Filter by monday account slug (substring)."),
+        history_limit: z.number().optional().describe("How many past decisions, 1-40. Default 15."),
+      }),
+      execute: async ({ account, history_limit }) => {
+        const [pending, history, slackNames] = await Promise.all([
+          listMonetApprovals().catch(() => []),
+          listMonetDecisions(400).catch(() => []),
+          getSlackNames().catch(() => ({})),
+        ]);
+        const aliases = parseAliases(config.agentAliases);
+        const match = (slug: string) => !account || slug.toLowerCase().includes(account.toLowerCase());
+        const what = (a: { action: string; days?: number; percent?: number; daysValid?: number; period?: string }) =>
+          a.action === "trial" ? `trial to ${a.days} days` : `${a.percent}% discount${a.period ? ` (${a.period.toLowerCase()})` : ""}${a.daysValid ? `, valid ${a.daysValid} days` : ""}`;
+        const p = pending.filter((a) => match(a.accountSlug)).map((a) => ({
+          app: a.app,
+          account: a.accountSlug,
+          request: what(a),
+          ...(a.ticketId ? { ticket: a.ticketId } : {}),
+          ...(a.flagged ? { flagged: a.flagged } : {}),
+          filed: new Date(a.createdAt * 1000).toISOString(),
+        }));
+        const h = history
+          .filter((d) => match(d.accountSlug))
+          .slice(0, Math.min(Math.max(history_limit ?? 15, 1), 40))
+          .map((d) => ({
+            app: d.app,
+            account: d.accountSlug,
+            request: what(d),
+            outcome: d.outcome,
+            decidedBy: resolvePerson(d.actor, aliases, slackNames).name,
+            decided: new Date(d.decidedAt * 1000).toISOString(),
+            ...(d.direct ? { direct: true } : {}),
+            ...(d.ticketId ? { ticket: d.ticketId } : {}),
+          }));
+        return clip(
+          `PENDING (${p.length}) — link /billing:\n${JSON.stringify(p)}\n\nHISTORY (newest first; outcome "failed" = approved but monday did not apply it):\n${JSON.stringify(h)}`,
+        );
+      },
+    }),
+
+    team_activity: tool({
+      description:
+        "The /activity page: what each person on the team did and where — Freshdesk replies and notes, chats, Slack, monday dev items, console actions — as a per-person scorecard plus recent timeline entries. Use for 'what has Sujata done today', 'who picked up chats this week', 'is anyone covering Slack escalations'.",
+      inputSchema: z.object({
+        days: z.number().optional().describe("Window: 1, 7 or 28. Default 7."),
+        person: z.string().optional().describe("Name, to list that person's recent actions."),
+        place: z.enum(PLACES.map((p) => p.id) as [Place, ...Place[]]).optional(),
+      }),
+      execute: async ({ days, person, place }) => {
+        const d = [1, 7, 28].includes(days ?? 7) ? (days ?? 7) : 7;
+        const [acts, slackNames] = await Promise.all([loadActivities(Date.now() - d * 86_400_000), getSlackNames().catch(() => ({}))]);
+        const aliases = parseAliases(config.agentAliases);
+        const opts = { aliases, slackNames, tz: supportTimeZone() };
+        const scorecard = buildScorecard(acts, opts);
+        const want = person?.toLowerCase();
+        const recent = filterTimeline(acts, { place }, opts)
+          .map((a) => ({ a, who: resolvePerson(a.who, aliases, slackNames).name }))
+          .filter(({ who }) => !want || who.toLowerCase().includes(want))
+          .slice(0, 30)
+          .map(({ a, who }) => ({
+            at: new Date(a.at).toISOString(),
+            who,
+            place: a.place,
+            did: ACTION_LABEL[a.action] ?? a.action,
+            ...(a.ticketId ? { ticket: a.ticketId } : {}),
+            ...(a.detail ? { detail: a.detail.slice(0, 140) } : {}),
+            ...(a.url ? { url: a.url } : {}),
+          }));
+        // The page's hour-of-day arrays and keys are for charts, not for a listener.
+        const people = scorecard.people.map((p) => ({
+          name: p.name,
+          total: p.total,
+          counts: Object.fromEntries(Object.entries(p.counts).filter(([, n]) => n)),
+          activeDays: p.activeDays,
+          last: p.lastAt ? new Date(p.lastAt).toISOString() : null,
+          ...(p.chatPickupMin != null ? { chatPickupMin: p.chatPickupMin } : {}),
+          ...(p.slackResponseMin != null ? { slackResponseMin: p.slackResponseMin } : {}),
+        }));
+        return clip(`Last ${d} day(s), times UTC. Link: /activity\nSCORECARD:\n${JSON.stringify(people)}\n\nRECENT:\n${JSON.stringify(recent)}`);
       },
     }),
 
