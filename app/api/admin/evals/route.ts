@@ -11,8 +11,9 @@
  *  - `stats.reconciled` — drafts an agent sent from Freshdesk. Only USED drafts
  *    are recorded (unused ones write no evaluation), so folding them in would
  *    peg the discard rate at zero. Adoption rates live on /performance.
- *  - `stats.mined` — mining keeps only divergences, so folding it in would peg
- *    "sent as-is" at zero and inflate the discard rate.
+ *  - `stats.mined` — mining keeps only the pairs a blind judge scored against
+ *    Jetta, so folding it in would peg "sent as-is" at zero and inflate the
+ *    discard rate.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { adminAuthorized } from "@/lib/auth";
