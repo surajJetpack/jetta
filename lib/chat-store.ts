@@ -351,6 +351,30 @@ export async function reopenConversation(
 }
 
 /** Patch conversation-level fields (status, ticket link, learned identity). */
+/**
+ * End a handoff nobody answered: `waiting_human` → back to her (`ticketed` if
+ * the conversation has a ticket, else `open`).
+ *
+ * Compare-and-set under the lock, and the boolean is the point: the handoff
+ * timer, the cron backstop and the visitor's own next message can all decide
+ * at about the same moment that time is up, and only the one that gets `true`
+ * may tell the visitor "nobody's free". Everyone else stands down.
+ *
+ * `touch: false` leaves `lastActivityAt` alone — quietly expiring a handoff
+ * that went cold hours ago is not activity, and bumping it would float a dead
+ * conversation to the top of the inbox (the resolveConversation reasoning).
+ */
+export async function endHandoff(conversationId: string, opts: { touch: boolean }): Promise<boolean> {
+  return withConversationLock(conversationId, async () => {
+    const conv = await getConversation(conversationId);
+    if (!conv || conv.status !== "waiting_human") return false;
+    conv.status = conv.ticketId ? "ticketed" : "open";
+    if (opts.touch) conv.lastActivityAt = nowIso();
+    await save(conv);
+    return true;
+  });
+}
+
 export async function updateConversation(
   conversationId: string,
   patch: ConversationPatch,

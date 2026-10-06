@@ -359,6 +359,18 @@ export function buildTools(
               if (conv.status === "human" || conv.status === "waiting_human") {
                 return "The team has already been asked to join — say nothing further and wait.";
               }
+              // Asked already today and nobody came. Asking again re-pings
+              // Slack and restarts the wait — the handoff timer would then
+              // apologise, she would ask again, and the visitor would watch
+              // "nobody's free" on a loop. Hand her the honest route instead.
+              const asked = conv.humanRequestedAt ?? 0;
+              const someoneCame = conv.messages.some((m) => m.via === "human" && Date.parse(m.createdAt) > asked);
+              if (asked && !someoneCame && Date.now() - asked < 24 * 3_600_000) {
+                // Name only the ticket tool she actually holds right now.
+                return conv.ticketId
+                  ? "The team was already asked to join this chat and nobody was free. Do NOT ask again. Help the customer yourself; anything they still need a person for goes on their existing ticket with add_to_ticket, and the team replies by email — tell them so."
+                  : "The team was already asked to join this chat and nobody was free. Do NOT ask again. Help the customer yourself, and if they still want a person, open a ticket with create_support_ticket so the team replies by email — tell them that is what you have done.";
+              }
               await chatStoreForTools.updateConversation(ticketId, {
                 status: "waiting_human",
                 humanRequestedAt: Date.now(),
