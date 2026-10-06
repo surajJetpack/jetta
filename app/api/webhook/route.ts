@@ -108,13 +108,6 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ status: "accepted", ticketId });
 }
 
-/**
- * TTL for the per-customer-message run marker. Long enough that a webhook
- * storm weeks later can't re-run an old message; a NEW customer message always
- * has a new marker, so nothing legitimate is ever blocked.
- */
-const CUSTOMER_MSG_MARKER_TTL = 30 * 86400;
-
 /** The full agent pipeline, detached from the webhook response. */
 async function processTicket(ticketId: string, channel: "freshdesk" | "freshchat"): Promise<void> {
   // Set once the run marker is claimed, so the catch can release it on failure.
@@ -161,12 +154,16 @@ async function processTicket(ticketId: string, channel: "freshdesk" | "freshchat
     // idempotency claim below: skipping must not consume the customer-message
     // marker, so a reopened ticket still runs on that same message.
     //
-    // Safe because closure follows the conversation ending, not vice versa —
-    // across 12 closed tickets, zero had a customer message after closed_at, and
-    // a post-closure reply lands as "reopened". Only resolved/closed qualify;
-    // "waiting on customer" and "escalated to dev" are live threads where a new
-    // customer message is precisely what should wake Jetta up.
-    if (freshdesk.isTerminalStatus(ctx.ticket.status)) {
+    // Only resolved/closed qualify; "waiting on customer" and "escalated to
+    // dev" are live threads where a new customer message is precisely what
+    // should wake Jetta up.
+    //
+    // Except when the customer spoke last: that is a reply to a closed thread
+    // (often to our own "reply here and I'll pick it back up"), and Freshdesk
+    // doesn't always reopen the ticket before we read it — ticket 14404's new
+    // problem was skipped this way. The marker below still stops a re-run on
+    // a message that was already handled before the close.
+    if (freshdesk.isTerminalStatus(ctx.ticket.status) && !freshdesk.customerWroteAfterClose(ctx.ticket)) {
       console.log(`Webhook ticket ${ticketId}: status "${ctx.ticket.status}" — thread finished, skipping.`);
       await logOpsEvent({
         level: "info",
@@ -177,6 +174,15 @@ async function processTicket(ticketId: string, channel: "freshdesk" | "freshchat
       });
       return;
     }
+    if (freshdesk.isTerminalStatus(ctx.ticket.status)) {
+      await logOpsEvent({
+        level: "info",
+        event: "webhook.reply_after_close",
+        source: "webhook",
+        ticketId,
+        data: { status: ctx.ticket.status },
+      });
+    }
 
     // Semantic idempotency: run at most once per CUSTOMER message. Upstream
     // senders (Freshdesk automations, Make scenarios) fire on all kinds of
@@ -184,24 +190,17 @@ async function processTicket(ticketId: string, channel: "freshdesk" | "freshchat
     // note → webhook → run → note loop (seen on ticket 13756). The event-id
     // dedupe above can't stop that because each bot update looks fresh; this
     // marker only changes when the customer actually says something new.
-    // (Console re-runs and the follow-up cron bypass this path on purpose.)
-    // Marker = timestamp of the newest customer reply, or "initial" when the
-    // only customer content is the ticket description (which never changes).
-    const lastCustomerAt =
-      ctx.ticket.replies
-        .filter((r) => r.author === "customer" && !r.isPrivate)
-        .map((r) => r.createdAt)
-        .sort()
-        .pop() ?? "initial";
-    const marker = `customer-msg:${ticketId}:${lastCustomerAt}`;
-    if (!(await markEventSeen(marker, CUSTOMER_MSG_MARKER_TTL))) {
+    // (Console re-runs bypass this path on purpose.)
+    // The follow-up cron claims the same marker before re-running a ticket.
+    const marker = freshdesk.customerMessageMarker(ticketId, ctx.ticket);
+    if (!(await markEventSeen(marker, freshdesk.CUSTOMER_MSG_MARKER_TTL))) {
       console.log(`Webhook ticket ${ticketId}: no new customer message since last run, skipping.`);
       await logOpsEvent({
         level: "info",
         event: "webhook.skipped_no_new_customer_message",
         source: "webhook",
         ticketId,
-        data: { lastCustomerAt },
+        data: { marker },
       });
       return;
     }
