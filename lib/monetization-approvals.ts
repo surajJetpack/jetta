@@ -10,8 +10,10 @@ import {
   deleteMonetApproval,
   saveMonetApproval,
   listMonetApprovals,
+  recordMonetDecision,
   rateCount,
   type MonetApproval,
+  type MonetDecision,
 } from "./kv";
 import type { AppProduct } from "./types";
 import * as monetization from "./tools/monday-monetization";
@@ -108,9 +110,15 @@ export async function resolveMonetApproval(
   }
   const app = appr.app as AppProduct;
 
+  const { createdAt, ...request } = appr;
+  const record = (outcome: MonetDecision["outcome"], message: string) =>
+    recordMonetDecision({ ...request, outcome, actor, message, requestedAt: createdAt, decidedAt: Math.floor(Date.now() / 1000) });
+
   if (decision === "reject") {
     await deleteMonetApproval(id);
-    return { ok: true, found: true, message: `Rejected the ${appr.action} request for ${appr.accountSlug}. Nothing was changed.` };
+    const message = `Rejected the ${appr.action} request for ${appr.accountSlug}. Nothing was changed.`;
+    await record("rejected", message);
+    return { ok: true, found: true, message };
   }
 
   // approve → execute the real monday call
@@ -136,6 +144,6 @@ export async function resolveMonetApproval(
   // Consume the request only on a real success — a no-op (writes gated) or a
   // monday error keeps it pending so it can be retried, mirroring ReplyDraft.
   if (ok) await deleteMonetApproval(id);
-  void actor; // logged by the caller
+  await record(ok ? "applied" : "failed", message);
   return { ok, found: true, message };
 }
