@@ -16,7 +16,7 @@
 import { NextRequest, NextResponse, after } from "next/server";
 import crypto from "node:crypto";
 import { config } from "@/lib/config";
-import { kvSet, kvGet, kvDel, markEventSeen } from "@/lib/kv";
+import { kvSet, kvGet, kvDel, markEventSeen, recordMonetDecision } from "@/lib/kv";
 import { resolveMonetApproval } from "@/lib/monetization-approvals";
 import { getArticle, createArticle, updateArticle, transitionState } from "@/lib/kb-store";
 import * as freshdesk from "@/lib/tools/freshdesk";
@@ -125,6 +125,14 @@ async function handleCommand(
     if (!slug) { await reply(`:warning: "${m[2]}" isn't a monday account URL or slug.`); return; }
     const r = await mondayMonetization.extendTrial(app, slug, Number(m[3]));
     await logSlackEvent("info", "slack.privileged_action", userId, { action: "extend_trial", app, slug, days: Number(m[3]) });
+    const message = r.success
+      ? `Trial for ${slug} (${app}) set to ${m[3]} days.`
+      : `monday declined the trial extension for ${slug}: ${r.reason || "no reason given"}.`;
+    await recordMonetDecision({
+      id: crypto.randomUUID().slice(0, 6), action: "trial", app, accountSlug: slug, days: Number(m[3]),
+      outcome: r.success ? "applied" : "failed", actor: `slack:${userId}`, message, direct: true,
+      decidedAt: Math.floor(Date.now() / 1000),
+    });
     await reply(r.success
       ? `:white_check_mark: Trial for *${slug}* (${app}) set to ${m[3]} days.`
       : `:x: monday declined the trial extension for *${slug}*: ${r.reason || "no reason given"}.`);
@@ -146,10 +154,15 @@ async function handleCommand(
       return;
     }
     if (!slug) { await reply(`:warning: "${m[2]}" isn't a monday account URL or slug.`); return; }
-    const r = await mondayMonetization.applyDiscount(app, slug, {
-      percent: Number(m[3]), daysValid: Number(m[4]), period: m[5].toUpperCase() as "MONTHLY" | "YEARLY",
-    });
+    const terms = { percent: Number(m[3]), daysValid: Number(m[4]), period: m[5].toUpperCase() as "MONTHLY" | "YEARLY" };
+    const r = await mondayMonetization.applyDiscount(app, slug, terms);
     await logSlackEvent("info", "slack.privileged_action", userId, { action: "apply_monday_discount", app, slug, percent: Number(m[3]) });
+    await recordMonetDecision({
+      id: crypto.randomUUID().slice(0, 6), action: "discount", app, accountSlug: slug, ...terms,
+      outcome: r.applied ? "applied" : "failed", actor: `slack:${userId}`,
+      message: r.applied ? `Discount applied to ${slug} (${app}): ${r.detail}.` : `Discount NOT applied to ${slug}: ${r.detail}.`,
+      direct: true, decidedAt: Math.floor(Date.now() / 1000),
+    });
     await reply(r.applied
       ? `:white_check_mark: Discount applied to *${slug}* (${app}): ${r.detail}.`
       : `:x: Discount NOT applied to *${slug}*: ${r.detail}.`);

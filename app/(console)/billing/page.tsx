@@ -3,7 +3,7 @@ import { freshdeskDomain } from "@/lib/tools/freshdesk";
 import { gate } from "@/lib/console-auth";
 import { config } from "@/lib/config";
 import { PageHeader } from "@/components/jetta/page-header";
-import TrialsDiscountsQueue from "./billing-queue";
+import BillingPanel from "./billing-panel";
 
 export const dynamic = "force-dynamic";
 
@@ -17,12 +17,9 @@ export default async function BillingPage() {
     <>
       <PageHeader
         title="Billing"
-        description="Trial extensions and discounts Jetta filed for a person to decide."
+        description="Trial extensions and discounts Jetta filed for a person to decide, and what was decided."
       />
-      <TrialsDiscountsQueue
-        freshdeskDomain={freshdeskDomain()}
-        writesEnabled={config.monday.monetization.allowWrites}
-      />
+      <BillingPanel freshdeskDomain={freshdeskDomain()} writesEnabled={config.monday.monetization.allowWrites} />
     </>
   );
 }

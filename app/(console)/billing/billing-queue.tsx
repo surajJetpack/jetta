@@ -14,7 +14,7 @@ import { EmptyState } from "@/components/jetta/empty-state";
 import { RelativeTime } from "@/components/jetta/relative-time";
 import { usePolling } from "@/lib/use-polling";
 
-interface MonetApproval {
+export interface MonetApproval {
   id: string;
   action: "trial" | "discount";
   app: string;
@@ -28,7 +28,7 @@ interface MonetApproval {
   createdAt: number;
 }
 
-function summary(a: MonetApproval): string {
+export function summary(a: Omit<MonetApproval, "createdAt">): string {
   return a.action === "trial"
     ? `Set trial to ${a.days} days`
     : `${a.percent}% off ${(a.period ?? "").toLowerCase()} · valid ${a.daysValid} days (one-time)`;
@@ -120,9 +120,11 @@ function ApprovalCard({
 export default function TrialsDiscountsQueue({
   freshdeskDomain,
   writesEnabled,
+  onDecided,
 }: {
   freshdeskDomain: string;
   writesEnabled: boolean;
+  onDecided?: () => void;
 }) {
   const [approvals, setApprovals] = useState<MonetApproval[] | null>(null);
 
@@ -164,7 +166,15 @@ export default function TrialsDiscountsQueue({
           </div>
         )}
         {approvals?.map((a) => (
-          <ApprovalCard key={a.id} appr={a} freshdeskDomain={freshdeskDomain} onDecide={load} />
+          <ApprovalCard
+            key={a.id}
+            appr={a}
+            freshdeskDomain={freshdeskDomain}
+            onDecide={() => {
+              void load();
+              onDecided?.();
+            }}
+          />
         ))}
         {approvals !== null && approvals.length === 0 && (
           <EmptyState

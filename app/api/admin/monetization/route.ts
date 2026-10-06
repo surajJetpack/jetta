@@ -12,6 +12,7 @@
  *
  *   GET            → { approvals }  (pending MonetApprovals, newest first)
  *   GET ?count     → { pending: N } (cheap poll for the nav badge)
+ *   GET ?history   → { history }    (every decision, newest first — lib/kv MonetDecision)
  *   POST { id, action: "approve" | "reject" }
  *
  * approve/reject share lib/monetization-approvals.ts with the Slack path, so
@@ -20,15 +21,27 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { adminAuthorized, adminActor } from "@/lib/auth";
-import { listMonetApprovals } from "@/lib/kv";
+import { listMonetApprovals, listMonetDecisions } from "@/lib/kv";
 import { resolveMonetApproval } from "@/lib/monetization-approvals";
 import { logOpsEvent } from "@/lib/events";
+import { config } from "@/lib/config";
+import { parseAliases, resolvePerson } from "@/lib/activity";
+import { getSlackNames } from "@/lib/activity-store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   if (!adminAuthorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  if (req.nextUrl.searchParams.has("history")) {
+    // Actors are stored raw ("console:suraj", "slack:U07…"); name them the way
+    // /activity does so a Slack decision reads as a person, not an id.
+    const [history, slackNames] = await Promise.all([listMonetDecisions(), getSlackNames().catch(() => ({}))]);
+    const aliases = parseAliases(config.agentAliases);
+    return NextResponse.json({
+      history: history.map((d) => ({ ...d, decidedBy: resolvePerson(d.actor, aliases, slackNames).name })),
+    });
+  }
   const approvals = await listMonetApprovals();
   if (req.nextUrl.searchParams.get("count")) {
     return NextResponse.json({ pending: approvals.length });

@@ -339,6 +339,54 @@ export async function listMonetApprovals(): Promise<MonetApproval[]> {
   return [...memMonetApprovals.values()].sort((a, b) => b.createdAt - a.createdAt);
 }
 
+// A decided request is deleted from the pending set above, so the record of
+// what was decided lives here: an append-only, capped, never-expiring log that
+// backs the /billing history. One entry per decision — a failed approve (writes
+// gated, monday error) is logged too, even though the request stays pending.
+export interface MonetDecision extends Omit<MonetApproval, "createdAt"> {
+  /** "applied" = monday took it; "failed" = approved but nothing changed. */
+  outcome: "applied" | "rejected" | "failed";
+  /** `console:<user>` or `slack:<userId>`. */
+  actor: string;
+  /** Outcome message as shown to the decider. */
+  message: string;
+  /** True for an admin's direct Slack command — no Jetta request behind it. */
+  direct?: boolean;
+  /** When Jetta filed the request (absent for direct commands). */
+  requestedAt?: number;
+  decidedAt: number; // unix seconds
+}
+
+const MONET_HISTORY = "jetta:monet-history:v1";
+const MONET_HISTORY_CAP = 2000;
+const memMonetHistory: MonetDecision[] = [];
+
+/** Never throws — failing to log must not undo a decision that already ran. */
+export async function recordMonetDecision(d: MonetDecision): Promise<void> {
+  try {
+    const r = client();
+    if (r) {
+      await r.lpush(MONET_HISTORY, d);
+      await r.ltrim(MONET_HISTORY, 0, MONET_HISTORY_CAP - 1);
+      return;
+    }
+    memMonetHistory.unshift(d);
+    if (memMonetHistory.length > MONET_HISTORY_CAP) memMonetHistory.pop();
+  } catch (err) {
+    console.error("recordMonetDecision failed", err);
+  }
+}
+
+/** Decisions, newest first. */
+export async function listMonetDecisions(limit = MONET_HISTORY_CAP): Promise<MonetDecision[]> {
+  const r = client();
+  if (r) {
+    const raw = await r.lrange<MonetDecision | string>(MONET_HISTORY, 0, limit - 1);
+    return raw.map((x) => (typeof x === "string" ? (JSON.parse(x) as MonetDecision) : x));
+  }
+  return memMonetHistory.slice(0, limit);
+}
+
 // ── Phase 0: outcome feedback log ──────────────────────────────────
 export interface OutcomeEvent {
   ticketId: string;
