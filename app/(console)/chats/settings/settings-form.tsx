@@ -38,6 +38,7 @@ interface Settings {
   sessionIdleHours: number;
   handoffEnabled: boolean;
   handoffTimeoutMinutes: number;
+  handoffAttempts: number;
   handoffChannel?: string;
   followUpEnabled: boolean;
   followUpMinutes: number;
@@ -248,11 +249,21 @@ export default function ChatSettingsForm() {
               onChange={(e) => set("debounceSeconds", Number(e.target.value))}
             />
           </Field>
-          <Field label="Give up waiting for a person after (minutes)" hint="Then Jetta apologises and carries on herself.">
+          <Field label="Wait for a person, per ping (minutes)" hint="How long each call to the team waits for someone to take the chat.">
             <Input
               type="number"
               value={form.handoffTimeoutMinutes}
               onChange={(e) => set("handoffTimeoutMinutes", Number(e.target.value))}
+            />
+          </Field>
+          <Field
+            label="Ping the team this many times"
+            hint="If nobody takes the chat after the last ping, Jetta opens a Freshdesk ticket with the transcript and tells the visitor the team will email them. 1–5."
+          >
+            <Input
+              type="number"
+              value={form.handoffAttempts}
+              onChange={(e) => set("handoffAttempts", Number(e.target.value))}
             />
           </Field>
           <Field

@@ -282,8 +282,13 @@ export interface ChatConversation {
    * message resets the idle clock the sweep selects on.
    */
   followUpAt?: string;
-  /** Unix ms a human was requested — drives the "nobody came" fallback. */
+  /**
+   * Unix ms a human was requested — drives the "nobody came" fallback. Reset
+   * on each re-ping, so it times the CURRENT wait.
+   */
   humanRequestedAt?: number;
+  /** How many times the team has been pinged for the current handoff (1 = the first ask). */
+  handoffPings?: number;
   /** Console username of whoever took the conversation. */
   humanAgent?: string;
   surface: ChatSurface;

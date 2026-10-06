@@ -595,15 +595,41 @@ export async function notifyChatHandoff(input: {
   reason: string;
   lastMessage: string;
   consoleUrl: string;
+  /** 2+ for a repeat call on the same handoff; says so, so it isn't read as a new visitor. */
+  attempt?: number;
+  /** The last attempt before Jetta opens a ticket instead. */
+  lastCall?: boolean;
 }): Promise<void> {
   const channel = chatChannel();
+  const headline =
+    input.attempt && input.attempt > 1
+      ? `${AT_CHANNEL} :rotating_light: *Still waiting for a person (call ${input.attempt})* — ${input.visitor}${input.lastCall ? " · if nobody takes it, Jetta opens a ticket next" : ""}`
+      : `${AT_CHANNEL} :wave: *A visitor is asking for a person* — ${input.visitor}`;
   const text = [
-    `${AT_CHANNEL} :wave: *A visitor is asking for a person* — ${input.visitor}`,
+    headline,
     `> ${clamp(input.lastMessage, 200)}`,
     `Why: ${clamp(input.reason, 140)}`,
     `<${input.consoleUrl}/chats/${input.conversationId}|Open the conversation> — Jetta has gone quiet and is waiting for you.`,
   ].join("\n");
   await postMessage(channel, text);
+}
+
+/**
+ * Close the loop on a handoff nobody took: Jetta opened a ticket instead. So a
+ * colleague who sees the earlier ping late goes to the ticket, not the chat.
+ */
+export async function notifyChatHandoffTicketed(input: {
+  conversationId: string;
+  visitor: string;
+  ticketUrl: string;
+  ticketId: string;
+  consoleUrl: string;
+}): Promise<void> {
+  await postMessage(
+    chatChannel(),
+    `:ticket: Nobody took the chat with ${input.visitor}, so Jetta opened <${input.ticketUrl}|ticket #${input.ticketId}> — reply there by email. ` +
+      `(<${input.consoleUrl}/chats/${input.conversationId}|conversation>)`,
+  );
 }
 
 export async function notifyKbSync(headline: string, details: string[]): Promise<void> {
