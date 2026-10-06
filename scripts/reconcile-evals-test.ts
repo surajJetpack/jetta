@@ -7,7 +7,7 @@
  *   STUB_MODE=true npx tsx scripts/reconcile-evals-test.ts
  */
 import assert from "node:assert/strict";
-import { addReplyDraft, type ReplyDraft } from "../lib/kv";
+import { addReplyDraft, getFollowUp, type ReplyDraft } from "../lib/kv";
 import { reconcileTicketDraft } from "../lib/reconcile";
 import { getEvaluation, getUndistilledEvaluations } from "../lib/evals";
 
@@ -16,7 +16,7 @@ const DRAFT_TEXT =
   "expiring after one day is not expected. I've logged this with our engineering team and will update " +
   "you as soon as we hear back.";
 
-function draft(id: string, ticketId: string): ReplyDraft {
+function draft(id: string, ticketId: string, resolutionSent = false): ReplyDraft {
   return {
     id,
     ticketId,
@@ -25,7 +25,7 @@ function draft(id: string, ticketId: string): ReplyDraft {
     product: "getsign",
     suggestedReply: DRAFT_TEXT,
     wantsClose: false,
-    resolutionSent: false,
+    resolutionSent,
     escalated: false,
     createdAt: Math.floor(Date.now() / 1000) - 3600,
     state: "pending",
@@ -34,8 +34,8 @@ function draft(id: string, ticketId: string): ReplyDraft {
   } as ReplyDraft;
 }
 
-async function run(id: string, ticketId: string, body: string) {
-  await addReplyDraft(draft(id, ticketId));
+async function run(id: string, ticketId: string, body: string, resolutionSent = false) {
+  await addReplyDraft(draft(id, ticketId, resolutionSent));
   return reconcileTicketDraft(ticketId, { source: "cron", stubReply: { body, userId: 42 } });
 }
 
@@ -76,6 +76,22 @@ async function main() {
   // Both recorded rows are queued for the distiller.
   const queued = (await getUndistilledEvaluations()).map((e) => e.id).sort();
   assert.deepEqual(queued, ["d-asis", "d-edit"]);
+
+  // Follow-up scheduling follows what the customer RECEIVED. A resolution
+  // draft the agent sent → 24h check-and-close. One they replaced with their
+  // own words (ticket 14453: "escalated to dev, we'll follow up") → nothing,
+  // or the cron tells a waiting customer "I'll assume this is resolved".
+  await run("d-res-sent", "9004", DRAFT_TEXT, true);
+  assert.ok(await getFollowUp("9004"), "a sent resolution must schedule the follow-up");
+  const replaced = await run(
+    "d-res-unused",
+    "9005",
+    "Hi Constance, I have escalated this issue directly to our development team and will follow up.",
+    true,
+  );
+  assert.equal(replaced.usage, "not_used");
+  assert.equal(await getFollowUp("9005"), null, "an unused resolution draft must not schedule a follow-up");
+  assert.equal(await getFollowUp("9001"), null, "a non-resolution draft never schedules one");
 
   console.log("reconcile-evals-test: all assertions passed");
 }

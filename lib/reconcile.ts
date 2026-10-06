@@ -208,8 +208,14 @@ export async function reconcileTicketDraft(
     // draft (the backfill walks month-old ones) would queue check_and_close jobs
     // against long-settled tickets and have the follow-up cron re-run the agent
     // on them tomorrow.
+    //
+    // And only when the customer actually received the draft's resolution. A
+    // `not_used` draft's resolutionSent describes words nobody sent — ticket
+    // 14453: Jetta's draft was flagged a resolution, the agent wrote "escalated
+    // to dev, we'll follow up" instead, and the cron told the customer "I'll
+    // assume this is resolved" two days later.
     const replyAgeHours = (Date.now() - Date.parse(reply.createdAt)) / 3_600_000;
-    if (draft.resolutionSent && replyAgeHours <= FOLLOW_UP_MAX_REPLY_AGE_HOURS) {
+    if (draft.resolutionSent && usage !== "not_used" && replyAgeHours <= FOLLOW_UP_MAX_REPLY_AGE_HOURS) {
       await scheduleFollowUp(draft.ticketId, reply.createdAt).catch(() => {});
     }
     await recordOutcome({

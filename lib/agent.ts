@@ -153,9 +153,16 @@ export async function runAgentLoop(
       }
     | undefined;
 
+  // A turn that handed the problem to engineering is not a resolution, however
+  // the model labelled its note — the customer is now waiting on US, and a
+  // resolutionSent here schedules the "I'll assume this is resolved" close.
+  const handedOff = trace.some(
+    (t) => !t.failed && (t.tool === "send_escalation" || t.tool === "create_dev_item"),
+  );
+
   return {
     text: result.text.trim(),
-    resolutionSent: signals.resolutionSent,
+    resolutionSent: signals.resolutionSent && !handedOff,
     toolsUsed: trace.map((t) => t.tool),
     trace,
     dryRun,
