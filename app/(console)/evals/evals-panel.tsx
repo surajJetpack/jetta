@@ -224,7 +224,14 @@ export default function EvalsPanel({ freshdeskDomain }: { freshdeskDomain: strin
       body: JSON.stringify({ limit: 20 }),
     });
     const j = (await r.json().catch(() => null)) as
-      | { compared?: number; skippedMined?: number; divergent?: number; recorded?: number; error?: string }
+      | {
+          compared?: number;
+          skippedMined?: number;
+          divergent?: number;
+          jettaHeld?: number;
+          recorded?: number;
+          error?: string;
+        }
       | null;
     if (!r.ok) {
       setMining(false);
@@ -232,7 +239,9 @@ export default function EvalsPanel({ freshdeskDomain }: { freshdeskDomain: strin
       return;
     }
     toast.success(
-      `Compared ${j?.compared ?? 0} tickets${j?.skippedMined ? ` (${j.skippedMined} already mined, skipped)` : ""} · ${j?.recorded ?? 0} divergences recorded. Distilling…`,
+      `Compared ${j?.compared ?? 0} tickets${j?.skippedMined ? ` (${j.skippedMined} already mined, skipped)` : ""} · ` +
+        `${j?.recorded ?? 0} where the human did better recorded` +
+        `${j?.jettaHeld ? `, ${j.jettaHeld} where Jetta held up` : ""}. Distilling…`,
     );
     // Roll straight into distillation so the patterns show up as candidates.
     await fetch("/api/admin/evals/distill", { method: "POST" }).catch(() => {});
@@ -323,7 +332,7 @@ export default function EvalsPanel({ freshdeskDomain }: { freshdeskDomain: strin
                 <span className="text-sm font-medium">Mined from human replies</span>
                 <span className="font-mono text-sm font-semibold">{stats.mined.total}</span>
                 <span className="text-xs text-muted-foreground">
-                  {stats.mined.byRating.partial} close · {stats.mined.byRating.bad} diverged — offline
+                  {stats.mined.byRating.bad} where the human did better · {stats.mined.byRating.partial} close (older, word-overlap) — offline
                   comparisons, not draft decisions
                 </span>
               </div>

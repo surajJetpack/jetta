@@ -1,22 +1,34 @@
 /**
  * "Learn from human replies" — mine recent human-answered tickets, compare each
- * against Jetta's would-be draft, and record the divergences as evaluations so
- * the existing distiller can turn recurring patterns into candidate learnings.
+ * against Jetta's would-be draft, and record the ones where the human did
+ * BETTER as evaluations, so the existing distiller can turn recurring patterns
+ * into candidate learnings.
  *
- *   POST { limit? }  → { sampled, skippedMined, compared, skippedJetta, divergent, recorded, timedOut }
+ *   POST { limit? }  → { sampled, skippedMined, compared, skippedJetta, divergent,
+ *                        jettaHeld, notLearnable, judgeFailed, recorded, timedOut }
  *
- * Read-heavy + LLM-heavy (one dry-run agent replay per ticket, plus a classify
- * call per divergence), so limit is capped. Mined evals are tagged source:"mined"
- * and flow through the SAME distill → /evals approval loop as everything else —
- * nothing changes Jetta's behavior until a human approves the learnings.
+ * "Different" is not "worse". Word overlap decides only whether the two replies
+ * are the same text; when they are not, the blind judge in lib/judge.ts decides
+ * which one served the customer better. Before that step, 30 of 31 mined rows
+ * in a month were rated "bad" — including ticket 14433, where Jetta and the
+ * human both told the customer to contact monday.com support — and the
+ * distiller was told "the human wrote a different reply" every time.
+ *
+ * Read-heavy + LLM-heavy (one dry-run agent replay per ticket, plus one or two
+ * judge calls per divergence), so limit is capped. Mined evals are tagged
+ * source:"mined" and flow through the SAME distill → /evals approval loop as
+ * everything else — nothing changes Jetta's behavior until a human approves
+ * the learnings.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { adminAuthorized, adminActor } from "@/lib/auth";
 import { config } from "@/lib/config";
 import { getEvaluation, minedEvalId, recordEvaluation } from "@/lib/evals";
 import { jettaDraftForTicket, recentResolvedTicketIds, classifyDivergence } from "@/lib/human-compare";
+import { judgeDraftPair } from "@/lib/judge";
 import { replySimilarity, classifyReplySimilarity, normalizeReplyText } from "@/lib/reply-similarity";
 import { logOpsEvent } from "@/lib/events";
+import { log } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -51,6 +63,9 @@ export async function POST(req: NextRequest) {
   let compared = 0;
   let skippedJetta = 0;
   let divergent = 0;
+  let jettaHeld = 0;
+  let notLearnable = 0;
+  let judgeFailed = 0;
   let recorded = 0;
   let timedOut = false;
   const now = Math.floor(Date.now() / 1000);
@@ -81,11 +96,40 @@ export async function POST(req: NextRequest) {
     compared++;
 
     const score = replySimilarity(normalizeReplyText(cmp.jettaReply), normalizeReplyText(cmp.humanReply));
-    const rating = classifyReplySimilarity(score);
-    if (rating === "good") continue; // Jetta already matches the human — nothing to learn
+    if (classifyReplySimilarity(score) === "good") continue; // same text — nothing to learn
     divergent++;
 
-    const tag = await classifyDivergence(cmp.customerMessage, cmp.humanReply, cmp.jettaReply).catch(() => "other" as const);
+    // Different words. Was the human's reply actually better? Blind, with the
+    // presentation order alternating so the judge cannot learn a position.
+    const judgement = await judgeDraftPair({
+      customerMessage: cmp.customerMessage,
+      jettaReply: cmp.jettaReply,
+      humanReply: cmp.humanReply,
+      jettaFirst: divergent % 2 === 1,
+    }).catch((e: unknown) => {
+      log.warn("evals.mine_judge_failed", { ticketId, error: e instanceof Error ? e.message : String(e) });
+      return null;
+    });
+    // Fail closed: without a verdict there is no evidence the draft fell short,
+    // and the old word-overlap "bad" is exactly what this step exists to stop.
+    if (!judgement) {
+      judgeFailed++;
+      continue;
+    }
+    if (judgement.winner !== "human") {
+      jettaHeld++;
+      continue;
+    }
+    // The human knew something internal or had already acted. True, but not a
+    // lesson a prompt change could use.
+    if (!judgement.learnable) {
+      notLearnable++;
+      continue;
+    }
+
+    const tags = judgement.tags.length
+      ? judgement.tags
+      : [await classifyDivergence(cmp.customerMessage, cmp.humanReply, cmp.jettaReply).catch(() => "other" as const)];
     await recordEvaluation({
       id: minedEvalId(ticketId),
       ticketId,
@@ -94,10 +138,12 @@ export async function POST(req: NextRequest) {
       product: cmp.product,
       decidedBy: `mine:${actor}`,
       at: now,
-      action: rating === "bad" ? "discard" : "approve",
-      rating,
-      tags: [tag],
-      note: `mined comparison — human reply diverged from Jetta's draft (similarity ${score.toFixed(2)})`,
+      action: "discard",
+      rating: "bad",
+      tags,
+      note:
+        `mined comparison — blind judge preferred the human reply (${judgement.reason}): ` +
+        `${judgement.explanation.slice(0, 300)} (word overlap ${score.toFixed(2)})`,
       suggestedReply: cmp.jettaReply,
       finalBody: cmp.humanReply,
       source: "mined",
@@ -105,7 +151,18 @@ export async function POST(req: NextRequest) {
     recorded++;
   }
 
-  const summary = { sampled, skippedMined, compared, skippedJetta, divergent, recorded, timedOut };
+  const summary = {
+    sampled,
+    skippedMined,
+    compared,
+    skippedJetta,
+    divergent,
+    jettaHeld,
+    notLearnable,
+    judgeFailed,
+    recorded,
+    timedOut,
+  };
   await logOpsEvent({ level: "info", event: "evals.mine_human_replies", source: "console", actor, data: summary });
   return NextResponse.json(summary);
 }

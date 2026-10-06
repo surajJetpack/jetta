@@ -63,7 +63,8 @@ export interface ReplyEvaluation {
    *                  scripts/judge-drafts.ts may overwrite one with a blind-judge
    *                  quality verdict, which can be "bad"
    *  - "mined"     — offline comparison of Jetta's would-be draft vs a past human
-   *                  reply (mine-human-replies); excluded from draft-decision stats
+   *                  reply (mine-human-replies), recorded only when a blind judge
+   *                  preferred the human's; excluded from draft-decision stats
    * Absent on older records; treat as "review"/"reconcile".
    */
   source?: "review" | "reconcile" | "mined";
