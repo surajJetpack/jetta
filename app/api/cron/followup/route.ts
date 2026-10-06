@@ -11,7 +11,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { config } from "@/lib/config";
-import { getDueFollowUps, clearFollowUp, recordOutcome, getEscalationTs } from "@/lib/kv";
+import { getDueFollowUps, clearFollowUp, recordOutcome, getEscalationTs, markEventSeen, unmarkEventSeen } from "@/lib/kv";
 import { followUpCloseBlocker } from "@/lib/followup-guard";
 import { modelLabel } from "@/lib/llm";
 import { buildContext, buildMessages } from "@/lib/context";
@@ -42,16 +42,27 @@ export async function GET(req: NextRequest) {
 
   for (const job of due) {
     let keep = false;
+    // Released if the run fails, so the webhook can still answer the message.
+    let claimedMarker: string | null = null;
     try {
       const replied = await freshdesk.hasCustomerReplySince(job.ticketId, job.resolutionSentAt);
 
       if (replied) {
-        // Customer responded — let Jetta handle it as a normal turn. In draft
-        // mode the new reply is held and lands in the review queue like any
-        // webhook turn (superseding an older pending draft for this ticket).
+        // Customer responded — let Jetta handle it as a normal turn, unless the
+        // webhook already has. It almost always has: the cron fires a day or
+        // more later, and re-running then posted a duplicate note + draft 37h
+        // after the fact (ticket 14404). Claiming the webhook's own marker
+        // makes this a backstop for a webhook that never ran or failed (a
+        // failed run releases its marker), and stops a later webhook re-run.
+        // In draft mode the new reply is held and lands in the review queue
+        // like any webhook turn (superseding an older pending draft).
         const draftMode = config.replyMode === "draft";
         const ctx = await buildContext(job.ticketId);
-        if (ctx.ticket) {
+        const marker = ctx.ticket ? freshdesk.customerMessageMarker(job.ticketId, ctx.ticket) : null;
+        if (marker && !(await markEventSeen(marker, freshdesk.CUSTOMER_MSG_MARKER_TTL))) {
+          handled.push({ ticketId: job.ticketId, action: "replied → already handled by webhook" });
+        } else if (ctx.ticket) {
+          claimedMarker = marker;
           const started = Date.now();
           const result = await runAgentLoop(
             await buildSystemPrompt(ctx),
@@ -130,6 +141,7 @@ export async function GET(req: NextRequest) {
         }).catch(() => {});
       }
     } catch (err) {
+      if (claimedMarker) await unmarkEventSeen(claimedMarker).catch(() => {});
       handled.push({
         ticketId: job.ticketId,
         action: `error: ${err instanceof Error ? err.message : String(err)}`,

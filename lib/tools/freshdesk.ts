@@ -72,6 +72,46 @@ export function awaitsOurReply(ticket: Pick<Ticket, "replies">): boolean {
   return newest ? newest.author === "customer" : true;
 }
 
+/**
+ * A customer writing back on a resolved/closed ticket — i.e. answering our
+ * own "just reply here and I'll pick it straight back up". True when the
+ * thread has at least one public reply and the newest one is the customer's.
+ *
+ * Freshdesk usually reopens the ticket on that reply, but not always before
+ * our webhook reads it: ticket 14404 was still "resolved" when its customer's
+ * new problem arrived, and Jetta skipped it as a finished thread.
+ */
+export function customerWroteAfterClose(ticket: Pick<Ticket, "status" | "replies">): boolean {
+  return (
+    isTerminalStatus(ticket.status) &&
+    ticket.replies.some((r) => !r.isPrivate) &&
+    awaitsOurReply(ticket)
+  );
+}
+
+/**
+ * TTL for the per-customer-message run marker. Long enough that a webhook
+ * storm weeks later can't re-run an old message; a NEW customer message always
+ * has a new marker, so nothing legitimate is ever blocked.
+ */
+export const CUSTOMER_MSG_MARKER_TTL = 30 * 86400;
+
+/**
+ * Run-once key for the newest CUSTOMER message on a ticket: its timestamp, or
+ * "initial" when the only customer content is the description (which never
+ * changes). Shared by the webhook and the follow-up cron so a message one of
+ * them has answered is never answered again by the other.
+ */
+export function customerMessageMarker(ticketId: string, ticket: Pick<Ticket, "replies">): string {
+  const lastCustomerAt =
+    ticket.replies
+      .filter((r) => r.author === "customer" && !r.isPrivate)
+      .map((r) => r.createdAt)
+      .sort()
+      .pop() ?? "initial";
+  return `customer-msg:${ticketId}:${lastCustomerAt}`;
+}
+
 function fdHeaders(): HeadersInit {
   // Freshdesk uses Basic auth: "<api_key>:X" base64-encoded.
   const token = Buffer.from(`${config.freshdesk.apiKey}:X`).toString("base64");
