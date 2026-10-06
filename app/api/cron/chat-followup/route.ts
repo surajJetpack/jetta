@@ -30,6 +30,7 @@ import {
   type FollowUpJudgement,
 } from "@/lib/chat-followup";
 import { toChatText } from "@/lib/tools/jettachat";
+import { handoffPickupAction, pickUpHandoff } from "@/lib/chat-run";
 import { recordOutcome } from "@/lib/kv";
 import { modelLabel } from "@/lib/llm";
 import { logOpsEvent } from "@/lib/events";
@@ -68,6 +69,30 @@ export async function GET(req: NextRequest) {
   const dry = req.nextUrl.searchParams.get("dry") === "1";
 
   const settings = await getChatSettings();
+
+  /*
+   * Handoffs nobody answered — before the follow-up arm, on purpose.
+   *
+   * This is not her starting a conversation: she already told the visitor
+   * "if nobody is free, I'll pick this back up in a minute", and this keeps
+   * that promise for anyone the in-process handoff timer missed (a timeout
+   * longer than one function can wait, or a crashed invocation). A follow-up
+   * kill switch must not be able to strand a visitor in "waiting for a person".
+   */
+  const handoffs: { id: string; result: string }[] = [];
+  const handoffCutoff = Date.now() - Math.max(1, settings.handoffTimeoutMinutes) * 60_000;
+  // Same gate as the channel itself: a switched-off widget gets no new turns.
+  const waiting = config.jettachat.live ? await store.listIdleSince(handoffCutoff, CANDIDATE_LIMIT) : [];
+  for (const conv of waiting) {
+    if (conv.status !== "waiting_human") continue;
+    if (dry) {
+      handoffs.push({ id: conv.id, result: `[dry] ${handoffPickupAction(conv, Date.now(), settings.handoffTimeoutMinutes)}` });
+      continue;
+    }
+    if (handoffs.length >= MAX_PER_RUN) break;
+    handoffs.push({ id: conv.id, result: await pickUpHandoff(conv.id, "cron").catch((e) => `error: ${e instanceof Error ? e.message : e}`) });
+  }
+
   // Env is the master arm; the console setting can switch it off but never on.
   const armed = config.jettachat.followUp && settings.followUpEnabled;
   if (!armed && !dry) {
@@ -75,6 +100,7 @@ export async function GET(req: NextRequest) {
       status: "disarmed",
       env: config.jettachat.followUp,
       setting: settings.followUpEnabled,
+      handoffs,
     });
   }
 
@@ -236,6 +262,7 @@ export async function GET(req: NextRequest) {
     heldBack,
     skips,
     handled,
+    handoffs,
   });
 }
 

@@ -157,7 +157,7 @@ Pick a conversation and the transcript opens beside the list. Three controls mat
 - **Make a ticket** — opens a Freshdesk ticket carrying the whole transcript. The conversation becomes **Ticketed** and the two point at each other, so neither side is a dead end.
 - **Resolve** — files the conversation under **Resolved** and out of the live list. The visitor is told nothing and nothing is deleted; the transcript stays here for the retention window. **Reopen** takes its place if you change your mind, and a new message from the visitor reopens it by itself.
 
-A visitor who asks for a person moves to **Needs a person**, pins to the top, and pings Slack. The visitor always sees who is speaking, so a handover is never silent.
+A visitor who asks for a person moves to **Needs a person**, pins to the top, and pings Slack. The visitor always sees who is speaking, so a handover is never silent. If nobody takes the chat within the handoff timeout (1 minute by default, in chat settings), Jetta takes it back, says nobody was free, and helps them herself or opens a ticket. She doesn't ask for a person a second time that day. A handoff left unanswered for over two hours is ended quietly, without a message, and shows under **With Jetta**.
 
 Jetta opens tickets herself when she can't resolve something — the button is for when you decide before she does.
 

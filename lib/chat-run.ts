@@ -28,6 +28,7 @@ import { recordRun } from "./runlog";
 import { recordOutcome } from "./kv";
 import { logOpsEvent } from "./events";
 import * as store from "./chat-store";
+import type { ChatConversation } from "./types";
 import { toChatText } from "./tools/jettachat";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -103,6 +104,8 @@ export function chooseDelivery(
  * check mean only the newest message in a burst actually spends an agent loop.
  */
 export async function runChatTurn(conversationId: string, messageId: string): Promise<void> {
+  // Set when this turn asked for a person; the handoff timer starts after it.
+  let handedOff = false;
   try {
     // 1. Debounce. If a newer message lands while we wait, that message's own
     //    run will cover the full thought and this one exits without spending.
@@ -134,21 +137,12 @@ export async function runChatTurn(conversationId: string, messageId: string): Pr
       // already had a ticket must not be demoted to "open" here: the console
       // would list it as unhandled and /today would resurrect a row that is a
       // duplicate of the Freshdesk ticket.
-      await store.updateConversation(conversationId, {
-        status: current.ticketId ? "ticketed" : "open",
-      });
-      await store.appendMessage(
-        conversationId,
-        "agent",
-        "Sorry — nobody's free right now. Let me take this so you're not left waiting.",
-      );
-      await logOpsEvent({
-        level: "info",
-        event: "chat.handoff_timed_out",
-        source: "jettachat",
-        ticketId: conversationId,
-        data: { waitedMs: waited },
-      });
+      //
+      // endHandoff is a compare-and-set: the handoff timer or the cron backstop
+      // may have ended it a moment ago, and the visitor must hear "nobody's
+      // free" once. Losing it means one of those is already answering.
+      if (!(await store.endHandoff(conversationId, { touch: true }))) return;
+      await announceHandoffEnded(conversationId, waited, "visitor_message");
     }
 
     await store.markRunActive(conversationId);
@@ -213,6 +207,7 @@ export async function runChatTurn(conversationId: string, messageId: string): Pr
     await recordRun("jettachat", ctx, result, Date.now() - started);
 
     const ticketed = result.toolsUsed.includes("create_support_ticket");
+    handedOff = result.toolsUsed.includes("request_human");
 
     // Answering ON TOP of an existing ticket is the newest mode on this
     // channel and the one most likely to go wrong in a way nobody notices —
@@ -311,5 +306,119 @@ export async function runChatTurn(conversationId: string, messageId: string): Pr
     await deliverFallback(conversationId).catch(() => {});
   } finally {
     await store.clearRunActive(conversationId).catch(() => {});
+  }
+  if (handedOff) await watchHandoff(conversationId).catch(() => {});
+}
+
+/** The visitor-facing half of ending a handoff: the apology and the event. */
+async function announceHandoffEnded(conversationId: string, waitedMs: number, by: "visitor_message" | "timer" | "cron") {
+  await store.appendMessage(
+    conversationId,
+    "agent",
+    "Sorry — nobody's free right now. Let me take this so you're not left waiting.",
+  );
+  await logOpsEvent({
+    level: "info",
+    event: "chat.handoff_timed_out",
+    source: "jettachat",
+    ticketId: conversationId,
+    data: { waitedMs, by },
+  });
+}
+
+/**
+ * Past this, a handoff is ended quietly instead of with an apology and a turn.
+ * "Sorry — nobody's free right now" is false the next morning, and the visitor
+ * is long gone; the conversation goes back under "With Jetta", where it shows
+ * as hers to answer, rather than pinned under "Needs a person" forever.
+ */
+export const HANDOFF_STALE_MS = 2 * 3_600_000;
+
+/** How long after the visitor's last message a run for it may still be pending. */
+const IN_FLIGHT_MS = 45_000;
+
+export type HandoffPickup = "not_waiting" | "wait" | "in_flight" | "pick_up" | "stale";
+
+/**
+ * What to do about a conversation waiting for a person. Pure.
+ *
+ * The timeout used to be checked ONLY inside runChatTurn — that is, only when
+ * the visitor typed again. A visitor who did what the handoff message implies
+ * and waited quietly was never picked up: four handoffs from 2026-09-22 to
+ * 2026-10-05, nobody joined any of them, and three sat in silence until a
+ * colleague resolved them the next day (one is still waiting).
+ *
+ * `in_flight`: the visitor wrote moments ago, so their own run may be in its
+ * debounce — it will check the timeout itself, and two runs answering one
+ * message is the failure this whole file guards against.
+ */
+export function handoffPickupAction(
+  conv: Pick<ChatConversation, "status" | "humanRequestedAt" | "messages">,
+  now: number,
+  timeoutMinutes: number,
+): HandoffPickup {
+  if (conv.status !== "waiting_human") return "not_waiting";
+  const waited = now - (conv.humanRequestedAt ?? 0);
+  if (waited < Math.max(1, timeoutMinutes) * 60_000) return "wait";
+  if (waited >= HANDOFF_STALE_MS) return "stale";
+  const lastVisitor = [...conv.messages].reverse().find((m) => m.author === "visitor" && !m.system);
+  if (lastVisitor && now - Date.parse(lastVisitor.createdAt) < IN_FLIGHT_MS) return "in_flight";
+  return "pick_up";
+}
+
+/**
+ * Keep the promise in HANDOFF_ACK — "if nobody is, I'll pick this back up in
+ * a minute" — for a visitor who says nothing more. Called by the handoff timer
+ * and by the chat cron as a backstop. Returns what it did.
+ */
+export async function pickUpHandoff(conversationId: string, by: "timer" | "cron"): Promise<HandoffPickup | "picked_up" | "expired" | "lost_race"> {
+  const [conv, settings] = await Promise.all([store.getConversation(conversationId), getChatSettings()]);
+  if (!conv) return "not_waiting";
+  const action = handoffPickupAction(conv, Date.now(), settings.handoffTimeoutMinutes);
+  const waited = Date.now() - (conv.humanRequestedAt ?? 0);
+
+  if (action === "stale") {
+    if (!(await store.endHandoff(conversationId, { touch: false }))) return "lost_race";
+    await logOpsEvent({
+      level: "warn",
+      event: "chat.handoff_expired_stale",
+      source: "jettachat",
+      ticketId: conversationId,
+      data: { waitedMs: waited, by },
+    });
+    return "expired";
+  }
+  if (action !== "pick_up" || (await store.isRunActive(conversationId))) return action;
+
+  const lastVisitor = [...conv.messages].reverse().find((m) => m.author === "visitor" && !m.system);
+  if (!lastVisitor) return "not_waiting";
+  if (!(await store.endHandoff(conversationId, { touch: true }))) return "lost_race";
+  await announceHandoffEnded(conversationId, waited, by);
+  // Answer as if the visitor had just written: same debounce and turn check,
+  // so a message they send meanwhile replaces this run rather than doubling it.
+  await store.setPendingTurn(conversationId, lastVisitor.id);
+  await runChatTurn(conversationId, lastVisitor.id);
+  return "picked_up";
+}
+
+/**
+ * The handoff timer. Runs in the same function invocation as the turn that
+ * asked for a person (the message route's `after`, maxDuration 300), so it
+ * only covers timeouts that fit; longer ones are the cron's, every 5 minutes.
+ */
+const TIMER_MAX_MS = 150_000;
+
+async function watchHandoff(conversationId: string): Promise<void> {
+  const settings = await getChatSettings();
+  const timeoutMs = Math.max(1, settings.handoffTimeoutMinutes) * 60_000;
+  if (timeoutMs > TIMER_MAX_MS) return;
+  const conv = await store.getConversation(conversationId);
+  if (conv?.status !== "waiting_human") return;
+  await sleep(Math.max(0, (conv.humanRequestedAt ?? Date.now()) + timeoutMs - Date.now()) + 2_000);
+  // A visitor message right at the deadline is the one case this defers on;
+  // try once more after it has had time to run.
+  if ((await pickUpHandoff(conversationId, "timer")) === "in_flight") {
+    await sleep(IN_FLIGHT_MS);
+    await pickUpHandoff(conversationId, "timer");
   }
 }
