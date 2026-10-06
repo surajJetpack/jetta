@@ -224,14 +224,16 @@ export default function EvalsPanel({ freshdeskDomain }: { freshdeskDomain: strin
       body: JSON.stringify({ limit: 20 }),
     });
     const j = (await r.json().catch(() => null)) as
-      | { compared?: number; divergent?: number; recorded?: number; error?: string }
+      | { compared?: number; skippedMined?: number; divergent?: number; recorded?: number; error?: string }
       | null;
     if (!r.ok) {
       setMining(false);
       toast.error(`Mining failed: ${j?.error ?? r.statusText}`);
       return;
     }
-    toast.success(`Compared ${j?.compared ?? 0} tickets · ${j?.recorded ?? 0} divergences recorded. Distilling…`);
+    toast.success(
+      `Compared ${j?.compared ?? 0} tickets${j?.skippedMined ? ` (${j.skippedMined} already mined, skipped)` : ""} · ${j?.recorded ?? 0} divergences recorded. Distilling…`,
+    );
     // Roll straight into distillation so the patterns show up as candidates.
     await fetch("/api/admin/evals/distill", { method: "POST" }).catch(() => {});
     setMining(false);

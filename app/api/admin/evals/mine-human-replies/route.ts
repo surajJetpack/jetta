@@ -3,7 +3,7 @@
  * against Jetta's would-be draft, and record the divergences as evaluations so
  * the existing distiller can turn recurring patterns into candidate learnings.
  *
- *   POST { limit? }  → { sampled, compared, skippedJetta, divergent, recorded }
+ *   POST { limit? }  → { sampled, skippedMined, compared, skippedJetta, divergent, recorded, timedOut }
  *
  * Read-heavy + LLM-heavy (one dry-run agent replay per ticket, plus a classify
  * call per divergence), so limit is capped. Mined evals are tagged source:"mined"
@@ -13,7 +13,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminAuthorized, adminActor } from "@/lib/auth";
 import { config } from "@/lib/config";
-import { recordEvaluation } from "@/lib/evals";
+import { getEvaluation, minedEvalId, recordEvaluation } from "@/lib/evals";
 import { jettaDraftForTicket, recentResolvedTicketIds, classifyDivergence } from "@/lib/human-compare";
 import { replySimilarity, classifyReplySimilarity, normalizeReplyText } from "@/lib/reply-similarity";
 import { logOpsEvent } from "@/lib/events";
@@ -21,6 +21,14 @@ import { logOpsEvent } from "@/lib/events";
 export const runtime = "nodejs";
 export const maxDuration = 300;
 export const dynamic = "force-dynamic";
+
+/**
+ * How many recent tickets to look at to find `limit` unmined ones. The search
+ * itself is cheap (it pages the same 300 results regardless); the replay is
+ * what costs, and that is only paid for tickets that get past the skip below.
+ */
+const OVERSAMPLE = 3;
+const MAX_CANDIDATES = 150;
 
 export async function POST(req: NextRequest) {
   if (!adminAuthorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
@@ -35,9 +43,11 @@ export async function POST(req: NextRequest) {
   const startedAt = Date.now();
   const TIME_BUDGET_MS = 240_000;
 
-  const ticketIds = await recentResolvedTicketIds(limit);
+  const candidates = await recentResolvedTicketIds(Math.min(limit * OVERSAMPLE, MAX_CANDIDATES));
   const jettaUserId = config.freshdesk.agentId ? Number(config.freshdesk.agentId) : null;
 
+  let sampled = 0;
+  let skippedMined = 0;
   let compared = 0;
   let skippedJetta = 0;
   let divergent = 0;
@@ -45,11 +55,22 @@ export async function POST(req: NextRequest) {
   let timedOut = false;
   const now = Math.floor(Date.now() / 1000);
 
-  for (const ticketId of ticketIds) {
+  for (const ticketId of candidates) {
+    if (sampled >= limit) break;
     if (Date.now() - startedAt > TIME_BUDGET_MS) {
       timedOut = true;
       break;
     }
+    // A ticket is mined once. Replaying it again would spend a minute of the
+    // budget on evidence we already hold, and re-recording it would drop the
+    // `distilled` flag and feed the same ticket to the distiller a second time.
+    // Before this check the newest tickets were replayed on every click, so a
+    // run that timed out never got past them.
+    if (await getEvaluation(minedEvalId(ticketId))) {
+      skippedMined++;
+      continue;
+    }
+    sampled++;
     const cmp = await jettaDraftForTicket(ticketId).catch(() => null);
     if (!cmp || !cmp.humanReply || !cmp.jettaReply) continue;
     // Skip tickets where the "human" reply was actually Jetta's own approved draft.
@@ -66,7 +87,7 @@ export async function POST(req: NextRequest) {
 
     const tag = await classifyDivergence(cmp.customerMessage, cmp.humanReply, cmp.jettaReply).catch(() => "other" as const);
     await recordEvaluation({
-      id: `mined-${ticketId}`,
+      id: minedEvalId(ticketId),
       ticketId,
       subject: cmp.subject,
       channel: "freshdesk",
@@ -84,7 +105,7 @@ export async function POST(req: NextRequest) {
     recorded++;
   }
 
-  const summary = { sampled: ticketIds.length, compared, skippedJetta, divergent, recorded, timedOut };
+  const summary = { sampled, skippedMined, compared, skippedJetta, divergent, recorded, timedOut };
   await logOpsEvent({ level: "info", event: "evals.mine_human_replies", source: "console", actor, data: summary });
   return NextResponse.json(summary);
 }
