@@ -123,12 +123,10 @@ export default function GuideContent({ isAdmin }: { isAdmin: boolean }) {
               <StatusChip tone="stale">needs your reply</StatusChip> is one where the customer wrote
               last, read from the thread rather than the Freshdesk status — so it can disagree with a
               status still sitting on <i>waiting on customer</i>, and the thread is the one to believe.
-              {isAdmin && (
-                <>
-                  {" "}
-                  Admins also see KB articles awaiting review and candidate learnings to approve.
-                </>
-              )}
+              {" "}
+              The <b>Review</b> badge in the sidebar counts KB articles waiting for a reviewer —
+              anyone on the team can approve one.
+              {isAdmin && <> Admins also see candidate learnings to approve.</>}
             </p>
           </StepCard>
 
@@ -533,14 +531,16 @@ export default function GuideContent({ isAdmin }: { isAdmin: boolean }) {
             <CardContent className="space-y-2.5 text-sm">
               <StepCard title="Who sees what">
                 <p className="text-sm">
-                  General users get Today, Chats, Test Jetta, Billing and the Guide, because that is
-                  the shape of their day. It is a <b>navigation</b> decision, not a permission: the
-                  API routes are the real boundary and are deliberately more permissive, so a direct
-                  link still works for them. What they genuinely cannot do is approve a learning,
-                  publish an article, or decide who may embed the widget. Trials and discounts were
-                  on that list until 2026-09-22 and are now theirs to decide — the agent holding the
-                  ticket is the one who should answer it. <b>View as general</b> in the top bar is a
-                  real downgrade, not a preview — the APIs honour it too.
+                  General users get Today, Chats, Test Jetta, Support health, Review, Billing and
+                  the Guide, because that is the shape of their day. It is a <b>navigation</b>{" "}
+                  decision, not a permission: the API routes are the real boundary and are
+                  deliberately more permissive, so a direct link still works for them. What they
+                  genuinely cannot do is approve a learning, archive an article, or decide who may
+                  embed the widget. Trials and discounts were on that list until 2026-09-22, and
+                  reviewing and publishing KB articles until 2026-10-07 — both are now theirs to
+                  decide, because the person holding the ticket is the one who knows the answer.{" "}
+                  <b>View as general</b> in the top bar is a real downgrade, not a preview — the APIs
+                  honour it too.
                 </p>
               </StepCard>
 

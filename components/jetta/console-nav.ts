@@ -10,8 +10,8 @@
  *
  * `admin` here is a NAV decision, not a permission — see the note in
  * lib/roles.ts. A general user sees Today, Chats, Test Jetta, Support health,
- * Billing and the Guide, because that is the shape of their day; the API routes remain the
- * boundary and stay deliberately more permissive.
+ * Review, Billing and the Guide, because that is the shape of their day; the
+ * API routes remain the boundary and stay deliberately more permissive.
  */
 import {
   BarChart3,
@@ -140,7 +140,6 @@ export const NAV: NavGroup[] = [
         icon: ClipboardCheck,
         hint: "Draft articles waiting to be published",
         badge: "kb-review",
-        adminOnly: true,
       },
     ],
   },

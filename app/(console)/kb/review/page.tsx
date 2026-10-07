@@ -10,6 +10,9 @@ export const dynamic = "force-dynamic";
 export default async function ReviewPage() {
   const { locked } = await gate();
   if (locked) redirect("/login?next=%2Fkb%2Freview");
+  // Open to the whole support team since 2026-10-07: the people answering the
+  // tickets are the ones who know whether a draft is right, and every action
+  // on this page works for them (see app/api/admin/kb/drafts/route.ts).
   const byState = await countByState().catch(() => ({ draft: 0 }));
   return (
     <>

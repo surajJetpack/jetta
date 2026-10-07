@@ -661,10 +661,11 @@ export default function TodayBrief({ isAdmin }: { isAdmin: boolean }) {
           </Card>
 
           {/* ── Document next ───────────────────────────────────── */}
-          {/* Admin-only: deciding what gets documented is the admin's call
-              (publishing is admin-gated), so the prompt list is noise for
-              everyone else. Display preference, not a permission — the data
-              is the same /api/admin/today payload every user already gets. */}
+          {/* Admin-only: deciding what the team documents NEXT is a planning
+              call, distinct from reviewing a draft someone already wrote
+              (which anyone can do from /kb/review). Display preference, not a
+              permission — the data is the same /api/admin/today payload every
+              user already gets. */}
           {isAdmin && (
           <Card id="worth-documenting" className="scroll-mt-16">
             <CardHeader>

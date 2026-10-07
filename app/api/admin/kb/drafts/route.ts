@@ -1,6 +1,7 @@
 /**
- * Draft review queue (admin-gated) — drafts are simply articles in "draft"
- * state in the unified store (no separate model, no TTL).
+ * Draft review queue (open to every console user since 2026-10-07 — see
+ * lib/roles.ts) — drafts are simply articles in "draft" state in the unified
+ * store (no separate model, no TTL).
  *
  *   GET  → { drafts }  (draft-state articles, newest first)
  *   POST { id, action: "approve" | "reject" }
