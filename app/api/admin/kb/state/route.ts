@@ -1,5 +1,5 @@
 /**
- * Lifecycle transitions (admin-gated).
+ * Lifecycle transitions (archiving admin-gated, the rest open to the team).
  *   POST { id, to: "draft" | "in_review" | "published" | "archived" }
  * The store enforces the state machine and keeps the vector index in sync
  * (published ⇔ searchable by the agent).
@@ -14,15 +14,16 @@ export const dynamic = "force-dynamic";
 
 /**
  * The transitions only an admin may make. Everything else — drafting, sending
- * something for review, pulling it back to draft — is ordinary support work and
- * stays open to general users; blocking it would mean the KB only grows as fast
- * as one person reviews it.
+ * something for review, publishing, pulling it back to draft — is ordinary
+ * support work and stays open to general users; blocking it would mean the KB
+ * only grows as fast as one person reviews it.
  *
- * These two are different: published is what Jetta searches, so publishing
- * changes what every future customer is told, and archiving silently removes an
- * answer she was relying on.
+ * Publishing was admin-only until 2026-10-07, when the review queue opened to
+ * the whole team (see lib/roles.ts). Archiving stays here: it silently removes
+ * an answer Jetta was relying on, nothing on the console shows it happened,
+ * and the one place it is offered is the article editor, not the queue.
  */
-const ADMIN_ONLY_STATES: ArticleState[] = ["published", "archived"];
+const ADMIN_ONLY_STATES: ArticleState[] = ["archived"];
 
 export async function POST(req: NextRequest) {
   if (!adminAuthorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
