@@ -249,32 +249,32 @@ export default function EvalsPanel({ freshdeskDomain }: { freshdeskDomain: strin
           )}
           {stats && stats.total > 0 && (
             <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-              <div className="rounded-lg border bg-muted/40 p-3">
-                <div className="text-2xs font-medium tracking-wider text-muted-foreground uppercase">Decisions</div>
-                <div className="mt-1 font-mono text-lg font-semibold">{stats.total}</div>
+              <div className="rounded-lg border bg-card px-4 py-3.5">
+                <div className="text-xs font-medium text-muted-foreground">Decisions</div>
+                <div className="mt-1.5 text-xl font-semibold tracking-tight tabular-nums">{stats.total}</div>
               </div>
-              <div className="rounded-lg border bg-muted/40 p-3">
-                <div className="flex items-center gap-1 text-2xs font-medium tracking-wider text-muted-foreground uppercase">
+              <div className="rounded-lg border bg-card px-4 py-3.5">
+                <div className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
                   <ThumbsUp className="size-3" /> Sent as-is
                 </div>
-                <div className="mt-1 font-mono text-lg font-semibold">{stats.byRating.good}</div>
+                <div className="mt-1.5 text-xl font-semibold tracking-tight tabular-nums">{stats.byRating.good}</div>
               </div>
-              <div className="rounded-lg border bg-muted/40 p-3">
-                <div className="flex items-center gap-1 text-2xs font-medium tracking-wider text-muted-foreground uppercase">
+              <div className="rounded-lg border bg-card px-4 py-3.5">
+                <div className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
                   <PencilLine className="size-3" /> Edited
                 </div>
-                <div className="mt-1 font-mono text-lg font-semibold">
+                <div className="mt-1.5 text-xl font-semibold tracking-tight tabular-nums">
                   {stats.byRating.partial}
                   <span className="ml-1 text-xs font-normal text-muted-foreground">
                     ({Math.round(stats.editRate * 100)}%)
                   </span>
                 </div>
               </div>
-              <div className="rounded-lg border bg-muted/40 p-3">
-                <div className="flex items-center gap-1 text-2xs font-medium tracking-wider text-muted-foreground uppercase">
+              <div className="rounded-lg border bg-card px-4 py-3.5">
+                <div className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
                   <ThumbsDown className="size-3" /> Discarded
                 </div>
-                <div className="mt-1 font-mono text-lg font-semibold">
+                <div className="mt-1.5 text-xl font-semibold tracking-tight tabular-nums">
                   {stats.byRating.bad}
                   <span className="ml-1 text-xs font-normal text-muted-foreground">
                     ({Math.round(stats.discardRate * 100)}%)

@@ -463,7 +463,7 @@ export default function TodayBrief({ isAdmin }: { isAdmin: boolean }) {
                 <Alert>
                   <TriangleAlert />
                   <AlertTitle>
-                    Only {brief.trends.historyDaysCovered} days of labelled history — not enough to tell a spike from a
+                    Only {brief.trends.historyDaysCovered}{" "}days of labelled history — not enough to tell a spike from a
                     normal Tuesday yet. Showing today&apos;s busiest themes instead.
                   </AlertTitle>
                 </Alert>
@@ -605,7 +605,7 @@ export default function TodayBrief({ isAdmin }: { isAdmin: boolean }) {
                 <Alert>
                   <TriangleAlert />
                   <AlertTitle>
-                    Only {brief.trends.historyDaysCovered} days of labelled history — not enough to tell a
+                    Only {brief.trends.historyDaysCovered}{" "}days of labelled history — not enough to tell a
                     spike from a normal Tuesday yet.
                   </AlertTitle>
                 </Alert>

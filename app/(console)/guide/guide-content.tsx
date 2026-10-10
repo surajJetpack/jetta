@@ -56,8 +56,8 @@ export default function GuideContent({ isAdmin }: { isAdmin: boolean }) {
             board, works out which app the ticket is about, and writes a suggested reply.
           </p>
           <p>
-            <b>On Freshdesk, nothing reaches a customer until a human sends it.</b> Jetta&apos;s
-            suggestion is posted as a <b>private note on the ticket</b> (customers never see notes).
+            <b>On Freshdesk, nothing reaches a customer until a human sends it.</b>{" "}Jetta&apos;s
+            suggestion is posted as a <b>private note on the ticket</b>{" "}(customers never see notes).
             You copy it into the reply editor, edit freely, and send as yourself. There is no console
             step and no queue to clear.
           </p>
@@ -92,8 +92,8 @@ export default function GuideContent({ isAdmin }: { isAdmin: boolean }) {
           <StepCard title="Your briefing">
             <p className="text-sm">
               A short written read of the numbers on the page, regenerated whenever they change, with
-              one <b>Start here</b> action. It is commentary — the tiles and lists are the source of
-              truth. <b>Rewrite</b> forces a fresh one.
+              one <b>Start here</b>{" "}action. It is commentary — the tiles and lists are the source of
+              truth. <b>Rewrite</b>{" "}forces a fresh one.
             </p>
           </StepCard>
 
@@ -105,8 +105,8 @@ export default function GuideContent({ isAdmin }: { isAdmin: boolean }) {
             }
           >
             <p className="text-sm">
-              Topics running above their normal rate — at least <b>3 tickets in 24h</b> and{" "}
-              <b>3× the daily average</b> of the previous 14 days, so an ordinary busy day
+              Topics running above their normal rate — at least <b>3 tickets in 24h</b>{" "}and{" "}
+              <b>3× the daily average</b>{" "}of the previous 14 days, so an ordinary busy day
               doesn&apos;t cry wolf. Each one shows which app it hit and whether the KB already
               answers it: <StatusChip tone="published">in KB</StatusChip> means customers can&apos;t
               find an answer that exists, <StatusChip tone="draft">no KB article</StatusChip> means
@@ -124,7 +124,7 @@ export default function GuideContent({ isAdmin }: { isAdmin: boolean }) {
               last, read from the thread rather than the Freshdesk status — so it can disagree with a
               status still sitting on <i>waiting on customer</i>, and the thread is the one to believe.
               {" "}
-              The <b>Review</b> badge in the sidebar counts KB articles waiting for a reviewer —
+              The <b>Review</b>{" "}badge in the sidebar counts KB articles waiting for a reviewer —
               anyone on the team can approve one.
               {isAdmin && <> Admins also see candidate learnings to approve.</>}
             </p>
@@ -155,18 +155,18 @@ export default function GuideContent({ isAdmin }: { isAdmin: boolean }) {
             editor, change whatever you want, and send as yourself. <b>That is the whole workflow.</b>
           </p>
           <p>
-            Writing the reply <i>is</i> the feedback. Jetta reads back what you actually sent,
+            Writing the reply <i>is</i>{" "}the feedback. Jetta reads back what you actually sent,
             compares it with what it suggested, and records the difference on its own — sent as-is,
             edited, or replaced entirely. You never have to tell it.
           </p>
           <p className="text-muted-foreground">
             Two things worth knowing. If the customer writes again while a suggestion is waiting, the
-            old one is marked <i>superseded</i> and Jetta writes a fresh one against the new message.
-            And if nobody ever replies to a ticket, its suggestion quietly <i>expires</i> after two
+            old one is marked <i>superseded</i>{" "}and Jetta writes a fresh one against the new message.
+            And if nobody ever replies to a ticket, its suggestion quietly <i>expires</i>{" "}after two
             weeks rather than piling up — an expired suggestion is not a black mark against anyone.
           </p>
           <p className="text-muted-foreground">
-            Every suggestion is kept at <code>/drafts</code> as an audit trail. It is not in the nav
+            Every suggestion is kept at <code>/drafts</code>{" "}as an audit trail. It is not in the nav
             because it is not a queue anyone works.
           </p>
         </CardContent>
@@ -189,13 +189,13 @@ export default function GuideContent({ isAdmin }: { isAdmin: boolean }) {
           <StepCard title="Who the visitor is">
             <p className="text-sm">
               There is <b>no form before the chat</b> — a visitor types immediately, so
-              conversations start as <b>Anonymous</b> in this list. Collecting a name and email is
+              conversations start as <b>Anonymous</b>{" "}in this list. Collecting a name and email is
               Jetta&apos;s job, done in the conversation: she asks in her first reply, repeats the
               ask until she has both, and keeps the help brief for anyone who won&apos;t say who
               they are. The moment they answer, the name appears here.
             </p>
             <p className="mt-1.5 text-sm">
-              <b>Why it&apos;s mandatory:</b> without an email there is no ticket, no follow-up and
+              <b>Why it&apos;s mandatory:</b>{" "}without an email there is no ticket, no follow-up and
               no account lookup. If you take over an anonymous chat, getting their email becomes
               your job — the header will remind you. Inside the monday apps she never needs to ask:
               the embed supplies who they are.
@@ -206,28 +206,28 @@ export default function GuideContent({ isAdmin }: { isAdmin: boolean }) {
             <p className="text-sm">
               A visitor who asks for a person moves to{" "}
               <StatusChip tone="stale">waiting</StatusChip> and pins to the top of the list, and
-              Slack gets a ping. <b>Join</b> puts you in the conversation — from then on you are
-              typing to the visitor yourself and Jetta stops answering. <b>Hand back</b> returns them
+              Slack gets a ping. <b>Join</b>{" "}puts you in the conversation — from then on you are
+              typing to the visitor yourself and Jetta stops answering. <b>Hand back</b>{" "}returns them
               to her. The visitor sees who is speaking, so a handover is never silent.
             </p>
           </StepCard>
 
           <StepCard title="Turning a chat into a ticket">
             <p className="text-sm">
-              <b>Create ticket</b> opens a Freshdesk ticket carrying the whole transcript, with a
+              <b>Create ticket</b>{" "}opens a Freshdesk ticket carrying the whole transcript, with a
               subject and an optional note you write. The conversation becomes{" "}
               <StatusChip tone="in_review">ticketed</StatusChip> and the two point at each other, so
               neither side is a dead end. Jetta does this herself when she can&apos;t resolve
               something — the button is for when you decide before she does.
             </p>
             <p className="mt-1.5 text-sm">
-              <b>The chat does not stop.</b> A visitor who keeps typing still gets answers, and
+              <b>The chat does not stop.</b>{" "}A visitor who keeps typing still gets answers, and
               anything new they say — a symptom, a screenshot, that it&apos;s now urgent — is pushed
               onto the ticket as a private note, because the ticket only carries the transcript as
               it stood when it was opened. She never gives out the ticket number.
             </p>
             <p className="mt-1.5 text-sm">
-              <b>One ticket per issue, not per conversation.</b> Everything about the same problem
+              <b>One ticket per issue, not per conversation.</b>{" "}Everything about the same problem
               is a note on the one ticket. If the visitor raises something genuinely separate — a
               billing question in the middle of a bug report — that gets its own ticket, and both
               are listed on the conversation. She also opens a fresh one if the original has since
@@ -238,19 +238,19 @@ export default function GuideContent({ isAdmin }: { isAdmin: boolean }) {
 
           <StepCard title="Finishing a chat">
             <p className="text-sm">
-              <b>Resolve</b> files a conversation under{" "}
+              <b>Resolve</b>{" "}files a conversation under{" "}
               <StatusChip tone="archived">resolved</StatusChip> and out of <b>All live</b>. The
               visitor is told nothing and nothing is deleted — the transcript stays here for the
-              retention window — and <b>Reopen</b> undoes it. A new message from the visitor
+              retention window — and <b>Reopen</b>{" "}undoes it. A new message from the visitor
               reopens it by itself, so the bucket never hides a conversation that is still going.
             </p>
             <p className="mt-1.5 text-sm">
-              <b>She finishes most of them herself.</b> Around <b>15 minutes</b> after her answer
+              <b>She finishes most of them herself.</b>{" "}Around <b>15 minutes</b>{" "}after her answer
               she checks in once on a visitor who has gone quiet, and resolves the conversation if
               nobody comes back within <b>24 hours</b> — or straight away, with no message, when the
               transcript already says it was sorted. She will not check in when a colleague has the
               chat, when a visitor is waiting for a person, when the visitor spoke last (that means
-              she owes the reply, and it stays under <b>With Jetta</b> for you to see), or on a
+              she owes the reply, and it stays under <b>With Jetta</b>{" "}for you to see), or on a
               ticketed chat someone is answering by email — those resolve quietly, and the ticket is
               untouched. Both clocks are on <b>/chats/settings</b>.
             </p>
@@ -258,8 +258,8 @@ export default function GuideContent({ isAdmin }: { isAdmin: boolean }) {
 
           <StepCard title="When a chat becomes a new chat">
             <p className="text-sm">
-              A visitor who comes back within <b>24 hours</b> picks up the same conversation; after
-              that they get a fresh one, and there is a <b>+</b> in the widget header for starting
+              A visitor who comes back within <b>24 hours</b>{" "}picks up the same conversation; after
+              that they get a fresh one, and there is a <b>+</b>{" "}in the widget header for starting
               one deliberately. Nothing is deleted either way — the old transcript stays here for
               the full retention window. The window is on <b>/chats/settings</b>, and it wants to
               stay comfortably longer than a real conversation: someone still discussing the ticket
@@ -276,7 +276,7 @@ export default function GuideContent({ isAdmin }: { isAdmin: boolean }) {
               skipped — the useful ones are multi-page and a summary of page one misleads.
             </p>
             <p className="mt-1.5 text-sm">
-              <b>This is chat only.</b> The same screenshot attached to a Freshdesk ticket is
+              <b>This is chat only.</b>{" "}The same screenshot attached to a Freshdesk ticket is
               invisible to her — she is never told a file is there and answers without it, saying
               nothing to indicate she missed anything. If a ticket turns on what&apos;s in an image,
               assume her suggestion didn&apos;t account for it.
@@ -304,7 +304,7 @@ export default function GuideContent({ isAdmin }: { isAdmin: boolean }) {
             commented on an item — and explain her own past decisions.
           </p>
           <p>
-            <b>She is read-only there, by construction.</b> She cannot reply to a customer, close or
+            <b>She is read-only there, by construction.</b>{" "}She cannot reply to a customer, close or
             change a ticket, touch the dev board, or move money. Ask her to and she&apos;ll say so
             rather than pretending. The privileged actions live as typed commands in the escalation
             channel, where everyone can see them happen.
@@ -327,7 +327,7 @@ export default function GuideContent({ isAdmin }: { isAdmin: boolean }) {
         <CardContent className="space-y-2 text-sm">
           <p>
             When a customer asks for a trial extension or a discount, Jetta doesn&apos;t grant it.
-            She files a request on <b>Billing</b> (and in Slack) with the account, the amount and
+            She files a request on <b>Billing</b>{" "}(and in Slack) with the account, the amount and
             the ticket, and waits for a person. That person can be you: approving applies it to the
             customer&apos;s monday account straight away, so read the ticket first and check the
             account is the one that asked.
@@ -389,7 +389,7 @@ export default function GuideContent({ isAdmin }: { isAdmin: boolean }) {
 
               <StepCard title="1 · Learn from human replies">
                 <p className="text-sm">
-                  Takes recently resolved tickets, replays what Jetta <i>would</i> have written, and
+                  Takes recently resolved tickets, replays what Jetta <i>would</i>{" "}have written, and
                   compares it against what was actually sent. Every meaningful divergence is
                   recorded. This is the main input now — ordinary replies are the training data, with
                   no extra work asked of anyone.
@@ -399,22 +399,22 @@ export default function GuideContent({ isAdmin }: { isAdmin: boolean }) {
               <StepCard title="2 · Distill now">
                 <p className="text-sm">
                   Turns accumulated divergences into short candidate rules — things like{" "}
-                  <i>&quot;Don&apos;t offer refunds proactively.&quot;</i> Patterns only: a one-off
+                  <i>&quot;Don&apos;t offer refunds proactively.&quot;</i>{" "}Patterns only: a one-off
                   never becomes a rule.
                 </p>
               </StepCard>
 
               <StepCard title="3 · Approve or reject">
                 <p className="text-sm">
-                  <b>Nothing changes until you approve.</b> An approved rule is injected into every
+                  <b>Nothing changes until you approve.</b>{" "}An approved rule is injected into every
                   reply Jetta writes from then on; a rejected one is remembered so it&apos;s never
                   proposed again. Approve narrowly — each rule is permanent instruction until someone{" "}
-                  <b>retires</b> it.
+                  <b>retires</b>{" "}it.
                 </p>
               </StepCard>
 
               <p className="text-muted-foreground">
-                Rule of thumb: product <b>facts</b> belong in the Knowledge Base, <b>behaviour</b>{" "}
+                Rule of thumb: product <b>facts</b>{" "}belong in the Knowledge Base, <b>behaviour</b>{" "}
                 belongs here. &quot;The Pro plan is $29&quot; is a KB article. &quot;Ask which board
                 before troubleshooting a sync&quot; is a learning.
               </p>
@@ -465,7 +465,7 @@ export default function GuideContent({ isAdmin }: { isAdmin: boolean }) {
                 tells you nothing about where to look.
               </p>
               <p className="text-muted-foreground">
-                The <b>Event log</b> at the bottom records every system event — runs, skips,
+                The <b>Event log</b>{" "}at the bottom records every system event — runs, skips,
                 escalations, logins — and is the first place to look when something behaved oddly.
               </p>
             </CardContent>
@@ -510,7 +510,7 @@ export default function GuideContent({ isAdmin }: { isAdmin: boolean }) {
                 <b>Reasoning &amp; retrieval</b> — the models and how the knowledge base is searched.
               </p>
               <p>
-                The <b>ticket tester</b> re-runs any ticket through Jetta. With <b>Dry run</b> on
+                The <b>ticket tester</b>{" "}re-runs any ticket through Jetta. With <b>Dry run</b>{" "}on
                 (default) nothing is written anywhere — you just see the reply she would send and
                 every tool call she made. Use it to answer &quot;why did she say that?&quot;, or to
                 check a KB fix actually worked before trusting it.
@@ -539,7 +539,7 @@ export default function GuideContent({ isAdmin }: { isAdmin: boolean }) {
                   embed the widget. Trials and discounts were on that list until 2026-09-22, and
                   reviewing and publishing KB articles until 2026-10-07 — both are now theirs to
                   decide, because the person holding the ticket is the one who knows the answer.{" "}
-                  <b>View as general</b> in the top bar is a real downgrade, not a preview — the APIs
+                  <b>View as general</b>{" "}in the top bar is a real downgrade, not a preview — the APIs
                   honour it too.
                 </p>
               </StepCard>
@@ -549,7 +549,7 @@ export default function GuideContent({ isAdmin }: { isAdmin: boolean }) {
                   One Slack channel per job: dev escalations, someone waiting in a live chat, and
                   approvals plus the daily KB report. They are separate because an engineer scanning
                   for bugs learns to skim a channel where most messages aren&apos;t bugs — and the
-                  one that was gets skimmed with them. <b>System</b> shows whether Jetta is actually
+                  one that was gets skimmed with them. <b>System</b>{" "}shows whether Jetta is actually
                   in each channel and able to post; a channel she isn&apos;t in accepts nothing, and
                   the first symptom is a visitor waiting for a person who was announced to an empty
                   room. Escalations and a visitor asking for a person both ping <b>@channel</b> —
@@ -562,8 +562,8 @@ export default function GuideContent({ isAdmin }: { isAdmin: boolean }) {
 
               <StepCard title="The chat widget">
                 <p className="text-sm">
-                  <b>Chat settings</b> controls the widget&apos;s behaviour without a deploy, and{" "}
-                  <b>Install</b> has the snippet for a new site. Which origins may embed it is an
+                  <b>Chat settings</b>{" "}controls the widget&apos;s behaviour without a deploy, and{" "}
+                  <b>Install</b>{" "}has the snippet for a new site. Which origins may embed it is an
                   admin decision because it is a security boundary — anyone who can embed the widget
                   can start conversations that Jetta answers unsupervised.
                 </p>

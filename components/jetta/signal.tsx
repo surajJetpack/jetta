@@ -32,7 +32,7 @@ export function Signal({
 }) {
   return (
     <span
-      className={cn(CHIP_BASE, "font-mono uppercase", TONE_SOFT[TONES[tone]], className)}
+      className={cn(CHIP_BASE, "tracking-wide uppercase", TONE_SOFT[TONES[tone]], className)}
     >
       <span className="size-1.5 rounded-full bg-current" aria-hidden />
       {children}

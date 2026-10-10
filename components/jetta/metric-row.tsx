@@ -33,9 +33,12 @@ export function MetricRow({
   className?: string;
 }) {
   return (
+    // Tiles separated by hairlines: the grid's gap shows the border colour
+    // through, so the dividers stay correct however the row wraps.
     <dl
       className={cn(
-        "grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4",
+        "grid grid-cols-2 gap-px overflow-hidden rounded-lg border bg-border sm:grid-cols-4",
+        metrics.length === 3 && "sm:grid-cols-3",
         metrics.length === 5 && "sm:grid-cols-5",
         className,
       )}
@@ -43,28 +46,26 @@ export function MetricRow({
       {metrics.map((m) => (
         <div
           key={m.label}
-          className={cn("min-w-0", m.onClick && "group relative -m-1.5 rounded-md p-1.5 transition-colors hover:bg-muted/60")}
+          className={cn("relative min-w-0 bg-card px-4 py-3.5", m.onClick && "group transition-colors hover:bg-muted/50")}
         >
-          <dt className="text-2xs font-medium tracking-wider text-pretty text-muted-foreground uppercase">
-            {m.label}
-          </dt>
+          <dt className="text-xs font-medium text-pretty text-muted-foreground">{m.label}</dt>
           <dd
             className={cn(
-              "mt-1 text-2xl leading-none font-semibold tabular-nums",
+              "mt-1.5 text-2xl leading-none font-semibold tracking-tight tabular-nums sm:text-[1.75rem]",
               m.tone ? TONE_TEXT[m.tone] : "text-foreground",
-              m.onClick && "underline decoration-dotted decoration-1 underline-offset-4 group-hover:decoration-solid",
+              m.onClick && "underline decoration-muted-foreground/40 decoration-dotted decoration-1 underline-offset-4 group-hover:decoration-solid",
             )}
           >
             {m.value}
           </dd>
-          {m.hint && <p className="mt-1 text-xs text-pretty text-muted-foreground">{m.hint}</p>}
+          {m.hint && <p className="mt-1.5 text-xs text-pretty text-muted-foreground">{m.hint}</p>}
           {m.onClick && (
             // Covers the cell so the label and hint are part of the target; dt/dd can't live inside a <button>.
             <button
               type="button"
               onClick={m.onClick}
               aria-label={`Show the records behind ${m.label}`}
-              className="absolute inset-0 rounded-md outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+              className="absolute inset-0 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:ring-inset"
             />
           )}
         </div>

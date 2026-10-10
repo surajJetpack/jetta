@@ -124,7 +124,7 @@ export function CommandPalette({
       <Dialog.Trigger asChild>
         <button
           type="button"
-          className="flex h-8 w-full max-w-xs items-center gap-2 rounded-md border bg-card px-2.5 text-sm text-muted-foreground transition-colors hover:bg-muted focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+          className="flex h-9 w-full max-w-md items-center gap-2 rounded-lg border bg-card px-3 text-sm text-muted-foreground shadow-card transition-colors hover:bg-muted focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
         >
           <Search className="size-4 shrink-0" aria-hidden />
           <span className="flex-1 truncate text-left">Search…</span>

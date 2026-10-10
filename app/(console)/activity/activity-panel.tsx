@@ -524,7 +524,7 @@ function SourcesCard({ data, onChanged }: { data: Payload; onChanged: () => void
       ) : (
         <>
           Read hourly from channel history. To make it live (and stop the hourly reads), add the bot events{" "}
-          <code className="text-foreground">message.channels</code> and <code className="text-foreground">message.groups</code> under
+          <code className="text-foreground">message.channels</code>{" "}and <code className="text-foreground">message.groups</code>{" "}under
           Event Subscriptions in the Slack app settings.
         </>
       ),
