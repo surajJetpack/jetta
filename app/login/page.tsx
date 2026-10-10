@@ -22,7 +22,7 @@ export default async function LoginPage({
   if (!locked) redirect(target); // already signed in (or dev-open)
 
   return (
-    <main className="flex min-h-svh flex-col items-center justify-center gap-6 bg-muted/40 p-5">
+    <main data-console className="flex min-h-svh flex-col items-center justify-center gap-6 bg-muted/40 p-5">
       <Card className="w-full max-w-sm shadow-sm">
         <CardHeader className="items-center gap-1 text-center">
           <Image

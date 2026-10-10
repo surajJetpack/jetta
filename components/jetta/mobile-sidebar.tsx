@@ -31,7 +31,7 @@ export function MobileSidebar({
       </Dialog.Trigger>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/40 md:hidden data-[state=open]:animate-in data-[state=open]:fade-in-0" />
-        <Dialog.Content className="fixed inset-y-0 left-0 z-50 w-60 border-r bg-sidebar md:hidden data-[state=open]:animate-in data-[state=open]:slide-in-from-left">
+        <Dialog.Content data-surface="sidebar" className="fixed inset-y-0 left-0 z-50 w-60 border-r md:hidden data-[state=open]:animate-in data-[state=open]:slide-in-from-left">
           <Dialog.Title className="sr-only">Navigation</Dialog.Title>
           <ConsoleSidebar
             isAdmin={isAdmin}
