@@ -33,7 +33,7 @@ function Points<D>({
   if (!points.length) return null;
   return (
     <div className="min-w-0">
-      <p className="mb-1.5 text-[11px] font-medium tracking-wider text-muted-foreground uppercase">{title}</p>
+      <p className="mb-1.5 text-2xs font-medium tracking-wider text-muted-foreground uppercase">{title}</p>
       <ul className="grid gap-2">
         {points.map((p, i) => (
           <li key={i} className="flex gap-2 text-sm leading-snug">

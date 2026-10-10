@@ -306,7 +306,7 @@ export async function openSupport() {
             </Alert>
           )}
           <div className="flex flex-wrap items-center gap-1.5 pt-1">
-            <span className="text-[11px] text-muted-foreground">Currently allowed:</span>
+            <span className="text-2xs text-muted-foreground">Currently allowed:</span>
             {origins.length ? (
               origins.map((o) => (
                 <StatusChip key={o} tone="published">
@@ -334,7 +334,7 @@ export async function openSupport() {
           </Step>
           <Step n={2} title="Paste this before </body>">
             <Snippet code={scriptTag} />
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-2xs text-muted-foreground">
               In WordPress: Appearance → Theme File Editor → footer.php, or any &quot;custom scripts&quot;
               plugin. Nothing else is needed — the launcher, the panel and the styling all come from here.
             </p>
@@ -347,7 +347,7 @@ export async function openSupport() {
           </Step>
           <Step n={4} title="Name the app the page belongs to">
             <Snippet code={getsignTag} />
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-2xs text-muted-foreground">
               <code>data-app</code> is how a chat gets attributed, and it is the only source that
               cannot be wrong — without it the app is inferred from what the visitor asks about,
               which reads a billing question as no app at all. It also drives the per-app filter in{" "}
@@ -356,7 +356,7 @@ export async function openSupport() {
               <code>jobflows</code>, <code>smartcolumns</code>, <code>jetscan</code>,{" "}
               <code>pivotreports</code>, <code>triggerly</code>.
             </p>
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-2xs text-muted-foreground">
               <code>data-app=&quot;getsign&quot;</code> does one thing more: it switches the widget to
               the GetSign skin from <b>Settings → What the visitor sees → GetSign</b> and scopes
               answers to the GetSign knowledge base — the other apps&apos; articles are not
@@ -387,11 +387,11 @@ export async function openSupport() {
           </Step>
           <Step n={2} title="Paste this into the page content">
             <Snippet code={chatPageSnippet} />
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-2xs text-muted-foreground">
               No launcher, no badge, always open — on a page whose only job is the chat, a bubble is
               furniture in front of the one thing there. Adjust the <code>height</code> to taste.
             </p>
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-2xs text-muted-foreground">
               <b>Use the container, not <code>inline: true</code>.</b> Filling the window means covering
               the site&apos;s own header and nav, which reads as the site having broken. If the page also
               carries the site-wide script from above, that&apos;s fine: the loader refuses to run twice
@@ -402,12 +402,12 @@ export async function openSupport() {
           </Step>
           <Step n={3} title="Point each app at it">
             <Snippet code={chatPageLink} />
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-2xs text-muted-foreground">
               Swap the page address for yours and the <code>app</code> value per app. Spell the key
               exactly — anything unrecognised is dropped and the chat runs unattributed, which costs you
               the per-app filter in <b>Chats</b> and the app breakdown on <b>Today</b>.
             </p>
-            <div className="grid gap-x-6 gap-y-1 text-[11px] text-muted-foreground sm:grid-cols-2">
+            <div className="grid gap-x-6 gap-y-1 text-2xs text-muted-foreground sm:grid-cols-2">
               {APP_KEYS.map((k) => (
                 <div key={k} className="flex items-baseline justify-between gap-2 border-b border-dashed py-0.5">
                   <span>{APP_NAMES[k]}</span>
@@ -415,7 +415,7 @@ export async function openSupport() {
                 </div>
               ))}
             </div>
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-2xs text-muted-foreground">
               <code>getsign</code> also switches the page to the GetSign skin and scopes answers to the
               GetSign knowledge base — the other apps&apos; articles are not retrievable under it.
             </p>
@@ -428,23 +428,23 @@ export async function openSupport() {
               are — she asks for a name and email in the chat, and confirms the account before raising
               anything against it. Hand over monday&apos;s signed session token and she stops asking.
             </p>
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-2xs text-muted-foreground">
               Use this version of the page snippet instead — same page, same container, it just reads the
               extra parameters:
             </p>
             <Snippet code={chatPageTokenSnippet} />
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-2xs text-muted-foreground">
               And open it from the app view like this, rather than as a plain link:
             </p>
             <Snippet code={supportButtonSnippet} />
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-2xs text-muted-foreground">
               <code>monday.api</code> needs the <code>me:read</code> scope, the same one the in-view embed
               uses. Then set <code>MONDAY_CLIENT_SECRET_VLOOKUP</code> — and the same for every other app
               whose button you wire up — from that app&apos;s monday developer page. Without the secret the
               token cannot be checked and nothing breaks: the chat simply starts anonymous again, with no
               account attached.
             </p>
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-2xs text-muted-foreground">
               Why a token rather than just putting the account slug in the link: Jetta uses that slug to
               raise trial and discount requests <em>without asking</em>. On a link anyone can edit, that
               would let one customer ask for a discount on another&apos;s account. A verified token is
@@ -470,12 +470,12 @@ export async function openSupport() {
             a CDN. Ours import it, so use this instead — same handover, called once after the view mounts.
           </p>
           <Snippet code={mondayModuleSnippet} />
-          <p className="text-[11px] text-muted-foreground">
+          <p className="text-2xs text-muted-foreground">
             The app needs the <code>me:read</code> scope, or the query comes back without a name and email —
             and Jetta then asks the visitor in the chat for details monday already knows. Set{" "}
             <code>app</code> to whichever product the view belongs to so tickets are attributed correctly.
           </p>
-          <p className="text-[11px] text-muted-foreground">
+          <p className="text-2xs text-muted-foreground">
             <b>The bottom-right corner is already monday&apos;s.</b> Their AI sidekick is a floating circle
             there at the same size, so <code>surface: &quot;monday&quot;</code> anchors the launcher{" "}
             <b>bottom-left</b> by default, flush with the usual <code>20px</code> edge. A launcher sent back
@@ -484,7 +484,7 @@ export async function openSupport() {
             override outranks Settings, which is per brand and would move the website too. z-index is no
             help — the widget is in an iframe, so it can never stack above monday&apos;s own floating buttons.
           </p>
-          <p className="text-[11px] text-muted-foreground">
+          <p className="text-2xs text-muted-foreground">
             Two origins go on the allowed list, not one: the host your app view is served from{" "}
             <em>and</em> <code>https://*.monday.com</code>. The browser checks the framing rule against every
             ancestor of the chat, and inside monday your view is itself in a frame — list only your own host and

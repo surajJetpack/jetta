@@ -199,7 +199,7 @@ export default function TicketTester({
 
               {res.reply && (
                 <div>
-                  <div className="mb-1 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
+                  <div className="mb-1 text-2xs font-semibold tracking-wider text-muted-foreground uppercase">
                     Final reply
                   </div>
                   <div className="rounded-lg border bg-muted/40 p-3 text-sm whitespace-pre-wrap">{res.reply}</div>
@@ -207,7 +207,7 @@ export default function TicketTester({
               )}
 
               <div>
-                <div className="mb-1.5 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
+                <div className="mb-1.5 text-2xs font-semibold tracking-wider text-muted-foreground uppercase">
                   Tool trace ({res.trace?.length ?? 0} call{res.trace?.length === 1 ? "" : "s"})
                 </div>
                 {res.trace?.length ? (

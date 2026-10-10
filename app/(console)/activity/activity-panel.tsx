@@ -349,7 +349,7 @@ function PersonLine({ p, show }: { p: PersonRow; show: (f: Filter) => void }) {
               {n || <span className="text-muted-foreground">–</span>}
             </CellLink>
             {sub && n > 0 && (
-              <div className="text-[11px] text-muted-foreground">
+              <div className="text-2xs text-muted-foreground">
                 {c.id === "chats" ? "pick-up " : "response "}
                 {sub}
               </div>

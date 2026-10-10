@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { cloneElement, isValidElement, useCallback, useEffect, useId, useState } from "react";
 import Link from "next/link";
 import { ChevronRight, RotateCw, TriangleAlert, Save, Image as ImageIcon } from "lucide-react";
 import { toast } from "sonner";
@@ -72,12 +72,34 @@ interface Payload {
   env: { live: boolean; hasSecret: boolean; envOrigins: string[]; followUp: boolean };
 }
 
+/**
+ * A labelled control. A lone Input or Textarea gets the label wired to it by id
+ * and the hint as its description; anything else (a group of buttons) becomes
+ * a labelled group — either way a screen reader announces what the field is.
+ */
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+  const id = useId();
+  const hintId = hint ? `${id}-hint` : undefined;
+  const single =
+    isValidElement<{ id?: string; "aria-describedby"?: string }>(children) &&
+    (children.type === Input || children.type === Textarea);
+  const controlId = single ? (children.props.id ?? id) : undefined;
   return (
-    <div className="space-y-1.5">
-      <Label className="text-xs">{label}</Label>
-      {children}
-      {hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}
+    <div
+      className="space-y-1.5"
+      role={single ? undefined : "group"}
+      aria-labelledby={single ? undefined : `${id}-label`}
+      aria-describedby={single ? undefined : hintId}
+    >
+      <Label id={`${id}-label`} htmlFor={controlId} className="text-xs">
+        {label}
+      </Label>
+      {single ? cloneElement(children, { id: controlId, "aria-describedby": hintId }) : children}
+      {hint && (
+        <p id={hintId} className="text-2xs text-muted-foreground">
+          {hint}
+        </p>
+      )}
     </div>
   );
 }
@@ -173,7 +195,7 @@ export default function ChatSettingsForm() {
               <Checkbox checked={form.enabled} onCheckedChange={(v) => set("enabled", !!v)} />
               <span className="text-sm">
                 Chat is on
-                <span className="block text-[11px] text-muted-foreground">
+                <span className="block text-2xs text-muted-foreground">
                   Turning this off stops new conversations immediately. Existing ones stop being served too.
                 </span>
               </span>
@@ -182,7 +204,7 @@ export default function ChatSettingsForm() {
               <Checkbox checked={form.requireIdentity} onCheckedChange={(v) => set("requireIdentity", !!v)} />
               <span className="text-sm">
                 Jetta must collect name and email in the chat
-                <span className="block text-[11px] text-muted-foreground">
+                <span className="block text-2xs text-muted-foreground">
                   There is no pre-chat form: while a visitor is anonymous, Jetta asks in the
                   conversation and holds off on deeper help until she has both. Inside the monday
                   app the SDK supplies identity, so she never needs to ask there.
@@ -196,7 +218,7 @@ export default function ChatSettingsForm() {
               />
               <span className="text-sm">
                 Let visitors attach screenshots and PDFs
-                <span className="block text-[11px] text-muted-foreground">
+                <span className="block text-2xs text-muted-foreground">
                   Images are read by a vision model so Jetta can answer about them, and they ride onto
                   the Freshdesk ticket if the chat is escalated.
                 </span>
@@ -206,7 +228,7 @@ export default function ChatSettingsForm() {
               <Checkbox checked={form.handoffEnabled} onCheckedChange={(v) => set("handoffEnabled", !!v)} />
               <span className="text-sm">
                 Let Jetta hand a live chat to a person
-                <span className="block text-[11px] text-muted-foreground">
+                <span className="block text-2xs text-muted-foreground">
                   She pings Slack and goes silent. If nobody joins in time she takes it back and offers a ticket.
                 </span>
               </span>
@@ -215,7 +237,7 @@ export default function ChatSettingsForm() {
               <Checkbox checked={form.followUpEnabled} onCheckedChange={(v) => set("followUpEnabled", !!v)} />
               <span className="text-sm">
                 Let Jetta chase a chat that went quiet
-                <span className="block text-[11px] text-muted-foreground">
+                <span className="block text-2xs text-muted-foreground">
                   She checks in once if a visitor stops replying, and marks the chat resolved when nobody
                   comes back — or straight away, if the transcript says it was already sorted.
                   {data.env.followUp ? (
@@ -350,7 +372,7 @@ export default function ChatSettingsForm() {
           </CardAction>
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2">
-          <p className="sm:col-span-2 text-[11px] text-muted-foreground">
+          <p className="sm:col-span-2 text-2xs text-muted-foreground">
             The default skin — what every surface shows unless a brand overrides it.
           </p>
           <Field label="Title">
@@ -514,7 +536,7 @@ export default function ChatSettingsForm() {
             />
           </Field>
           {data.env.envOrigins.length > 0 && (
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-2xs text-muted-foreground">
               Environment default: <code>{data.env.envOrigins.join(", ")}</code> — used until you save a list here.
             </p>
           )}
@@ -555,7 +577,7 @@ export default function ChatSettingsForm() {
           <RotateCw /> Discard changes
         </Button>
         {form.updatedAt && (
-          <span className="text-[11px] text-muted-foreground">
+          <span className="text-2xs text-muted-foreground">
             Last changed by {form.updatedBy} · {new Date(form.updatedAt).toLocaleString()}
           </span>
         )}

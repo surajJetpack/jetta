@@ -132,7 +132,7 @@ function DayDivider({ at }: { at: string }) {
   return (
     <div className="flex items-center gap-2 py-2" role="separator">
       <span className="h-px flex-1 bg-border" />
-      <span className="text-[10px] tracking-wide text-muted-foreground uppercase">
+      <span className="text-3xs tracking-wide text-muted-foreground uppercase">
         {fmtDayLabel(at, now)}
       </span>
       <span className="h-px flex-1 bg-border" />
@@ -514,7 +514,7 @@ export default function ChatInbox({
                 key={f}
                 size="sm"
                 variant={filter === f ? "default" : "outline"}
-                className="h-7 px-2 text-[11px]"
+                className="h-7 px-2 text-2xs"
                 onClick={() => setFilter(f)}
               >
                 {label}
@@ -563,16 +563,16 @@ export default function ChatInbox({
                     <ChatAvatar
                       kind="visitor"
                       name={c.visitor.name || c.visitor.email}
-                      className="size-5 text-[9px]"
+                      className="size-5 text-3xs"
                     />
                     <span className="truncate text-xs font-medium">
                       {c.visitor.name || c.visitor.email || "Anonymous"}
                     </span>
-                    <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">
+                    <span className="ml-auto shrink-0 text-3xs text-muted-foreground">
                       <RelativeTime at={Math.floor(Date.parse(c.lastActivityAt) / 1000)} />
                     </span>
                   </div>
-                  <p className="mt-0.5 line-clamp-1 text-[11px] text-muted-foreground">
+                  <p className="mt-0.5 line-clamp-1 text-2xs text-muted-foreground">
                     {last?.text ?? "No messages yet"}
                   </p>
                   <div className="mt-1 flex flex-wrap items-center gap-1">
@@ -581,14 +581,14 @@ export default function ChatInbox({
                         filter is a list of chats with no way to tell them
                         apart from the ticket you are holding. */}
                     {c.ticketId && (
-                      <span className="text-[10px] tabular-nums text-muted-foreground">#{c.ticketId}</span>
+                      <span className="text-3xs tabular-nums text-muted-foreground">#{c.ticketId}</span>
                     )}
-                    {c.humanAgent && <span className="text-[10px] text-muted-foreground">{c.humanAgent}</span>}
+                    {c.humanAgent && <span className="text-3xs text-muted-foreground">{c.humanAgent}</span>}
                     {/* Named on the row, not just in the filter: otherwise the
                         only way to check what a chat was attributed to is to
                         filter by each app in turn and see where it lands. */}
                     {appOf(c) !== NO_APP && (
-                      <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">
+                      <span className="ml-auto shrink-0 text-3xs text-muted-foreground">
                         {appName(appOf(c))}
                       </span>
                     )}
@@ -597,7 +597,7 @@ export default function ChatInbox({
               );
             })}
             {abandoned > 0 && (
-              <p className="px-1 pt-2 text-[11px] text-muted-foreground">
+              <p className="px-1 pt-2 text-2xs text-muted-foreground">
                 {abandoned} {abandoned === 1 ? "visitor" : "visitors"} opened the chat without sending
                 anything.
               </p>
@@ -629,12 +629,12 @@ export default function ChatInbox({
                     // the conversation. Anyone taking over needs to know the
                     // collecting is now THEIRS — without an email there is no
                     // ticket and no follow-up.
-                    <span className="rounded-full border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-normal text-amber-600 dark:text-amber-400">
+                    <span className="rounded-full border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-3xs font-normal text-amber-600 dark:text-amber-400">
                       no email yet — if you take over, get it
                     </span>
                   )}
                 </p>
-                <p className="truncate text-[11px] text-muted-foreground">
+                <p className="truncate text-2xs text-muted-foreground">
                   {detail.surface}
                   {detail.visitor.mondayAccountSlug && ` · ${detail.visitor.mondayAccountSlug}`}
                   {detail.visitor.app && ` · ${detail.visitor.app}`}
@@ -644,7 +644,7 @@ export default function ChatInbox({
               <div className="ml-auto flex shrink-0 items-center gap-1.5">
                 {hydrated && (
                   <span
-                    className="text-[11px] text-muted-foreground"
+                    className="text-2xs text-muted-foreground"
                     title={`Transcript times are in your own zone${zone.name ? ` (${zone.name})` : ""}. The transcript on the Freshdesk ticket is in UTC.`}
                   >
                     times in {zone.short}
@@ -655,7 +655,7 @@ export default function ChatInbox({
                     loop — either the customer confirmed the fix, or nobody came
                     back and the follow-up sweep finished it. */}
                 {detail.status === "resolved" && detail.resolvedBy && (
-                  <span className="text-[11px] text-muted-foreground">by {detail.resolvedBy}</span>
+                  <span className="text-2xs text-muted-foreground">by {detail.resolvedBy}</span>
                 )}
                 {detail.ticketId && (
                   // Freshdesk, not here. This used to link to /chats/<this
@@ -666,7 +666,7 @@ export default function ChatInbox({
                     href={`https://${freshdeskDomain}/a/tickets/${detail.ticketId}`}
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline"
+                    className="inline-flex items-center gap-1 text-2xs text-primary hover:underline"
                     title="Open this ticket in Freshdesk"
                   >
                     ticket #{detail.ticketId} <ExternalLink className="size-3" />
@@ -682,7 +682,7 @@ export default function ChatInbox({
                     href={`https://${freshdeskDomain}/a/tickets/${id}`}
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:underline"
+                    className="inline-flex items-center gap-1 text-2xs text-muted-foreground hover:underline"
                     title="An earlier ticket from this conversation"
                   >
                     also #{id} <ExternalLink className="size-3" />
@@ -712,7 +712,7 @@ export default function ChatInbox({
                   return (
                     <Fragment key={m.id}>
                       {divider}
-                      <p className="py-1 text-center text-[11px] text-muted-foreground">{m.text}</p>
+                      <p className="py-1 text-center text-2xs text-muted-foreground">{m.text}</p>
                     </Fragment>
                   );
                 }
@@ -770,7 +770,7 @@ export default function ChatInbox({
                           ].join(" ")}
                         >
                           {m.author === "agent" && (
-                            <p className="mb-0.5 text-[10px] tracking-wide text-muted-foreground uppercase">
+                            <p className="mb-0.5 text-3xs tracking-wide text-muted-foreground uppercase">
                               {human ? `${m.authorName ?? "Team"} · human` : "Jetta"}
                             </p>
                           )}
@@ -797,7 +797,7 @@ export default function ChatInbox({
                               never to the visitor: it is the only way to tell a
                               wrong answer from a wrong reading of the screenshot. */}
                           {m.attachments?.some((a) => a.description) && (
-                            <p className="mb-1.5 border-l-2 border-muted-foreground/30 pl-2 text-[11px] text-muted-foreground italic">
+                            <p className="mb-1.5 border-l-2 border-muted-foreground/30 pl-2 text-2xs text-muted-foreground italic">
                               Jetta saw: {m.attachments.map((a) => a.description).filter(Boolean).join(" ")}
                             </p>
                           )}
@@ -808,7 +808,7 @@ export default function ChatInbox({
                       {hydrated && runEnds && (
                         <p
                           className={[
-                            "mt-0.5 text-[10px] tabular-nums text-muted-foreground",
+                            "mt-0.5 text-3xs tabular-nums text-muted-foreground",
                             /* Clear of the avatar gutter (a size-6 face plus
                                the gap-1.5) so the time sits under the bubble's
                                own edge rather than under the face. */
@@ -831,7 +831,7 @@ export default function ChatInbox({
             </div>
 
             <footer className="space-y-2 border-t px-3 py-2">
-              <p className="text-[11px] text-muted-foreground">
+              <p className="text-2xs text-muted-foreground">
                 {mine
                   ? "Jetta is silent while you have this chat."
                   : "Sending takes the conversation and silences Jetta."}
@@ -912,7 +912,7 @@ export default function ChatInbox({
                             className="text-sm"
                           />
                         </div>
-                        <p className="text-[11px] text-muted-foreground">
+                        <p className="text-2xs text-muted-foreground">
                           Goes to <span className="text-foreground">{detail.visitor.email}</span>. The
                           full transcript
                           {attachmentCount > 0 &&
@@ -926,7 +926,7 @@ export default function ChatInbox({
                           />
                           <span className="text-xs">
                             Tell the visitor in the chat
-                            <span className="block text-[11px] text-muted-foreground">
+                            <span className="block text-2xs text-muted-foreground">
                               Jetta keeps chatting either way, but she won&apos;t announce a ticket
                               she didn&apos;t open — without this, nothing tells them their question
                               moved.

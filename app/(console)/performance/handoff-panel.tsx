@@ -18,6 +18,7 @@ import { CellLink } from "@/components/jetta/cell-link";
 import { cn } from "@/lib/utils";
 import type { HandoffBucket, HandoffCategory, HandoffKind, HandoffStats, HandoffSummary } from "@/lib/performance";
 import type { OpenPerf } from "./perf-drill";
+import { fmtDayKey } from "@/lib/format";
 
 const bucketConfig = {
   real_bug: { label: "Real bug", color: "var(--chart-5)" },
@@ -48,8 +49,6 @@ const CATEGORY_LABEL: Record<HandoffCategory, string> = {
   unresolved: "Awaiting outcome",
 };
 
-const weekTick = (w: string) =>
-  new Date(`${w}T00:00:00Z`).toLocaleDateString("en", { month: "short", day: "numeric", timeZone: "UTC" });
 const day = (iso: string) =>
   new Date(iso).toLocaleDateString("en", { month: "short", day: "numeric", timeZone: "UTC" });
 
@@ -151,16 +150,16 @@ export default function HandoffPanel({ h, ticketUrlBase, open }: { h: HandoffSum
                     if (state.activeLabel == null) return;
                     const week = String(state.activeLabel);
                     open({
-                      title: `Handoffs · week of ${weekTick(week)}`,
+                      title: `Handoffs · week of ${fmtDayKey(week)}`,
                       description: "Tickets Jetta passed to people this week, with what each turned out to be.",
                       drill: { kind: "handoffs", bucket: "total", scope: "all", week },
                     });
                   }}
                 >
                   <CartesianGrid vertical={false} strokeOpacity={0.4} />
-                  <XAxis dataKey="week" tickFormatter={weekTick} tickLine={false} axisLine={false} fontSize={10} />
+                  <XAxis dataKey="week" tickFormatter={fmtDayKey} tickLine={false} axisLine={false} fontSize={10} />
                   <YAxis allowDecimals={false} tickLine={false} axisLine={false} fontSize={10} />
-                  <ChartTooltip content={<ChartTooltipContent labelFormatter={(w) => `Week of ${weekTick(String(w))}`} />} />
+                  <ChartTooltip content={<ChartTooltipContent labelFormatter={(w) => `Week of ${fmtDayKey(String(w))}`} />} />
                   <ChartLegend content={<ChartLegendContent />} />
                   <Bar dataKey="real_bug" stackId="h" fill="var(--color-real_bug)" stroke="var(--card)" strokeWidth={2} />
                   <Bar dataKey="knowledge_gap" stackId="h" fill="var(--color-knowledge_gap)" stroke="var(--card)" strokeWidth={2} />

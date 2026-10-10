@@ -261,17 +261,17 @@ export default function EvalsPanel({ freshdeskDomain }: { freshdeskDomain: strin
           {stats && stats.total > 0 && (
             <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
               <div className="rounded-lg border bg-muted/40 p-3">
-                <div className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">Decisions</div>
+                <div className="text-2xs font-medium tracking-wide text-muted-foreground uppercase">Decisions</div>
                 <div className="mt-1 font-mono text-lg font-semibold">{stats.total}</div>
               </div>
               <div className="rounded-lg border bg-muted/40 p-3">
-                <div className="flex items-center gap-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+                <div className="flex items-center gap-1 text-2xs font-medium tracking-wide text-muted-foreground uppercase">
                   <ThumbsUp className="size-3" /> Sent as-is
                 </div>
                 <div className="mt-1 font-mono text-lg font-semibold">{stats.byRating.good}</div>
               </div>
               <div className="rounded-lg border bg-muted/40 p-3">
-                <div className="flex items-center gap-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+                <div className="flex items-center gap-1 text-2xs font-medium tracking-wide text-muted-foreground uppercase">
                   <PencilLine className="size-3" /> Edited
                 </div>
                 <div className="mt-1 font-mono text-lg font-semibold">
@@ -282,7 +282,7 @@ export default function EvalsPanel({ freshdeskDomain }: { freshdeskDomain: strin
                 </div>
               </div>
               <div className="rounded-lg border bg-muted/40 p-3">
-                <div className="flex items-center gap-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+                <div className="flex items-center gap-1 text-2xs font-medium tracking-wide text-muted-foreground uppercase">
                   <ThumbsDown className="size-3" /> Discarded
                 </div>
                 <div className="mt-1 font-mono text-lg font-semibold">

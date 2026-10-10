@@ -34,7 +34,7 @@ export function WidgetPreview({ s, label }: { s: PreviewSettings; label?: string
   return (
     <div className="space-y-2">
       {label && (
-        <p className="text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
+        <p className="text-2xs font-semibold tracking-wider text-muted-foreground uppercase">
           {label}
         </p>
       )}
@@ -67,7 +67,7 @@ export function WidgetPreview({ s, label }: { s: PreviewSettings; label?: string
               <div className="space-y-2">
                 <div className="flex items-center gap-2" aria-hidden>
                   <span className="h-px flex-1 bg-neutral-200" />
-                  <span className="text-[11px] font-medium text-neutral-400">Before we start</span>
+                  <span className="text-2xs font-medium text-neutral-400">Before we start</span>
                   <span className="h-px flex-1 bg-neutral-200" />
                 </div>
                 <div className="rounded-lg border border-neutral-300 px-3 py-2 text-sm text-neutral-400">
@@ -130,7 +130,7 @@ export function WidgetPreview({ s, label }: { s: PreviewSettings; label?: string
           </span>
         </div>
 
-        <p className="mt-3 text-center text-[11px] text-muted-foreground">
+        <p className="mt-3 text-center text-2xs text-muted-foreground">
           {s.autoOpenSeconds > 0
             ? `Opens by itself after ${s.autoOpenSeconds}s`
             : "Opens only when the visitor clicks"}

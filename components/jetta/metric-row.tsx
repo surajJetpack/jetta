@@ -45,7 +45,7 @@ export function MetricRow({
           key={m.label}
           className={cn("min-w-0", m.onClick && "group relative -m-1.5 rounded-md p-1.5 transition-colors hover:bg-muted/60")}
         >
-          <dt className="truncate text-[11px] font-medium tracking-wider text-muted-foreground uppercase">
+          <dt className="truncate text-2xs font-medium tracking-wider text-muted-foreground uppercase">
             {m.label}
           </dt>
           <dd

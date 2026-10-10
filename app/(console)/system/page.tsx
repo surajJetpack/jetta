@@ -104,7 +104,7 @@ export default async function SystemPage() {
           </div>
 
           <div className="border-t pt-3">
-            <p className="mb-2 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+            <p className="mb-2 text-2xs font-medium tracking-wide text-muted-foreground uppercase">
               Scheduled
             </p>
             {CRONS.map((c, i) => (

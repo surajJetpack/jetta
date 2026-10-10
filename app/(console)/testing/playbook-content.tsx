@@ -386,7 +386,7 @@ function IntroView({
                       <span className="w-4 shrink-0 text-xs font-semibold text-muted-foreground">{i + 1}</span>
                       <span className="min-w-0 flex-1 truncate font-medium">{s.title}</span>
                       {s.pair && (
-                        <span className="inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                        <span className="inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-2xs font-medium text-muted-foreground">
                           <Users className="size-3" /> both of you
                         </span>
                       )}
@@ -418,7 +418,7 @@ function IntroView({
                 The tests touched real systems on purpose — this puts them back. Jetta can now do
                 most of it for you.
               </span>
-              <span className="inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium text-primary">
+              <span className="inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-2xs font-medium text-primary">
                 <Sparkles className="size-3" /> auto-cleanup
               </span>
               <ArrowRight className="size-3.5 shrink-0 text-muted-foreground/60" />
@@ -698,7 +698,7 @@ function ScenarioView({
           {scenario.title}
           <span className="text-xs font-normal text-muted-foreground">~{scenario.minutes} min</span>
           {scenario.pair && (
-            <span className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+            <span className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-2xs font-medium text-muted-foreground">
               <Users className="size-3" /> needs both of you
             </span>
           )}

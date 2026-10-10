@@ -128,7 +128,7 @@ export function CommandPalette({
         >
           <Search className="size-3.5 shrink-0" aria-hidden />
           <span className="flex-1 truncate text-left">Search…</span>
-          <kbd className="hidden shrink-0 rounded border bg-muted px-1 font-mono text-[10px] sm:inline">
+          <kbd className="hidden shrink-0 rounded border bg-muted px-1 font-mono text-3xs sm:inline">
             ⌘K
           </kbd>
         </button>

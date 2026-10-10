@@ -132,7 +132,7 @@ interface Brief {
 
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
-  return <div className="text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">{children}</div>;
+  return <div className="text-2xs font-semibold tracking-wider text-muted-foreground uppercase">{children}</div>;
 }
 
 /**
@@ -407,7 +407,7 @@ export default function TodayBrief({ isAdmin }: { isAdmin: boolean }) {
                 <div className="mb-2 flex items-center justify-between gap-2">
                   <span className="inline-flex items-center gap-2">
                     <Sparkles className="size-4 text-muted-foreground" aria-hidden />
-                    <span className="text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
+                    <span className="text-2xs font-semibold tracking-wider text-muted-foreground uppercase">
                       Your briefing
                     </span>
                     {insightStale && <StatusChip tone="draft">stale</StatusChip>}
@@ -439,7 +439,7 @@ export default function TodayBrief({ isAdmin }: { isAdmin: boolean }) {
                 {insight && (
                   <div className="space-y-3">
                     <p className="text-sm font-semibold">{insight.headline}</p>
-                    <p className="text-[11px] text-muted-foreground">
+                    <p className="text-2xs text-muted-foreground">
                       Written {fmtAgo(Math.floor(insight.generatedAt / 1000), now)} from the numbers on this page.
                       {brief.narrativeDate ? ` Yesterday's full digest is on Insights.` : ""}
                     </p>
@@ -447,7 +447,7 @@ export default function TodayBrief({ isAdmin }: { isAdmin: boolean }) {
                 )}
               </div>
 
-              <p className="text-[11px] text-muted-foreground">
+              <p className="text-2xs text-muted-foreground">
                 Counts tickets Jetta handled — not all Freshdesk traffic. Updated{" "}
                 {fmtDateTime(Math.floor(brief.generatedAt / 1000))}.
               </p>
@@ -537,7 +537,7 @@ export default function TodayBrief({ isAdmin }: { isAdmin: boolean }) {
               )}
 
               {brief.trends.unlabelled > 0 && (
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-2xs text-muted-foreground">
                   {brief.trends.unlabelled} ticket{brief.trends.unlabelled === 1 ? "" : "s"} in the window carry no topic
                   label and aren&apos;t counted above.
                 </p>

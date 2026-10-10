@@ -44,14 +44,14 @@ export default async function SlackChannelHealth() {
                 {c.name && <span className="ml-1.5 font-normal text-muted-foreground">#{c.name}</span>}
               </p>
               {c.problem ? (
-                <p className="text-[11px] text-tone-warn">{c.problem}</p>
+                <p className="text-2xs text-tone-warn">{c.problem}</p>
               ) : (
-                <p className="text-[11px] text-muted-foreground">Jetta is in this channel and can post.</p>
+                <p className="text-2xs text-muted-foreground">Jetta is in this channel and can post.</p>
               )}
             </div>
           </div>
         ))}
-        <p className="border-t pt-2.5 text-[11px] text-muted-foreground">
+        <p className="border-t pt-2.5 text-2xs text-muted-foreground">
           These are environment variables, not console settings — a channel is a security boundary as
           much as a preference, so changing one is a deploy rather than a form.
         </p>

@@ -32,6 +32,7 @@ import {
 } from "@/lib/support-health";
 import { DrillSheet, type DrillRequest } from "./drill-sheet";
 import { InsightCard } from "@/components/jetta/insight-card";
+import { fmtHours, fmtDayKey } from "@/lib/format";
 
 interface Payload {
   health: SupportHealth | null;
@@ -45,10 +46,6 @@ const withinConfig = { withinTarget: { label: `Answered within ${TARGETS.firstRe
 const reopenConfig = { reopenRate: { label: "Reopened", color: "var(--chart-4)" } } satisfies ChartConfig;
 
 const pct = (v: number | null) => (v == null ? "—" : `${Math.round(v * 100)}%`);
-const hrs = (v: number | null) =>
-  v == null ? "—" : v < 1 ? `${Math.round(v * 60)} min` : v < 48 ? `${v.toFixed(1)} h` : `${(v / 24).toFixed(1)} days`;
-const weekTick = (w: string) =>
-  new Date(`${w}T00:00:00Z`).toLocaleDateString("en", { month: "short", day: "numeric", timeZone: "UTC" });
 
 /** Tooltip row with a formatted value — the default prints raw 0.912 and 13.84. */
 const tipRow = (label: string, f: (v: number) => string) =>
@@ -77,7 +74,7 @@ function pctDelta(now: number | null, before: number | null): string | undefined
 function hrsDelta(now: number | null, before: number | null): string | undefined {
   if (now == null || before == null) return undefined;
   const d = now - before;
-  return `${d > 0 ? "+" : d < 0 ? "−" : "±"}${hrs(Math.abs(d))} ${PRIOR}`;
+  return `${d > 0 ? "+" : d < 0 ? "−" : "±"}${fmtHours(Math.abs(d))} ${PRIOR}`;
 }
 
 function ChartCard({ title, description, children }: { title: string; description: string; children: React.ReactNode }) {
@@ -119,9 +116,9 @@ function Headline({ recent, previous, backlog, open }: { recent: HealthPeriod; p
     },
     {
       label: "Median first reply",
-      value: hrs(recent.firstReplyH),
+      value: fmtHours(recent.firstReplyH),
       tone: toneBelow(recent.firstReplyH, TARGETS.medianFirstReplyH) ?? undefined,
-      hint: `slowest 10%: over ${hrs(recent.firstReplyP90H)}`,
+      hint: `slowest 10%: over ${fmtHours(recent.firstReplyP90H)}`,
       onClick: () =>
         open({
           title: "First reply times",
@@ -146,7 +143,7 @@ function Headline({ recent, previous, backlog, open }: { recent: HealthPeriod; p
       value: backlog.owesReply,
       tone: toneBelow(backlog.overdue, TARGETS.overdueNow) ?? undefined,
       hint: backlog.overdue
-        ? `${backlog.overdue} over ${TARGETS.firstReplyH}h · longest ${hrs(backlog.oldestOwedH)}`
+        ? `${backlog.overdue} over ${TARGETS.firstReplyH}h · longest ${fmtHours(backlog.oldestOwedH)}`
         : backlog.owesReply
           ? `none over ${TARGETS.firstReplyH}h`
           : "nobody waiting",
@@ -186,7 +183,7 @@ function Secondary({
     },
     {
       label: "Median time to resolve",
-      value: hrs(recent.resolvedH),
+      value: fmtHours(recent.resolvedH),
       hint: hrsDelta(recent.resolvedH, previous.resolvedH),
       onClick: () =>
         open({
@@ -312,7 +309,7 @@ function RightNow({ b, base, open }: { b: Backlog; base: string; open: Open }) {
                       w.waitingH > TARGETS.firstReplyH && "font-medium text-tone-bad",
                     )}
                   >
-                    {hrs(w.waitingH)}
+                    {fmtHours(w.waitingH)}
                   </TableCell>
                 </TableRow>
               ))}
@@ -392,7 +389,7 @@ function ByApp({ apps, open }: { apps: AppHealth[]; open: Open }) {
                       n={a.firstReplyH == null ? 0 : 1}
                       onClick={() => show(a, "firstReply", "first replies", "Answered tickets from the last 28 days, slowest first.")}
                     >
-                      {hrs(a.firstReplyH)}
+                      {fmtHours(a.firstReplyH)}
                     </CellLink>
                   </TableCell>
                   <TableCell className="text-right tabular-nums">
@@ -661,7 +658,7 @@ export default function HealthPanel() {
     (state: { activeLabel?: string | number }) => {
       const week = state.activeLabel != null ? String(state.activeLabel) : null;
       if (!week) return;
-      open({ title: `${title} · week of ${weekTick(week)}`, description, drill: { kind: "week", week, metric } });
+      open({ title: `${title} · week of ${fmtDayKey(week)}`, description, drill: { kind: "week", week, metric } });
     };
 
   const syncButton = (
@@ -705,9 +702,9 @@ export default function HealthPanel() {
               onClick={onWeek("tickets", "Tickets", "Tickets that arrived this week and that a person answered or is still open.")}
             >
               <CartesianGrid vertical={false} strokeOpacity={0.4} />
-              <XAxis dataKey="week" tickFormatter={weekTick} tickLine={false} axisLine={false} fontSize={10} minTickGap={24} />
+              <XAxis dataKey="week" tickFormatter={fmtDayKey} tickLine={false} axisLine={false} fontSize={10} minTickGap={24} />
               <YAxis allowDecimals={false} tickLine={false} axisLine={false} fontSize={10} />
-              <ChartTooltip content={<ChartTooltipContent labelFormatter={(w) => `Week of ${weekTick(String(w))}`} />} />
+              <ChartTooltip content={<ChartTooltipContent labelFormatter={(w) => `Week of ${fmtDayKey(String(w))}`} />} />
               <Bar dataKey="tickets" fill="var(--color-tickets)" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ChartContainer>
@@ -724,12 +721,12 @@ export default function HealthPanel() {
               onClick={onWeek("within", `Answered within ${TARGETS.firstReplyH}h`, "This week's tickets, misses first.")}
             >
               <CartesianGrid vertical={false} strokeOpacity={0.4} />
-              <XAxis dataKey="week" tickFormatter={weekTick} tickLine={false} axisLine={false} fontSize={10} minTickGap={24} />
+              <XAxis dataKey="week" tickFormatter={fmtDayKey} tickLine={false} axisLine={false} fontSize={10} minTickGap={24} />
               <YAxis domain={[0, 1]} tickFormatter={(v: number) => `${Math.round(v * 100)}%`} tickLine={false} axisLine={false} fontSize={10} />
               <ChartTooltip
                 content={
                   <ChartTooltipContent
-                    labelFormatter={(w) => `Week of ${weekTick(String(w))}`}
+                    labelFormatter={(w) => `Week of ${fmtDayKey(String(w))}`}
                     formatter={tipRow(withinConfig.withinTarget.label, pct)}
                   />
                 }
@@ -748,11 +745,11 @@ export default function HealthPanel() {
               onClick={onWeek("firstReply", "First replies", "This week's answered tickets, slowest first.")}
             >
               <CartesianGrid vertical={false} strokeOpacity={0.4} />
-              <XAxis dataKey="week" tickFormatter={weekTick} tickLine={false} axisLine={false} fontSize={10} minTickGap={24} />
+              <XAxis dataKey="week" tickFormatter={fmtDayKey} tickLine={false} axisLine={false} fontSize={10} minTickGap={24} />
               <YAxis tickLine={false} axisLine={false} fontSize={10} unit="h" />
               <ChartTooltip
                 content={
-                  <ChartTooltipContent labelFormatter={(w) => `Week of ${weekTick(String(w))}`} formatter={tipRow("Median first reply", hrs)} />
+                  <ChartTooltipContent labelFormatter={(w) => `Week of ${fmtDayKey(String(w))}`} formatter={tipRow("Median first reply", fmtHours)} />
                 }
               />
               <Line dataKey="firstReplyH" type="monotone" stroke="var(--color-firstReplyH)" strokeWidth={2} dot={false} connectNulls />
@@ -768,11 +765,11 @@ export default function HealthPanel() {
               onClick={onWeek("reopened", "Reopens", "This week's answered tickets, reopened ones first.")}
             >
               <CartesianGrid vertical={false} strokeOpacity={0.4} />
-              <XAxis dataKey="week" tickFormatter={weekTick} tickLine={false} axisLine={false} fontSize={10} minTickGap={24} />
+              <XAxis dataKey="week" tickFormatter={fmtDayKey} tickLine={false} axisLine={false} fontSize={10} minTickGap={24} />
               <YAxis tickFormatter={(v: number) => `${Math.round(v * 100)}%`} tickLine={false} axisLine={false} fontSize={10} />
               <ChartTooltip
                 content={
-                  <ChartTooltipContent labelFormatter={(w) => `Week of ${weekTick(String(w))}`} formatter={tipRow("Reopened", pct)} />
+                  <ChartTooltipContent labelFormatter={(w) => `Week of ${fmtDayKey(String(w))}`} formatter={tipRow("Reopened", pct)} />
                 }
               />
               <Line dataKey="reopenRate" type="monotone" stroke="var(--color-reopenRate)" strokeWidth={2} dot={false} connectNulls />

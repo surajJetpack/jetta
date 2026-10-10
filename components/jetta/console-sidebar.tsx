@@ -77,7 +77,7 @@ export function ConsoleSidebar({
           {/* A single-group sidebar (what a general user sees) needs no group
               headings — they would be labelling the whole thing. */}
           {!collapsed && groups.length > 1 && (
-            <p className="mb-1 px-2 text-[10px] font-semibold tracking-wider text-muted-foreground uppercase">
+            <p className="mb-1 px-2 text-3xs font-semibold tracking-wider text-muted-foreground uppercase">
               {g.label}
             </p>
           )}
@@ -160,7 +160,7 @@ function SidebarLink({
           {count > 0 && (
             <span
               className={cn(
-                "inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full px-1 text-[10px] font-semibold tabular-nums",
+                "inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full px-1 text-3xs font-semibold tabular-nums",
                 urgent ? cn("animate-pulse", TONE_SOLID.bad) : TONE_SOLID.neutral,
               )}
             >

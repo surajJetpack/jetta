@@ -8,6 +8,44 @@ export function fmtDuration(ms: number | undefined | null): string {
   return ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.round(ms)}ms`;
 }
 
+/**
+ * A span of hours: "40 min" under an hour, "13.8 h" under two days, "3.2 days"
+ * beyond. One rule for every page — it used to be copied five times, and two
+ * of the copies never rolled over to days, so the same ticket age read "81.5 h"
+ * on one page and "3.4 days" on the next.
+ */
+export function fmtHours(v: number | null | undefined): string {
+  if (v == null) return "—";
+  if (v < 1) return `${Math.round(v * 60)} min`;
+  if (v < 48) return `${v.toFixed(1)} h`;
+  return `${(v / 24).toFixed(1)} days`;
+}
+
+/** "Sep 14" from a "2026-09-14" day or week key. Read as UTC: the key IS the day. */
+export function fmtDayKey(key: string): string {
+  return new Date(`${key.slice(0, 10)}T00:00:00Z`).toLocaleDateString("en", {
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  });
+}
+
+/** "1.2M", "34.5k", "812". */
+export function fmtCompact(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+  return String(n);
+}
+
+/**
+ * Dollars. Four decimals under ten cents, because a per-run LLM cost is
+ * fractions of a cent and "$0.00" would read as free; two from there up.
+ */
+export function fmtUsd(v: number | null | undefined): string {
+  if (v == null) return "—";
+  return `$${v.toFixed(v > 0 && v < 0.1 ? 4 : 2)}`;
+}
+
 /** Relative age of a unix-seconds timestamp against a caller-supplied "now". */
 export function fmtAgo(atSeconds: number, nowMs: number): string {
   const s = Math.max(0, Math.floor(nowMs / 1000) - atSeconds);

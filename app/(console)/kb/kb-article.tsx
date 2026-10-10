@@ -63,7 +63,7 @@ const fmtDay = (unix?: number) => (unix ? new Date(unix * 1000).toISOString().sl
 // Radix Select items can't have an empty value — sentinel for "uncategorized".
 const NONE = "__none__";
 
-const SECTION_LABEL = "text-[11px] font-semibold tracking-wider text-muted-foreground uppercase";
+const SECTION_LABEL = "text-2xs font-semibold tracking-wider text-muted-foreground uppercase";
 
 function Meta({ k, children }: { k: string; children: React.ReactNode }) {
   return (

@@ -33,7 +33,7 @@ export function ChatWaitingBadge({ active }: { active?: boolean }) {
   return (
     <span
       className={cn(
-        "inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold tabular-nums",
+        "inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-3xs font-semibold tabular-nums",
         // Waiting is urgent, and the one place a solid fill is warranted; a
         // chat a colleague is already handling is information, not a summons.
         waiting > 0

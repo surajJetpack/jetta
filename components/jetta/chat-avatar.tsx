@@ -30,7 +30,7 @@ export function ChatAvatar({
   name?: string;
   className?: string;
 }) {
-  const base = "flex size-6 shrink-0 select-none items-center justify-center overflow-hidden rounded-full text-[10px] font-semibold";
+  const base = "flex size-6 shrink-0 select-none items-center justify-center overflow-hidden rounded-full text-3xs font-semibold";
   if (kind === "jetta") {
     return src ? (
       // eslint-disable-next-line @next/next/no-img-element

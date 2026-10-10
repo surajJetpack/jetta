@@ -28,6 +28,7 @@ import { JETTA_LIVE_DATE, weekStart, type PerfRow, type PerformanceSummary, type
 import HandoffPanel from "./handoff-panel";
 import { PerfDrillSheet, type OpenPerf, type PerfDrillRequest } from "./perf-drill";
 import { InsightCard } from "@/components/jetta/insight-card";
+import { fmtHours, fmtDayKey } from "@/lib/format";
 
 interface SyncInfo {
   cursor: string;
@@ -61,20 +62,16 @@ const chatConfig = {
 } satisfies ChartConfig;
 
 const pct = (v: number | null) => (v == null ? "—" : `${Math.round(v * 100)}%`);
-const hrs = (v: number | null) => (v == null ? "—" : v < 1 ? `${Math.round(v * 60)} min` : `${v.toFixed(1)} h`);
-/** "Sep 14" tick from a "2026-09-14" week key. */
-const weekTick = (w: string) =>
-  new Date(`${w}T00:00:00Z`).toLocaleDateString("en", { month: "short", day: "numeric", timeZone: "UTC" });
 
 /** "+6 pts vs prior 28 days" — the delta a reader actually compares. */
-function delta(now: number | null, before: number | null, kind: "pct" | "hrs"): string | undefined {
+function delta(now: number | null, before: number | null, kind: "pct" | "fmtHours"): string | undefined {
   if (now == null || before == null) return undefined;
   if (kind === "pct") {
     const d = Math.round((now - before) * 100);
     return `${d >= 0 ? "+" : ""}${d} pts vs prior 28 days`;
   }
   const d = now - before;
-  return `${d >= 0 ? "+" : "−"}${hrs(Math.abs(d))} vs prior 28 days`;
+  return `${d >= 0 ? "+" : "−"}${fmtHours(Math.abs(d))} vs prior 28 days`;
 }
 
 function ChartCard({ title, description, children }: { title: string; description: string; children: React.ReactNode }) {
@@ -125,8 +122,8 @@ function Headline({
     },
     {
       label: "Median first reply",
-      value: hrs(recent.firstReplyH),
-      hint: `before Jetta: ${hrs(baseline.firstReplyH)}`,
+      value: fmtHours(recent.firstReplyH),
+      hint: `before Jetta: ${fmtHours(baseline.firstReplyH)}`,
       onClick: () =>
         open({
           title: "First reply times",
@@ -294,7 +291,7 @@ export default function PerformancePanel() {
     (state: { activeLabel?: string | number }) => {
       const week = state.activeLabel != null ? String(state.activeLabel) : null;
       if (!week) return;
-      open({ title: `${title} · week of ${weekTick(week)}`, description, drill: { kind: "week", week, metric } });
+      open({ title: `${title} · week of ${fmtDayKey(week)}`, description, drill: { kind: "week", week, metric } });
     };
 
   return (
@@ -337,9 +334,9 @@ export default function PerformancePanel() {
                 onClick={onWeek("drafts", "Drafts", "This week's tickets with a draft an agent replied after, unused drafts first.")}
               >
                 <CartesianGrid vertical={false} strokeOpacity={0.4} />
-                <XAxis dataKey="week" tickFormatter={weekTick} tickLine={false} axisLine={false} fontSize={10} />
+                <XAxis dataKey="week" tickFormatter={fmtDayKey} tickLine={false} axisLine={false} fontSize={10} />
                 <YAxis allowDecimals={false} tickLine={false} axisLine={false} fontSize={10} />
-                <ChartTooltip content={<ChartTooltipContent labelFormatter={(w) => `Week of ${weekTick(String(w))}`} />} />
+                <ChartTooltip content={<ChartTooltipContent labelFormatter={(w) => `Week of ${fmtDayKey(String(w))}`} />} />
                 <ChartLegend content={<ChartLegendContent />} />
                 <Bar dataKey="asIs" stackId="u" fill="var(--color-asIs)" stroke="var(--card)" strokeWidth={2} />
                 <Bar dataKey="edited" stackId="u" fill="var(--color-edited)" stroke="var(--card)" strokeWidth={2} />
@@ -362,9 +359,9 @@ export default function PerformancePanel() {
               onClick={onWeek("firstReply", "First replies", "This week's answered tickets, slowest first.")}
             >
               <CartesianGrid vertical={false} strokeOpacity={0.4} />
-              <XAxis dataKey="week" tickFormatter={weekTick} tickLine={false} axisLine={false} fontSize={10} minTickGap={24} />
+              <XAxis dataKey="week" tickFormatter={fmtDayKey} tickLine={false} axisLine={false} fontSize={10} minTickGap={24} />
               <YAxis tickLine={false} axisLine={false} fontSize={10} unit="h" />
-              <ChartTooltip content={<ChartTooltipContent labelFormatter={(w) => `Week of ${weekTick(String(w))}`} />} />
+              <ChartTooltip content={<ChartTooltipContent labelFormatter={(w) => `Week of ${fmtDayKey(String(w))}`} />} />
               <ChartLegend content={<ChartLegendContent />} />
               <ReferenceLine x={LIVE_WEEK} stroke="var(--muted-foreground)" strokeDasharray="3 3" label={{ value: "Jetta live", fontSize: 10, fill: "var(--muted-foreground)", position: "insideTopLeft" }} />
               <Line dataKey="firstReplyH" type="monotone" stroke="var(--color-firstReplyH)" strokeWidth={2} dot={false} connectNulls />
@@ -381,9 +378,9 @@ export default function PerformancePanel() {
               onClick={onWeek("answered", "Answered tickets", "Tickets that arrived this week and got at least one agent reply.")}
             >
               <CartesianGrid vertical={false} strokeOpacity={0.4} />
-              <XAxis dataKey="week" tickFormatter={weekTick} tickLine={false} axisLine={false} fontSize={10} minTickGap={24} />
+              <XAxis dataKey="week" tickFormatter={fmtDayKey} tickLine={false} axisLine={false} fontSize={10} minTickGap={24} />
               <YAxis allowDecimals={false} tickLine={false} axisLine={false} fontSize={10} />
-              <ChartTooltip content={<ChartTooltipContent labelFormatter={(w) => `Week of ${weekTick(String(w))}`} />} />
+              <ChartTooltip content={<ChartTooltipContent labelFormatter={(w) => `Week of ${fmtDayKey(String(w))}`} />} />
               <ReferenceLine x={LIVE_WEEK} stroke="var(--muted-foreground)" strokeDasharray="3 3" />
               <Bar dataKey="answered" fill="var(--color-answered)" radius={[4, 4, 0, 0]} />
             </BarChart>
@@ -398,9 +395,9 @@ export default function PerformancePanel() {
             <ChartContainer config={chatConfig} className="h-[200px] w-full">
               <BarChart data={chatWeeks} margin={{ left: -24, right: 0, top: 4 }}>
                 <CartesianGrid vertical={false} strokeOpacity={0.4} />
-                <XAxis dataKey="week" tickFormatter={weekTick} tickLine={false} axisLine={false} fontSize={10} />
+                <XAxis dataKey="week" tickFormatter={fmtDayKey} tickLine={false} axisLine={false} fontSize={10} />
                 <YAxis allowDecimals={false} tickLine={false} axisLine={false} fontSize={10} />
-                <ChartTooltip content={<ChartTooltipContent labelFormatter={(w) => `Week of ${weekTick(String(w))}`} />} />
+                <ChartTooltip content={<ChartTooltipContent labelFormatter={(w) => `Week of ${fmtDayKey(String(w))}`} />} />
                 <ChartLegend content={<ChartLegendContent />} />
                 <Bar dataKey="alone" stackId="c" fill="var(--color-alone)" stroke="var(--card)" strokeWidth={2} />
                 <Bar dataKey="handedOff" stackId="c" fill="var(--color-handedOff)" stroke="var(--card)" strokeWidth={2} radius={[4, 4, 0, 0]} />
@@ -449,7 +446,7 @@ export default function PerformancePanel() {
                         {a.firstReplies}
                       </CellLink>
                     </TableCell>
-                    <TableCell className="text-right tabular-nums">{hrs(a.firstReplyH)}</TableCell>
+                    <TableCell className="text-right tabular-nums">{fmtHours(a.firstReplyH)}</TableCell>
                     <TableCell className="text-right tabular-nums">
                       <CellLink
                         n={a.afterSuggestion}

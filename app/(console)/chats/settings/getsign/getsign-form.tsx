@@ -10,7 +10,7 @@
  * simply opening this page would silently pin GetSign to whatever the
  * checkbox happened to render as.
  */
-import { useCallback, useEffect, useState } from "react";
+import { cloneElement, isValidElement, useCallback, useEffect, useId, useState } from "react";
 import Link from "next/link";
 import { RotateCw, Save, TriangleAlert, Image as ImageIcon, Undo2 } from "lucide-react";
 import { toast } from "sonner";
@@ -42,12 +42,34 @@ interface Overlay {
 }
 type TextKey = "title" | "subtitle" | "greeting" | "placeholder" | "accentColor" | "launcherLabel";
 
+/**
+ * A labelled control. A lone Input or Textarea gets the label wired to it by id
+ * and the hint as its description; anything else (a group of buttons) becomes
+ * a labelled group — either way a screen reader announces what the field is.
+ */
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+  const id = useId();
+  const hintId = hint ? `${id}-hint` : undefined;
+  const single =
+    isValidElement<{ id?: string; "aria-describedby"?: string }>(children) &&
+    (children.type === Input || children.type === Textarea);
+  const controlId = single ? (children.props.id ?? id) : undefined;
   return (
-    <div className="space-y-1.5">
-      <Label className="text-xs">{label}</Label>
-      {children}
-      {hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}
+    <div
+      className="space-y-1.5"
+      role={single ? undefined : "group"}
+      aria-labelledby={single ? undefined : `${id}-label`}
+      aria-describedby={single ? undefined : hintId}
+    >
+      <Label id={`${id}-label`} htmlFor={controlId} className="text-xs">
+        {label}
+      </Label>
+      {single ? cloneElement(children, { id: controlId, "aria-describedby": hintId }) : children}
+      {hint && (
+        <p id={hintId} className="text-2xs text-muted-foreground">
+          {hint}
+        </p>
+      )}
     </div>
   );
 }
@@ -334,7 +356,7 @@ export default function GetSignSkinForm() {
 
           <div className="space-y-3">
             <WidgetPreview s={effective} label="GetSign" />
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-2xs text-muted-foreground">
               Behaviour, allowed origins, rate limits and retention are shared by every brand and
               live on{" "}
               <Link href="/chats/settings" className="text-primary hover:underline">

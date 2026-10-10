@@ -40,7 +40,7 @@ interface RunLog {
 }
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
-  return <div className="text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">{children}</div>;
+  return <div className="text-2xs font-semibold tracking-wider text-muted-foreground uppercase">{children}</div>;
 }
 
 export default function ActivityLog() {

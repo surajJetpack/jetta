@@ -96,7 +96,7 @@ function readStorage(): ListState | null {
 // so the persisted filter state shape stays unchanged.
 const ALL = "__all__";
 
-const SECTION_LABEL = "text-[11px] font-semibold tracking-wider text-muted-foreground uppercase";
+const SECTION_LABEL = "text-2xs font-semibold tracking-wider text-muted-foreground uppercase";
 
 export default function KbList() {
   const [articles, setArticles] = useState<Article[]>([]);

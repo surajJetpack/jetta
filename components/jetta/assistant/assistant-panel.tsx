@@ -308,7 +308,7 @@ export function AssistantPanel({ freshdeskDomain }: { freshdeskDomain: string })
         />
 
         <header className="relative flex items-center gap-2 px-4 pt-3">
-          <p className="font-mono text-[10px] tracking-[0.35em] text-slate-500 uppercase dark:text-slate-400">
+          <p className="font-mono text-3xs tracking-[0.35em] text-slate-500 uppercase dark:text-slate-400">
             Jetta <span className="text-cyan-600 dark:text-cyan-400/70">{"//"}</span> Voice
           </p>
           <span className="ml-auto" />
@@ -333,7 +333,7 @@ export function AssistantPanel({ freshdeskDomain }: { freshdeskDomain: string })
           <p
             aria-live="polite"
             className={cn(
-              "flex items-center gap-2 font-mono text-[10px] tracking-[0.3em] uppercase",
+              "flex items-center gap-2 font-mono text-3xs tracking-[0.3em] uppercase",
               state === "error" ? "text-red-600 dark:text-red-400" : deepNow ? "text-fuchsia-600 dark:text-fuchsia-300" : state === "idle" ? "text-slate-400 dark:text-slate-500" : "text-cyan-700 dark:text-cyan-300",
             )}
           >
@@ -375,7 +375,7 @@ export function AssistantPanel({ freshdeskDomain }: { freshdeskDomain: string })
                   ))}
                 </div>
               ) : (
-                <p key={l.id} className="flex items-center gap-2 font-mono text-[10px] tracking-[0.2em] text-cyan-700/80 uppercase dark:text-cyan-300/70">
+                <p key={l.id} className="flex items-center gap-2 font-mono text-3xs tracking-[0.2em] text-cyan-700/80 uppercase dark:text-cyan-300/70">
                   <span aria-hidden className="text-cyan-500 dark:text-cyan-400">▸</span>
                   {l.text}
                 </p>

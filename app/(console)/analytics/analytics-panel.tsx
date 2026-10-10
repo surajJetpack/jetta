@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { BookOpen, RotateCw, TriangleAlert } from "lucide-react";
-import { fmtDate } from "@/lib/format";
+import { fmtCompact, fmtDate, fmtUsd } from "@/lib/format";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertAction, AlertTitle } from "@/components/ui/alert";
@@ -34,7 +34,6 @@ interface ModelStat {
   } | null;
 }
 
-const fmtTokens = (n: number) => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
 interface Stats {
   outcomes: { total: number; resolved: number; escalated: number; reopened: number; closed: number; deflectionRate: number | null };
   gaps: Gap[];
@@ -48,14 +47,14 @@ interface Stats {
 function Stat({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="rounded-lg border bg-muted/40 p-3">
-      <div className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">{label}</div>
+      <div className="text-2xs font-medium tracking-wide text-muted-foreground uppercase">{label}</div>
       <div className="mt-1 flex items-center gap-2 font-mono text-sm font-semibold">{children}</div>
     </div>
   );
 }
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
-  return <div className="text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">{children}</div>;
+  return <div className="text-2xs font-semibold tracking-wider text-muted-foreground uppercase">{children}</div>;
 }
 
 export default function AnalyticsPanel() {
@@ -245,9 +244,9 @@ export default function AnalyticsPanel() {
                         <TableCell className="font-mono text-xs text-muted-foreground">
                           {m.tokens ? (
                             <>
-                              {fmtTokens(m.tokens.inputTokens)} in
-                              {m.tokens.cacheReadTokens > 0 ? ` (${fmtTokens(m.tokens.cacheReadTokens)} cached)` : ""} /{" "}
-                              {fmtTokens(m.tokens.outputTokens)} out · avg {fmtTokens(m.tokens.avgTokensPerRun)}/run
+                              {fmtCompact(m.tokens.inputTokens)} in
+                              {m.tokens.cacheReadTokens > 0 ? ` (${fmtCompact(m.tokens.cacheReadTokens)} cached)` : ""} /{" "}
+                              {fmtCompact(m.tokens.outputTokens)} out · avg {fmtCompact(m.tokens.avgTokensPerRun)}/run
                             </>
                           ) : (
                             "—"
@@ -255,7 +254,7 @@ export default function AnalyticsPanel() {
                         </TableCell>
                         <TableCell className="text-right font-mono text-xs">
                           {m.tokens?.estCostUsd != null
-                            ? `~$${m.tokens.estCostUsd.toFixed(m.tokens.estCostUsd < 0.1 ? 4 : 2)}`
+                            ? `~${fmtUsd(m.tokens.estCostUsd)}`
                             : "—"}
                         </TableCell>
                       </TableRow>
@@ -271,8 +270,8 @@ export default function AnalyticsPanel() {
                 <div className="flex flex-wrap gap-1.5">
                   {s.taskTokens!.map((t) => (
                     <StatusChip key={t.task} className="font-mono">
-                      {t.task} · {fmtTokens(t.inputTokens + t.outputTokens)} ({fmtTokens(t.inputTokens)} in /{" "}
-                      {fmtTokens(t.outputTokens)} out) · {t.calls} calls
+                      {t.task} · {fmtCompact(t.inputTokens + t.outputTokens)} ({fmtCompact(t.inputTokens)} in /{" "}
+                      {fmtCompact(t.outputTokens)} out) · {t.calls} calls
                     </StatusChip>
                   ))}
                 </div>
