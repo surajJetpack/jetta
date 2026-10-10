@@ -7,7 +7,8 @@ import { Signal } from "./signal";
 import { CommandPalette } from "./command-palette";
 import { ThemeToggle } from "./theme-toggle";
 import { ViewAsSwitch } from "./view-as-switch";
-import { LogoutButton } from "./logout-button";
+import { UserMenu } from "./user-menu";
+import { Breadcrumbs } from "./breadcrumbs";
 import { MobileSidebar } from "./mobile-sidebar";
 
 /**
@@ -33,12 +34,16 @@ export function ConsoleTopbar({
   const headline = headlineState();
 
   return (
-    <header className="sticky top-0 z-30 flex h-12 shrink-0 items-center gap-2 border-b bg-background/85 px-3 backdrop-blur-sm">
+    <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-3 border-b bg-background/80 px-4 backdrop-blur-md sm:px-6">
       <MobileSidebar isAdmin={isAdmin} defaultCollapsed={sidebarCollapsed} icon={<Menu />} />
 
-      <CommandPalette isAdmin={isAdmin} freshdeskDomain={freshdeskDomain() ?? ""} />
+      <Breadcrumbs isAdmin={isAdmin} />
 
-      <div className="ml-auto flex shrink-0 items-center gap-1.5">
+      <div className="flex min-w-0 flex-1 justify-center">
+        <CommandPalette isAdmin={isAdmin} freshdeskDomain={freshdeskDomain() ?? ""} />
+      </div>
+
+      <div className="flex shrink-0 items-center gap-2">
         {/* Deployment-state chips are admin-only: they describe configuration
             only an admin can change, and their deep-link target (/system) is
             an admin page. General users would get an amber badge they can
@@ -65,12 +70,15 @@ export function ConsoleTopbar({
           </div>
         )}
 
-        {user !== "dev" && (
-          <span className="hidden text-xs text-muted-foreground sm:inline">{user}</span>
+        {/* Only the "back to admin" state lives in the bar; entering it is in the menu. */}
+        {viewingAsGeneral && <ViewAsSwitch viewingAsGeneral />}
+        {/* "dev" is the open local console with no account behind it — nothing
+            to sign out of, so it keeps the bare theme switch. */}
+        {user === "dev" ? (
+          <ThemeToggle />
+        ) : (
+          <UserMenu user={user} isAdmin={isAdmin} canViewAs={canViewAs && !viewingAsGeneral} />
         )}
-        {canViewAs && <ViewAsSwitch viewingAsGeneral={viewingAsGeneral} />}
-        <ThemeToggle />
-        {user !== "dev" && <LogoutButton />}
       </div>
     </header>
   );

@@ -2,8 +2,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts";
+import { ChartNoAxesColumn, RotateCw, TriangleAlert } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { EmptyState } from "@/components/jetta/empty-state";
 import {
   ChartContainer,
   ChartLegend,
@@ -45,34 +48,41 @@ const tick = (day: string) => day.slice(5);
 
 function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <Card className="gap-2 py-4">
-      <CardHeader className="px-4">
-        <CardTitle className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{title}</CardTitle>
+    <Card size="sm" className="gap-2">
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
       </CardHeader>
-      <CardContent className="px-4">{children}</CardContent>
+      <CardContent>{children}</CardContent>
     </Card>
   );
 }
 
 function NotEnoughData() {
-  return (
-    <div className="flex h-[160px] items-center justify-center rounded-lg border border-dashed text-xs text-muted-foreground">
-      Not enough data yet
-    </div>
-  );
+  return <EmptyState icon={ChartNoAxesColumn} title="Not enough data yet" className="h-[160px] justify-center py-0" />;
 }
 
 export default function InsightCharts() {
   const [evals, setEvals] = useState<EvalRow[] | null>(null);
   const [daily, setDaily] = useState<DailyTokens[] | null>(null);
+  const [failed, setFailed] = useState(false);
 
   const load = useCallback(async () => {
-    const [e, s] = await Promise.all([
-      fetch("/api/admin/evals", { cache: "no-store" }).then((x) => x.json()),
-      fetch("/api/admin/stats", { cache: "no-store" }).then((x) => x.json()),
-    ]);
-    setEvals((e.evaluations ?? []).map((x: { at: number; rating: EvalRow["rating"] }) => ({ at: x.at, rating: x.rating })));
-    setDaily(s.daily ?? []);
+    const json = async (url: string) => {
+      const r = await fetch(url, { cache: "no-store" });
+      if (!r.ok) throw new Error(`${url}: HTTP ${r.status}`);
+      return r.json();
+    };
+    try {
+      const [e, s] = await Promise.all([json("/api/admin/evals"), json("/api/admin/stats")]);
+      setEvals((e.evaluations ?? []).map((x: { at: number; rating: EvalRow["rating"] }) => ({ at: x.at, rating: x.rating })));
+      setDaily(s.daily ?? []);
+      setFailed(false);
+    } catch (err) {
+      // Without this the skeleton below never resolves — a failed fetch looked
+      // exactly like a slow one, forever.
+      console.error(err);
+      setFailed(true);
+    }
   }, []);
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- async fetch; state set after await, not synchronously
@@ -80,6 +90,21 @@ export default function InsightCharts() {
   }, [load]);
   // Both series move when runs land (outcomes) or the rollup cron writes.
   useDataVersion(["today", "daily"], load);
+
+  if (failed && (evals === null || daily === null)) {
+    return (
+      <EmptyState
+        icon={TriangleAlert}
+        title="Couldn't load the trend charts"
+        hint="Try again in a moment."
+        action={
+          <Button variant="outline" size="sm" className="mt-1" onClick={() => load()}>
+            <RotateCw /> Retry
+          </Button>
+        }
+      />
+    );
+  }
 
   if (evals === null || daily === null) {
     return (

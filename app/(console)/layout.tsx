@@ -34,11 +34,12 @@ export default async function ConsoleLayout({ children }: { children: React.Reac
   const collapsed = (await cookies()).get("jetta_sidebar")?.value === "collapsed";
 
   return (
-    <div className="flex min-h-svh">
+    <div className="flex min-h-svh" data-console>
       <aside
+        data-surface="sidebar"
         className={cn(
-          "sticky top-0 hidden h-svh shrink-0 border-r bg-sidebar md:block",
-          collapsed ? "w-14" : "w-56",
+          "sticky top-0 hidden h-svh shrink-0 border-r md:block",
+          collapsed ? "w-16" : "w-60",
         )}
       >
         <ConsoleSidebar isAdmin={isAdmin} defaultCollapsed={collapsed} />
@@ -60,8 +61,8 @@ export default async function ConsoleLayout({ children }: { children: React.Reac
           </p>
         )}
 
-        <main className="min-w-0 flex-1 px-4 pt-5 pb-16 sm:px-6">
-          <div className="mx-auto flex w-full max-w-6xl flex-col gap-5">
+        <main className="min-w-0 flex-1 px-4 pt-6 pb-24 sm:px-8">
+          <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
             <GuideBanner user={user} />
             {children}
           </div>

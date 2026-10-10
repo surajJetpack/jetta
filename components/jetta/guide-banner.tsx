@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { X } from "lucide-react";
+import { BookOpen, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 /**
@@ -30,15 +30,18 @@ export function GuideBanner({ user }: { user: string }) {
 
   if (!show) return null;
   return (
-    <div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-primary/25 bg-primary/5 px-3.5 py-2 text-sm text-primary dark:bg-primary/10">
-      <span>
-        👋 New here? Start with the{" "}
-        <Link href="/guide" onClick={dismiss} className="font-semibold underline underline-offset-2">
-          Guide
-        </Link>{" "}
-        — 3 minutes, how Jetta works and what needs you.
+    <div className="flex items-center justify-between gap-3 rounded-lg border border-primary/25 bg-primary/5 px-3.5 py-2 text-sm dark:bg-primary/10">
+      <span className="flex items-start gap-2">
+        <BookOpen className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
+        <span>
+          New here? Start with the{" "}
+          <Link href="/guide" onClick={dismiss} className="font-medium text-primary underline underline-offset-2">
+            Guide
+          </Link>{" "}
+          <span className="text-muted-foreground">— 3 minutes on how Jetta works and what needs you.</span>
+        </span>
       </span>
-      <Button variant="ghost" size="icon-xs" aria-label="Dismiss" onClick={dismiss} className="shrink-0 text-primary">
+      <Button variant="ghost" size="icon-xs" aria-label="Dismiss" onClick={dismiss} className="shrink-0 text-muted-foreground">
         <X />
       </Button>
     </div>

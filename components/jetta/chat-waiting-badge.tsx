@@ -30,23 +30,26 @@ export function ChatWaitingBadge({ active }: { active?: boolean }) {
   }, 20_000);
   if (!waiting && !live) return null;
 
+  const label =
+    waiting > 0
+      ? `${waiting} visitor${waiting === 1 ? "" : "s"} waiting for a person`
+      : `${live} chat${live === 1 ? "" : "s"} being handled by a person`;
+
   return (
     <span
+      role="status"
+      aria-label={label}
       className={cn(
-        "inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold tabular-nums",
+        "inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-3xs font-semibold tabular-nums",
         // Waiting is urgent, and the one place a solid fill is warranted; a
         // chat a colleague is already handling is information, not a summons.
         waiting > 0
-          ? cn("animate-pulse", TONE_SOLID.bad)
+          ? cn("motion-safe:animate-pulse", TONE_SOLID.bad)
           : active
             ? "bg-primary-foreground/20 text-primary-foreground"
             : TONE_SOLID.neutral,
       )}
-      title={
-        waiting > 0
-          ? `${waiting} visitor${waiting === 1 ? "" : "s"} waiting for a person`
-          : `${live} chat${live === 1 ? "" : "s"} being handled by a person`
-      }
+      title={label}
     >
       {waiting || live}
     </span>

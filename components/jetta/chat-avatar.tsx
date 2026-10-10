@@ -30,7 +30,7 @@ export function ChatAvatar({
   name?: string;
   className?: string;
 }) {
-  const base = "flex size-6 shrink-0 select-none items-center justify-center overflow-hidden rounded-full text-[10px] font-semibold";
+  const base = "flex size-6 shrink-0 select-none items-center justify-center overflow-hidden rounded-full text-3xs font-semibold";
   if (kind === "jetta") {
     return src ? (
       // eslint-disable-next-line @next/next/no-img-element
@@ -46,14 +46,14 @@ export function ChatAvatar({
     return (
       <span
         className={cn(base, "border border-primary/40 bg-primary/5 text-primary", className)}
-        title={name ? `${name} · human` : "human"}
+        title={name ? `${name} · human` : "Human agent"}
       >
         {label ?? <UserRound className="size-3.5" aria-hidden />}
       </span>
     );
   }
   return (
-    <span className={cn(base, "bg-muted text-muted-foreground", className)} title={name || "visitor"}>
+    <span className={cn(base, "bg-muted text-muted-foreground", className)} title={name || "Visitor"}>
       {label ?? <UserRound className="size-3.5" aria-hidden />}
     </span>
   );

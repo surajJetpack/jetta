@@ -46,7 +46,7 @@ function DayDivider({ at }: { at: string }) {
   return (
     <div className="flex items-center gap-2 py-0.5" role="separator">
       <span className="h-px flex-1 bg-neutral-200" />
-      <span className="text-[10px] tracking-wide text-neutral-400 uppercase">{fmtDayLabel(at, now)}</span>
+      <span className="text-3xs tracking-wide text-neutral-400 uppercase">{fmtDayLabel(at, now)}</span>
       <span className="h-px flex-1 bg-neutral-200" />
     </div>
   );
@@ -859,7 +859,7 @@ export default function ChatWidgetPage() {
               <span className="mb-0.5 size-6 shrink-0 rounded-full bg-neutral-200" aria-hidden />
             )}
             <div className="max-w-[85%]">
-              <p className="mb-0.5 text-[11px] text-neutral-500">{ui.title}</p>
+              <p className="mb-0.5 text-2xs text-neutral-500">{ui.title}</p>
               <div className="rounded-2xl rounded-bl-sm bg-neutral-100 px-3.5 py-2 text-sm leading-relaxed text-neutral-900">
                 {ui.greeting}
               </div>
@@ -913,7 +913,7 @@ export default function ChatWidgetPage() {
             return (
               <Fragment key={m.id}>
                 {divider}
-                <p className="py-1 text-center text-[11px] text-neutral-400">{m.text}</p>
+                <p className="py-1 text-center text-2xs text-neutral-400">{m.text}</p>
               </Fragment>
             );
           }
@@ -935,7 +935,7 @@ export default function ChatWidgetPage() {
                       // face — the visitor should be able to see at a glance that
                       // someone real is now typing.
                       <span
-                        className="mb-0.5 flex size-6 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold text-white"
+                        className="mb-0.5 flex size-6 shrink-0 items-center justify-center rounded-full text-3xs font-semibold text-white"
                         style={{ backgroundColor: ui.accentColor }}
                         aria-hidden
                       >
@@ -949,7 +949,7 @@ export default function ChatWidgetPage() {
                     ))}
                   <div className="max-w-[85%]">
                     {m.author === "agent" && (
-                      <p className="mb-0.5 text-[11px] text-neutral-500">{who}</p>
+                      <p className="mb-0.5 text-2xs text-neutral-500">{who}</p>
                     )}
                     {m.attachments?.map((a) => {
                       const href = fileUrl(a.pathname);
@@ -1002,7 +1002,7 @@ export default function ChatWidgetPage() {
                 {runEnds && (
                   <p
                     className={[
-                      "mt-0.5 text-[10px] tabular-nums text-neutral-400",
+                      "mt-0.5 text-3xs tabular-nums text-neutral-400",
                       // Clear of the avatar gutter (size-6 plus gap-2) so the
                       // time sits under the bubble's edge, not under the face.
                       m.author === "visitor" ? "text-right" : "ps-8 text-left",
@@ -1037,7 +1037,7 @@ export default function ChatWidgetPage() {
               <span className="mb-0.5 size-6 shrink-0 rounded-full bg-neutral-200" aria-hidden />
             )}
             <div>
-              <p className="mb-0.5 text-[11px] text-neutral-500">{ui.title} is typing…</p>
+              <p className="mb-0.5 text-2xs text-neutral-500">{ui.title} is typing…</p>
               <div className="flex w-fit items-center gap-2 rounded-2xl rounded-bl-sm bg-neutral-100 px-3.5 py-3">
                 {[0, 150, 300].map((delay) => (
                   <span
@@ -1073,7 +1073,7 @@ export default function ChatWidgetPage() {
               <div
                 key={f.key}
                 className={[
-                  "relative flex items-center gap-2 rounded-lg border px-2 py-1.5 text-[11px]",
+                  "relative flex items-center gap-2 rounded-lg border px-2 py-1.5 text-2xs",
                   f.error ? "border-red-200 bg-red-50 text-red-700" : "border-neutral-200 bg-neutral-50",
                 ].join(" ")}
               >

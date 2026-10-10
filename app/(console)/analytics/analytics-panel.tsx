@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { BookOpen, RotateCw, TriangleAlert } from "lucide-react";
-import { fmtDate } from "@/lib/format";
+import { fmtCompact, fmtDate, fmtUsd } from "@/lib/format";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertAction, AlertTitle } from "@/components/ui/alert";
@@ -10,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { StepCard } from "@/components/jetta/step-card";
 import { StatusChip } from "@/components/jetta/status-chip";
+import { SectionHeader } from "@/components/jetta/page-header";
 import { BrandFilter, brandQuery, type Brand } from "@/components/jetta/brand-filter";
 
 interface Gap { ticketId: string; subject: string; reason: string; at: number; url: string }
@@ -34,7 +35,6 @@ interface ModelStat {
   } | null;
 }
 
-const fmtTokens = (n: number) => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
 interface Stats {
   outcomes: { total: number; resolved: number; escalated: number; reopened: number; closed: number; deflectionRate: number | null };
   gaps: Gap[];
@@ -47,15 +47,11 @@ interface Stats {
 
 function Stat({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-lg border bg-muted/40 p-3">
-      <div className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">{label}</div>
-      <div className="mt-1 flex items-center gap-2 font-mono text-sm font-semibold">{children}</div>
+    <div className="rounded-lg border bg-card px-4 py-3.5">
+      <div className="text-xs font-medium text-muted-foreground">{label}</div>
+      <div className="mt-1.5 flex items-center gap-2 text-xl font-semibold tracking-tight tabular-nums">{children}</div>
     </div>
   );
-}
-
-function SectionLabel({ children }: { children: React.ReactNode }) {
-  return <div className="text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">{children}</div>;
 }
 
 export default function AnalyticsPanel() {
@@ -140,7 +136,7 @@ export default function AnalyticsPanel() {
             </div>
 
             <div className="space-y-2">
-              <SectionLabel>Knowledge gaps — document these next ({s.gaps.length})</SectionLabel>
+              <SectionHeader>Knowledge gaps — document these next ({s.gaps.length})</SectionHeader>
               {s.gaps.length ? (
                 s.gaps.slice(0, 12).map((g) => (
                   <StepCard
@@ -164,7 +160,7 @@ export default function AnalyticsPanel() {
 
             {s.gapKeywords.length > 0 && (
               <div className="space-y-2">
-                <SectionLabel>Recurring gap themes</SectionLabel>
+                <SectionHeader>Recurring gap themes</SectionHeader>
                 <div className="flex flex-wrap gap-1.5">
                   {s.gapKeywords.map((k) => (
                     <StatusChip key={k.term}>
@@ -176,7 +172,7 @@ export default function AnalyticsPanel() {
             )}
 
             <div className="space-y-2">
-              <SectionLabel>Learned via the Knowledge Loop ({s.approvedArticles.length})</SectionLabel>
+              <SectionHeader>Learned via the Knowledge Loop ({s.approvedArticles.length})</SectionHeader>
               {s.approvedArticles.length ? (
                 <ul className="space-y-1.5">
                   {s.approvedArticles.slice(0, 10).map((a, i) => (
@@ -202,7 +198,7 @@ export default function AnalyticsPanel() {
 
             {(s.models?.length ?? 0) > 0 && (
               <div className="space-y-2">
-                <SectionLabel>Model quality — evidence for tiered routing</SectionLabel>
+                <SectionHeader>Model quality — evidence for tiered routing</SectionHeader>
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -245,9 +241,9 @@ export default function AnalyticsPanel() {
                         <TableCell className="font-mono text-xs text-muted-foreground">
                           {m.tokens ? (
                             <>
-                              {fmtTokens(m.tokens.inputTokens)} in
-                              {m.tokens.cacheReadTokens > 0 ? ` (${fmtTokens(m.tokens.cacheReadTokens)} cached)` : ""} /{" "}
-                              {fmtTokens(m.tokens.outputTokens)} out · avg {fmtTokens(m.tokens.avgTokensPerRun)}/run
+                              {fmtCompact(m.tokens.inputTokens)} in
+                              {m.tokens.cacheReadTokens > 0 ? ` (${fmtCompact(m.tokens.cacheReadTokens)} cached)` : ""} /{" "}
+                              {fmtCompact(m.tokens.outputTokens)} out · avg {fmtCompact(m.tokens.avgTokensPerRun)}/run
                             </>
                           ) : (
                             "—"
@@ -255,7 +251,7 @@ export default function AnalyticsPanel() {
                         </TableCell>
                         <TableCell className="text-right font-mono text-xs">
                           {m.tokens?.estCostUsd != null
-                            ? `~$${m.tokens.estCostUsd.toFixed(m.tokens.estCostUsd < 0.1 ? 4 : 2)}`
+                            ? `~${fmtUsd(m.tokens.estCostUsd)}`
                             : "—"}
                         </TableCell>
                       </TableRow>
@@ -267,12 +263,12 @@ export default function AnalyticsPanel() {
 
             {(s.taskTokens?.length ?? 0) > 0 && (
               <div className="space-y-2">
-                <SectionLabel>Token consumption by task</SectionLabel>
+                <SectionHeader>Token consumption by task</SectionHeader>
                 <div className="flex flex-wrap gap-1.5">
                   {s.taskTokens!.map((t) => (
                     <StatusChip key={t.task} className="font-mono">
-                      {t.task} · {fmtTokens(t.inputTokens + t.outputTokens)} ({fmtTokens(t.inputTokens)} in /{" "}
-                      {fmtTokens(t.outputTokens)} out) · {t.calls} calls
+                      {t.task} · {fmtCompact(t.inputTokens + t.outputTokens)} ({fmtCompact(t.inputTokens)} in /{" "}
+                      {fmtCompact(t.outputTokens)} out) · {t.calls} calls
                     </StatusChip>
                   ))}
                 </div>
@@ -281,7 +277,7 @@ export default function AnalyticsPanel() {
 
             {s.toolUsage.length > 0 && (
               <div className="space-y-2">
-                <SectionLabel>Tool usage</SectionLabel>
+                <SectionHeader>Tool usage</SectionHeader>
                 <div className="flex flex-wrap gap-1.5">
                   {s.toolUsage.map((t) => (
                     <StatusChip key={t.tool} className="font-mono">

@@ -2,12 +2,13 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { RotateCw, Sparkles, TriangleAlert } from "lucide-react";
-import { fmtDate, fmtDateTime } from "@/lib/format";
+import { fmtDate, fmtDateTime, fmtUsd } from "@/lib/format";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertAction, AlertTitle } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusChip } from "@/components/jetta/status-chip";
+import { SectionHeader } from "@/components/jetta/page-header";
 import { useDataVersion } from "@/lib/use-data-version";
 
 interface Insight {
@@ -39,9 +40,9 @@ interface Rollup {
 
 function Stat({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-lg border bg-muted/40 p-3">
-      <div className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">{label}</div>
-      <div className="mt-1 flex items-center gap-2 font-mono text-sm font-semibold">{children}</div>
+    <div className="rounded-lg border bg-card px-4 py-3.5">
+      <div className="text-xs font-medium text-muted-foreground">{label}</div>
+      <div className="mt-1.5 flex items-center gap-2 text-xl font-semibold tracking-tight tabular-nums">{children}</div>
     </div>
   );
 }
@@ -84,7 +85,12 @@ export default function DailyOverview() {
       body: JSON.stringify(day ? { date: day.date } : {}),
     })
       .then(async (r) => {
-        if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error ?? `HTTP ${r.status}`);
+        if (!r.ok) {
+          console.error(`/api/admin/daily: HTTP ${r.status}`);
+          throw new Error(
+            (await r.json().catch(() => ({}))).error ?? "Couldn't regenerate the overview. Try again in a moment.",
+          );
+        }
       })
       .then(() => load())
       .catch((e) => setErr(e instanceof Error ? e.message : String(e)))
@@ -138,7 +144,7 @@ export default function DailyOverview() {
         {!loading && rollups && !day && (
           <p className="text-sm text-muted-foreground">
             No daily rollup yet. It&apos;s computed each morning for the previous day — or click{" "}
-            <span className="font-medium">Regenerate</span> to build yesterday&apos;s now.
+            <span className="font-medium">Regenerate</span>{" "}to build yesterday&apos;s now.
           </p>
         )}
 
@@ -148,7 +154,7 @@ export default function DailyOverview() {
               <Stat label="Tickets handled">{o.total}</Stat>
               <Stat label="Deflection rate">{pct}</Stat>
               <Stat label="Escalated">{o.escalated}</Stat>
-              <Stat label="Est. cost">{costKnown ? `$${cost.toFixed(2)}` : "—"}</Stat>
+              <Stat label="Est. cost">{costKnown ? fmtUsd(cost) : "—"}</Stat>
               <Stat label="Top product">
                 {topProduct ? (
                   <span className="truncate">
@@ -163,9 +169,7 @@ export default function DailyOverview() {
             <div className="rounded-lg border bg-muted/30 p-4">
               <div className="mb-2 flex items-center gap-2">
                 <Sparkles className="size-4 text-muted-foreground" aria-hidden />
-                <span className="text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
-                  AI Insight
-                </span>
+                <SectionHeader>AI insight</SectionHeader>
               </div>
               {day.insight ? (
                 <div className="space-y-3">
@@ -186,13 +190,13 @@ export default function DailyOverview() {
                       ))}
                     </div>
                   )}
-                  <p className="text-[11px] text-muted-foreground">
+                  <p className="text-2xs text-muted-foreground">
                     Generated {fmtDateTime(Math.floor(day.insight.generatedAt / 1000))} · {day.insight.model}
                   </p>
                 </div>
               ) : (
                 <p className="text-sm text-muted-foreground">
-                  No narrative yet for this day. Click <span className="font-medium">Regenerate</span> to produce one.
+                  No narrative yet for this day. Click <span className="font-medium">Regenerate</span>{" "}to produce one.
                 </p>
               )}
             </div>

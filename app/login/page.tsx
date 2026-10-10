@@ -22,23 +22,25 @@ export default async function LoginPage({
   if (!locked) redirect(target); // already signed in (or dev-open)
 
   return (
-    <div className="flex min-h-svh items-center justify-center p-5">
-      <Card className="w-full max-w-sm">
-        <CardHeader className="items-center text-center">
+    <main data-console className="flex min-h-svh flex-col items-center justify-center gap-6 bg-muted/40 p-5">
+      <Card className="w-full max-w-sm shadow-sm">
+        <CardHeader className="items-center gap-1 text-center">
           <Image
             src="/jetta.png"
-            alt="Jetta"
-            width={72}
-            height={72}
-            className="mx-auto mb-2 size-18 rounded-full ring-2 ring-primary/20"
+            alt=""
+            width={56}
+            height={56}
+            className="mx-auto mb-3 size-14 rounded-full ring-1 ring-border"
           />
-          <CardTitle className="text-lg">Jetta — Ops Console</CardTitle>
-          <CardDescription>Internal · sign in to continue</CardDescription>
+          {/* scripts/manual-shots.mjs crops this card by the "Ops Console" title. */}
+          <CardTitle className="text-xl font-semibold tracking-tight">Jetta Ops Console</CardTitle>
+          <CardDescription>Sign in with your team account to continue.</CardDescription>
         </CardHeader>
         <CardContent>
           <LoginForm next={target} />
         </CardContent>
       </Card>
-    </div>
+      <p className="text-xs text-muted-foreground">Internal tool · access is limited to the support team</p>
+    </main>
   );
 }

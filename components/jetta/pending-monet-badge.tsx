@@ -27,7 +27,7 @@ export function PendingMonetBadge({ active }: { active?: boolean }) {
   return (
     <span
       className={cn(
-        "inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold tabular-nums",
+        "inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-3xs font-bold tabular-nums",
         active ? "bg-primary-foreground/20 text-primary-foreground" : "bg-primary text-primary-foreground",
       )}
     >

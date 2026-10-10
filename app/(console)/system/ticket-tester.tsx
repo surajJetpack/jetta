@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/select";
 import { StepCard, TraceIO } from "@/components/jetta/step-card";
 import { EmptyState } from "@/components/jetta/empty-state";
+import { SectionHeader } from "@/components/jetta/page-header";
 
 interface TraceEntry {
   tool: string;
@@ -112,7 +113,7 @@ export default function TicketTester({
       });
       setRes((await r.json()) as RunResult);
     } catch (e) {
-      setRes({ error: "request failed", message: e instanceof Error ? e.message : String(e) });
+      setRes({ error: "The request failed", message: e instanceof Error ? e.message : String(e) });
     } finally {
       setLoading(false);
     }
@@ -128,7 +129,7 @@ export default function TicketTester({
       <CardContent className="space-y-3">
         <div className="flex flex-wrap items-center gap-2">
           <Select value={channel} onValueChange={(v) => setChannel(v as Channel)}>
-            <SelectTrigger className="w-32">
+            <SelectTrigger className="w-32" aria-label="Channel">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -139,6 +140,7 @@ export default function TicketTester({
           <Input
             type="text"
             className="w-64 flex-1 sm:flex-none"
+            aria-label={channel === "freshchat" ? "Freshchat conversation ID" : "Freshdesk ticket ID"}
             placeholder={channel === "freshchat" ? "Freshchat conversation ID" : "Freshdesk ticket ID (e.g. 13599)"}
             value={ticketId}
             onChange={(e) => setTicketId(e.target.value)}
@@ -180,18 +182,18 @@ export default function TicketTester({
                   <b>#{res.ticket?.id}</b> {res.ticket?.subject}
                 </span>
                 <span>
-                  product <b className="text-foreground">{res.ticket?.product}</b>
+                  Product <b className="text-foreground">{res.ticket?.product}</b>
                 </span>
                 <span>
-                  model <b className="text-foreground">{res.model}</b>
+                  Model <b className="text-foreground">{res.model}</b>
                 </span>
                 <span className="inline-flex items-center gap-1">
                   {res.dryRun ? <Lock className="size-3.5" /> : <Radio className="size-3.5 text-tone-good" />}
-                  {res.dryRun ? "dry run" : "live"}
+                  {res.dryRun ? "Dry run" : "Live"}
                 </span>
                 {res.resolutionSent && (
                   <span>
-                    <b className="text-foreground">resolution sent</b> → follow-up scheduled
+                    <b className="text-foreground">Resolution sent</b>, follow-up scheduled
                   </span>
                 )}
                 <span>{fmtDuration(res.durationMs)}</span>
@@ -199,23 +201,26 @@ export default function TicketTester({
 
               {res.reply && (
                 <div>
-                  <div className="mb-1 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
-                    Final reply
-                  </div>
+                  <SectionHeader className="mb-1">Final reply</SectionHeader>
                   <div className="rounded-lg border bg-muted/40 p-3 text-sm whitespace-pre-wrap">{res.reply}</div>
                 </div>
               )}
 
               <div>
-                <div className="mb-1.5 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
-                  Tool trace ({res.trace?.length ?? 0} call{res.trace?.length === 1 ? "" : "s"})
-                </div>
+                <SectionHeader
+                  className="mb-1.5"
+                  meta={`${res.trace?.length ?? 0} call${res.trace?.length === 1 ? "" : "s"}`}
+                >
+                  Tool trace
+                </SectionHeader>
                 {res.trace?.length ? (
                   <div className="space-y-2">
                     {res.trace.map((t, i) => (
                       <StepCard key={i} title={`${i + 1}. ${t.tool}`}>
-                        <TraceIO>→ {JSON.stringify(t.input)}</TraceIO>
-                        <TraceIO className="whitespace-pre-wrap">{t.result}</TraceIO>
+                        <TraceIO className="max-h-48 overflow-y-auto whitespace-pre">
+                          {JSON.stringify(t.input, null, 2)}
+                        </TraceIO>
+                        <TraceIO className="max-h-64 overflow-y-auto whitespace-pre-wrap">{t.result}</TraceIO>
                       </StepCard>
                     ))}
                   </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { cloneElement, isValidElement, useCallback, useEffect, useId, useState } from "react";
 import Link from "next/link";
 import { ChevronRight, RotateCw, TriangleAlert, Save, Image as ImageIcon } from "lucide-react";
 import { toast } from "sonner";
@@ -13,6 +13,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusChip } from "@/components/jetta/status-chip";
+import { fmtDateTime } from "@/lib/format";
 
 interface Settings {
   title: string;
@@ -72,12 +73,58 @@ interface Payload {
   env: { live: boolean; hasSecret: boolean; envOrigins: string[]; followUp: boolean };
 }
 
+/**
+ * A labelled control. A lone Input or Textarea gets the label wired to it by id
+ * and the hint as its description; anything else (a group of buttons) becomes
+ * a labelled group — either way a screen reader announces what the field is.
+ */
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+  const id = useId();
+  const hintId = hint ? `${id}-hint` : undefined;
+  const single =
+    isValidElement<{ id?: string; "aria-describedby"?: string }>(children) &&
+    (children.type === Input || children.type === Textarea);
+  const controlId = single ? (children.props.id ?? id) : undefined;
   return (
-    <div className="space-y-1.5">
-      <Label className="text-xs">{label}</Label>
-      {children}
-      {hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}
+    <div
+      className="space-y-1.5"
+      role={single ? undefined : "group"}
+      aria-labelledby={single ? undefined : `${id}-label`}
+      aria-describedby={single ? undefined : hintId}
+    >
+      <Label id={`${id}-label`} htmlFor={controlId} className="text-xs">
+        {label}
+      </Label>
+      {single ? cloneElement(children, { id: controlId, "aria-describedby": hintId }) : children}
+      {hint && (
+        <p id={hintId} className="text-2xs text-muted-foreground">
+          {hint}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** A checkbox with its label and explanation, all of it clickable. */
+function CheckRow({
+  checked,
+  onCheckedChange,
+  label,
+  hint,
+}: {
+  checked: boolean;
+  onCheckedChange: (v: boolean) => void;
+  label: string;
+  hint: React.ReactNode;
+}) {
+  const id = useId();
+  return (
+    <div className="flex items-start gap-2.5">
+      <Checkbox id={id} className="mt-0.5" checked={checked} onCheckedChange={(v) => onCheckedChange(!!v)} />
+      <Label htmlFor={id} className="block text-sm leading-normal font-normal">
+        {label}
+        <span className="block text-2xs text-muted-foreground">{hint}</span>
+      </Label>
     </div>
   );
 }
@@ -91,7 +138,10 @@ export default function ChatSettingsForm() {
 
   const load = useCallback(() => {
     fetch("/api/admin/chat-settings", { cache: "no-store" })
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) throw new Error(`Couldn't load chat settings — the server returned ${r.status}.`);
+        return r.json();
+      })
       .then((d: Payload) => {
         setData(d);
         setForm(d.settings);
@@ -124,7 +174,7 @@ export default function ChatSettingsForm() {
       }),
     })
       .then(async (r) => {
-        if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error ?? `HTTP ${r.status}`);
+        if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error ?? `Couldn't save — the server returned ${r.status}.`);
         return r.json();
       })
       .then((d: { settings: Settings }) => {
@@ -153,10 +203,13 @@ export default function ChatSettingsForm() {
       {!data.env.live && (
         <Alert variant="destructive">
           <TriangleAlert />
-          <AlertTitle>The chat is switched off at the environment level</AlertTitle>
+          <AlertTitle>Chat is switched off for this environment</AlertTitle>
           <AlertDescription>
-            <code>JETTACHAT_LIVE</code> is not true, so nothing here will serve visitors. That switch
-            lives outside the console on purpose — this page can turn the chat off, never on.
+            Nothing here will reach visitors until it is turned on in the deployment settings. That
+            switch lives outside the console on purpose — this page can turn the chat off, never on.
+            <span className="mt-1 block text-2xs opacity-80">
+              Environment variable: <code>JETTACHAT_LIVE</code>
+            </span>
           </AlertDescription>
         </Alert>
       )}
@@ -169,67 +222,70 @@ export default function ChatSettingsForm() {
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-3 sm:col-span-2">
-            <label className="flex items-start gap-2.5">
-              <Checkbox checked={form.enabled} onCheckedChange={(v) => set("enabled", !!v)} />
-              <span className="text-sm">
-                Chat is on
-                <span className="block text-[11px] text-muted-foreground">
+            <CheckRow
+              checked={form.enabled}
+              onCheckedChange={(v) => set("enabled", v)}
+              label="Chat is on"
+              hint={
+                <>
                   Turning this off stops new conversations immediately. Existing ones stop being served too.
-                </span>
-              </span>
-            </label>
-            <label className="flex items-start gap-2.5">
-              <Checkbox checked={form.requireIdentity} onCheckedChange={(v) => set("requireIdentity", !!v)} />
-              <span className="text-sm">
-                Jetta must collect name and email in the chat
-                <span className="block text-[11px] text-muted-foreground">
+                </>
+              }
+            />
+            <CheckRow
+              checked={form.requireIdentity}
+              onCheckedChange={(v) => set("requireIdentity", v)}
+              label="Jetta must collect name and email in the chat"
+              hint={
+                <>
                   There is no pre-chat form: while a visitor is anonymous, Jetta asks in the
                   conversation and holds off on deeper help until she has both. Inside the monday
                   app the SDK supplies identity, so she never needs to ask there.
-                </span>
-              </span>
-            </label>
-            <label className="flex items-start gap-2.5">
-              <Checkbox
-                checked={form.attachmentsEnabled}
-                onCheckedChange={(v) => set("attachmentsEnabled", !!v)}
-              />
-              <span className="text-sm">
-                Let visitors attach screenshots and PDFs
-                <span className="block text-[11px] text-muted-foreground">
+                </>
+              }
+            />
+            <CheckRow
+              checked={form.attachmentsEnabled}
+              onCheckedChange={(v) => set("attachmentsEnabled", v)}
+              label="Let visitors attach screenshots and PDFs"
+              hint={
+                <>
                   Images are read by a vision model so Jetta can answer about them, and they ride onto
                   the Freshdesk ticket if the chat is escalated.
-                </span>
-              </span>
-            </label>
-            <label className="flex items-start gap-2.5">
-              <Checkbox checked={form.handoffEnabled} onCheckedChange={(v) => set("handoffEnabled", !!v)} />
-              <span className="text-sm">
-                Let Jetta hand a live chat to a person
-                <span className="block text-[11px] text-muted-foreground">
+                </>
+              }
+            />
+            <CheckRow
+              checked={form.handoffEnabled}
+              onCheckedChange={(v) => set("handoffEnabled", v)}
+              label="Let Jetta hand a live chat to a person"
+              hint={
+                <>
                   She pings Slack and goes silent. If nobody joins in time she takes it back and offers a ticket.
-                </span>
-              </span>
-            </label>
-            <label className="flex items-start gap-2.5">
-              <Checkbox checked={form.followUpEnabled} onCheckedChange={(v) => set("followUpEnabled", !!v)} />
-              <span className="text-sm">
-                Let Jetta chase a chat that went quiet
-                <span className="block text-[11px] text-muted-foreground">
+                </>
+              }
+            />
+            <CheckRow
+              checked={form.followUpEnabled}
+              onCheckedChange={(v) => set("followUpEnabled", v)}
+              label="Let Jetta chase a chat that went quiet"
+              hint={
+                <>
                   She checks in once if a visitor stops replying, and marks the chat resolved when nobody
                   comes back — or straight away, if the transcript says it was already sorted.
                   {data.env.followUp ? (
                     " Armed in the environment."
                   ) : (
-                    <span className="text-amber-600 dark:text-amber-400">
+                    <span className="text-tone-warn">
                       {" "}
-                      JETTACHAT_FOLLOWUP is not set, so nothing is sent whatever this says — that switch
-                      lives outside the console, like the chat&apos;s own.
+                      Follow-ups are switched off for this environment (<code>JETTACHAT_FOLLOWUP</code>),
+                      so nothing is sent whatever this says — that switch lives outside the console, like
+                      the chat&apos;s own.
                     </span>
                   )}
-                </span>
-              </span>
-            </label>
+                </>
+              }
+            />
           </div>
 
           <Field
@@ -335,22 +391,21 @@ export default function ChatSettingsForm() {
         <CardHeader>
           <CardTitle>What the visitor sees</CardTitle>
           <CardAction>
-            <Link
-              href="/chats/settings/getsign"
-              className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline"
-            >
-              GetSign skin
-              <StatusChip tone={getsignOverrides ? "published" : "archived"}>
-                {getsignOverrides
-                  ? `${getsignOverrides} override${getsignOverrides === 1 ? "" : "s"}`
-                  : "all inherited"}
-              </StatusChip>
-              <ChevronRight className="size-3.5" />
-            </Link>
+            <Button variant="outline" size="sm" asChild>
+              <Link href="/chats/settings/getsign">
+                GetSign skin
+                <StatusChip tone={getsignOverrides ? "published" : "archived"}>
+                  {getsignOverrides
+                    ? `${getsignOverrides} override${getsignOverrides === 1 ? "" : "s"}`
+                    : "all inherited"}
+                </StatusChip>
+                <ChevronRight />
+              </Link>
+            </Button>
           </CardAction>
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2">
-          <p className="sm:col-span-2 text-[11px] text-muted-foreground">
+          <p className="sm:col-span-2 text-2xs text-muted-foreground">
             The default skin — what every surface shows unless a brand overrides it.
           </p>
           <Field label="Title">
@@ -389,10 +444,12 @@ export default function ChatSettingsForm() {
           <Field label="Accent colour" hint="Hex, e.g. #2563eb. Anything else is ignored.">
             <div className="flex items-center gap-2">
               <Input
+                aria-label="Accent colour"
                 value={form.accentColor}
                 onChange={(e) => set("accentColor", e.target.value)}
               />
               <span
+                aria-hidden
                 className="size-8 shrink-0 rounded-md border"
                 style={{
                   backgroundColor: (() => {
@@ -421,10 +478,11 @@ export default function ChatSettingsForm() {
                     <ImageIcon className="size-5 text-muted-foreground" />
                   )}
                 </span>
-                <input
+                <Input
                   type="file"
+                  aria-label="Upload a chat avatar"
                   accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
-                  className="text-xs file:mr-3 file:rounded-md file:border file:bg-background file:px-3 file:py-1.5 file:text-xs"
+                  className="max-w-xs text-xs"
                   onChange={(e) => {
                     const file = e.target.files?.[0];
                     if (!file) return;
@@ -442,7 +500,7 @@ export default function ChatSettingsForm() {
                   }}
                 />
                 {form.avatarUrl && (
-                  <Button size="sm" variant="ghost" onClick={() => set("avatarUrl", undefined)}>
+                  <Button type="button" size="sm" variant="ghost" onClick={() => set("avatarUrl", undefined)}>
                     Remove
                   </Button>
                 )}
@@ -458,6 +516,8 @@ export default function ChatSettingsForm() {
                   type="button"
                   size="sm"
                   variant={form.launcherPosition === p ? "default" : "outline"}
+                  aria-pressed={form.launcherPosition === p}
+                  className="capitalize"
                   onClick={() => set("launcherPosition", p)}
                 >
                   {p}
@@ -482,6 +542,7 @@ export default function ChatSettingsForm() {
                   type="button"
                   size="sm"
                   variant={form.launcherIcon === value ? "default" : "outline"}
+                  aria-pressed={form.launcherIcon === value}
                   onClick={() => set("launcherIcon", value)}
                   disabled={value === "avatar" && !form.avatarUrl}
                 >
@@ -514,7 +575,7 @@ export default function ChatSettingsForm() {
             />
           </Field>
           {data.env.envOrigins.length > 0 && (
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-2xs text-muted-foreground">
               Environment default: <code>{data.env.envOrigins.join(", ")}</code> — used until you save a list here.
             </p>
           )}
@@ -555,8 +616,8 @@ export default function ChatSettingsForm() {
           <RotateCw /> Discard changes
         </Button>
         {form.updatedAt && (
-          <span className="text-[11px] text-muted-foreground">
-            Last changed by {form.updatedBy} · {new Date(form.updatedAt).toLocaleString()}
+          <span className="text-2xs text-muted-foreground">
+            Last changed by {form.updatedBy} · {fmtDateTime(form.updatedAt)}
           </span>
         )}
       </div>

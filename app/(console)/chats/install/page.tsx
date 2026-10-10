@@ -1,8 +1,10 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
+import { MessagesSquare, Settings2 } from "lucide-react";
 import { gate } from "@/lib/console-auth";
 import { config } from "@/lib/config";
 import { PageHeader } from "@/components/jetta/page-header";
+import { Button } from "@/components/ui/button";
 import InstallGuide from "./install-guide";
 
 export const dynamic = "force-dynamic";
@@ -21,12 +23,18 @@ export default async function ChatInstallPage() {
         description="Drop the widget onto a site. Which origins may embed it is a security decision — set that in Chat settings."
         actions={
           <>
-            <Link href="/chats" className="text-xs text-muted-foreground hover:underline">
-              All chats
-            </Link>
-            <Link href="/chats/settings" className="text-xs text-primary hover:underline">
-              Settings →
-            </Link>
+            <Button variant="ghost" size="sm" asChild>
+              <Link href="/chats">
+                <MessagesSquare />
+                All chats
+              </Link>
+            </Button>
+            <Button variant="outline" size="sm" asChild>
+              <Link href="/chats/settings">
+                <Settings2 />
+                Settings
+              </Link>
+            </Button>
           </>
         }
       />

@@ -10,7 +10,7 @@
  * simply opening this page would silently pin GetSign to whatever the
  * checkbox happened to render as.
  */
-import { useCallback, useEffect, useState } from "react";
+import { cloneElement, isValidElement, useCallback, useEffect, useId, useState } from "react";
 import Link from "next/link";
 import { RotateCw, Save, TriangleAlert, Image as ImageIcon, Undo2 } from "lucide-react";
 import { toast } from "sonner";
@@ -42,12 +42,34 @@ interface Overlay {
 }
 type TextKey = "title" | "subtitle" | "greeting" | "placeholder" | "accentColor" | "launcherLabel";
 
+/**
+ * A labelled control. A lone Input or Textarea gets the label wired to it by id
+ * and the hint as its description; anything else (a group of buttons) becomes
+ * a labelled group — either way a screen reader announces what the field is.
+ */
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+  const id = useId();
+  const hintId = hint ? `${id}-hint` : undefined;
+  const single =
+    isValidElement<{ id?: string; "aria-describedby"?: string }>(children) &&
+    (children.type === Input || children.type === Textarea);
+  const controlId = single ? (children.props.id ?? id) : undefined;
   return (
-    <div className="space-y-1.5">
-      <Label className="text-xs">{label}</Label>
-      {children}
-      {hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}
+    <div
+      className="space-y-1.5"
+      role={single ? undefined : "group"}
+      aria-labelledby={single ? undefined : `${id}-label`}
+      aria-describedby={single ? undefined : hintId}
+    >
+      <Label id={`${id}-label`} htmlFor={controlId} className="text-xs">
+        {label}
+      </Label>
+      {single ? cloneElement(children, { id: controlId, "aria-describedby": hintId }) : children}
+      {hint && (
+        <p id={hintId} className="text-2xs text-muted-foreground">
+          {hint}
+        </p>
+      )}
     </div>
   );
 }
@@ -68,9 +90,10 @@ function Tri<T extends string | boolean>({
         type="button"
         size="sm"
         variant={value === undefined ? "default" : "outline"}
+        aria-pressed={value === undefined}
         onClick={() => onChange(undefined)}
       >
-        inherit
+        Inherit
       </Button>
       {options.map((o) => (
         <Button
@@ -78,6 +101,7 @@ function Tri<T extends string | boolean>({
           type="button"
           size="sm"
           variant={value === o.v ? "default" : "outline"}
+          aria-pressed={value === o.v}
           onClick={() => onChange(o.v)}
         >
           {o.label}
@@ -96,7 +120,10 @@ export default function GetSignSkinForm() {
 
   const load = useCallback(() => {
     fetch("/api/admin/chat-settings", { cache: "no-store" })
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) throw new Error(`Couldn't load the GetSign skin — the server returned ${r.status}.`);
+        return r.json();
+      })
       .then((d: { settings: Base }) => {
         setBase(d.settings);
         const overlay = d.settings.profiles?.getsign ?? {};
@@ -129,7 +156,7 @@ export default function GetSignSkinForm() {
       body: JSON.stringify({ profiles: { getsign: patch } }),
     })
       .then(async (r) => {
-        if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error ?? `HTTP ${r.status}`);
+        if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error ?? `Couldn't save — the server returned ${r.status}.`);
         return r.json();
       })
       .then((d: { settings: Base }) => {
@@ -228,11 +255,13 @@ export default function GetSignSkinForm() {
             <Field label="Accent colour" hint="Hex, e.g. #2563eb. Anything else is ignored.">
               <div className="flex items-center gap-2">
                 <Input
+                  aria-label="Accent colour"
                   value={text("accentColor")}
                   placeholder={base.accentColor}
                   onChange={(e) => set("accentColor", e.target.value)}
                 />
                 <span
+                  aria-hidden
                   className="size-8 shrink-0 rounded-md border"
                   style={{ backgroundColor: effective.accentColor }}
                 />
@@ -243,8 +272,8 @@ export default function GetSignSkinForm() {
               <Tri
                 value={o.launcherPosition}
                 options={[
-                  { v: "left" as const, label: "left" },
-                  { v: "right" as const, label: "right" },
+                  { v: "left" as const, label: "Left" },
+                  { v: "right" as const, label: "Right" },
                 ]}
                 onChange={(v) => set("launcherPosition", v)}
               />
@@ -257,8 +286,8 @@ export default function GetSignSkinForm() {
               <Tri
                 value={o.launcherIcon}
                 options={[
-                  { v: "bubble" as const, label: "message icon" },
-                  { v: "avatar" as const, label: "the avatar" },
+                  { v: "bubble" as const, label: "Message icon" },
+                  { v: "avatar" as const, label: "The avatar" },
                 ]}
                 onChange={(v) => set("launcherIcon", v)}
               />
@@ -271,8 +300,8 @@ export default function GetSignSkinForm() {
               <Tri
                 value={o.requireIdentity}
                 options={[
-                  { v: true, label: "must collect" },
-                  { v: false, label: "don't ask" },
+                  { v: true, label: "Must collect" },
+                  { v: false, label: "Don't ask" },
                 ]}
                 onChange={(v) => set("requireIdentity", v)}
               />
@@ -305,10 +334,11 @@ export default function GetSignSkinForm() {
                       <ImageIcon className="size-5 text-muted-foreground" />
                     )}
                   </span>
-                  <input
+                  <Input
                     type="file"
+                    aria-label="Upload a GetSign chat avatar"
                     accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
-                    className="text-xs file:mr-3 file:rounded-md file:border file:bg-background file:px-3 file:py-1.5 file:text-xs"
+                    className="max-w-xs text-xs"
                     onChange={(e) => {
                       const file = e.target.files?.[0];
                       if (!file) return;
@@ -323,7 +353,7 @@ export default function GetSignSkinForm() {
                     }}
                   />
                   {o.avatarUrl && (
-                    <Button size="sm" variant="ghost" onClick={() => set("avatarUrl", undefined)}>
+                    <Button type="button" size="sm" variant="ghost" onClick={() => set("avatarUrl", undefined)}>
                       Inherit
                     </Button>
                   )}
@@ -334,7 +364,7 @@ export default function GetSignSkinForm() {
 
           <div className="space-y-3">
             <WidgetPreview s={effective} label="GetSign" />
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-2xs text-muted-foreground">
               Behaviour, allowed origins, rate limits and retention are shared by every brand and
               live on{" "}
               <Link href="/chats/settings" className="text-primary hover:underline">

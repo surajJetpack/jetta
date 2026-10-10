@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { freshdeskDomain } from "@/lib/tools/freshdesk";
 import Link from "next/link";
+import { Code2, Settings2 } from "lucide-react";
 import { Suspense } from "react";
 import { gate } from "@/lib/console-auth";
 import { listConversations } from "@/lib/chat-store";
@@ -8,6 +9,7 @@ import { getChatSettings, publicSettings } from "@/lib/chat-settings";
 import { chatBrandKey } from "@/lib/profiles";
 import ChatInbox from "./chat-inbox";
 import { PageHeader } from "@/components/jetta/page-header";
+import { Button } from "@/components/ui/button";
 
 export const dynamic = "force-dynamic";
 
@@ -39,12 +41,18 @@ export default async function ChatsPage() {
         actions={
           isAdmin && (
             <>
-              <Link href="/chats/settings" className="text-xs text-primary hover:underline">
-                Settings
-              </Link>
-              <Link href="/chats/install" className="text-xs text-primary hover:underline">
-                Install
-              </Link>
+              <Button variant="outline" size="sm" asChild>
+                <Link href="/chats/settings">
+                  <Settings2 />
+                  Settings
+                </Link>
+              </Button>
+              <Button variant="outline" size="sm" asChild>
+                <Link href="/chats/install">
+                  <Code2 />
+                  Install
+                </Link>
+              </Button>
             </>
           )
         }

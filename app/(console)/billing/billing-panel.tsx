@@ -14,7 +14,7 @@ export default function BillingPanel({
 }) {
   const reloadHistory = useRef<(() => void) | null>(null);
   return (
-    <div className="grid min-w-0 gap-6">
+    <div className="grid min-w-0 gap-5">
       <TrialsDiscountsQueue
         freshdeskDomain={freshdeskDomain}
         writesEnabled={writesEnabled}

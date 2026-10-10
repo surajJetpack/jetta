@@ -1,144 +1,17 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Bell, BellOff, CheckCheck, ExternalLink, Hand, Paperclip, RotateCcw, Search, Send, Ticket as TicketIcon, Undo2 } from "lucide-react";
-import { ChatAvatar } from "@/components/jetta/chat-avatar";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Checkbox } from "@/components/ui/checkbox";
-import { ConfirmButton } from "@/components/jetta/confirm-button";
-import { StatusChip, type ChipTone } from "@/components/jetta/status-chip";
 import { EmptyState } from "@/components/jetta/empty-state";
-import { RelativeTime } from "@/components/jetta/relative-time";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { appName } from "@/lib/types";
-import { dayKey, fmtDateTime, fmtDayLabel, fmtTime, localZone, useHydrated, useNow } from "@/lib/format";
+import { localZone, useHydrated } from "@/lib/format";
 import { usePolling } from "@/lib/use-polling";
-import { armChime, chimeEnabled, playChime, setChimeEnabled, subscribeChime } from "@/components/jetta/chime";
-
-interface Attachment {
-  id: string;
-  name: string;
-  contentType: string;
-  size: number;
-  pathname: string;
-  /** What the vision pass read out of the image, for our eyes only. */
-  description?: string;
-}
-interface Msg {
-  id: string;
-  author: "visitor" | "agent";
-  via?: "jetta" | "human";
-  authorName?: string;
-  system?: boolean;
-  text: string;
-  attachments?: Attachment[];
-  createdAt: string;
-}
-
-/**
- * Attachments are private blobs behind an authorization check. The console
- * hits the same route the widget does, but authenticates with its session
- * cookie instead of a conversation token — so no token in the URL here.
- */
-/**
- * First thing the visitor TYPED, as a starting subject — not the first
- * message, since a chat that opens with a bare screenshot would otherwise be
- * titled with the vision pass's description of a dialog box. The server
- * applies the same rule when the field arrives empty.
- */
-function suggestSubject(c: Conv): string {
-  const typed = c.messages.find((m) => m.author === "visitor" && m.text.trim())?.text ?? "";
-  const line = typed.split("\n")[0]!.trim();
-  if (!line) return "Support request from live chat";
-  return line.length > 70 ? `${line.slice(0, 70)}…` : line;
-}
-
-function consoleFileUrl(pathname: string): string {
-  return `/api/chat/file/${pathname.replace(/^chat\//, "")}`;
-}
-interface Conv {
-  id: string;
-  createdAt: string;
-  lastActivityAt: string;
-  status: "open" | "waiting_human" | "human" | "resolved" | "ticketed";
-  surface: string;
-  pageUrl?: string;
-  humanAgent?: string;
-  /** Who finished it — a console username, or "jetta" when she did. */
-  resolvedBy?: string;
-  ticketId?: string;
-  /** Earlier tickets this conversation opened, oldest first. */
-  previousTicketIds?: string[];
-  /** Which app the conversation is about — the embed's pin, else triage's read. */
-  app?: string;
-  visitor: { name?: string; email?: string; mondayAccountSlug?: string; app?: string };
-  /** Which brand skin the visitor saw — annotated server-side (lib/profiles). */
-  brandKey?: "main" | "getsign";
-  messages: Msg[];
-}
-
-const TONES: Record<Conv["status"], ChipTone> = {
-  waiting_human: "stale",
-  human: "in_review",
-  open: "published",
-  ticketed: "draft",
-  resolved: "archived",
-};
-const LABELS: Record<Conv["status"], string> = {
-  waiting_human: "wants a person",
-  human: "with a person",
-  open: "Jetta",
-  ticketed: "ticketed",
-  resolved: "resolved",
-};
-
-type Filter = "needs_human" | "all" | "open" | "ticketed" | "resolved";
-
-/** Sentinel for "every app" — Radix Select has no empty-string value. */
-const ALL_APPS = "__all__";
-/** …and for the chats nothing has attributed yet, which are worth their own view. */
-const NO_APP = "unknown";
-
-/**
- * Which app a conversation is about.
- *
- * `app` is stamped by the run (the embed's `data-app` if the snippet set one,
- * otherwise triage reading what they actually asked about); `visitor.app` is
- * the raw embed value and covers conversations that arrived before the stamp
- * existed. A chat with neither predates both and groups under "Other apps"
- * rather than being hidden, because a filter that silently drops rows is worse
- * than one that admits what it does not know.
- */
-function appOf(c: Conv): string {
-  return c.app || c.visitor.app || NO_APP;
-}
-
-/**
- * The "Today" / "8 Sep" rule between two days of one conversation.
- *
- * A leaf that owns its own clock, like `RelativeTime`: "Today" goes stale at
- * midnight on an inbox somebody left open overnight, and ticking down here
- * re-renders one line rather than the whole two-pane view.
- *
- * No `suppressHydrationWarning`: the caller renders dividers only once
- * hydrated, so there is no server text for this to disagree with.
- */
-function DayDivider({ at }: { at: string }) {
-  const now = useNow(60_000);
-  return (
-    <div className="flex items-center gap-2 py-2" role="separator">
-      <span className="h-px flex-1 bg-border" />
-      <span className="text-[10px] tracking-wide text-muted-foreground uppercase">
-        {fmtDayLabel(at, now)}
-      </span>
-      <span className="h-px flex-1 bg-border" />
-    </div>
-  );
-}
+import { armChime, chimeEnabled, playChime, subscribeChime } from "@/components/jetta/chime";
+import { ALL_APPS, NO_APP, appOf, type Conv, type Filter } from "./chat-types";
+import { ChatList } from "./chat-list";
+import { ConversationHeader, Transcript } from "./chat-transcript";
+import { ChatComposer, type ChatAction } from "./chat-composer";
 
 /**
  * The chat inbox.
@@ -203,6 +76,7 @@ export default function ChatInbox({
   const [query, setQuery] = useState("");
   const [text, setText] = useState("");
   const [ticketSubject, setTicketSubject] = useState("");
+  const ticketFieldId = useId();
   const [ticketNote, setTicketNote] = useState("");
   const [ticketNotify, setTicketNotify] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -314,7 +188,7 @@ export default function ChatInbox({
     router.replace(`/chats${q.size ? `?${q}` : ""}`, { scroll: false });
   };
 
-  const act = async (action: "join" | "send" | "release" | "resolve" | "reopen", body?: string) => {
+  const act = async (action: ChatAction, body?: string) => {
     if (!detail) return;
     setBusy(true);
     try {
@@ -470,141 +344,24 @@ export default function ChatInbox({
   const mine = detail?.status === "human";
 
   return (
-    <div className="grid gap-4 md:grid-cols-[320px_1fr]">
+    <div className="grid gap-5 md:grid-cols-[360px_1fr]">
       {/* ── list ─────────────────────────────────────────────── */}
-      <aside className={detail ? "hidden md:block" : "block"}>
-        <div className="space-y-2">
-          <div className="relative">
-            <Search className="absolute top-2.5 left-2.5 size-3.5 text-muted-foreground" />
-            <Input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search name, email or message"
-              className="h-9 pl-8 text-xs"
-            />
-          </div>
-          {/* Only worth showing once there is a choice to make: with a single
-              app on the board the control is a label that filters nothing. */}
-          {appOptions.length > 1 && (
-            <Select value={app} onValueChange={setApp}>
-              <SelectTrigger size="sm" className="w-full text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={ALL_APPS}>All apps</SelectItem>
-                {appOptions.map((o) => (
-                  <SelectItem key={o.value} value={o.value}>
-                    {o.label} · {o.count}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-          <div className="flex flex-wrap gap-1">
-            {(
-              [
-                ["needs_human", waiting ? `Needs a person · ${waiting}` : "Needs a person"],
-                ["open", "With Jetta"],
-                ["ticketed", "Ticketed"],
-                ["all", "All live"],
-                ["resolved", resolvedCount ? `Resolved · ${resolvedCount}` : "Resolved"],
-              ] as [Filter, string][]
-            ).map(([f, label]) => (
-              <Button
-                key={f}
-                size="sm"
-                variant={filter === f ? "default" : "outline"}
-                className="h-7 px-2 text-[11px]"
-                onClick={() => setFilter(f)}
-              >
-                {label}
-              </Button>
-            ))}
-            {/* The chime's off switch lives where the chime is about — and the
-                setting is shared with the sidebar's waiting-visitor sound, so
-                one bell governs everything that rings. */}
-            <Button
-              size="sm"
-              variant="ghost"
-              className="ml-auto h-7 w-7 p-0"
-              aria-label={sound ? "Turn notification sound off" : "Turn notification sound on"}
-              title={
-                sound
-                  ? "Sound on — rings when a visitor needs a person or replies to one"
-                  : "Sound off"
-              }
-              onClick={() => setChimeEnabled(!sound)}
-            >
-              {sound ? <Bell /> : <BellOff className="text-muted-foreground" />}
-            </Button>
-          </div>
-
-          <div className="max-h-[70dvh] space-y-1.5 overflow-y-auto pr-1">
-            {visible.length === 0 && (
-              <p className="px-1 py-6 text-center text-xs text-muted-foreground">
-                Nothing here{query ? " matches that search" : ""}
-                {app !== ALL_APPS ? ` for ${appOptions.find((o) => o.value === app)?.label ?? app}` : ""}.
-              </p>
-            )}
-            {visible.map((c) => {
-              const last = c.messages[c.messages.length - 1];
-              const active = c.id === detail?.id;
-              return (
-                <button
-                  key={c.id}
-                  onClick={() => select(c.id)}
-                  className={[
-                    "w-full rounded-lg border p-2.5 text-left transition-colors",
-                    active ? "border-primary bg-muted" : "hover:bg-muted/50",
-                    c.status === "waiting_human" ? "border-destructive/50" : "",
-                  ].join(" ")}
-                >
-                  <div className="flex items-center gap-1.5">
-                    <ChatAvatar
-                      kind="visitor"
-                      name={c.visitor.name || c.visitor.email}
-                      className="size-5 text-[9px]"
-                    />
-                    <span className="truncate text-xs font-medium">
-                      {c.visitor.name || c.visitor.email || "Anonymous"}
-                    </span>
-                    <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">
-                      <RelativeTime at={Math.floor(Date.parse(c.lastActivityAt) / 1000)} />
-                    </span>
-                  </div>
-                  <p className="mt-0.5 line-clamp-1 text-[11px] text-muted-foreground">
-                    {last?.text ?? "No messages yet"}
-                  </p>
-                  <div className="mt-1 flex flex-wrap items-center gap-1">
-                    <StatusChip tone={TONES[c.status]}>{LABELS[c.status]}</StatusChip>
-                    {/* Which ticket this became. Without it the Ticketed
-                        filter is a list of chats with no way to tell them
-                        apart from the ticket you are holding. */}
-                    {c.ticketId && (
-                      <span className="text-[10px] tabular-nums text-muted-foreground">#{c.ticketId}</span>
-                    )}
-                    {c.humanAgent && <span className="text-[10px] text-muted-foreground">{c.humanAgent}</span>}
-                    {/* Named on the row, not just in the filter: otherwise the
-                        only way to check what a chat was attributed to is to
-                        filter by each app in turn and see where it lands. */}
-                    {appOf(c) !== NO_APP && (
-                      <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">
-                        {appName(appOf(c))}
-                      </span>
-                    )}
-                  </div>
-                </button>
-              );
-            })}
-            {abandoned > 0 && (
-              <p className="px-1 pt-2 text-[11px] text-muted-foreground">
-                {abandoned} {abandoned === 1 ? "visitor" : "visitors"} opened the chat without sending
-                anything.
-              </p>
-            )}
-          </div>
-        </div>
-      </aside>
+      <ChatList
+        detail={detail}
+        query={query}
+        setQuery={setQuery}
+        appOptions={appOptions}
+        app={app}
+        setApp={setApp}
+        filter={filter}
+        setFilter={setFilter}
+        waiting={waiting}
+        resolvedCount={resolvedCount}
+        sound={sound}
+        visible={visible}
+        select={select}
+        abandoned={abandoned}
+      />
 
       {/* ── conversation ─────────────────────────────────────── */}
       <section className="min-w-0">
@@ -612,335 +369,35 @@ export default function ChatInbox({
           <EmptyState
             title="Pick a conversation"
             hint="Anyone waiting for a person is pinned to the top of the list."
+            className="min-h-96 justify-center rounded-xl border bg-card shadow-card"
           />
         ) : (
           <div className="flex h-[76dvh] flex-col rounded-lg border">
-            <header className="flex flex-wrap items-center gap-2 border-b px-3 py-2">
-              <Button size="sm" variant="ghost" className="md:hidden" onClick={() => select(null)}>
-                ← Back
-              </Button>
-              <div className="min-w-0">
-                <p className="truncate text-sm font-medium">
-                  {detail.visitor.name || "Anonymous"}{" "}
-                  {detail.visitor.email ? (
-                    <span className="text-xs font-normal text-muted-foreground">{detail.visitor.email}</span>
-                  ) : (
-                    // There is no pre-chat form: Jetta collects identity in
-                    // the conversation. Anyone taking over needs to know the
-                    // collecting is now THEIRS — without an email there is no
-                    // ticket and no follow-up.
-                    <span className="rounded-full border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-normal text-amber-600 dark:text-amber-400">
-                      no email yet — if you take over, get it
-                    </span>
-                  )}
-                </p>
-                <p className="truncate text-[11px] text-muted-foreground">
-                  {detail.surface}
-                  {detail.visitor.mondayAccountSlug && ` · ${detail.visitor.mondayAccountSlug}`}
-                  {detail.visitor.app && ` · ${detail.visitor.app}`}
-                  {detail.pageUrl && ` · ${detail.pageUrl.replace(/^https?:\/\//, "").slice(0, 40)}`}
-                </p>
-              </div>
-              <div className="ml-auto flex shrink-0 items-center gap-1.5">
-                {hydrated && (
-                  <span
-                    className="text-[11px] text-muted-foreground"
-                    title={`Transcript times are in your own zone${zone.name ? ` (${zone.name})` : ""}. The transcript on the Freshdesk ticket is in UTC.`}
-                  >
-                    times in {zone.short}
-                  </span>
-                )}
-                <StatusChip tone={TONES[detail.status]}>{LABELS[detail.status]}</StatusChip>
-                {/* Whose decision it was. "jetta" here means she closed her own
-                    loop — either the customer confirmed the fix, or nobody came
-                    back and the follow-up sweep finished it. */}
-                {detail.status === "resolved" && detail.resolvedBy && (
-                  <span className="text-[11px] text-muted-foreground">by {detail.resolvedBy}</span>
-                )}
-                {detail.ticketId && (
-                  // Freshdesk, not here. This used to link to /chats/<this
-                  // conversation> — the page you were already on — while
-                  // wearing an external-link icon, so the one control that
-                  // should cross between the two systems went nowhere.
-                  <a
-                    href={`https://${freshdeskDomain}/a/tickets/${detail.ticketId}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline"
-                    title="Open this ticket in Freshdesk"
-                  >
-                    ticket #{detail.ticketId} <ExternalLink className="size-3" />
-                  </a>
-                )}
-                {/* A chat that raised two separate problems has two tickets.
-                    The newest is the live one above; these are the earlier
-                    ones, shown so a conversation never hides a thread it
-                    opened. */}
-                {detail.previousTicketIds?.map((id) => (
-                  <a
-                    key={id}
-                    href={`https://${freshdeskDomain}/a/tickets/${id}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:underline"
-                    title="An earlier ticket from this conversation"
-                  >
-                    also #{id} <ExternalLink className="size-3" />
-                  </a>
-                ))}
-              </div>
-            </header>
-
-            <div className="flex-1 space-y-2 overflow-y-auto px-3 py-3">
-              {detail.messages.map((m, i, arr) => {
-                /*
-                 * A divider wherever the calendar day turns over.
-                 *
-                 * Not decoration: a chat is not always one sitting. A ticketed
-                 * conversation keeps taking messages long after the first
-                 * answer, so two bubbles an inch apart can be days apart — and
-                 * a bare "09:14" with nothing to sit under is a worse answer
-                 * than no time at all.
-                 */
-                const prev = arr[i - 1];
-                const divider =
-                  hydrated && (!prev || dayKey(prev.createdAt) !== dayKey(m.createdAt)) ? (
-                    <DayDivider at={m.createdAt} />
-                  ) : null;
-
-                if (m.system) {
-                  return (
-                    <Fragment key={m.id}>
-                      {divider}
-                      <p className="py-1 text-center text-[11px] text-muted-foreground">{m.text}</p>
-                    </Fragment>
-                  );
-                }
-                const human = m.via === "human";
-                // One face per run of consecutive same-speaker messages, on
-                // the run's last bubble; the rest get an equal-width spacer so
-                // bubbles stay aligned. Cheaper to read than a face per line.
-                // The timestamp rides the same boundary, so a burst of three
-                // messages reads as one turn with one clock against it.
-                const next = arr[i + 1];
-                const runEnds =
-                  !next ||
-                  next.system === true ||
-                  next.author !== m.author ||
-                  next.via !== m.via ||
-                  next.authorName !== m.authorName ||
-                  // Midnight ends a run too, or the divider would split a run
-                  // whose only timestamp is stranded on the far side of it.
-                  // Gated: this clause decides whether the gutter holds a face
-                  // or a spacer, and midnight is not in the same place for the
-                  // server as it is for the reader.
-                  (hydrated && dayKey(next.createdAt) !== dayKey(m.createdAt));
-                const gutter = !runEnds ? (
-                  <span className="size-6 shrink-0" aria-hidden />
-                ) : m.author === "visitor" ? (
-                  <ChatAvatar kind="visitor" name={detail.visitor.name || detail.visitor.email} />
-                ) : human ? (
-                  <ChatAvatar kind="human" name={m.authorName} />
-                ) : (
-                  <ChatAvatar kind="jetta" src={avatars[detail.brandKey ?? "main"]} />
-                );
-                return (
-                  <Fragment key={m.id}>
-                    {divider}
-                    {/* Bubble and time wrapped as one child, so the column's
-                        space-y-2 separates TURNS while the time stays tucked
-                        against the bubble it belongs to. */}
-                    <div>
-                      <div
-                        className={
-                          m.author === "visitor"
-                            ? "flex items-end justify-start gap-1.5"
-                            : "flex items-end justify-end gap-1.5"
-                        }
-                      >
-                        {m.author === "visitor" && gutter}
-                        <div
-                          className={[
-                            "max-w-[78%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap",
-                            m.author === "visitor"
-                              ? "rounded-bl-sm bg-muted"
-                              : human
-                                ? "rounded-br-sm border border-primary/40 bg-primary/5"
-                                : "rounded-br-sm bg-primary/10",
-                          ].join(" ")}
-                        >
-                          {m.author === "agent" && (
-                            <p className="mb-0.5 text-[10px] tracking-wide text-muted-foreground uppercase">
-                              {human ? `${m.authorName ?? "Team"} · human` : "Jetta"}
-                            </p>
-                          )}
-                          {m.attachments?.map((a) => (
-                            <a
-                              key={a.id}
-                              href={consoleFileUrl(a.pathname)}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="mb-1.5 block overflow-hidden rounded-md border bg-background"
-                              title={`${a.name}${a.description ? ` — ${a.description}` : ""}`}
-                            >
-                              {a.contentType.startsWith("image/") ? (
-                                // eslint-disable-next-line @next/next/no-img-element
-                                <img src={consoleFileUrl(a.pathname)} alt={a.name} className="max-h-64 w-full object-contain" />
-                              ) : (
-                                <span className="flex items-center gap-1.5 px-2.5 py-2 text-xs">
-                                  <Paperclip className="size-3.5" /> {a.name}
-                                </span>
-                              )}
-                            </a>
-                          ))}
-                          {/* What Jetta was told the image showed. Shown to us and
-                              never to the visitor: it is the only way to tell a
-                              wrong answer from a wrong reading of the screenshot. */}
-                          {m.attachments?.some((a) => a.description) && (
-                            <p className="mb-1.5 border-l-2 border-muted-foreground/30 pl-2 text-[11px] text-muted-foreground italic">
-                              Jetta saw: {m.attachments.map((a) => a.description).filter(Boolean).join(" ")}
-                            </p>
-                          )}
-                          {m.text}
-                        </div>
-                        {m.author === "agent" && gutter}
-                      </div>
-                      {hydrated && runEnds && (
-                        <p
-                          className={[
-                            "mt-0.5 text-[10px] tabular-nums text-muted-foreground",
-                            /* Clear of the avatar gutter (a size-6 face plus
-                               the gap-1.5) so the time sits under the bubble's
-                               own edge rather than under the face. */
-                            m.author === "visitor" ? "ps-[30px] text-left" : "pe-[30px] text-right",
-                          ].join(" ")}
-                          /* Relative time is the LIST's job — "which chat has
-                             gone quiet". Inside a transcript the question is
-                             when a thing was actually said, so this is the wall
-                             clock, with the full date on hover. */
-                          title={`${fmtDateTime(m.createdAt)}${zone.short ? ` ${zone.short}` : ""}`}
-                        >
-                          {fmtTime(m.createdAt)}
-                        </p>
-                      )}
-                    </div>
-                  </Fragment>
-                );
-              })}
-              <div ref={endRef} />
-            </div>
-
-            <footer className="space-y-2 border-t px-3 py-2">
-              <p className="text-[11px] text-muted-foreground">
-                {mine
-                  ? "Jetta is silent while you have this chat."
-                  : "Sending takes the conversation and silences Jetta."}
-              </p>
-              <Textarea
-                rows={2}
-                value={text}
-                placeholder="Reply to the visitor…"
-                onChange={(e) => setText(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey && text.trim() && !busy) {
-                    e.preventDefault();
-                    void act("send", text.trim());
-                  }
-                }}
-                disabled={busy}
-                className="text-sm"
-              />
-              <div className="flex flex-wrap gap-2">
-                <Button size="sm" disabled={busy || !text.trim()} onClick={() => void act("send", text.trim())}>
-                  <Send /> Send
-                </Button>
-                {!mine ? (
-                  <Button size="sm" variant="outline" disabled={busy} onClick={() => void act("join")}>
-                    <Hand /> Take the chat
-                  </Button>
-                ) : (
-                  <Button size="sm" variant="outline" disabled={busy} onClick={() => void act("release")}>
-                    <Undo2 /> Hand back to Jetta
-                  </Button>
-                )}
-                {/* No confirmation dialog, unlike "Make a ticket": nothing
-                    leaves the building, the visitor is told nothing, and the
-                    button that undoes it takes its place. Their next message
-                    reopens it anyway. */}
-                {detail.status === "resolved" ? (
-                  <Button size="sm" variant="outline" disabled={busy} onClick={() => void act("reopen")}>
-                    <RotateCcw /> Reopen
-                  </Button>
-                ) : (
-                  <Button size="sm" variant="outline" disabled={busy} onClick={() => void act("resolve")}>
-                    <CheckCheck /> Resolve
-                  </Button>
-                )}
-                {/* Hidden once ticketed. Jetta may open a second ticket for a
-                    genuinely separate issue, but this button cannot tell one
-                    issue from another — it would just re-file the same chat,
-                    which is the duplicate-thread failure. Raise the second one
-                    in Freshdesk, where you can see what the first says. */}
-                {!detail.ticketId && (
-                  <ConfirmButton
-                    size="sm"
-                    variant="outline"
-                    busy={busy}
-                    disabled={!detail.visitor.email}
-                    title="Hand this to the support team"
-                    confirmLabel="Create the ticket"
-                    onConfirm={convert}
-                    description={
-                      <div className="space-y-3 text-left">
-                        <div className="space-y-1">
-                          <label className="text-xs font-medium text-foreground">Subject</label>
-                          <Input
-                            value={ticketSubject || suggestSubject(detail)}
-                            onChange={(e) => setTicketSubject(e.target.value)}
-                            className="text-sm"
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-xs font-medium text-foreground">
-                            For whoever picks it up
-                          </label>
-                          <Textarea
-                            rows={3}
-                            value={ticketNote}
-                            placeholder="What you already know, what you ruled out…"
-                            onChange={(e) => setTicketNote(e.target.value)}
-                            className="text-sm"
-                          />
-                        </div>
-                        <p className="text-[11px] text-muted-foreground">
-                          Goes to <span className="text-foreground">{detail.visitor.email}</span>. The
-                          full transcript
-                          {attachmentCount > 0 &&
-                            ` and ${attachmentCount} file${attachmentCount === 1 ? "" : "s"}`}{" "}
-                          {attachmentCount > 0 ? "go" : "goes"} with it.
-                        </p>
-                        <label className="flex items-start gap-2">
-                          <Checkbox
-                            checked={ticketNotify}
-                            onCheckedChange={(v) => setTicketNotify(!!v)}
-                          />
-                          <span className="text-xs">
-                            Tell the visitor in the chat
-                            <span className="block text-[11px] text-muted-foreground">
-                              Jetta keeps chatting either way, but she won&apos;t announce a ticket
-                              she didn&apos;t open — without this, nothing tells them their question
-                              moved.
-                            </span>
-                          </span>
-                        </label>
-                      </div>
-                    }
-                  >
-                    <TicketIcon /> Make a ticket
-                  </ConfirmButton>
-                )}
-              </div>
-            </footer>
+            <ConversationHeader
+              detail={detail}
+              hydrated={hydrated}
+              zone={zone}
+              freshdeskDomain={freshdeskDomain}
+              select={select}
+            />
+            <Transcript detail={detail} hydrated={hydrated} zone={zone} avatars={avatars} endRef={endRef} />
+            <ChatComposer
+              detail={detail}
+              mine={mine}
+              text={text}
+              setText={setText}
+              busy={busy}
+              act={act}
+              convert={convert}
+              ticketFieldId={ticketFieldId}
+              ticketSubject={ticketSubject}
+              setTicketSubject={setTicketSubject}
+              ticketNote={ticketNote}
+              setTicketNote={setTicketNote}
+              ticketNotify={ticketNotify}
+              setTicketNotify={setTicketNotify}
+              attachmentCount={attachmentCount}
+            />
           </div>
         )}
       </section>
