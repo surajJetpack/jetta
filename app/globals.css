@@ -105,6 +105,17 @@
   --font-heading: "Geist", "Geist Fallback", ui-sans-serif, system-ui, sans-serif;
   --font-sans: "Geist", "Geist Fallback", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "Geist Mono", "Geist Mono Fallback", ui-monospace, SFMono-Regular, monospace;
+  /*
+   * Two sizes below Tailwind's text-xs, because a dense console genuinely
+   * needs them: 2xs (11px) for chips and section labels, 3xs (10px) for
+   * counters, axis-adjacent meta and timestamps inside bubbles. They used to
+   * be ~100 hand-typed text-2xs/text-3xs values; naming them makes the
+   * scale a decision instead of a habit. Nothing goes below 10px.
+   */
+  --text-2xs: 0.6875rem;
+  --text-2xs--line-height: 1rem;
+  --text-3xs: 0.625rem;
+  --text-3xs--line-height: 0.875rem;
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);

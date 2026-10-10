@@ -52,7 +52,7 @@ export function StatusRows({ rows }: { rows: StatusRow[] }) {
           </div>
           <p className="text-xs text-muted-foreground">{r.meaning}</p>
           {r.setting && (
-            <code className="w-fit rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+            <code className="w-fit rounded bg-muted px-1.5 py-0.5 font-mono text-3xs text-muted-foreground">
               {r.setting}
             </code>
           )}

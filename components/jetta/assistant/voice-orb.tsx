@@ -3,29 +3,49 @@
 import { useEffect, useRef } from "react";
 import type { VoiceState } from "./live-voice";
 
-type Hues = Record<VoiceState | "deep", [string, string]>;
-
-/** Deeper, more saturated hues for the light panel — the dark set washes out on white. */
-const LIGHT: Hues = {
-  idle: ["#94a3b8", "#cbd5e1"],
-  error: ["#ef4444", "#fca5a5"],
-  connecting: ["#06b6d4", "#67e8f9"],
-  listening: ["#0891b2", "#22d3ee"],
-  speaking: ["#0284c7", "#6366f1"],
-  thinking: ["#7c3aed", "#6366f1"],
-  deep: ["#c026d3", "#7c3aed"],
+/**
+ * Each state's [hot, cool] pair, named as console tokens rather than hex, so
+ * the orb is drawn in the same steel azure and chart steps as everything else
+ * and follows the theme on its own. Deep thinking keeps its own colour (the
+ * violet chart step) because "she is thinking harder" is a state to read.
+ */
+const HUES: Record<VoiceState | "deep", [string, string]> = {
+  idle: ["--muted-foreground", "--border"],
+  error: ["--tone-bad", "--destructive"],
+  connecting: ["--chart-1", "--primary"],
+  listening: ["--primary", "--chart-1"],
+  speaking: ["--chart-1", "--primary"],
+  thinking: ["--primary", "--chart-4"],
+  deep: ["--chart-4", "--chart-1"],
 };
 
-/** The HUD palette for a dark console. */
-const DARK: Hues = {
-  idle: ["#64748b", "#334155"],
-  error: ["#f87171", "#7f1d1d"],
-  connecting: ["#67e8f9", "#0e7490"],
-  listening: ["#22d3ee", "#0891b2"],
-  speaking: ["#38bdf8", "#818cf8"],
-  thinking: ["#a78bfa", "#6366f1"],
-  deep: ["#e879f9", "#8b5cf6"],
-};
+type Rgb = [number, number, number];
+
+/**
+ * Canvas can't take `var()`, and the tokens are oklch, which it can't add an
+ * alpha suffix to — so paint each one into a 1×1 canvas and read the pixel
+ * back as sRGB. Cached per theme: it runs once per token per theme flip.
+ */
+const rgbCache = new Map<string, Rgb>();
+function tokenRgb(token: string, dark: boolean): Rgb {
+  const key = `${dark ? "d" : "l"}${token}`;
+  const hit = rgbCache.get(key);
+  if (hit) return hit;
+  const value = getComputedStyle(document.documentElement).getPropertyValue(token).trim();
+  const probe = document.createElement("canvas").getContext("2d", { willReadFrequently: true });
+  let rgb: Rgb = [128, 128, 128];
+  if (probe && value) {
+    probe.canvas.width = probe.canvas.height = 1;
+    probe.fillStyle = value;
+    probe.fillRect(0, 0, 1, 1);
+    const [r, g, b] = probe.getImageData(0, 0, 1, 1).data;
+    rgb = [r, g, b];
+  }
+  rgbCache.set(key, rgb);
+  return rgb;
+}
+
+const rgba = ([r, g, b]: Rgb, a: number) => `rgba(${r},${g},${b},${a})`;
 
 const BARS = 72;
 
@@ -82,7 +102,9 @@ export function VoiceOrb({
 
       // Read per frame: the theme can flip while the panel is open.
       const dark = document.documentElement.classList.contains("dark");
-      const [hot, cool] = (dark ? DARK : LIGHT)[dp && st === "thinking" ? "deep" : st];
+      const [hotToken, coolToken] = HUES[dp && st === "thinking" ? "deep" : st];
+      const hot = tokenRgb(hotToken, dark);
+      const cool = tokenRgb(coolToken, dark);
       const c = size / 2;
       const r = size * 0.2;
       const breathe = reduce ? 0 : Math.sin(t * (st === "idle" ? 1.2 : 2.2)) * 0.04;
@@ -91,8 +113,10 @@ export function VoiceOrb({
 
       // Halo.
       const halo = ctx.createRadialGradient(c, c, r * 0.4, c, c, size / 2);
-      halo.addColorStop(0, `${hot}${dark ? "55" : "30"}`);
-      halo.addColorStop(0.45, `${cool}${dark ? "22" : "18"}`);
+      // Kept faint: a soft wash that says "alive", not a glow that competes
+      // with the page behind the panel.
+      halo.addColorStop(0, rgba(hot, dark ? 0.22 : 0.14));
+      halo.addColorStop(0.45, rgba(cool, dark ? 0.08 : 0.06));
       halo.addColorStop(1, "transparent");
       ctx.fillStyle = halo;
       ctx.beginPath();
@@ -110,7 +134,7 @@ export function VoiceOrb({
         const idleRipple = reduce ? 0 : (Math.sin(t * 1.6 + i * 0.35) + 1) * 0.5;
         const len = 2 + v * r * 1.1 + (active ? 0 : idleRipple * 2.5);
         const r0 = r * 1.32;
-        ctx.strokeStyle = `${hot}${Math.round(90 + v * 165).toString(16).padStart(2, "0")}`;
+        ctx.strokeStyle = rgba(hot, 0.35 + v * 0.65);
         ctx.beginPath();
         ctx.moveTo(c + Math.cos(a) * r0, c + Math.sin(a) * r0);
         ctx.lineTo(c + Math.cos(a) * (r0 + len), c + Math.sin(a) * (r0 + len));
@@ -123,7 +147,7 @@ export function VoiceOrb({
         for (let k = 0; k < 3; k++) {
           const rad = r * (1.05 + k * 0.1);
           const start = (reduce ? k : t * (1.4 + k * 0.7) * (k % 2 ? -1 : 1)) + k * 2;
-          ctx.strokeStyle = `${k === 1 ? cool : hot}cc`;
+          ctx.strokeStyle = rgba(k === 1 ? cool : hot, 0.8);
           ctx.beginPath();
           ctx.arc(c, c, rad, start, start + Math.PI * (0.35 + k * 0.15));
           ctx.stroke();
@@ -133,12 +157,12 @@ export function VoiceOrb({
       // Core.
       const cr = r * (0.78 + breathe + level * 0.55);
       const core = ctx.createRadialGradient(c - cr * 0.3, c - cr * 0.35, cr * 0.05, c, c, cr);
-      core.addColorStop(0, "#ffffff");
-      core.addColorStop(0.25, hot);
-      core.addColorStop(1, `${cool}00`);
+      core.addColorStop(0, "rgba(255,255,255,0.85)");
+      core.addColorStop(0.25, rgba(hot, 1));
+      core.addColorStop(1, rgba(cool, 0));
       ctx.fillStyle = core;
-      ctx.shadowColor = hot;
-      ctx.shadowBlur = 18 + level * 30;
+      ctx.shadowColor = rgba(hot, 0.5);
+      ctx.shadowBlur = 8 + level * 16;
       ctx.beginPath();
       ctx.arc(c, c, cr, 0, Math.PI * 2);
       ctx.fill();

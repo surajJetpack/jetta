@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Download, Info, OctagonX, RotateCw, TriangleAlert } from "lucide-react";
+import { ChevronDown, ChevronRight, Download, Info, OctagonX, RotateCw, TriangleAlert } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,7 +27,7 @@ const LEVEL_TONE: Record<OpsEvent["level"], ChipTone> = { info: "published", war
 const SOURCES = ["webhook", "freshchat", "jettachat", "console", "cron", "slack", "auth", "app"];
 
 function LevelIcon({ level }: { level: OpsEvent["level"] }) {
-  if (level === "error") return <OctagonX className="size-4 shrink-0 text-destructive" aria-hidden />;
+  if (level === "error") return <OctagonX className="size-4 shrink-0 text-tone-bad" aria-hidden />;
   if (level === "warn") return <TriangleAlert className="size-4 shrink-0 text-tone-warn" aria-hidden />;
   return <Info className="size-4 shrink-0 text-muted-foreground" aria-hidden />;
 }
@@ -61,10 +61,15 @@ export default function EventsLog() {
           type="button"
           aria-expanded={open}
           onClick={() => setOpen(!open)}
-          className="cursor-pointer text-left focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+          className="cursor-pointer rounded-sm text-left focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
         >
-          <CardTitle>
-            Event log {events ? `(${events.length})` : ""} {open ? "▾" : "▸"}
+          <CardTitle className="flex items-center gap-1.5">
+            {open ? (
+              <ChevronDown className="size-4 text-muted-foreground" aria-hidden />
+            ) : (
+              <ChevronRight className="size-4 text-muted-foreground" aria-hidden />
+            )}
+            Event log {events ? `(${events.length})` : ""}
           </CardTitle>
         </button>
       </CardHeader>
@@ -82,13 +87,13 @@ export default function EventsLog() {
                 pressed={level === l}
                 onPressedChange={() => setLevel(l)}
               >
-                {l || "all levels"}
+                {l || "All levels"}
               </ChipButton>
             ))}
             <Separator orientation="vertical" className="mx-1 !h-4" />
             {["", ...SOURCES].map((s) => (
               <ChipButton key={s || "all"} tone="archived" pressed={source === s} onPressedChange={() => setSource(s)}>
-                {s || "all sources"}
+                {s || "All sources"}
               </ChipButton>
             ))}
           </div>
@@ -98,7 +103,8 @@ export default function EventsLog() {
               value={prefix}
               onChange={(e) => setPrefix(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && load()}
-              placeholder="event prefix, e.g. webhook."
+              placeholder="Event prefix, e.g. webhook."
+              aria-label="Filter by event prefix"
               className="w-56"
             />
             <Button variant="ghost" size="sm" onClick={load}>

@@ -28,6 +28,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { SectionHeader } from "@/components/jetta/page-header";
 import { StatusChip } from "@/components/jetta/status-chip";
 import { ConfirmButton } from "@/components/jetta/confirm-button";
 import { EmptyState } from "@/components/jetta/empty-state";
@@ -96,7 +97,14 @@ function readStorage(): ListState | null {
 // so the persisted filter state shape stays unchanged.
 const ALL = "__all__";
 
-const SECTION_LABEL = "text-[11px] font-semibold tracking-wider text-muted-foreground uppercase";
+/** Lifecycle states as a person reads them. Shared with the article editor. */
+export const STATE_LABEL: Record<string, string> = {
+  draft: "Draft",
+  in_review: "In review",
+  published: "Published",
+  archived: "Archived",
+};
+export const stateLabel = (s: string) => STATE_LABEL[s] ?? s;
 
 export default function KbList() {
   const [articles, setArticles] = useState<Article[]>([]);
@@ -227,7 +235,7 @@ export default function KbList() {
       <CardHeader>
         <CardTitle>Articles ({articles.length})</CardTitle>
         <CardDescription className="text-xs">
-          {(["published", "draft", "in_review", "archived"] as const).map((s) => `${byState[s] ?? 0} ${s.replace("_", " ")}`).join(" · ")}
+          {(["published", "draft", "in_review", "archived"] as const).map((s) => `${byState[s] ?? 0} ${stateLabel(s).toLowerCase()}`).join(" · ")}
         </CardDescription>
         <CardAction className="flex items-center gap-2">
           <Button size="sm" asChild>
@@ -243,11 +251,12 @@ export default function KbList() {
       <CardContent className="space-y-3">
         {/* Retrieval tester — the exact pipeline the agent runs */}
         <div className="space-y-2">
-          <div className={SECTION_LABEL}>Test retrieval (what Jetta finds)</div>
+          <SectionHeader>Test retrieval (what Jetta finds)</SectionHeader>
           <div className="flex flex-wrap items-center gap-2">
             <Input
               type="text"
               className="w-72 flex-1 sm:flex-none"
+              aria-label="Test query"
               placeholder="e.g. my mappings disappear"
               value={q}
               onChange={(e) => setQ(e.target.value)}
@@ -263,7 +272,7 @@ export default function KbList() {
               <div className="space-y-1">
                 {hits.map((h, i) => (
                   <TraceIO key={i}>
-                    {h.score !== undefined ? h.score.toFixed(3) : "kw"}{" "}
+                    {h.score !== undefined ? h.score.toFixed(3) : "Keyword"}{" "}
                     <Link href={`/kb/article?id=${encodeURIComponent(h.id)}`} className="text-primary hover:underline">
                       {h.title}
                     </Link>{" "}
@@ -272,7 +281,12 @@ export default function KbList() {
                 ))}
               </div>
             ) : (
-              <p className="text-sm text-muted-foreground">No hits.</p>
+              <EmptyState
+                icon={Search}
+                title="No matching articles"
+                hint="This is what Jetta would find for that question: nothing."
+                className="border-0 py-6"
+              />
             ))}
         </div>
 
@@ -281,28 +295,29 @@ export default function KbList() {
           <Input
             type="text"
             className="w-52"
-            placeholder="filter articles…"
+            aria-label="Filter articles"
+            placeholder="Filter articles…"
             value={f.q}
             onChange={(e) => setF({ ...f, q: e.target.value })}
           />
           <Select value={f.state || ALL} onValueChange={(v) => setF({ ...f, state: v === ALL ? "" : v })}>
-            <SelectTrigger size="sm">
+            <SelectTrigger size="sm" aria-label="State">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={ALL}>all states</SelectItem>
-              <SelectItem value="draft">draft</SelectItem>
-              <SelectItem value="in_review">in review</SelectItem>
-              <SelectItem value="published">published</SelectItem>
-              <SelectItem value="archived">archived</SelectItem>
+              <SelectItem value={ALL}>All states</SelectItem>
+              <SelectItem value="draft">Draft</SelectItem>
+              <SelectItem value="in_review">In review</SelectItem>
+              <SelectItem value="published">Published</SelectItem>
+              <SelectItem value="archived">Archived</SelectItem>
             </SelectContent>
           </Select>
           <Select value={f.category || ALL} onValueChange={(v) => setF({ ...f, category: v === ALL ? "" : v })}>
-            <SelectTrigger size="sm">
+            <SelectTrigger size="sm" aria-label="Category">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={ALL}>all categories</SelectItem>
+              <SelectItem value={ALL}>All categories</SelectItem>
               {categories.map((c) => (
                 <SelectItem key={c.slug} value={c.slug}>
                   {c.name}
@@ -311,42 +326,42 @@ export default function KbList() {
             </SelectContent>
           </Select>
           <Select value={f.origin || ALL} onValueChange={(v) => setF({ ...f, origin: v === ALL ? "" : v })}>
-            <SelectTrigger size="sm">
+            <SelectTrigger size="sm" aria-label="Origin">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={ALL}>all origins</SelectItem>
-              <SelectItem value="manual">manual</SelectItem>
-              <SelectItem value="knowledge-loop">knowledge-loop</SelectItem>
-              <SelectItem value="fd-mined">fd-mined</SelectItem>
-              <SelectItem value="seed-getsign">seed-getsign</SelectItem>
+              <SelectItem value={ALL}>All origins</SelectItem>
+              <SelectItem value="manual">Written by hand</SelectItem>
+              <SelectItem value="knowledge-loop">Knowledge loop</SelectItem>
+              <SelectItem value="fd-mined">Mined from Freshdesk</SelectItem>
+              <SelectItem value="seed-getsign">GetSign seed</SelectItem>
             </SelectContent>
           </Select>
           <Select value={f.product || ALL} onValueChange={(v) => setF({ ...f, product: v === ALL ? "" : v })}>
-            <SelectTrigger size="sm" title="What each brand's Jetta can retrieve">
+            <SelectTrigger size="sm" aria-label="Brand" title="What each brand's Jetta can retrieve">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={ALL}>all brands</SelectItem>
+              <SelectItem value={ALL}>All brands</SelectItem>
               <SelectItem value="getsign">GetSign can see</SelectItem>
               <SelectItem value="jetpackapps">Jetpack Apps only</SelectItem>
-              <SelectItem value="shared">shared</SelectItem>
+              <SelectItem value="shared">Shared</SelectItem>
             </SelectContent>
           </Select>
           <Select value={f.sort} onValueChange={(v) => setF({ ...f, sort: v })}>
-            <SelectTrigger size="sm">
+            <SelectTrigger size="sm" aria-label="Sort">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="updated">newest first</SelectItem>
-              <SelectItem value="title">by title</SelectItem>
-              <SelectItem value="usage">most used</SelectItem>
-              <SelectItem value="stale">stalest first</SelectItem>
+              <SelectItem value="updated">Newest first</SelectItem>
+              <SelectItem value="title">By title</SelectItem>
+              <SelectItem value="usage">Most used</SelectItem>
+              <SelectItem value="stale">Stalest first</SelectItem>
             </SelectContent>
           </Select>
           <Label className="flex cursor-pointer items-center gap-1.5 text-sm font-normal text-muted-foreground">
             <Checkbox checked={f.stale} onCheckedChange={(v) => setF({ ...f, stale: v === true })} />
-            stale only ({staleIds.size})
+            Stale only ({staleIds.size})
           </Label>
         </div>
 
@@ -416,7 +431,7 @@ export default function KbList() {
                     />
                   </TableCell>
                   <TableCell>
-                    <StatusChip tone={a.state}>{a.state.replace("_", " ")}</StatusChip>
+                    <StatusChip tone={a.state}>{stateLabel(a.state)}</StatusChip>
                   </TableCell>
                   <TableCell className="whitespace-normal">
                     <span className="inline-flex flex-wrap items-center gap-2">

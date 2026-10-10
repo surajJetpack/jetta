@@ -6,6 +6,7 @@ import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle }
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusChip } from "@/components/jetta/status-chip";
+import { SectionHeader } from "@/components/jetta/page-header";
 import { RelativeTime } from "@/components/jetta/relative-time";
 import { cn } from "@/lib/utils";
 import type { Insight, InsightPoint } from "@/lib/grounded-insight";
@@ -33,7 +34,7 @@ function Points<D>({
   if (!points.length) return null;
   return (
     <div className="min-w-0">
-      <p className="mb-1.5 text-[11px] font-medium tracking-wider text-muted-foreground uppercase">{title}</p>
+      <SectionHeader className="mb-1.5">{title}</SectionHeader>
       <ul className="grid gap-2">
         {points.map((p, i) => (
           <li key={i} className="flex gap-2 text-sm leading-snug">
@@ -44,7 +45,7 @@ function Points<D>({
                 <button
                   type="button"
                   onClick={() => open({ title: p.evidence!.title, description: p.evidence!.description, drill: p.evidence!.drill })}
-                  className="ml-1.5 text-xs whitespace-nowrap text-muted-foreground underline decoration-dotted underline-offset-4 hover:text-foreground hover:decoration-solid"
+                  className="ml-1.5 rounded-sm text-xs whitespace-nowrap text-muted-foreground underline decoration-dotted underline-offset-4 outline-none hover:text-foreground hover:decoration-solid focus-visible:ring-[3px] focus-visible:ring-ring/50"
                 >
                   {p.evidence.count} ticket{p.evidence.count === 1 ? "" : "s"}
                 </button>
@@ -98,8 +99,8 @@ export function InsightCard<D>({
   return (
     <Card className="gap-3 py-4">
       <CardHeader className="px-4">
-        <CardTitle className="flex items-center gap-1.5 text-sm">
-          <Sparkles className="size-3.5 text-muted-foreground" aria-hidden /> AI read
+        <CardTitle className="flex items-center gap-1.5">
+          <Sparkles className="size-4 text-muted-foreground" aria-hidden /> AI read
           {stale && <StatusChip tone="draft">stale</StatusChip>}
         </CardTitle>
         <CardDescription className="text-xs">{description}</CardDescription>

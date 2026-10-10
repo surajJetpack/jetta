@@ -29,16 +29,16 @@ export default function LoginForm({ next }: { next: string }) {
         window.location.assign(next);
         return;
       }
-      setError(j?.error ?? "sign-in failed");
+      setError(j?.error ?? "Sign-in failed. Check your username and password.");
     } catch {
-      setError("network error — is the server up?");
+      setError("Couldn't reach the server. Check your connection and try again.");
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <form onSubmit={submit} className="grid gap-3 text-left">
+    <form onSubmit={submit} className="grid gap-4 text-left" aria-busy={busy}>
       <div className="grid gap-1.5">
         <Label htmlFor="username">Username</Label>
         <Input
@@ -60,16 +60,16 @@ export default function LoginForm({ next }: { next: string }) {
           onChange={(e) => setPassword(e.target.value)}
         />
       </div>
-      <Button type="submit" disabled={busy || !username.trim() || !password} className="mt-1">
-        {busy && <Loader2 className="animate-spin" />}
-        {busy ? "Signing in…" : "Sign in"}
-      </Button>
       {error && (
-        <Alert variant="destructive">
+        <Alert variant="destructive" role="alert">
           <TriangleAlert />
           <AlertTitle>{error}</AlertTitle>
         </Alert>
       )}
+      <Button type="submit" size="lg" disabled={busy || !username.trim() || !password} className="w-full">
+        {busy && <Loader2 className="animate-spin" />}
+        {busy ? "Signing in…" : "Sign in"}
+      </Button>
     </form>
   );
 }

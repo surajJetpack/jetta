@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { CheckCircle2, ExternalLink, Mail, Plus, RotateCcw, Trash2, Undo2, Clock } from "lucide-react";
+import { CheckCircle2, ChevronDown, ChevronRight, Clock, ExternalLink, Mail, Plus, RotateCcw, Trash2, Undo2 } from "lucide-react";
 import { toast } from "sonner";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -163,6 +163,7 @@ function PendingCard({
         onChange={(e) => setBody(e.target.value)}
         rows={Math.min(18, Math.max(6, body.split("\n").length + 2))}
         className="bg-background text-sm"
+        aria-label={`Reply for ticket #${draft.ticketId}`}
       />
 
       {!discarding ? (
@@ -205,6 +206,7 @@ function PendingCard({
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
                 placeholder="Optional note for the learning loop (why was this edited / what to do differently)"
+                aria-label="Feedback note"
                 className="bg-background text-xs"
               />
               <div>
@@ -221,7 +223,7 @@ function PendingCard({
           )}
         </>
       ) : (
-        <div className="grid gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3">
+        <div className="grid gap-2 rounded-lg border border-tone-bad/30 bg-tone-bad-bg p-3">
           <p className="text-sm text-muted-foreground">
             Why is this draft being discarded? Pick at least one reason — it teaches Jetta.
           </p>
@@ -230,6 +232,7 @@ function PendingCard({
             value={note}
             onChange={(e) => setNote(e.target.value)}
             placeholder="Optional note (what should the reply have done instead?)"
+            aria-label="Discard note"
             className="bg-background text-xs"
           />
           <div className="flex items-center gap-2">
@@ -290,6 +293,7 @@ export default function DraftsQueue({
               type="search"
               className="w-56"
               placeholder="Search ticket #, subject…"
+              aria-label="Search drafts"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
@@ -333,10 +337,15 @@ export default function DraftsQueue({
               type="button"
               aria-expanded={showDecided}
               onClick={() => setShowDecided(!showDecided)}
-              className="cursor-pointer text-left focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+              className="cursor-pointer rounded-sm text-left focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
             >
-              <CardTitle>
-                Recently decided ({decided.length}) {showDecided ? "▾" : "▸"}
+              <CardTitle className="flex items-center gap-1.5">
+                {showDecided ? (
+                  <ChevronDown className="size-4 text-muted-foreground" aria-hidden />
+                ) : (
+                  <ChevronRight className="size-4 text-muted-foreground" aria-hidden />
+                )}
+                Recently decided ({decided.length})
               </CardTitle>
             </button>
           </CardHeader>
@@ -350,7 +359,7 @@ export default function DraftsQueue({
                       {d.state === "approved" ? (
                         <CheckCircle2 className="text-tone-good" />
                       ) : d.state === "discarded" ? (
-                        <Trash2 className="text-destructive" />
+                        <Trash2 className="text-tone-bad" />
                       ) : d.state === "expired" ? (
                         // Distinct from superseded: nobody ever answered the
                         // ticket, rather than the customer having replied again.

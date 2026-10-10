@@ -1,7 +1,9 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
+import { Code2, MessagesSquare } from "lucide-react";
 import { gate } from "@/lib/console-auth";
 import { PageHeader } from "@/components/jetta/page-header";
+import { Button } from "@/components/ui/button";
 import ChatSettingsForm from "./settings-form";
 
 export const dynamic = "force-dynamic";
@@ -24,12 +26,18 @@ export default async function ChatSettingsPage() {
         description="Everything here takes effect without a deploy."
         actions={
           <>
-            <Link href="/chats" className="text-xs text-muted-foreground hover:underline">
-              All chats
-            </Link>
-            <Link href="/chats/install" className="text-xs text-primary hover:underline">
-              Install →
-            </Link>
+            <Button variant="ghost" size="sm" asChild>
+              <Link href="/chats">
+                <MessagesSquare />
+                All chats
+              </Link>
+            </Button>
+            <Button variant="outline" size="sm" asChild>
+              <Link href="/chats/install">
+                <Code2 />
+                Install
+              </Link>
+            </Button>
           </>
         }
       />

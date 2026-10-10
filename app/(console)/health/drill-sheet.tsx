@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { TicketListSheet, type TicketListColumn } from "@/components/jetta/ticket-list-sheet";
 import { cn } from "@/lib/utils";
 import { TARGETS, drillRows, hitWithin, type Drill, type HealthRow } from "@/lib/support-health";
+import { fmtHours } from "@/lib/format";
 
 export interface DrillRequest {
   title: string;
@@ -11,9 +12,6 @@ export interface DrillRequest {
   description: string;
   drill: Drill;
 }
-
-const hrs = (v: number | null) =>
-  v == null ? "—" : v < 1 ? `${Math.round(v * 60)} min` : v < 48 ? `${v.toFixed(1)} h` : `${(v / 24).toFixed(1)} days`;
 
 const OUTCOME: Record<string, string> = {
   real_bug: "Real bug",
@@ -29,7 +27,7 @@ function valueColumn(d: Drill, now: number): TicketListColumn<HealthRow> {
       const hit = hours == null ? null : hitWithin(r, hours, now);
       return (
         <span className={cn(hit === false && "font-medium text-tone-bad")}>
-          {r.firstReplyH == null ? (hit === false ? "no reply yet" : "—") : hrs(r.firstReplyH)}
+          {r.firstReplyH == null ? (hit === false ? "no reply yet" : "—") : fmtHours(r.firstReplyH)}
         </span>
       );
     },
@@ -38,7 +36,7 @@ function valueColumn(d: Drill, now: number): TicketListColumn<HealthRow> {
     head: "Waiting",
     cell: (r: HealthRow) => (
       <span className={cn(r.waitingH != null && r.waitingH > TARGETS.firstReplyH && "font-medium text-tone-bad")}>
-        {r.bucket === "owes_reply" ? hrs(r.waitingH) : "—"}
+        {r.bucket === "owes_reply" ? fmtHours(r.waitingH) : "—"}
       </span>
     ),
   };
@@ -52,7 +50,7 @@ function valueColumn(d: Drill, now: number): TicketListColumn<HealthRow> {
     case "reopened":
       return reopened;
     case "resolved":
-      return { head: "Resolved in", cell: (r) => hrs(r.resolvedH) };
+      return { head: "Resolved in", cell: (r) => fmtHours(r.resolvedH) };
     case "backAndForth":
       return { head: "Customer msgs", cell: (r) => r.customerMsgs };
     case "bucket":

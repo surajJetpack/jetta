@@ -8,7 +8,7 @@ export function CellLink({ n, onClick, children }: { n: number; onClick: () => v
     <button
       type="button"
       onClick={onClick}
-      className="tabular-nums underline decoration-dotted underline-offset-4 hover:decoration-solid"
+      className="rounded-sm tabular-nums underline decoration-dotted underline-offset-4 hover:decoration-solid outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
     >
       {children}
     </button>

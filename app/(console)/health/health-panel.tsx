@@ -32,6 +32,15 @@ import {
 } from "@/lib/support-health";
 import { DrillSheet, type DrillRequest } from "./drill-sheet";
 import { InsightCard } from "@/components/jetta/insight-card";
+import { fmtHours, fmtDayKey } from "@/lib/format";
+
+/** The error a reader sees when a request fails; the raw status goes to the console. */
+function requestFailed(r: Response): string {
+  console.error(`${r.url} → HTTP ${r.status}`);
+  if (r.status === 401) return "Your session has expired. Sign in again.";
+  if (r.status === 403) return "You don't have access to this.";
+  return "The server couldn't load this. Try again in a moment.";
+}
 
 interface Payload {
   health: SupportHealth | null;
@@ -45,10 +54,6 @@ const withinConfig = { withinTarget: { label: `Answered within ${TARGETS.firstRe
 const reopenConfig = { reopenRate: { label: "Reopened", color: "var(--chart-4)" } } satisfies ChartConfig;
 
 const pct = (v: number | null) => (v == null ? "—" : `${Math.round(v * 100)}%`);
-const hrs = (v: number | null) =>
-  v == null ? "—" : v < 1 ? `${Math.round(v * 60)} min` : v < 48 ? `${v.toFixed(1)} h` : `${(v / 24).toFixed(1)} days`;
-const weekTick = (w: string) =>
-  new Date(`${w}T00:00:00Z`).toLocaleDateString("en", { month: "short", day: "numeric", timeZone: "UTC" });
 
 /** Tooltip row with a formatted value — the default prints raw 0.912 and 13.84. */
 const tipRow = (label: string, f: (v: number) => string) =>
@@ -77,14 +82,14 @@ function pctDelta(now: number | null, before: number | null): string | undefined
 function hrsDelta(now: number | null, before: number | null): string | undefined {
   if (now == null || before == null) return undefined;
   const d = now - before;
-  return `${d > 0 ? "+" : d < 0 ? "−" : "±"}${hrs(Math.abs(d))} ${PRIOR}`;
+  return `${d > 0 ? "+" : d < 0 ? "−" : "±"}${fmtHours(Math.abs(d))} ${PRIOR}`;
 }
 
 function ChartCard({ title, description, children }: { title: string; description: string; children: React.ReactNode }) {
   return (
     <Card className="gap-2 py-4">
       <CardHeader className="px-4">
-        <CardTitle className="text-sm">{title}</CardTitle>
+        <CardTitle>{title}</CardTitle>
         <CardDescription className="text-xs">{description}</CardDescription>
       </CardHeader>
       <CardContent className="px-4">{children}</CardContent>
@@ -119,9 +124,9 @@ function Headline({ recent, previous, backlog, open }: { recent: HealthPeriod; p
     },
     {
       label: "Median first reply",
-      value: hrs(recent.firstReplyH),
+      value: fmtHours(recent.firstReplyH),
       tone: toneBelow(recent.firstReplyH, TARGETS.medianFirstReplyH) ?? undefined,
-      hint: `slowest 10%: over ${hrs(recent.firstReplyP90H)}`,
+      hint: `slowest 10%: over ${fmtHours(recent.firstReplyP90H)}`,
       onClick: () =>
         open({
           title: "First reply times",
@@ -146,7 +151,7 @@ function Headline({ recent, previous, backlog, open }: { recent: HealthPeriod; p
       value: backlog.owesReply,
       tone: toneBelow(backlog.overdue, TARGETS.overdueNow) ?? undefined,
       hint: backlog.overdue
-        ? `${backlog.overdue} over ${TARGETS.firstReplyH}h · longest ${hrs(backlog.oldestOwedH)}`
+        ? `${backlog.overdue} over ${TARGETS.firstReplyH}h · longest ${fmtHours(backlog.oldestOwedH)}`
         : backlog.owesReply
           ? `none over ${TARGETS.firstReplyH}h`
           : "nobody waiting",
@@ -186,7 +191,7 @@ function Secondary({
     },
     {
       label: "Median time to resolve",
-      value: hrs(recent.resolvedH),
+      value: fmtHours(recent.resolvedH),
       hint: hrsDelta(recent.resolvedH, previous.resolvedH),
       onClick: () =>
         open({
@@ -262,7 +267,7 @@ function BallBar({ b, open }: { b: Backlog; open: Open }) {
               type="button"
               onClick={() => show(p)}
               disabled={!p.n}
-              className="flex items-center gap-1.5 rounded-sm hover:text-foreground hover:underline disabled:pointer-events-none"
+              className="flex items-center gap-1.5 rounded-sm outline-none hover:text-foreground hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none"
             >
               <span className={cn("size-2 rounded-full", p.cls)} aria-hidden />
               {p.label} <span className="font-medium text-foreground tabular-nums">{p.n}</span>
@@ -278,7 +283,7 @@ function RightNow({ b, base, open }: { b: Backlog; base: string; open: Open }) {
   return (
     <Card id="right-now" className="scroll-mt-16 py-4">
       <CardHeader className="px-4">
-        <CardTitle className="text-sm">Right now · {b.open} open</CardTitle>
+        <CardTitle>Right now · {b.open} open</CardTitle>
         <CardDescription className="text-xs">
           Whose turn it is, read from the conversation itself: a customer is waiting on us when theirs is the newest
           message, whatever the ticket&apos;s status says.
@@ -312,7 +317,7 @@ function RightNow({ b, base, open }: { b: Backlog; base: string; open: Open }) {
                       w.waitingH > TARGETS.firstReplyH && "font-medium text-tone-bad",
                     )}
                   >
-                    {hrs(w.waitingH)}
+                    {fmtHours(w.waitingH)}
                   </TableCell>
                 </TableRow>
               ))}
@@ -355,7 +360,7 @@ function ByApp({ apps, open }: { apps: AppHealth[]; open: Open }) {
   return (
     <Card id="by-app" className="scroll-mt-16 py-4">
       <CardHeader className="px-4">
-        <CardTitle className="text-sm">By app, last 28 days</CardTitle>
+        <CardTitle>By app, last 28 days</CardTitle>
         <CardDescription className="text-xs">
           Bugs and knowledge gaps come from reviewing each ticket Jetta handed to people: did it need a developer, or
           just an answer she didn&apos;t have?
@@ -392,7 +397,7 @@ function ByApp({ apps, open }: { apps: AppHealth[]; open: Open }) {
                       n={a.firstReplyH == null ? 0 : 1}
                       onClick={() => show(a, "firstReply", "first replies", "Answered tickets from the last 28 days, slowest first.")}
                     >
-                      {hrs(a.firstReplyH)}
+                      {fmtHours(a.firstReplyH)}
                     </CellLink>
                   </TableCell>
                   <TableCell className="text-right tabular-nums">
@@ -446,7 +451,7 @@ function Topics({ h, open }: { h: SupportHealth; open: Open }) {
   return (
     <Card id="themes" className="scroll-mt-16 gap-2 py-4">
       <CardHeader className="px-4">
-        <CardTitle className="text-sm">What customers asked about</CardTitle>
+        <CardTitle>What customers asked about</CardTitle>
         <CardDescription className="text-xs">
           Last 28 days, by theme. {h.topicCoverage != null && `${pct(h.topicCoverage)} of tickets carry a theme.`}
         </CardDescription>
@@ -519,7 +524,7 @@ function Load({ h, open }: { h: SupportHealth; open: Open }) {
   return (
     <Card id="load" className="scroll-mt-16 gap-2 py-4">
       <CardHeader className="px-4">
-        <CardTitle className="text-sm">Who carried the load</CardTitle>
+        <CardTitle>Who carried the load</CardTitle>
         <CardDescription className="text-xs">Last 28 days. Every email reply is still sent by a person.</CardDescription>
       </CardHeader>
       <CardContent className="px-4">
@@ -545,7 +550,7 @@ export default function HealthPanel() {
     fetch("/api/admin/support-health", { cache: "no-store" })
       .then(async (r) => {
         const d = await r.json();
-        if (!r.ok) throw new Error(d.message ?? d.error ?? `HTTP ${r.status}`);
+        if (!r.ok) throw new Error(d.message ?? d.error ?? requestFailed(r));
         setData(d);
         setErr(null);
         setRows(null);
@@ -584,7 +589,7 @@ export default function HealthPanel() {
     rowsReq.current = fetch("/api/admin/support-health?rows=1", { cache: "no-store" })
       .then(async (r) => {
         const d = await r.json();
-        if (!r.ok) throw new Error(d.message ?? d.error ?? `HTTP ${r.status}`);
+        if (!r.ok) throw new Error(d.message ?? d.error ?? requestFailed(r));
         setRowsMissing(d.rows == null);
         setRows(d.rows ?? []);
       })
@@ -599,7 +604,7 @@ export default function HealthPanel() {
     try {
       const r = await fetch("/api/admin/support-health", { method: "POST" });
       const d = await r.json();
-      if (!r.ok) throw new Error(d.message ?? d.error ?? `HTTP ${r.status}`);
+      if (!r.ok) throw new Error(d.message ?? d.error ?? requestFailed(r));
       toast.success(`Read ${d.read} ticket${d.read === 1 ? "" : "s"} from Freshdesk${d.queued ? ` · ${d.queued} still queued` : ""}`);
       load();
     } catch (e) {
@@ -661,7 +666,7 @@ export default function HealthPanel() {
     (state: { activeLabel?: string | number }) => {
       const week = state.activeLabel != null ? String(state.activeLabel) : null;
       if (!week) return;
-      open({ title: `${title} · week of ${weekTick(week)}`, description, drill: { kind: "week", week, metric } });
+      open({ title: `${title} · week of ${fmtDayKey(week)}`, description, drill: { kind: "week", week, metric } });
     };
 
   const syncButton = (
@@ -672,14 +677,14 @@ export default function HealthPanel() {
   );
 
   return (
-    <div className="grid min-w-0 gap-6 [&>*]:min-w-0">
+    <div className="grid min-w-0 gap-5 [&>*]:min-w-0">
       <div id="ai-read" className="scroll-mt-16">
         <InsightCard endpoint="/api/admin/support-health/insight" basedOn={h.computedAt} open={open} />
       </div>
 
       <Card id="last-28-days" className="scroll-mt-16 py-4">
         <CardHeader className="px-4">
-          <CardTitle className="text-sm">Last 28 days</CardTitle>
+          <CardTitle>Last 28 days</CardTitle>
           <CardDescription className="text-xs">
             Tickets a person answered or that are still open. Marketing and vendor mail closed without a reply is left
             out. Click any number to see the tickets behind it.
@@ -705,9 +710,9 @@ export default function HealthPanel() {
               onClick={onWeek("tickets", "Tickets", "Tickets that arrived this week and that a person answered or is still open.")}
             >
               <CartesianGrid vertical={false} strokeOpacity={0.4} />
-              <XAxis dataKey="week" tickFormatter={weekTick} tickLine={false} axisLine={false} fontSize={10} minTickGap={24} />
+              <XAxis dataKey="week" tickFormatter={fmtDayKey} tickLine={false} axisLine={false} fontSize={10} minTickGap={24} />
               <YAxis allowDecimals={false} tickLine={false} axisLine={false} fontSize={10} />
-              <ChartTooltip content={<ChartTooltipContent labelFormatter={(w) => `Week of ${weekTick(String(w))}`} />} />
+              <ChartTooltip content={<ChartTooltipContent labelFormatter={(w) => `Week of ${fmtDayKey(String(w))}`} />} />
               <Bar dataKey="tickets" fill="var(--color-tickets)" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ChartContainer>
@@ -724,12 +729,12 @@ export default function HealthPanel() {
               onClick={onWeek("within", `Answered within ${TARGETS.firstReplyH}h`, "This week's tickets, misses first.")}
             >
               <CartesianGrid vertical={false} strokeOpacity={0.4} />
-              <XAxis dataKey="week" tickFormatter={weekTick} tickLine={false} axisLine={false} fontSize={10} minTickGap={24} />
+              <XAxis dataKey="week" tickFormatter={fmtDayKey} tickLine={false} axisLine={false} fontSize={10} minTickGap={24} />
               <YAxis domain={[0, 1]} tickFormatter={(v: number) => `${Math.round(v * 100)}%`} tickLine={false} axisLine={false} fontSize={10} />
               <ChartTooltip
                 content={
                   <ChartTooltipContent
-                    labelFormatter={(w) => `Week of ${weekTick(String(w))}`}
+                    labelFormatter={(w) => `Week of ${fmtDayKey(String(w))}`}
                     formatter={tipRow(withinConfig.withinTarget.label, pct)}
                   />
                 }
@@ -748,11 +753,11 @@ export default function HealthPanel() {
               onClick={onWeek("firstReply", "First replies", "This week's answered tickets, slowest first.")}
             >
               <CartesianGrid vertical={false} strokeOpacity={0.4} />
-              <XAxis dataKey="week" tickFormatter={weekTick} tickLine={false} axisLine={false} fontSize={10} minTickGap={24} />
+              <XAxis dataKey="week" tickFormatter={fmtDayKey} tickLine={false} axisLine={false} fontSize={10} minTickGap={24} />
               <YAxis tickLine={false} axisLine={false} fontSize={10} unit="h" />
               <ChartTooltip
                 content={
-                  <ChartTooltipContent labelFormatter={(w) => `Week of ${weekTick(String(w))}`} formatter={tipRow("Median first reply", hrs)} />
+                  <ChartTooltipContent labelFormatter={(w) => `Week of ${fmtDayKey(String(w))}`} formatter={tipRow("Median first reply", fmtHours)} />
                 }
               />
               <Line dataKey="firstReplyH" type="monotone" stroke="var(--color-firstReplyH)" strokeWidth={2} dot={false} connectNulls />
@@ -768,11 +773,11 @@ export default function HealthPanel() {
               onClick={onWeek("reopened", "Reopens", "This week's answered tickets, reopened ones first.")}
             >
               <CartesianGrid vertical={false} strokeOpacity={0.4} />
-              <XAxis dataKey="week" tickFormatter={weekTick} tickLine={false} axisLine={false} fontSize={10} minTickGap={24} />
+              <XAxis dataKey="week" tickFormatter={fmtDayKey} tickLine={false} axisLine={false} fontSize={10} minTickGap={24} />
               <YAxis tickFormatter={(v: number) => `${Math.round(v * 100)}%`} tickLine={false} axisLine={false} fontSize={10} />
               <ChartTooltip
                 content={
-                  <ChartTooltipContent labelFormatter={(w) => `Week of ${weekTick(String(w))}`} formatter={tipRow("Reopened", pct)} />
+                  <ChartTooltipContent labelFormatter={(w) => `Week of ${fmtDayKey(String(w))}`} formatter={tipRow("Reopened", pct)} />
                 }
               />
               <Line dataKey="reopenRate" type="monotone" stroke="var(--color-reopenRate)" strokeWidth={2} dot={false} connectNulls />

@@ -1,7 +1,9 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
+import { ArrowLeft, Code2 } from "lucide-react";
 import { gate } from "@/lib/console-auth";
 import { PageHeader } from "@/components/jetta/page-header";
+import { Button } from "@/components/ui/button";
 import GetSignSkinForm from "./getsign-form";
 
 export const dynamic = "force-dynamic";
@@ -23,12 +25,18 @@ export default async function GetSignSettingsPage() {
         description="What a visitor on getsign.io sees. Anything left blank is inherited from the default skin."
         actions={
           <>
-            <Link href="/chats/settings" className="text-xs text-muted-foreground hover:underline">
-              ← Chat settings
-            </Link>
-            <Link href="/chats/install" className="text-xs text-primary hover:underline">
-              Install →
-            </Link>
+            <Button variant="ghost" size="sm" asChild>
+              <Link href="/chats/settings">
+                <ArrowLeft />
+                Chat settings
+              </Link>
+            </Button>
+            <Button variant="outline" size="sm" asChild>
+              <Link href="/chats/install">
+                <Code2 />
+                Install
+              </Link>
+            </Button>
           </>
         }
       />

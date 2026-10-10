@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { displayTopic } from "@/lib/topics";
 import { appName } from "@/lib/types";
-import { fmtAgo, fmtDateTime, useNow } from "@/lib/format";
+import { fmtAgo, fmtDateTime, fmtExact, useNow } from "@/lib/format";
 import { useDataVersion } from "@/lib/use-data-version";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -131,10 +131,6 @@ interface Brief {
 
 
 
-function SectionLabel({ children }: { children: React.ReactNode }) {
-  return <div className="text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">{children}</div>;
-}
-
 /**
  * How loud to be about a spike. The label always carries the number — colour
  * on its own would leave the severity unreadable to anyone who can't separate
@@ -224,7 +220,7 @@ function WorklistRow({ item, why }: { item: WorklistItem; why: string | null }) 
             </StatusChip>
           )}
           {item.runs > 1 && <span>{item.runs}&nbsp;exchanges</span>}
-          <span title={new Date(item.at * 1000).toLocaleString()}>
+          <span title={fmtExact(item.at)}>
             quiet {item.quietHours}h
           </span>
         </>
@@ -252,7 +248,12 @@ export default function TodayBrief({ isAdmin }: { isAdmin: boolean }) {
   const load = useCallback(() => {
     fetch("/api/admin/today", { cache: "no-store" })
       .then(async (r) => {
-        if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error ?? `HTTP ${r.status}`);
+        if (!r.ok) {
+          console.error(`/api/admin/today: HTTP ${r.status}`);
+          throw new Error(
+            (await r.json().catch(() => ({}))).error ?? "Couldn't load today's brief. Try again in a moment.",
+          );
+        }
         return r.json();
       })
       .then((d) => {
@@ -392,7 +393,7 @@ export default function TodayBrief({ isAdmin }: { isAdmin: boolean }) {
 
               {brief.byApp.length > 0 && (
                 <div className="space-y-2">
-                  <SectionLabel>Which app</SectionLabel>
+                  <SectionHeader>Which app</SectionHeader>
                   <div className="flex flex-wrap gap-1.5">
                     {brief.byApp.map((a) => (
                       <StatusChip key={a.app} tone={a.app === "unknown" ? "archived" : "in_review"}>
@@ -407,9 +408,7 @@ export default function TodayBrief({ isAdmin }: { isAdmin: boolean }) {
                 <div className="mb-2 flex items-center justify-between gap-2">
                   <span className="inline-flex items-center gap-2">
                     <Sparkles className="size-4 text-muted-foreground" aria-hidden />
-                    <span className="text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
-                      Your briefing
-                    </span>
+                    <SectionHeader>Your briefing</SectionHeader>
                     {insightStale && <StatusChip tone="draft">stale</StatusChip>}
                   </span>
                   <Button
@@ -439,7 +438,7 @@ export default function TodayBrief({ isAdmin }: { isAdmin: boolean }) {
                 {insight && (
                   <div className="space-y-3">
                     <p className="text-sm font-semibold">{insight.headline}</p>
-                    <p className="text-[11px] text-muted-foreground">
+                    <p className="text-2xs text-muted-foreground">
                       Written {fmtAgo(Math.floor(insight.generatedAt / 1000), now)} from the numbers on this page.
                       {brief.narrativeDate ? ` Yesterday's full digest is on Insights.` : ""}
                     </p>
@@ -447,7 +446,7 @@ export default function TodayBrief({ isAdmin }: { isAdmin: boolean }) {
                 )}
               </div>
 
-              <p className="text-[11px] text-muted-foreground">
+              <p className="text-2xs text-muted-foreground">
                 Counts tickets Jetta handled — not all Freshdesk traffic. Updated{" "}
                 {fmtDateTime(Math.floor(brief.generatedAt / 1000))}.
               </p>
@@ -524,7 +523,7 @@ export default function TodayBrief({ isAdmin }: { isAdmin: boolean }) {
 
               {brief.trends.top.length > 0 && (
                 <div className="space-y-2 pt-1">
-                  <SectionLabel>Steady themes (last {brief.trends.baselineDays} days)</SectionLabel>
+                  <SectionHeader>Steady themes (last {brief.trends.baselineDays} days)</SectionHeader>
                   <div className="flex flex-wrap gap-1.5">
                     {brief.trends.top.map((t) => (
                       <StatusChip key={t.topic}>
@@ -537,7 +536,7 @@ export default function TodayBrief({ isAdmin }: { isAdmin: boolean }) {
               )}
 
               {brief.trends.unlabelled > 0 && (
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-2xs text-muted-foreground">
                   {brief.trends.unlabelled} ticket{brief.trends.unlabelled === 1 ? "" : "s"} in the window carry no topic
                   label and aren&apos;t counted above.
                 </p>
@@ -593,9 +592,12 @@ export default function TodayBrief({ isAdmin }: { isAdmin: boolean }) {
                   ))}
                 </ul>
               ) : (
-                <p className="text-sm text-muted-foreground">
-                  Nothing bigger than the individual tickets above.
-                </p>
+                <EmptyState
+                  icon={CheckCircle2}
+                  title="Nothing systemic"
+                  hint="Nothing bigger than the individual tickets above."
+                  className="py-6"
+                />
               )}
 
               {/* The evidence under the prose — spikes stay the source of truth. */}
@@ -655,7 +657,7 @@ export default function TodayBrief({ isAdmin }: { isAdmin: boolean }) {
                   ))}
                 </ul>
               ) : (
-                <p className="text-sm text-muted-foreground">Nothing to write up right now.</p>
+                <EmptyState icon={CheckCircle2} title="Nothing to write up" hint="No recommendations right now." className="py-6" />
               )}
             </CardContent>
           </Card>

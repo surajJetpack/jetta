@@ -155,7 +155,7 @@ export default function BillingHistory({
                         {d.action === "trial" ? <Hourglass className="size-3.5" /> : <HandCoins className="size-3.5" />}
                         {summary(d)}
                       </span>
-                      {d.flagged && <span className="block text-xs text-destructive">Flagged: {d.flagged}</span>}
+                      {d.flagged && <span className="block text-xs text-tone-bad">Flagged: {d.flagged}</span>}
                     </TableCell>
                     <TableCell>
                       <code className="font-mono text-xs">{d.accountSlug}</code>

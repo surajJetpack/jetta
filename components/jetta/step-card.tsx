@@ -60,7 +60,7 @@ export function StepCard({
 /** Monospace input/output block inside a StepCard (legacy `.io`). */
 export function TraceIO({ className, children }: { className?: string; children: React.ReactNode }) {
   return (
-    <div className={cn("overflow-x-auto rounded-md bg-background/60 p-2 font-mono text-xs text-muted-foreground", className)}>
+    <div className={cn("overflow-x-auto rounded-md border bg-background/60 p-2 font-mono text-xs text-muted-foreground", className)}>
       {children}
     </div>
   );

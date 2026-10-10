@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { TicketListSheet, type TicketListColumn } from "@/components/jetta/ticket-list-sheet";
 import { cn } from "@/lib/utils";
 import { perfDrillRows, type HandoffBucket, type PerfDrill, type PerfRow, type SuggestionUse } from "@/lib/performance";
+import { fmtHours } from "@/lib/format";
 
 export interface PerfDrillRequest {
   title: string;
@@ -14,8 +15,6 @@ export interface PerfDrillRequest {
 
 /** Opens the tickets behind a number. */
 export type OpenPerf = (r: PerfDrillRequest) => void;
-
-const hrs = (v: number | null) => (v == null ? "—" : v < 1 ? `${Math.round(v * 60)} min` : `${v.toFixed(1)} h`);
 
 const USE_LABEL: Record<SuggestionUse, string> = { as_is: "as-is", edited: "edited", not_used: "not used" };
 const BUCKET_LABEL: Record<HandoffBucket, string> = {
@@ -42,7 +41,7 @@ function column(d: PerfDrill): TicketListColumn<PerfRow> {
     head: "First reply",
     cell: (r) => (
       <span>
-        {hrs(r.firstReplyH)}
+        {fmtHours(r.firstReplyH)}
         {r.firstReplyBy && <span className="ml-1 text-xs text-muted-foreground">{r.firstReplyBy}</span>}
       </span>
     ),

@@ -48,7 +48,7 @@ export function SectionHeader({
 }) {
   return (
     <div className={cn("flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1", className)}>
-      <span className="text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
+      <span className="text-2xs font-semibold tracking-wider text-muted-foreground uppercase">
         {children}
       </span>
       {meta && <span className="text-xs text-muted-foreground tabular-nums">{meta}</span>}

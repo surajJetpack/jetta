@@ -1,19 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import {
-  Archive,
-  Check,
-  ExternalLink,
-  FlaskConical,
-  Loader2,
-  PencilLine,
-  Sparkles,
-  ThumbsDown,
-  ThumbsUp,
-  Users,
-  X,
-} from "lucide-react";
+import { Archive, Check, ChevronDown, ChevronRight, ExternalLink, FlaskConical, Loader2, PencilLine, Sparkles, ThumbsDown, ThumbsUp, Users, X } from "lucide-react";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -98,7 +86,7 @@ function TagChips({ counts }: { counts: Record<string, number> }) {
 function RatingIcon({ rating }: { rating: ReplyEvaluation["rating"] }) {
   if (rating === "good") return <ThumbsUp className="size-4 text-tone-good" />;
   if (rating === "partial") return <PencilLine className="size-4 text-tone-warn" />;
-  return <ThumbsDown className="size-4 text-destructive" />;
+  return <ThumbsDown className="size-4 text-tone-bad" />;
 }
 
 function CandidateCard({ learning, onDecide }: { learning: Learning; onDecide: () => void }) {
@@ -147,6 +135,7 @@ function CandidateCard({ learning, onDecide }: { learning: Learning; onDecide: (
         rows={2}
         maxLength={300}
         className="bg-background text-sm"
+        aria-label="Learning text"
       />
       {learning.rationale && <p className="text-xs text-muted-foreground">Why: {learning.rationale}</p>}
       <div className="flex items-center gap-2">
@@ -261,17 +250,17 @@ export default function EvalsPanel({ freshdeskDomain }: { freshdeskDomain: strin
           {stats && stats.total > 0 && (
             <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
               <div className="rounded-lg border bg-muted/40 p-3">
-                <div className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">Decisions</div>
+                <div className="text-2xs font-medium tracking-wider text-muted-foreground uppercase">Decisions</div>
                 <div className="mt-1 font-mono text-lg font-semibold">{stats.total}</div>
               </div>
               <div className="rounded-lg border bg-muted/40 p-3">
-                <div className="flex items-center gap-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+                <div className="flex items-center gap-1 text-2xs font-medium tracking-wider text-muted-foreground uppercase">
                   <ThumbsUp className="size-3" /> Sent as-is
                 </div>
                 <div className="mt-1 font-mono text-lg font-semibold">{stats.byRating.good}</div>
               </div>
               <div className="rounded-lg border bg-muted/40 p-3">
-                <div className="flex items-center gap-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+                <div className="flex items-center gap-1 text-2xs font-medium tracking-wider text-muted-foreground uppercase">
                   <PencilLine className="size-3" /> Edited
                 </div>
                 <div className="mt-1 font-mono text-lg font-semibold">
@@ -282,7 +271,7 @@ export default function EvalsPanel({ freshdeskDomain }: { freshdeskDomain: strin
                 </div>
               </div>
               <div className="rounded-lg border bg-muted/40 p-3">
-                <div className="flex items-center gap-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+                <div className="flex items-center gap-1 text-2xs font-medium tracking-wider text-muted-foreground uppercase">
                   <ThumbsDown className="size-3" /> Discarded
                 </div>
                 <div className="mt-1 font-mono text-lg font-semibold">
@@ -409,10 +398,15 @@ export default function EvalsPanel({ freshdeskDomain }: { freshdeskDomain: strin
               type="button"
               aria-expanded={showHistory}
               onClick={() => setShowHistory(!showHistory)}
-              className="cursor-pointer text-left focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+              className="cursor-pointer rounded-sm text-left focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
             >
-              <CardTitle>
-                Evaluation history ({evals.length}) {showHistory ? "▾" : "▸"}
+              <CardTitle className="flex items-center gap-1.5">
+                {showHistory ? (
+                  <ChevronDown className="size-4 text-muted-foreground" aria-hidden />
+                ) : (
+                  <ChevronRight className="size-4 text-muted-foreground" aria-hidden />
+                )}
+                Evaluation history ({evals.length})
               </CardTitle>
             </button>
           </CardHeader>

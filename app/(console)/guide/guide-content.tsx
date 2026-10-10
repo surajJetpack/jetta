@@ -430,10 +430,10 @@ export default function GuideContent({ isAdmin }: { isAdmin: boolean }) {
             </CardHeader>
             <CardContent className="space-y-2 text-sm">
               <p>
-                Articles move through <StatusChip tone="draft">draft</StatusChip> →{" "}
-                <StatusChip tone="in_review">in_review</StatusChip> →{" "}
-                <StatusChip tone="published">published</StatusChip> →{" "}
-                <StatusChip tone="archived">archived</StatusChip>.{" "}
+                Articles move through <StatusChip tone="draft">Draft</StatusChip> →{" "}
+                <StatusChip tone="in_review">In review</StatusChip> →{" "}
+                <StatusChip tone="published">Published</StatusChip> →{" "}
+                <StatusChip tone="archived">Archived</StatusChip>.{" "}
                 <b>Only published articles are searchable by Jetta</b> — a fix isn&apos;t live until
                 it&apos;s published.
               </p>

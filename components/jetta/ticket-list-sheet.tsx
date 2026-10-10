@@ -95,6 +95,7 @@ export function TicketListSheet<R extends TicketListRow>({
                   value={q}
                   onChange={(e) => setQ(e.target.value)}
                   placeholder="Filter by subject, #id or app"
+                  aria-label="Filter tickets"
                   className="h-8 w-full sm:w-64"
                 />
               )}
