@@ -27,8 +27,8 @@ async function main() {
       `crawled ${r.crawled} · +${r.created} new · ${r.updated} updated · ${r.archived} archived` +
         (r.skippedNew ? ` · ${r.skippedNew} new HELD BACK by the creation guard` : ""),
     );
-    if (r.skippedHumanEdited.length)
-      console.log(`skipped (human-edited):\n  ${r.skippedHumanEdited.join("\n  ")}`);
+    if (r.baselined) console.log(`baselined ${r.baselined} hand-written article(s) (first look at their page)`);
+    if (r.noticed.length) console.log(`site-change notices (review queue):\n  ${r.noticed.join("\n  ")}`);
     if (r.flagged.length) console.log(`FLAGGED: ${r.flagged.join("; ")}`);
   }
 }
