@@ -23,7 +23,7 @@ const TONES: Record<ChipTone, Tone> = {
   stale: "bad",
 };
 
-const BASE = cn(CHIP_BASE, "uppercase");
+const BASE = cn(CHIP_BASE, "tracking-wide uppercase");
 
 export function StatusChip({
   tone = "archived",

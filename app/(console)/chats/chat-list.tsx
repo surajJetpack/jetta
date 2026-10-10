@@ -86,7 +86,9 @@ export function ChatList({
           <div
             role="group"
             aria-label="Filter chats"
-            className="inline-flex flex-wrap gap-0.5 rounded-md border bg-muted/40 p-0.5"
+            // One row that scrolls sideways when the counts make it long, rather than
+            // wrapping a lone "Resolved" onto a second line.
+            className="flex min-w-0 flex-1 gap-0.5 overflow-x-auto rounded-md border bg-muted/40 p-0.5 [scrollbar-width:none]"
           >
             {(
               [
@@ -102,7 +104,7 @@ export function ChatList({
                 type="button"
                 aria-pressed={filter === f}
                 className={cn(
-                  "h-6 rounded-sm px-2 text-2xs font-medium whitespace-nowrap transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
+                  "h-6 shrink-0 rounded-sm px-2 text-2xs font-medium whitespace-nowrap transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
                   filter === f
                     ? "bg-background text-foreground shadow-sm"
                     : "text-muted-foreground hover:text-foreground",

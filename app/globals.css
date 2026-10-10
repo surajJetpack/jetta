@@ -27,7 +27,7 @@
  * --chart-1. Every one of them was validated rather than eyeballed.
  */
 :root {
-  --background: oklch(0.988 0.002 240);
+  --background: oklch(0.975 0.003 240);
   --foreground: oklch(0.230 0.008 240);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.230 0.008 240);
@@ -42,7 +42,7 @@
   --accent: oklch(0.965 0.004 240);
   --accent-foreground: oklch(0.340 0.008 240);
   --destructive: oklch(0.545 0.182 28.1);
-  --border: oklch(0.920 0.005 240);
+  --border: oklch(0.912 0.005 240);
   --input: oklch(0.895 0.006 240);
   --ring: oklch(0.504 0.094 228.8);
 
@@ -66,11 +66,11 @@
   --chart-4: oklch(0.528 0.181 297.8);             /* violet — cost */
   --chart-5: oklch(0.545 0.182 28.1);              /* red    — discarded */
 
-  --sidebar: oklch(1 0 0);
+  --sidebar: oklch(0.975 0.003 240);
   --sidebar-foreground: oklch(0.230 0.008 240);
   --sidebar-primary: oklch(0.504 0.094 228.8);
   --sidebar-primary-foreground: oklch(0.990 0.002 240);
-  --sidebar-accent: oklch(0.965 0.004 240);
+  --sidebar-accent: oklch(0.935 0.005 240);
   --sidebar-accent-foreground: oklch(0.340 0.008 240);
   --sidebar-border: oklch(0.920 0.005 240);
   --sidebar-ring: oklch(0.504 0.094 228.8);
@@ -97,6 +97,7 @@
   --tone-info-bg: oklch(0.958 0.016 228.8);
 
   --shadow: 0 1px 2px oklch(0.230 0.008 240 / 6%);
+  --elevation-card: 0 1px 2px oklch(0.230 0.008 240 / 4%), 0 2px 6px -1px oklch(0.230 0.008 240 / 5%);
   --mono: "Geist Mono", ui-monospace, SFMono-Regular, monospace;
   --sans: "Geist", system-ui, sans-serif;
 }
@@ -125,6 +126,8 @@
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar: var(--sidebar);
   /* Semantic tones as utilities: text-tone-good, bg-tone-warn-bg, … */
+  /* Card lift: the canvas sits a step below white so cards read as raised. */
+  --shadow-card: var(--elevation-card);
   --color-tone-good: var(--tone-good);
   --color-tone-good-bg: var(--tone-good-bg);
   --color-tone-warn: var(--tone-warn);
@@ -173,7 +176,7 @@
  * values below were re-stepped until all six checks pass against the dark card.
  */
 .dark {
-  --background: oklch(0.155 0.005 240);
+  --background: oklch(0.140 0.005 240);
   --foreground: oklch(0.925 0.005 240);
   --card: oklch(0.203 0.006 240);
   --card-foreground: oklch(0.925 0.005 240);
@@ -198,11 +201,11 @@
   --chart-4: oklch(0.585 0.180 297.6);             /* violet — cost */
   --chart-5: oklch(0.615 0.183 28.0);              /* red    — discarded */
 
-  --sidebar: oklch(0.203 0.006 240);
+  --sidebar: oklch(0.140 0.005 240);
   --sidebar-foreground: oklch(0.925 0.005 240);
   --sidebar-primary: oklch(0.729 0.101 227.7);
   --sidebar-primary-foreground: oklch(0.175 0.010 228.8);
-  --sidebar-accent: oklch(0.272 0.007 240);
+  --sidebar-accent: oklch(0.230 0.007 240);
   --sidebar-accent-foreground: oklch(0.925 0.005 240);
   --sidebar-border: oklch(1 0 0 / 11%);
   --sidebar-ring: oklch(0.729 0.101 227.7);
@@ -219,6 +222,7 @@
   --tone-info-bg: oklch(0.644 0.116 234.5 / 16%);
 
   --shadow: 0 1px 2px oklch(0 0 0 / 40%);
+  --elevation-card: 0 1px 2px oklch(0 0 0 / 30%), 0 2px 8px -2px oklch(0 0 0 / 35%);
 }
 
 

@@ -47,9 +47,9 @@ interface Stats {
 
 function Stat({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-lg border bg-muted/40 p-3">
-      <div className="text-2xs font-medium tracking-wider text-muted-foreground uppercase">{label}</div>
-      <div className="mt-1 flex items-center gap-2 font-mono text-sm font-semibold">{children}</div>
+    <div className="rounded-lg border bg-card px-4 py-3.5">
+      <div className="text-xs font-medium text-muted-foreground">{label}</div>
+      <div className="mt-1.5 flex items-center gap-2 text-xl font-semibold tracking-tight tabular-nums">{children}</div>
     </div>
   );
 }

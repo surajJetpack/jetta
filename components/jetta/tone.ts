@@ -54,4 +54,4 @@ export const TONE_TEXT: Record<Tone, string> = {
 
 /** Shared chip geometry, so every chip in the console is the same object. */
 export const CHIP_BASE =
-  "inline-flex h-5 w-fit shrink-0 items-center gap-1.5 rounded-full px-2 text-2xs font-semibold tracking-wide whitespace-nowrap";
+  "inline-flex h-5 w-fit shrink-0 items-center gap-1.5 rounded-md px-1.5 text-2xs font-medium whitespace-nowrap";

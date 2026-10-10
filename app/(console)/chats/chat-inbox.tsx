@@ -344,7 +344,7 @@ export default function ChatInbox({
   const mine = detail?.status === "human";
 
   return (
-    <div className="grid gap-4 md:grid-cols-[320px_1fr]">
+    <div className="grid gap-5 md:grid-cols-[360px_1fr]">
       {/* ── list ─────────────────────────────────────────────── */}
       <ChatList
         detail={detail}
@@ -369,6 +369,7 @@ export default function ChatInbox({
           <EmptyState
             title="Pick a conversation"
             hint="Anyone waiting for a person is pinned to the top of the list."
+            className="min-h-96 justify-center rounded-xl border bg-card shadow-card"
           />
         ) : (
           <div className="flex h-[76dvh] flex-col rounded-lg border">

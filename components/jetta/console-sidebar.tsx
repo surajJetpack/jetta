@@ -48,17 +48,20 @@ export function ConsoleSidebar({
   const collapsed = defaultCollapsed && !onNavigate;
 
   return (
-    <div className="flex h-full flex-col gap-1 overflow-y-auto px-2 py-3">
-      <div className={cn("mb-2 flex items-center gap-2 px-1", collapsed && "justify-center")}>
+    <div className="flex h-full flex-col gap-1 overflow-y-auto px-3 py-3">
+      <div className={cn("mb-4 flex h-9 items-center gap-2.5 px-1", collapsed && "justify-center px-0")}>
         <Image
           src="/jetta.png"
           alt=""
-          width={28}
-          height={28}
-          className="size-7 shrink-0 rounded-full ring-1 ring-border"
+          width={32}
+          height={32}
+          className="size-8 shrink-0 rounded-lg ring-1 ring-border"
         />
         {!collapsed && (
-          <span className="min-w-0 flex-1 truncate text-sm font-semibold tracking-tight">Jetta</span>
+          <span className="flex min-w-0 flex-1 flex-col leading-tight">
+            <span className="truncate text-sm font-semibold tracking-tight">Jetta</span>
+            <span className="truncate text-xs text-muted-foreground">Support operations</span>
+          </span>
         )}
         {!onNavigate && (
           <button
@@ -73,11 +76,11 @@ export function ConsoleSidebar({
       </div>
 
       {groups.map((g) => (
-        <div key={g.label} className="mb-1">
+        <div key={g.label} className="mb-3">
           {/* A single-group sidebar (what a general user sees) needs no group
               headings — they would be labelling the whole thing. */}
           {!collapsed && groups.length > 1 && (
-            <p className="mb-1 px-2 text-3xs font-semibold tracking-wider text-muted-foreground uppercase">
+            <p className="mb-1 px-2 text-xs font-medium text-muted-foreground/80">
               {g.label}
             </p>
           )}
@@ -133,11 +136,13 @@ function SidebarLink({
       onClick={onNavigate}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "flex items-center gap-2.5 rounded-md px-2 py-1.5 text-sm transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none",
+        "flex h-8 items-center gap-2.5 rounded-md px-2 text-sm transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none",
         collapsed && "justify-center px-0",
+        // The current page is a raised pill, the same surface as a card — it
+        // reads as "you are here" without a loud fill.
         active
-          ? "bg-secondary font-medium text-foreground"
-          : "text-muted-foreground hover:bg-muted hover:text-foreground",
+          ? "bg-card font-medium text-foreground shadow-card ring-1 ring-border"
+          : "text-muted-foreground hover:bg-sidebar-accent hover:text-foreground",
       )}
     >
       <span className="relative shrink-0">

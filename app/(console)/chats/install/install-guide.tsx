@@ -349,7 +349,7 @@ export async function openSupport() {
         <CardContent className="space-y-5">
           <Step n={1} title="Allow the site">
             <p className="text-sm text-muted-foreground">
-              Add its address to <b>Sites allowed to embed the chat</b> in Settings. Until you do, the widget
+              Add its address to <b>Sites allowed to embed the chat</b>{" "}in Settings. Until you do, the widget
               loads but every request from it is refused — that&apos;s the protection stopping anyone else from
               putting your chat on their site.
             </p>
@@ -364,13 +364,13 @@ export async function openSupport() {
           <Step n={3} title="Load the page and look bottom-right">
             <p className="text-sm text-muted-foreground">
               The launcher appears within a second. Send yourself a test message and it&apos;ll show up under{" "}
-              <b>Chats</b> in this console.
+              <b>Chats</b>{" "}in this console.
             </p>
           </Step>
           <Step n={4} title="Name the app the page belongs to">
             <Snippet code={getsignTag} />
             <p className="text-2xs text-muted-foreground">
-              <code>data-app</code> is how a chat gets attributed, and it is the only source that
+              <code>data-app</code>{" "}is how a chat gets attributed, and it is the only source that
               cannot be wrong — without it the app is inferred from what the visitor asks about,
               which reads a billing question as no app at all. It also drives the per-app filter in{" "}
               <b>Chats</b>. Use the app&apos;s key:{" "}
@@ -379,8 +379,8 @@ export async function openSupport() {
               <code>pivotreports</code>, <code>triggerly</code>.
             </p>
             <p className="text-2xs text-muted-foreground">
-              <code>data-app=&quot;getsign&quot;</code> does one thing more: it switches the widget to
-              the GetSign skin from <b>Settings → What the visitor sees → GetSign</b> and scopes
+              <code>data-app=&quot;getsign&quot;</code>{" "}does one thing more: it switches the widget to
+              the GetSign skin from <b>Settings → What the visitor sees → GetSign</b>{" "}and scopes
               answers to the GetSign knowledge base — the other apps&apos; articles are not
               retrievable there. A page served from getsign.io gets that even without the attribute;
               set it anyway, so the behaviour is readable from the snippet rather than inferred from
@@ -396,28 +396,28 @@ export async function openSupport() {
         </CardHeader>
         <CardContent className="space-y-5">
           <p className="text-sm text-muted-foreground">
-            One page, every app. A <b>Chat with us</b> button in a monday app view links to it with{" "}
-            <code>?app=</code> naming the app, so someone arriving from inside VLOOKUP is attributed to
+            One page, every app. A <b>Chat with us</b>{" "}button in a monday app view links to it with{" "}
+            <code>?app=</code>{" "}naming the app, so someone arriving from inside VLOOKUP is attributed to
             VLOOKUP without being asked — and the same page works as the site&apos;s own support page.
             It keeps the conversation across a refresh, because the session is stored on that domain.
           </p>
           <Step n={1} title="Make the page, and allow it">
             <p className="text-sm text-muted-foreground">
               Any page will do — the chat fills the block you give it. Add its address to{" "}
-              <b>Sites allowed to embed the chat</b> in Settings, the same as any other embed.
+              <b>Sites allowed to embed the chat</b>{" "}in Settings, the same as any other embed.
             </p>
           </Step>
           <Step n={2} title="Paste this into the page content">
             <Snippet code={chatPageSnippet} />
             <p className="text-2xs text-muted-foreground">
               No launcher, no badge, always open — on a page whose only job is the chat, a bubble is
-              furniture in front of the one thing there. Adjust the <code>height</code> to taste.
+              furniture in front of the one thing there. Adjust the <code>height</code>{" "}to taste.
             </p>
             <p className="text-2xs text-muted-foreground">
-              <b>Use the container, not <code>inline: true</code>.</b> Filling the window means covering
+              <b>Use the container, not <code>inline: true</code>.</b>{" "}Filling the window means covering
               the site&apos;s own header and nav, which reads as the site having broken. If the page also
               carries the site-wide script from above, that&apos;s fine: the loader refuses to run twice
-              and this one goes first. If it carries a <em>different</em> chat widget, delete that script
+              and this one goes first. If it carries a <em>different</em>{" "}chat widget, delete that script
               — two widgets is two conversations, and the visitor cannot tell which one anybody is
               reading.
             </p>
@@ -425,9 +425,9 @@ export async function openSupport() {
           <Step n={3} title="Point each app at it">
             <Snippet code={chatPageLink} />
             <p className="text-2xs text-muted-foreground">
-              Swap the page address for yours and the <code>app</code> value per app. Spell the key
+              Swap the page address for yours and the <code>app</code>{" "}value per app. Spell the key
               exactly — anything unrecognised is dropped and the chat runs unattributed, which costs you
-              the per-app filter in <b>Chats</b> and the app breakdown on <b>Today</b>.
+              the per-app filter in <b>Chats</b>{" "}and the app breakdown on <b>Today</b>.
             </p>
             <div className="grid gap-x-6 gap-y-1 text-2xs text-muted-foreground sm:grid-cols-2">
               {APP_KEYS.map((k) => (
@@ -438,7 +438,7 @@ export async function openSupport() {
               ))}
             </div>
             <p className="text-2xs text-muted-foreground">
-              <code>getsign</code> also switches the page to the GetSign skin and scopes answers to the
+              <code>getsign</code>{" "}also switches the page to the GetSign skin and scopes answers to the
               GetSign knowledge base — the other apps&apos; articles are not retrievable under it.
             </p>
           </Step>
@@ -446,7 +446,7 @@ export async function openSupport() {
           <div className="space-y-3 rounded-lg border bg-muted/30 p-3">
             <p className="text-sm font-medium">Optional: let Jetta act on the monday account</p>
             <p className="text-sm text-muted-foreground">
-              With the link above, Jetta knows which app the visitor came from but not <em>who</em> they
+              With the link above, Jetta knows which app the visitor came from but not <em>who</em>{" "}they
               are — she asks for a name and email in the chat, and confirms the account before raising
               anything against it. Hand over monday&apos;s signed session token and she stops asking.
             </p>
@@ -460,7 +460,7 @@ export async function openSupport() {
             </p>
             <Snippet code={supportButtonSnippet} />
             <p className="text-2xs text-muted-foreground">
-              <code>monday.api</code> needs the <code>me:read</code> scope, the same one the in-view embed
+              <code>monday.api</code>{" "}needs the <code>me:read</code>{" "}scope, the same one the in-view embed
               uses. Then set <code>MONDAY_CLIENT_SECRET_VLOOKUP</code> — and the same for every other app
               whose button you wire up — from that app&apos;s monday developer page. Without the secret the
               token cannot be checked and nothing breaks: the chat simply starts anonymous again, with no
@@ -493,16 +493,16 @@ export async function openSupport() {
           </p>
           <Snippet code={mondayModuleSnippet} />
           <p className="text-2xs text-muted-foreground">
-            The app needs the <code>me:read</code> scope, or the query comes back without a name and email —
+            The app needs the <code>me:read</code>{" "}scope, or the query comes back without a name and email —
             and Jetta then asks the visitor in the chat for details monday already knows. Set{" "}
-            <code>app</code> to whichever product the view belongs to so tickets are attributed correctly.
+            <code>app</code>{" "}to whichever product the view belongs to so tickets are attributed correctly.
           </p>
           <p className="text-2xs text-muted-foreground">
-            <b>The bottom-right corner is already monday&apos;s.</b> Their AI sidekick is a floating circle
-            there at the same size, so <code>surface: &quot;monday&quot;</code> anchors the launcher{" "}
-            <b>bottom-left</b> by default, flush with the usual <code>20px</code> edge. A launcher sent back
-            to the right — by a <code>launcher: {"{ position: \"right\" }"}</code> override or the side set in
-            Settings — is lifted <code>88px</code> to stack above the sidekick instead of under it. The embed
+            <b>The bottom-right corner is already monday&apos;s.</b>{" "}Their AI sidekick is a floating circle
+            there at the same size, so <code>surface: &quot;monday&quot;</code>{" "}anchors the launcher{" "}
+            <b>bottom-left</b>{" "}by default, flush with the usual <code>20px</code>{" "}edge. A launcher sent back
+            to the right — by a <code>launcher: {"{ position: \"right\" }"}</code>{" "}override or the side set in
+            Settings — is lifted <code>88px</code>{" "}to stack above the sidekick instead of under it. The embed
             override outranks Settings, which is per brand and would move the website too. z-index is no
             help — the widget is in an iframe, so it can never stack above monday&apos;s own floating buttons.
           </p>
@@ -530,8 +530,8 @@ export async function openSupport() {
           <div>
             <p className="font-medium">The launcher shows but the chat won&apos;t start</p>
             <p className="text-muted-foreground">
-              Almost always the allowed list. Run the check at the top of this page with that exact address —
-              <code>https://www.site.com</code> and <code>https://site.com</code> are different origins, and both
+              Almost always the allowed list. Run the check at the top of this page with that exact address —{" "}
+              <code>https://www.site.com</code>{" "}and <code>https://site.com</code>{" "}are different origins, and both
               need to be listed if you use both.
             </p>
           </div>
@@ -539,18 +539,18 @@ export async function openSupport() {
             <p className="font-medium">Jetta asks monday users for their name in the chat</p>
             <p className="text-muted-foreground">
               Identity never reached the session, so she collects it herself — correct behavior, wrong
-              surface. Either <code>JettaChatConfig</code> wasn&apos;t set before the loader ran — fetch who
+              surface. Either <code>JettaChatConfig</code>{" "}wasn&apos;t set before the loader ran — fetch who
               the visitor is first and inject the script afterwards, as in the snippet above — or the name and
-              email came back empty. Log the query result: <code>monday.get(&quot;context&quot;)</code> never
-              carries a name, an email or an account slug, and <code>monday.api()</code> returns them only with
-              the <code>me:read</code> scope granted.
+              email came back empty. Log the query result: <code>monday.get(&quot;context&quot;)</code>{" "}never
+              carries a name, an email or an account slug, and <code>monday.api()</code>{" "}returns them only with
+              the <code>me:read</code>{" "}scope granted.
             </p>
           </div>
           <div>
             <p className="font-medium">The &quot;Chat with us&quot; page shows a launcher instead of the chat</p>
             <p className="text-muted-foreground">
               The selector matched nothing, so it fell back to the corner widget rather than leaving the
-              page empty. The <code>&lt;div id=&quot;jetta-chat&quot;&gt;</code> is missing — some editors
+              page empty. The <code>&lt;div id=&quot;jetta-chat&quot;&gt;</code>{" "}is missing — some editors
               strip an empty div on save. Give it a non-breaking space, or use a block that preserves raw
               HTML.
             </p>
@@ -558,7 +558,7 @@ export async function openSupport() {
           <div>
             <p className="font-medium">Everything looks right and it still fails</p>
             <p className="text-muted-foreground">
-              Open <b>Insights → Event log</b> and filter to <code>chat</code>. Every refused request is recorded
+              Open <b>Insights → Event log</b>{" "}and filter to <code>chat</code>. Every refused request is recorded
               there with the reason.
             </p>
           </div>
