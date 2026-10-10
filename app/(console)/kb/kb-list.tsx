@@ -54,6 +54,8 @@ export interface Article {
   reviewBy?: number;
   duplicates?: { id: string; title: string; score: number }[];
   freshdesk?: { articleId: string; folderId: string; syncedAt: number; syncedVersion: number };
+  /** `revises` marks a site-change notice from the KB sync (lib/kb-store.ts). */
+  meta?: { revises?: string };
 }
 export interface Category { slug: string; name: string; fdFolderId?: string }
 export interface Usage { total: number; month: number; lastHit: number }

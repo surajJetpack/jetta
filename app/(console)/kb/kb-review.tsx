@@ -36,10 +36,13 @@ function DraftCard({ draft, onDecide }: { draft: Article; onDecide: () => void }
   const [similar, setSimilar] = useState<Hit | null>(null);
   const [showDiff, setShowDiff] = useState(false);
   const [busy, setBusy] = useState(false);
+  // A site-change notice: the KB sync saw this article's page change. It is a
+  // to-do, not content — nothing to publish, no "closest article" to compare.
+  const revises = draft.meta?.revises;
 
   // On expand, find the nearest existing article so the reviewer sees overlap.
   useEffect(() => {
-    if (!open || similar) return;
+    if (!open || similar || revises) return;
     (async () => {
       const r = await fetch(`/api/admin/kb/search?q=${encodeURIComponent(draft.title)}&rerank=0`, { cache: "no-store" })
         .then((x) => x.json())
@@ -47,7 +50,7 @@ function DraftCard({ draft, onDecide }: { draft: Article; onDecide: () => void }
       const hit = (r?.hits ?? []).find((h: Hit) => h.id !== draft.id);
       setSimilar(hit ?? null);
     })();
-  }, [open, similar, draft.id, draft.title]);
+  }, [open, similar, revises, draft.id, draft.title]);
 
   async function decide(action: "approve" | "reject") {
     setBusy(true);
@@ -78,7 +81,7 @@ function DraftCard({ draft, onDecide }: { draft: Article; onDecide: () => void }
       }
       meta={
         <>
-          {draft.origin} · {draft.createdBy}
+          {revises ? <StatusChip tone="stale">site changed</StatusChip> : <>{draft.origin} · {draft.createdBy}</>}
           {dup && <StatusChip tone="stale">dup? {dup.title.slice(0, 40)}</StatusChip>}
         </>
       }
@@ -106,6 +109,18 @@ function DraftCard({ draft, onDecide }: { draft: Article; onDecide: () => void }
             </div>
           )}
 
+          {revises ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <Button asChild>
+                <Link href={`/kb/article?id=${encodeURIComponent(revises)}`}>
+                  <Pencil /> Edit the article
+                </Link>
+              </Button>
+              <Button variant="secondary" disabled={busy} onClick={() => decide("reject")}>
+                <Check /> Mark handled
+              </Button>
+            </div>
+          ) : (
           <div className="flex flex-wrap items-center gap-2">
             <Button disabled={busy} onClick={() => decide("approve")}>
               <Check /> Approve → publish
@@ -126,6 +141,7 @@ function DraftCard({ draft, onDecide }: { draft: Article; onDecide: () => void }
               <Trash2 /> Reject
             </ConfirmButton>
           </div>
+          )}
         </>
       )}
     </StepCard>
@@ -156,6 +172,8 @@ export default function KbReview() {
         <p className="text-sm text-muted-foreground">
           Drafts from the Knowledge Loop (Slack escalations) and Freshdesk mining. Nothing reaches the
           agent until a human approves it — approving publishes the article and embeds it for retrieval.
+          <b>Site changed</b>{" "}cards come from the nightly site sync: the page behind a hand-written article
+          changed, and the card shows what. Edit the article if the answer changed, then mark it handled.
         </p>
         {drafts === null && (
           <div className="space-y-2.5">

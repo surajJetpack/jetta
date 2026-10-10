@@ -3,10 +3,12 @@
  * and getsign.io (both open WordPress REST APIs) into the unified KB store.
  *
  * Per site: NEW pages are created as published articles (site content is
- * authoritative, same trust as the original seeds); CHANGED pages are updated
- * only when the stored article was never human-edited (human edits win, same
- * principle as kb-migrate); pages REMOVED from the site archive their article
- * (which drops it from the vector index). Two guards bracket that: a
+ * authoritative, same trust as the original seeds). CHANGED pages update
+ * their article in place when no person has ever edited it; when one has —
+ * or the article is hand-curated — the sync never overwrites it and instead
+ * files a site-change notice in the KB review queue showing what changed on
+ * the page. Pages REMOVED from the site archive their article (which drops it
+ * from the vector index). Two guards bracket that: a
  * mass-DELETION guard skips archiving when a site returns suspiciously few
  * pages (outage protection), and a mass-CREATION guard skips ingesting when one
  * run would add a flood of them (a site turning a post type into programmatic
@@ -14,13 +16,19 @@
  *
  * Used by the daily cron (app/api/cron/kb-sync) and the CLI (scripts/kb-sync.ts).
  */
+import crypto from "node:crypto";
+import { diffWords } from "diff";
 import {
   getArticle,
   createArticle,
   updateArticle,
+  deleteArticle,
   transitionState,
   upsertCategory,
   listArticles,
+  listVersions,
+  getSiteRecord,
+  setSiteRecord,
   type KbArticle,
   type ArticleOrigin,
 } from "./kb-store";
@@ -35,8 +43,20 @@ const SYNC_ACTOR = "kb-sync";
  * quietly stop the daily sync from ever updating it again.
  */
 const CRAWLER_ACTORS = new Set([SYNC_ACTOR, "kb-crawl-jetpackapps", "kb-migrate", "kb-scope-backfill"]);
-const BODY_CHARS = 8000;
+/**
+ * Body cap. Was 8000, which cut the GetSign MCP pages (10–13k chars) before
+ * their FAQ — usually the part that answers the customer's actual question.
+ * The agent reads full bodies for only its top 3 hits, so the cost stays
+ * bounded.
+ */
+const BODY_CHARS = 16000;
 const MIN_BODY_CHARS = 200;
+/**
+ * A hand-written article gets a site-change notice only when at least this
+ * many words changed on its page. Below it — a fixed typo, a reworded button —
+ * the new page text quietly becomes the baseline.
+ */
+const NOTICE_MIN_WORDS = 12;
 /** Archive guard: skip archiving when the site returns < this share of stored articles. */
 const MASS_DELETE_GUARD = 0.7;
 /**
@@ -65,10 +85,16 @@ export interface SiteConfig {
   categories: { slug: string; name: string }[];
   categoryForUrl: (url: string) => string;
   /**
-   * Auto-apply body/title updates from the site. False for getsign: its corpus
-   * is hand-curated and measurably better than crawler-extracted text (the
-   * 2026-07-12 catch-up sync dropped getsign MRR 0.987→0.777 and was rolled
-   * back) — changed pages get flagged for manual review instead.
+   * Auto-apply body/title updates to the site's SEEDED articles. False for
+   * getsign: its seed corpus is hand-curated and measurably better than
+   * crawler-extracted text (the 2026-07-12 catch-up sync dropped getsign MRR
+   * 0.987→0.777 and was rolled back).
+   *
+   * Articles this sync created itself are crawler text to begin with, so they
+   * always follow their page — that holds even when this is false. (Until
+   * 2026-10-10 it didn't: the MCP pages were ingested on 09-30 and then went
+   * on answering from their 09-29 text, saying GetSign had no Claude plugin a
+   * week after the site said it did.)
    */
   autoUpdate: boolean;
 }
@@ -88,6 +114,7 @@ export const SITES: SiteConfig[] = [
       /about-us/,
       /partners/,
       /chat-with-us/,
+      /support-chat/,
       /^\/resources\/$/,
       /^\/solutions\/$/,
       /%resources%/,
@@ -154,6 +181,9 @@ export const SITES: SiteConfig[] = [
       /privacy|terms|legal/,
       /pricing\/?$/,
       /book-a-session/,
+      // The page that embeds the JettaChat widget: its text is the widget's own
+      // greeting, which then came back as a "KB article".
+      /support-chat/,
       // Belt and braces for the two post types above: this also catches them
       // if they ever surface under `pages`/`posts` instead of their own type.
       /^\/workflow\//,
@@ -181,6 +211,48 @@ export const SITES: SiteConfig[] = [
 
 export const slug = (s: string) =>
   s.toLowerCase().replace(/https?:\/\//, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 120);
+
+/**
+ * Text shape used to decide "did the page change": case, whitespace and
+ * typography folded, so a redesign that swaps straight quotes for curly ones
+ * (the 2026 getsign redesign did exactly this) isn't a change.
+ */
+function normalizeForCompare(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/[\u2018\u2019\u201b]/g, "'")
+    .replace(/[\u201c\u201d\u201f]/g, '"')
+    .replace(/[\u2013\u2014\u2212]/g, "-")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function pageHash(title: string, body: string): string {
+  return crypto.createHash("sha1").update(normalizeForCompare(`${title}\n${body}`)).digest("hex");
+}
+
+interface PageChange {
+  /** Words added + removed, typography and whitespace ignored. */
+  words: number;
+  added: string[];
+  removed: string[];
+}
+
+/** What changed between two versions of a page's text, as reviewable passages. */
+export function describeChange(before: string, after: string): PageChange {
+  const fold = (t: string) => t.replace(/[\u2018\u2019]/g, "'").replace(/[\u201c\u201d]/g, '"').replace(/\s+/g, " ").trim();
+  const change: PageChange = { words: 0, added: [], removed: [] };
+  for (const part of diffWords(fold(before), fold(after), { ignoreCase: true })) {
+    if (!part.added && !part.removed) continue;
+    const text = part.value.trim();
+    const n = text.split(/\s+/).filter(Boolean).length;
+    change.words += n;
+    if (n < 3) continue; // single-word swaps count toward the total but aren't worth a passage
+    const passage = text.length > 400 ? `${text.slice(0, 400)}…` : text;
+    (part.added ? change.added : change.removed).push(passage);
+  }
+  return change;
+}
 
 /** Rendered WP HTML → plain text (same posture as the original seed corpora). */
 export function htmlToText(html: string): string {
@@ -263,13 +335,44 @@ export interface SyncResult {
   skippedNew: number;
   updated: number;
   archived: number;
-  skippedHumanEdited: string[];
+  /** Pages whose site-change notice was filed or refreshed in the review queue. */
+  noticed: string[];
+  /** Hand-written articles seen for the first time — page text recorded as their baseline. */
+  baselined: number;
+  /** Run-level problems (guards tripped, unreachable pages) — logged at warn. */
   flagged: string[];
 }
 
-/** True when the article has only ever been touched by crawlers/seeds. */
-function neverHumanEdited(a: KbArticle): boolean {
-  return CRAWLER_ACTORS.has(a.updatedBy ?? a.createdBy) || (a.version === 1 && CRAWLER_ACTORS.has(a.createdBy));
+/**
+ * True when no person has ever written this article's content.
+ *
+ * Reads the version history, not just `updatedBy`: machine backfills
+ * (kb-scope-backfill) restamp `updatedBy` on every article, which made a
+ * human-edited article look untouched whenever a backfill ran after the human.
+ */
+async function machineOnly(a: KbArticle): Promise<boolean> {
+  if (!CRAWLER_ACTORS.has(a.updatedBy ?? a.createdBy) || !CRAWLER_ACTORS.has(a.createdBy)) return false;
+  if (a.version === 1) return true;
+  const versions = await listVersions(a.id);
+  return versions.every((v) => CRAWLER_ACTORS.has(v.editedBy));
+}
+
+const noticeIdFor = (articleId: string) => `${articleId}--site-change`;
+
+function noticeBody(site: SiteConfig, article: KbArticle, pageUrl: string, change: PageChange): string {
+  const quote = (ps: string[]) =>
+    ps.slice(0, 8).map((x) => `> ${x.replace(/\n+/g, " ")}`).join("\n\n") +
+    (ps.length > 8 ? `\n\n…and ${ps.length - 8} more` : "");
+  return [
+    `**${site.source} changed the page behind [${article.title}](/kb/article?id=${encodeURIComponent(article.id)}).**`,
+    "",
+    `Jetta still answers from the article as written — the sync never overwrites a hand-written article. ` +
+      `If anything below changes the answer, edit the article; then mark this handled.`,
+    "",
+    `Page: ${pageUrl} · about ${change.words} words changed`,
+    ...(change.added.length ? ["", "### Now on the page", "", quote(change.added)] : []),
+    ...(change.removed.length ? ["", "### No longer on the page", "", quote(change.removed)] : []),
+  ].join("\n");
 }
 
 export async function syncSite(
@@ -284,7 +387,8 @@ export async function syncSite(
     skippedNew: 0,
     updated: 0,
     archived: 0,
-    skippedHumanEdited: [],
+    noticed: [],
+    baselined: 0,
     flagged: [],
   };
 
@@ -298,7 +402,12 @@ export async function syncSite(
   for (const state of ["published", "draft", "in_review", "archived"] as const) {
     stored.push(...(await listArticles({ state, limit: 500 })));
   }
-  const storedByUrl = new Map(stored.filter((a) => a.url).map((a) => [a.url, a]));
+  // `stored` runs published → archived, so keep the FIRST article per url: when
+  // a page has an archived predecessor and a live article, the live one is the
+  // article the page belongs to.
+  const storedByUrl = new Map<string, KbArticle>();
+  for (const a of stored) if (a.url && !storedByUrl.has(a.url)) storedByUrl.set(a.url, a);
+  const storedById = new Map(stored.map((a) => [a.id, a]));
   const t = Math.floor(Date.now() / 1000);
 
   if (!dry) for (const c of site.categories) await upsertCategory(c);
@@ -346,32 +455,72 @@ export async function syncSite(
       continue;
     }
 
-    const changed =
-      (existing.meta?.wpModified ?? "") !== p.modified &&
-      (existing.body !== p.body || existing.title !== p.title);
-    if (!changed) continue;
-    if (!site.autoUpdate) {
-      // Curated corpus (getsign): never overwrite automatically — surface for
-      // manual review. Only flag when WP says the page ACTUALLY changed since
-      // we last looked (stamp wpModified once so this doesn't re-flag daily).
-      if ((existing.meta?.wpModified ?? "") === "") {
-        if (!dry) await updateArticle(existing.id, { meta: { wpModified: p.modified } }, SYNC_ACTOR);
-      } else {
-        res.flagged.push(`changed on site (manual review): ${p.url}`);
-      }
+    // Sync-owned: the article IS crawler text, so it follows its page.
+    if ((site.autoUpdate || existing.createdBy === SYNC_ACTOR) && (await machineOnly(existing))) {
+      if (existing.body === p.body && existing.title === p.title) continue;
+      res.updated++;
+      if (dry) continue;
+      await updateArticle(
+        existing.id,
+        { title: p.title, body: p.body, keywords: keywordsFromTitle(p.title), meta: { wpModified: p.modified } },
+        SYNC_ACTOR,
+      );
       continue;
     }
-    if (!neverHumanEdited(existing)) {
-      res.skippedHumanEdited.push(p.url);
+
+    // Hand-written (curated seed, or a person edited it): never overwritten.
+    // Compare the page against what it said last time we looked, and if it
+    // really changed, put a notice in the review queue saying what changed.
+    // Nothing here writes to the article itself — see SiteRecord for why.
+    const hash = pageHash(p.title, p.body);
+    let rec = await getSiteRecord(existing.id);
+    const noticeOpen = storedById.has(noticeIdFor(existing.id));
+    if (rec?.pending && !noticeOpen) {
+      // The last notice was handled: what it asked about is now the baseline.
+      rec = { text: rec.pending.text, hash: rec.pending.hash };
+      if (!dry) await setSiteRecord(existing.id, rec);
+    }
+    if (!rec) {
+      res.baselined++;
+      if (!dry) await setSiteRecord(existing.id, { text: p.body, hash });
       continue;
     }
-    res.updated++;
+    if (hash === (rec.pending?.hash ?? rec.hash)) continue; // nothing new since we last looked
+
+    const change = describeChange(rec.text, p.body);
+    if (change.words < NOTICE_MIN_WORDS) {
+      // Cosmetic, or the page went back to what the reviewer last saw.
+      if (dry) continue;
+      await setSiteRecord(existing.id, { text: p.body, hash });
+      if (noticeOpen) await deleteArticle(noticeIdFor(existing.id), SYNC_ACTOR);
+      continue;
+    }
+    res.noticed.push(p.url);
     if (dry) continue;
-    await updateArticle(
-      existing.id,
-      { title: p.title, body: p.body, keywords: keywordsFromTitle(p.title), meta: { wpModified: p.modified } },
-      SYNC_ACTOR,
-    );
+    const body = noticeBody(site, existing, p.url, change);
+    if (noticeOpen) {
+      await updateArticle(noticeIdFor(existing.id), { body }, SYNC_ACTOR);
+    } else {
+      await createArticle(
+        {
+          id: noticeIdFor(existing.id),
+          title: `Site changed: ${existing.title}`,
+          // No url: the sync indexes the store by url, and a notice must never
+          // be mistaken for the page's article.
+          body,
+          category: existing.category,
+          tags: [site.key, "site-change"],
+          state: "draft",
+          origin: existing.origin,
+          source: existing.source,
+          product: existing.product,
+          createdBy: SYNC_ACTOR,
+          meta: { revises: existing.id },
+        },
+        { syncVector: false, checkDuplicates: false },
+      );
+    }
+    await setSiteRecord(existing.id, { text: rec.text, hash: rec.hash, pending: { text: p.body, hash } });
   }
 
   // ── Removed from the site → archive, but only on a confirmed 404/410 ──
@@ -399,6 +548,8 @@ export async function syncSite(
     }
   }
 
-  log.info("cron.kbsync_run", { ...res, skippedHumanEdited: res.skippedHumanEdited.length, source: "cron" });
+  // warn when something needs a person: a guard tripped or a page was unreachable.
+  // Site changes don't count — they're already waiting in the review queue.
+  (res.flagged.length ? log.warn : log.info)("cron.kbsync_run", { ...res, source: "cron" });
   return res;
 }

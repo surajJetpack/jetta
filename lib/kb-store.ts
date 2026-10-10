@@ -70,7 +70,17 @@ export interface KbArticle {
   /** Unix seconds; article counts as stale once this passes. */
   reviewBy?: number;
   /** Provenance (Slack knowledge-loop thread, mining channel, site-sync stamp…). */
-  meta?: { channel?: string; threadTs?: string; wpModified?: string };
+  meta?: {
+    channel?: string;
+    threadTs?: string;
+    wpModified?: string;
+    /**
+     * Set on a site-change NOTICE: a draft the sync files in the review queue
+     * when a hand-written article's source page changed. Names the article to
+     * revise. A notice is a to-do, not content — it can never be published.
+     */
+    revises?: string;
+  };
   /** Possible duplicates flagged at save time — advisory only. */
   duplicates?: { id: string; title: string; score: number }[];
   /** Freshdesk Solutions sync record (customer-facing help center). */
@@ -160,6 +170,8 @@ const versKey = (id: string) => `jetta:kb2:vers:${id}`;
 const AUDIT_LIST = "jetta:kb2:audit";
 const auditKey = (id: string) => `jetta:kb2:audit:${id}`;
 const REVIEW_ZSET = "jetta:kb2:review";
+/** article id → SiteRecord: what kb-sync last saw on the source page. */
+const SITE_TEXT_HASH = "jetta:kb2:site-text";
 
 const VERSION_CAP = 20;
 const AUDIT_CAP = 1000;
@@ -181,6 +193,7 @@ const memArts = new Map<string, KbArticle>();
 const memVers = new Map<string, ArticleVersion[]>();
 const memAudit: AuditEvent[] = [];
 const memCats = new Map<string, KbCategory>();
+const memSiteText = new Map<string, SiteRecord>();
 
 const now = () => Math.floor(Date.now() / 1000);
 
@@ -470,6 +483,9 @@ export async function transitionState(
   if (!canTransition(prev.state, to)) {
     throw new Error(`illegal transition ${prev.state} → ${to}`);
   }
+  if (prev.meta?.revises && to === "published") {
+    throw new Error("a site-change notice is a to-do, not an article — edit the article it names, then mark it handled");
+  }
   const next: KbArticle = { ...prev, state: to, updatedBy: actor, updatedAt: now() };
   await persist(next, prev, {
     audit: {
@@ -520,6 +536,39 @@ export async function deleteArticle(id: string, actor: string): Promise<boolean>
   }
   await bumpDataVersion("kb");
   return true;
+}
+
+// ── Site snapshots (kb-sync) ───────────────────────────────────────
+
+/**
+ * What kb-sync last saw on an article's source page. Kept OUT of the article
+ * on purpose:
+ *   - writing bookkeeping onto an article stamps `updatedBy: "kb-sync"`, which
+ *     makes a hand-edited article look machine-owned to the next sync run —
+ *     the one thing that must never happen;
+ *   - the text is up to 16k chars a page, and every console KB list would
+ *     carry it for nothing.
+ *
+ * `text`/`hash` are the baseline a reviewer last signed off on. `pending` is
+ * the newer page content an open site-change notice is asking about; it
+ * becomes the baseline once the notice is handled (deleted).
+ */
+export interface SiteRecord {
+  text: string;
+  hash: string;
+  pending?: { text: string; hash: string };
+}
+
+export async function getSiteRecord(id: string): Promise<SiteRecord | null> {
+  const r = client();
+  if (r) return (await r.hget<SiteRecord>(SITE_TEXT_HASH, id)) ?? null;
+  return memSiteText.get(id) ?? null;
+}
+
+export async function setSiteRecord(id: string, rec: SiteRecord): Promise<void> {
+  const r = client();
+  if (r) await r.hset(SITE_TEXT_HASH, { [id]: rec });
+  else memSiteText.set(id, rec);
 }
 
 // ── Listing / filtering ────────────────────────────────────────────

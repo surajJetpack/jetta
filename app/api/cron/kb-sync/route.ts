@@ -1,7 +1,9 @@
 /**
  * Daily KB sync cron: mirror jetpackapps.io + getsign.io into the KB store
- * (new pages published, changed pages updated unless human-edited, removed
- * pages archived). Summary goes to the console log only — never Slack.
+ * (new pages published, sync-owned pages updated, changed pages behind
+ * hand-written articles filed as site-change notices in the KB review queue,
+ * removed pages archived). Summary goes to the console log only — never Slack;
+ * the review queue is where a person sees what needs them.
  * Scheduled in vercel.json (05:00 UTC); also invocable manually with the
  * CRON_SECRET bearer token.
  */
@@ -51,7 +53,7 @@ export async function GET(req: NextRequest) {
         r.updated ||
         r.archived ||
         r.skippedNew ||
-        r.skippedHumanEdited.length ||
+        r.noticed.length ||
         r.flagged.length,
     );
   if (eventful) {
@@ -59,7 +61,7 @@ export async function GET(req: NextRequest) {
       (r) =>
         `*${r.site}*: ${r.crawled} crawled · +${r.created} new · ${r.updated} updated · ${r.archived} archived` +
         (r.skippedNew ? ` · ${r.skippedNew} new HELD BACK (creation guard)` : "") +
-        (r.skippedHumanEdited.length ? ` · ${r.skippedHumanEdited.length} skipped (human-edited)` : "") +
+        (r.noticed.length ? ` · ${r.noticed.length} site-change notice(s) in review` : "") +
         (r.flagged.length ? `\n:warning: ${r.flagged.join("; ")}` : ""),
     );
     if (errors.length) lines.push(`:x: ${errors.join("; ")}`);
@@ -68,6 +70,7 @@ export async function GET(req: NextRequest) {
     const headline =
       `+${sum((r) => r.created)} new · ${sum((r) => r.updated)} updated · ` +
       `${sum((r) => r.archived)} archived` +
+      (sum((r) => r.noticed.length) ? ` · ${sum((r) => r.noticed.length)} to review` : "") +
       (sum((r) => r.skippedNew) ? ` · ${sum((r) => r.skippedNew)} held back` : "") +
       (flagged ? ` · :warning: ${flagged} flagged` : "") +
       (errors.length ? ` · :x: ${errors.length} site error(s)` : "");
