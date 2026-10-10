@@ -27,24 +27,24 @@
  * --chart-1. Every one of them was validated rather than eyeballed.
  */
 :root {
-  --background: oklch(0.975 0.003 240);
-  --foreground: oklch(0.230 0.008 240);
+  --background: oklch(0.975 0.004 255);
+  --foreground: oklch(0.220 0.030 260);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.230 0.008 240);
+  --card-foreground: oklch(0.220 0.030 260);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.230 0.008 240);
-  --primary: oklch(0.504 0.094 228.8);             /* steel azure */
+  --popover-foreground: oklch(0.220 0.030 260);
+  --primary: oklch(0.480 0.180 262);                /* enterprise blue */
   --primary-foreground: oklch(0.990 0.002 240);
-  --secondary: oklch(0.965 0.004 240);
-  --secondary-foreground: oklch(0.340 0.008 240);
-  --muted: oklch(0.965 0.004 240);
-  --muted-foreground: oklch(0.530 0.011 240);
-  --accent: oklch(0.965 0.004 240);
-  --accent-foreground: oklch(0.340 0.008 240);
+  --secondary: oklch(0.955 0.008 255);
+  --secondary-foreground: oklch(0.320 0.030 260);
+  --muted: oklch(0.955 0.008 255);
+  --muted-foreground: oklch(0.500 0.020 260);
+  --accent: oklch(0.955 0.008 255);
+  --accent-foreground: oklch(0.320 0.030 260);
   --destructive: oklch(0.545 0.182 28.1);
-  --border: oklch(0.912 0.005 240);
-  --input: oklch(0.895 0.006 240);
-  --ring: oklch(0.504 0.094 228.8);
+  --border: oklch(0.915 0.008 255);
+  --input: oklch(0.890 0.010 255);
+  --ring: oklch(0.480 0.180 262);
 
   /*
    * Chart steps are NOT the UI accent. A colour tuned for restraint on a 5px
@@ -66,14 +66,14 @@
   --chart-4: oklch(0.528 0.181 297.8);             /* violet — cost */
   --chart-5: oklch(0.545 0.182 28.1);              /* red    — discarded */
 
-  --sidebar: oklch(0.975 0.003 240);
-  --sidebar-foreground: oklch(0.230 0.008 240);
-  --sidebar-primary: oklch(0.504 0.094 228.8);
+  --sidebar: oklch(0.250 0.045 262);              /* navy */
+  --sidebar-foreground: oklch(0.970 0.005 260);
+  --sidebar-primary: oklch(0.800 0.100 262);
   --sidebar-primary-foreground: oklch(0.990 0.002 240);
-  --sidebar-accent: oklch(0.935 0.005 240);
-  --sidebar-accent-foreground: oklch(0.340 0.008 240);
-  --sidebar-border: oklch(0.920 0.005 240);
-  --sidebar-ring: oklch(0.504 0.094 228.8);
+  --sidebar-accent: oklch(1 0 0 / 7%);
+  --sidebar-accent-foreground: oklch(0.970 0.005 260);
+  --sidebar-border: oklch(1 0 0 / 12%);
+  --sidebar-ring: oklch(0.800 0.100 262);
 
   --radius: 0.375rem;
 
@@ -93,8 +93,8 @@
   --tone-warn-bg: oklch(0.960 0.030 75.0);
   --tone-bad: oklch(0.505 0.170 28.1);
   --tone-bad-bg: oklch(0.958 0.020 28.1);
-  --tone-info: oklch(0.504 0.094 228.8);
-  --tone-info-bg: oklch(0.958 0.016 228.8);
+  --tone-info: oklch(0.480 0.180 262);
+  --tone-info-bg: oklch(0.950 0.025 262);
 
   --shadow: 0 1px 2px oklch(0.230 0.008 240 / 6%);
   --elevation-card: 0 1px 2px oklch(0.230 0.008 240 / 4%), 0 2px 6px -1px oklch(0.230 0.008 240 / 5%);
@@ -103,9 +103,12 @@
 }
 
 @theme inline {
-  --font-heading: "Geist", "Geist Fallback", ui-sans-serif, system-ui, sans-serif;
-  --font-sans: "Geist", "Geist Fallback", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "Geist Mono", "Geist Mono Fallback", ui-monospace, SFMono-Regular, monospace;
+  /* Indirect through --font-ui so a page can swap its face by setting one
+     variable (the console does; the chat widget doesn't). Not --font-sans
+     itself — that name here would point at itself. */
+  --font-heading: var(--font-ui);
+  --font-sans: var(--font-ui);
+  --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, monospace;
   /*
    * Two sizes below Tailwind's text-xs, because a dense console genuinely
    * needs them: 2xs (11px) for chips and section labels, 3xs (10px) for
@@ -176,24 +179,24 @@
  * values below were re-stepped until all six checks pass against the dark card.
  */
 .dark {
-  --background: oklch(0.140 0.005 240);
+  --background: oklch(0.150 0.015 260);
   --foreground: oklch(0.925 0.005 240);
-  --card: oklch(0.203 0.006 240);
+  --card: oklch(0.200 0.020 260);
   --card-foreground: oklch(0.925 0.005 240);
-  --popover: oklch(0.203 0.006 240);
+  --popover: oklch(0.200 0.020 260);
   --popover-foreground: oklch(0.925 0.005 240);
-  --primary: oklch(0.729 0.101 227.7);             /* steel azure, lifted */
-  --primary-foreground: oklch(0.175 0.010 228.8);
-  --secondary: oklch(0.272 0.007 240);
+  --primary: oklch(0.680 0.150 262);                /* enterprise blue, lifted */
+  --primary-foreground: oklch(0.150 0.020 260);
+  --secondary: oklch(0.260 0.020 260);
   --secondary-foreground: oklch(0.925 0.005 240);
-  --muted: oklch(0.272 0.007 240);
-  --muted-foreground: oklch(0.700 0.010 240);
-  --accent: oklch(0.272 0.007 240);
+  --muted: oklch(0.260 0.020 260);
+  --muted-foreground: oklch(0.720 0.020 260);
+  --accent: oklch(0.260 0.020 260);
   --accent-foreground: oklch(0.925 0.005 240);
   --destructive: oklch(0.615 0.183 28.0);
   --border: oklch(1 0 0 / 11%);
   --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.729 0.101 227.7);
+  --ring: oklch(0.680 0.150 262);
 
   --chart-1: oklch(0.644 0.116 234.5);             /* azure  — rate */
   --chart-2: oklch(0.659 0.125 154.7);             /* green  — sent as-is */
@@ -201,14 +204,14 @@
   --chart-4: oklch(0.585 0.180 297.6);             /* violet — cost */
   --chart-5: oklch(0.615 0.183 28.0);              /* red    — discarded */
 
-  --sidebar: oklch(0.140 0.005 240);
+  --sidebar: oklch(0.200 0.035 262);              /* navy, deeper */
   --sidebar-foreground: oklch(0.925 0.005 240);
-  --sidebar-primary: oklch(0.729 0.101 227.7);
+  --sidebar-primary: oklch(0.800 0.100 262);
   --sidebar-primary-foreground: oklch(0.175 0.010 228.8);
-  --sidebar-accent: oklch(0.230 0.007 240);
+  --sidebar-accent: oklch(1 0 0 / 7%);
   --sidebar-accent-foreground: oklch(0.925 0.005 240);
   --sidebar-border: oklch(1 0 0 / 11%);
-  --sidebar-ring: oklch(0.729 0.101 227.7);
+  --sidebar-ring: oklch(0.800 0.100 262);
 
   /* Tones invert their relationship to the ground: the ink lifts, the wash
      darkens, and both stay legible on the card rather than on white. */
@@ -218,7 +221,7 @@
   --tone-warn-bg: oklch(0.660 0.140 64.6 / 16%);
   --tone-bad: oklch(0.740 0.140 28.0);
   --tone-bad-bg: oklch(0.615 0.183 28.0 / 18%);
-  --tone-info: oklch(0.760 0.095 227.7);
+  --tone-info: oklch(0.760 0.120 262);
   --tone-info-bg: oklch(0.644 0.116 234.5 / 16%);
 
   --shadow: 0 1px 2px oklch(0 0 0 / 40%);
@@ -227,6 +230,39 @@
 
 
 @layer base {
+  :root {
+    --font-ui: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
+  }
+  /*
+   * The console and login (anything carrying data-console) read in IBM Plex
+   * at a comfortable size. Everything is rem-based, so the 17px root lifts
+   * text and spacing together. Scoped with :has() so the customer chat
+   * widget, which shares this stylesheet, keeps its own face and size.
+   */
+  :root:has([data-console]) {
+    --font-ui: var(--font-plex), ui-sans-serif, system-ui, sans-serif;
+    font-size: 106.25%;
+  }
+  [data-console] {
+    line-height: 1.6;
+  }
+  /*
+   * The navy sidebar. Its children are ordinary console components written
+   * against --foreground, --muted-foreground, --card and so on, so rather than
+   * re-skinning each one this re-points those tokens for everything inside.
+   */
+  [data-surface="sidebar"] {
+    --foreground: var(--sidebar-foreground);
+    --muted-foreground: oklch(0.760 0.030 260);
+    --muted: oklch(1 0 0 / 8%);
+    --card: oklch(1 0 0 / 12%);
+    --border: var(--sidebar-border);
+    --primary: var(--sidebar-primary);
+    --ring: var(--sidebar-ring);
+    --elevation-card: none;
+    background: var(--sidebar);
+    color: var(--foreground);
+  }
   * {
     @apply border-border outline-ring/50;
   }

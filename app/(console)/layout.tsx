@@ -34,10 +34,11 @@ export default async function ConsoleLayout({ children }: { children: React.Reac
   const collapsed = (await cookies()).get("jetta_sidebar")?.value === "collapsed";
 
   return (
-    <div className="flex min-h-svh">
+    <div className="flex min-h-svh" data-console>
       <aside
+        data-surface="sidebar"
         className={cn(
-          "sticky top-0 hidden h-svh shrink-0 border-r bg-sidebar md:block",
+          "sticky top-0 hidden h-svh shrink-0 border-r md:block",
           collapsed ? "w-16" : "w-60",
         )}
       >
