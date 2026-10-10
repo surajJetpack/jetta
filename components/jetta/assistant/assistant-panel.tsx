@@ -2,15 +2,15 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { AudioLines, ExternalLink, Mic, MicOff, Minus, PhoneOff, Send } from "lucide-react";
+import { AudioLines, ChevronRight, ExternalLink, Mic, MicOff, Minus, PhoneOff, Send } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { TONE_SOFT } from "../tone";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { navItemsFor, PAGE_SECTIONS } from "../console-nav";
 import { drillHref } from "@/lib/drill-code";
 import { OPEN_ASSISTANT_EVENT } from "./events";
 import { VoiceOrb } from "./voice-orb";
 import { LiveVoice, type AssistantMode, type PanelLink, type ToolCall, type TranscriptLine, type VoiceState } from "./live-voice";
-
 
 /** What the chip says while a lookup runs — her tool names are not for reading. */
 const TOOL_LABELS: Record<string, string> = {
@@ -273,192 +273,177 @@ export function AssistantPanel({ freshdeskDomain }: { freshdeskDomain: string })
               setOpen(true);
               start();
             }}
-            aria-label="Talk to Jetta"
-            className="group fixed right-5 bottom-5 z-40 flex size-14 items-center justify-center rounded-full focus-visible:outline-none"
+            aria-label="Talk to Jetta (⌘J)"
+            aria-keyshortcuts="Meta+J"
+            className="fixed right-5 bottom-5 z-40 flex size-12 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg ring-1 ring-black/5 transition-[transform,background-color] hover:bg-primary/90 active:scale-95 dark:ring-white/10 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
           >
-            {/* A slow-turning ring of light around a dark core. */}
-            <span
-              aria-hidden
-              className="absolute inset-0 animate-[spin_6s_linear_infinite] rounded-full bg-[conic-gradient(from_0deg,#22d3ee,#818cf8,#e879f9,#22d3ee)] opacity-90 blur-[1px] motion-reduce:animate-none"
-            />
-            <span aria-hidden className="absolute inset-0 rounded-full bg-[conic-gradient(from_0deg,#22d3ee,#818cf8,#e879f9,#22d3ee)] opacity-40 blur-md transition-opacity group-hover:opacity-80" />
-            <span className="relative flex size-[3.1rem] items-center justify-center rounded-full bg-white text-cyan-600 ring-1 ring-slate-900/10 transition-transform dark:bg-[#060a14] dark:text-cyan-300 dark:ring-white/10 group-hover:scale-95 group-focus-visible:ring-2 group-focus-visible:ring-cyan-300">
-              <AudioLines className="size-5" aria-hidden />
-            </span>
+            <AudioLines className="size-5" aria-hidden />
           </button>
         </TooltipTrigger>
-        <TooltipContent side="left">Talk to Jetta (⌘J)</TooltipContent>
+        <TooltipContent side="left">
+          Talk to Jetta <kbd className="ml-1 font-sans opacity-70">⌘J</kbd>
+        </TooltipContent>
       </Tooltip>
     );
   }
 
   return (
-    // The gradient wrapper is the border: 1px of light around a glass panel.
-    // Light glass by default; the dark HUD only when the console is dark.
-    <div className="fixed right-4 bottom-4 z-40 w-[min(24rem,calc(100vw-2rem))] rounded-2xl bg-[linear-gradient(140deg,rgba(6,182,212,0.65),rgba(99,102,241,0.18)_40%,rgba(217,70,239,0.55))] p-px shadow-[0_0_44px_-14px_rgba(6,182,212,0.55),0_24px_48px_-24px_rgba(15,23,42,0.35)] dark:shadow-[0_0_48px_-12px_rgba(34,211,238,0.55),0_24px_48px_-24px_rgba(0,0,0,0.8)]">
-      <section
-        aria-label="Jetta voice assistant"
-        className="relative flex h-[min(38rem,calc(100svh-6rem))] flex-col overflow-hidden rounded-[15px] bg-white/90 text-slate-800 backdrop-blur-xl dark:bg-[#060a14]/95 dark:text-slate-100"
-      >
-        {/* Atmosphere: a glow behind the orb and a faint grid, both decorative. */}
-        <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-56 bg-[radial-gradient(ellipse_at_50%_0%,rgba(6,182,212,0.16),transparent_70%)] dark:bg-[radial-gradient(ellipse_at_50%_0%,rgba(34,211,238,0.18),transparent_70%)]" />
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-0 text-slate-900 opacity-[0.05] dark:text-white dark:opacity-[0.06] [background-image:linear-gradient(currentColor_1px,transparent_1px),linear-gradient(90deg,currentColor_1px,transparent_1px)] [background-size:22px_22px] [mask-image:linear-gradient(to_bottom,black,transparent_60%)]"
+    <section
+      aria-label="Jetta voice assistant"
+      className="fixed right-4 bottom-4 z-40 flex h-[min(38rem,calc(100svh-6rem))] w-[min(24rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-xl border bg-popover text-popover-foreground shadow-lg"
+    >
+      <header className="flex items-center gap-2 border-b px-4 py-2.5">
+        <AudioLines className="size-4 text-primary" aria-hidden />
+        <h2 className="text-sm font-medium">Voice assistant</h2>
+        <span className="ml-auto" />
+        <button
+          type="button"
+          onClick={minimise}
+          aria-label="Minimise — stops listening"
+          className="flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+        >
+          <Minus className="size-4" />
+        </button>
+      </header>
+
+      <div className="flex flex-col items-center pt-3">
+        <VoiceOrb
+          state={state}
+          deep={deepNow}
+          readSpectrum={readSpectrum}
+          size={132}
+          className={cn("transition-[width,height] duration-500 motion-reduce:transition-none", talking ? "!size-[84px]" : "!size-[132px]")}
         />
+        <p
+          aria-live="polite"
+          className={cn(
+            "flex items-center gap-1.5 text-xs font-medium",
+            state === "error" ? "text-tone-bad" : deepNow ? "text-chart-4" : state === "idle" ? "text-muted-foreground" : "text-tone-info",
+          )}
+        >
+          <span className={cn("size-1.5 rounded-full bg-current", state !== "idle" && state !== "error" && "animate-pulse motion-reduce:animate-none")} />
+          {statusText}
+        </p>
+      </div>
 
-        <header className="relative flex items-center gap-2 px-4 pt-3">
-          <p className="font-mono text-3xs tracking-[0.35em] text-slate-500 uppercase dark:text-slate-400">
-            Jetta <span className="text-cyan-600 dark:text-cyan-400/70">{"//"}</span> Voice
-          </p>
-          <span className="ml-auto" />
-          <button
-            type="button"
-            onClick={minimise}
-            aria-label="Minimise — stops listening"
-            className="flex size-7 items-center justify-center rounded-full text-slate-500 transition-colors hover:bg-slate-900/5 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-white/10 dark:hover:text-slate-100 focus-visible:ring-2 focus-visible:ring-cyan-300/60 focus-visible:outline-none"
-          >
-            <Minus className="size-4" />
-          </button>
-        </header>
-
-        <div className="relative flex flex-col items-center">
-          <VoiceOrb
-            state={state}
-            deep={deepNow}
-            readSpectrum={readSpectrum}
-            size={132}
-            className={cn("transition-[width,height] duration-500", talking ? "!size-[84px]" : "!size-[132px]")}
-          />
-          <p
-            aria-live="polite"
-            className={cn(
-              "flex items-center gap-2 font-mono text-3xs tracking-[0.3em] uppercase",
-              state === "error" ? "text-red-600 dark:text-red-400" : deepNow ? "text-fuchsia-600 dark:text-fuchsia-300" : state === "idle" ? "text-slate-400 dark:text-slate-500" : "text-cyan-700 dark:text-cyan-300",
-            )}
-          >
-            <span className={cn("size-1.5 rounded-full bg-current", state !== "idle" && state !== "error" && "animate-pulse motion-reduce:animate-none")} />
-            {statusText}
-          </p>
-        </div>
-
-        <div ref={scroller} className="relative mt-2 flex-1 space-y-3 overflow-y-auto px-4 py-3 text-sm [scrollbar-width:thin]">
-          {!talking && !error && (
-            <div className="space-y-3 pt-2 text-center">
-              <p className="text-slate-500 dark:text-slate-400">Ask about tickets, support health, or how Jetta works.</p>
-              <div className="flex flex-wrap justify-center gap-1.5">
-                {[
-                  "What came in yesterday?",
-                  "Take me to what needs me",
-                  "What's going well this week?",
-                  "How can we improve our support system?",
-                  "Which KB articles should we write next?",
-                ].map((q) => (
-                  <button
-                    key={q}
-                    type="button"
-                    onClick={() => ask(q)}
-                    className="rounded-full border border-cyan-500/30 bg-cyan-500/5 px-3 py-1 text-xs text-cyan-800 transition-colors hover:border-cyan-500/60 hover:bg-cyan-500/10 dark:border-cyan-400/25 dark:bg-cyan-400/5 dark:text-cyan-100 dark:hover:border-cyan-300/60 dark:hover:bg-cyan-400/15 focus-visible:ring-2 focus-visible:ring-cyan-300/60 focus-visible:outline-none"
-                  >
-                    {q}
-                  </button>
+      <div ref={scroller} className="mt-2 flex-1 space-y-3 overflow-y-auto px-4 py-3 text-sm [scrollbar-width:thin]">
+        {!talking && !error && (
+          <div className="space-y-3 pt-2 text-center">
+            <p className="text-muted-foreground">Ask about tickets, support health, or how Jetta works.</p>
+            <div className="flex flex-wrap justify-center gap-1.5">
+              {[
+                "What came in yesterday?",
+                "Take me to what needs me",
+                "What's going well this week?",
+                "How can we improve our support system?",
+                "Which KB articles should we write next?",
+              ].map((q) => (
+                <button
+                  key={q}
+                  type="button"
+                  onClick={() => ask(q)}
+                  className="rounded-full border bg-background px-3 py-1 text-xs text-foreground transition-colors hover:border-primary/40 hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+                >
+                  {q}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        {lines.map((l) =>
+          l.who === "tool" ? (
+            l.links?.length ? (
+              <div key={l.id} className="space-y-1.5">
+                {l.links.map((k) => (
+                  <PanelLinkRow key={k.url} link={k} />
                 ))}
               </div>
-            </div>
-          )}
-          {lines.map((l) =>
-            l.who === "tool" ? (
-              l.links?.length ? (
-                <div key={l.id} className="space-y-1.5">
-                  {l.links.map((k) => (
-                    <PanelLinkRow key={k.url} link={k} />
-                  ))}
-                </div>
-              ) : (
-                <p key={l.id} className="flex items-center gap-2 font-mono text-3xs tracking-[0.2em] text-cyan-700/80 uppercase dark:text-cyan-300/70">
-                  <span aria-hidden className="text-cyan-500 dark:text-cyan-400">▸</span>
-                  {l.text}
-                </p>
-              )
-            ) : l.who === "you" ? (
-              <div key={l.id} className="flex justify-end">
-                <p
-                  className={cn(
-                    "max-w-[85%] rounded-2xl rounded-br-sm border border-cyan-500/25 bg-cyan-50 px-3 py-1.5 leading-snug text-cyan-950 dark:border-cyan-400/30 dark:bg-cyan-400/10 dark:text-cyan-50",
-                    l.partial && "opacity-60",
-                  )}
-                >
-                  {l.text}
-                </p>
-              </div>
             ) : (
-              <p
-                key={l.id}
-                className={cn("border-l-2 border-violet-400/60 pl-3 leading-relaxed text-slate-700 dark:border-violet-400/50 dark:text-slate-200", l.partial && "opacity-70")}
-              >
-                <WithTicketLinks text={l.text} domain={freshdeskDomain} />
+              <p key={l.id} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <ChevronRight className="size-3.5 text-primary" aria-hidden />
+                {l.text}
               </p>
-            ),
-          )}
-          {error && <p className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-400/30 dark:bg-red-500/10 dark:text-red-200">{error}</p>}
-        </div>
-
-        <footer className="relative flex items-center gap-2 border-t border-slate-900/10 px-3 py-3 dark:border-white/10">
-          {connected ? (
-            <>
-              <button
-                type="button"
-                onClick={toggleMute}
-                aria-label={muted ? "Unmute" : "Mute"}
-                aria-pressed={muted}
+            )
+          ) : l.who === "you" ? (
+            <div key={l.id} className="flex justify-end">
+              <p
                 className={cn(
-                  "flex size-10 shrink-0 items-center justify-center rounded-full border transition-all focus-visible:ring-2 focus-visible:ring-cyan-300/60 focus-visible:outline-none",
-                  muted
-                    ? "border-slate-300 bg-slate-100 text-slate-500 dark:border-white/15 dark:bg-white/5 dark:text-slate-400"
-                    : "border-cyan-500/50 bg-cyan-500/10 text-cyan-700 shadow-[0_0_18px_-4px_rgba(6,182,212,0.6)] dark:border-cyan-300/50 dark:bg-cyan-400/15 dark:text-cyan-200 dark:shadow-[0_0_18px_-4px_rgba(34,211,238,0.8)]",
+                  "max-w-[85%] rounded-2xl rounded-br-sm bg-primary px-3 py-1.5 leading-snug text-primary-foreground",
+                  l.partial && "opacity-60",
                 )}
               >
-                {muted ? <MicOff className="size-4" /> : <Mic className="size-4" />}
-              </button>
-              <button
-                type="button"
-                onClick={end}
-                aria-label="End conversation"
-                className="flex size-10 shrink-0 items-center justify-center rounded-full border border-red-300 bg-red-50 text-red-600 transition-colors hover:bg-red-100 dark:border-red-400/30 dark:bg-red-500/10 dark:text-red-300 dark:hover:bg-red-500/25 focus-visible:ring-2 focus-visible:ring-red-300/60 focus-visible:outline-none"
-              >
-                <PhoneOff className="size-4" />
-              </button>
-            </>
+                {l.text}
+              </p>
+            </div>
           ) : (
+            <p key={l.id} className={cn("border-l-2 border-primary/40 pl-3 leading-relaxed text-foreground", l.partial && "opacity-70")}>
+              <WithTicketLinks text={l.text} domain={freshdeskDomain} />
+            </p>
+          ),
+        )}
+        {error && (
+          <p role="alert" className={cn("rounded-md px-3 py-2 text-xs", TONE_SOFT.bad)}>
+            {error}
+          </p>
+        )}
+      </div>
+
+      <footer className="flex items-center gap-2 border-t px-3 py-3">
+        {connected ? (
+          <>
             <button
               type="button"
-              onClick={() => start()}
-              className="flex h-10 shrink-0 items-center gap-2 rounded-full border border-cyan-500/50 bg-cyan-500/10 px-4 text-sm text-cyan-800 shadow-[0_0_18px_-4px_rgba(6,182,212,0.6)] transition-colors hover:bg-cyan-500/20 dark:border-cyan-300/50 dark:bg-cyan-400/15 dark:text-cyan-100 dark:shadow-[0_0_18px_-4px_rgba(34,211,238,0.8)] dark:hover:bg-cyan-400/25 focus-visible:ring-2 focus-visible:ring-cyan-300/60 focus-visible:outline-none"
+              onClick={toggleMute}
+              aria-label={muted ? "Unmute" : "Mute"}
+              aria-pressed={muted}
+              className={cn(
+                "flex size-10 shrink-0 items-center justify-center rounded-full border transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none",
+                muted ? "bg-muted text-muted-foreground" : "border-primary/40 bg-tone-info-bg text-tone-info hover:bg-tone-info-bg/70",
+              )}
             >
-              <Mic className="size-4" aria-hidden />
-              {state === "error" ? "Reconnect" : "Start"}
+              {muted ? <MicOff className="size-4" /> : <Mic className="size-4" />}
             </button>
-          )}
-          <form onSubmit={submit} className="flex min-w-0 flex-1 items-center rounded-full border border-slate-900/10 bg-white/80 pr-1 focus-within:border-cyan-500/50 dark:border-white/10 dark:bg-white/5 dark:focus-within:border-cyan-300/50">
-            <input
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              placeholder="Or type…"
-              aria-label="Type a question"
-              className="h-10 min-w-0 flex-1 bg-transparent px-4 text-sm text-slate-800 outline-none placeholder:text-slate-400 dark:text-slate-100 dark:placeholder:text-slate-500"
-            />
             <button
-              type="submit"
-              aria-label="Send"
-              disabled={!draft.trim()}
-              className="flex size-8 shrink-0 items-center justify-center rounded-full text-cyan-600 transition-colors hover:bg-cyan-500/10 disabled:text-slate-300 dark:text-cyan-300 dark:hover:bg-cyan-400/15 dark:disabled:text-slate-600 disabled:hover:bg-transparent focus-visible:ring-2 focus-visible:ring-cyan-300/60 focus-visible:outline-none"
+              type="button"
+              onClick={end}
+              aria-label="End conversation"
+              className="flex size-10 shrink-0 items-center justify-center rounded-full border border-tone-bad/30 bg-tone-bad-bg text-tone-bad transition-colors hover:border-tone-bad/60 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
             >
-              <Send className="size-4" />
+              <PhoneOff className="size-4" />
             </button>
-          </form>
-        </footer>
-      </section>
-    </div>
+          </>
+        ) : (
+          <button
+            type="button"
+            onClick={() => start()}
+            className="flex h-10 shrink-0 items-center gap-2 rounded-full bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+          >
+            <Mic className="size-4" aria-hidden />
+            {state === "error" ? "Reconnect" : "Start"}
+          </button>
+        )}
+        <form
+          onSubmit={submit}
+          className="flex min-w-0 flex-1 items-center rounded-full border border-input bg-background pr-1 transition-[box-shadow,border-color] focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50"
+        >
+          <input
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder="Or type…"
+            aria-label="Type a question"
+            className="h-10 min-w-0 flex-1 bg-transparent px-4 text-sm outline-none placeholder:text-muted-foreground"
+          />
+          <button
+            type="submit"
+            aria-label="Send"
+            disabled={!draft.trim()}
+            className="flex size-8 shrink-0 items-center justify-center rounded-full text-primary transition-colors hover:bg-accent disabled:text-muted-foreground/50 disabled:hover:bg-transparent focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+          >
+            <Send className="size-4" />
+          </button>
+        </form>
+      </footer>
+    </section>
   );
 }
 
@@ -469,9 +454,9 @@ function PanelLinkRow({ link }: { link: PanelLink }) {
     <a
       href={link.url}
       {...(internal ? {} : { target: "_blank", rel: "noopener noreferrer" })}
-      className="group flex items-center gap-2 rounded-lg border border-slate-900/10 bg-white/80 px-3 py-2 text-xs text-slate-700 transition-all hover:border-cyan-500/50 hover:bg-cyan-50 hover:shadow-[0_0_16px_-6px_rgba(6,182,212,0.6)] dark:border-white/10 dark:bg-white/[0.04] dark:text-slate-200 dark:hover:border-cyan-300/50 dark:hover:bg-cyan-400/10 dark:hover:shadow-[0_0_16px_-6px_rgba(34,211,238,0.8)] focus-visible:ring-2 focus-visible:ring-cyan-300/60 focus-visible:outline-none"
+      className="flex items-center gap-2 rounded-md border bg-card px-3 py-2 text-xs text-card-foreground transition-colors hover:border-primary/40 hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
     >
-      <ExternalLink className="size-3.5 shrink-0 text-cyan-600 dark:text-cyan-300" aria-hidden />
+      <ExternalLink className="size-3.5 shrink-0 text-primary" aria-hidden />
       <span className="min-w-0 flex-1 truncate">{link.label}</span>
     </a>
   );
@@ -495,7 +480,7 @@ function WithTicketLinks({ text, domain }: { text: string; domain: string }) {
             href={`https://${domain}/a/tickets/${id}`}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-cyan-700 underline decoration-cyan-600/40 decoration-dotted underline-offset-2 hover:text-cyan-900 dark:text-cyan-300 dark:decoration-cyan-300/40 dark:hover:text-cyan-200"
+            className="text-primary underline decoration-primary/40 decoration-dotted underline-offset-2 hover:decoration-primary"
           >
             {p}
           </a>

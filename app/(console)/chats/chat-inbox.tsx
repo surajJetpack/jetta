@@ -1,18 +1,21 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Bell, BellOff, CheckCheck, ExternalLink, Hand, Paperclip, RotateCcw, Search, Send, Ticket as TicketIcon, Undo2 } from "lucide-react";
+import { ArrowLeft, Bell, BellOff, CheckCheck, ExternalLink, Hand, Paperclip, RotateCcw, Search, Send, Ticket as TicketIcon, Undo2 } from "lucide-react";
 import { ChatAvatar } from "@/components/jetta/chat-avatar";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import { ConfirmButton } from "@/components/jetta/confirm-button";
 import { StatusChip, type ChipTone } from "@/components/jetta/status-chip";
 import { EmptyState } from "@/components/jetta/empty-state";
 import { RelativeTime } from "@/components/jetta/relative-time";
+import { CHIP_BASE, TONE_SOFT } from "@/components/jetta/tone";
+import { cn } from "@/lib/utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { appName } from "@/lib/types";
 import { dayKey, fmtDateTime, fmtDayLabel, fmtTime, localZone, useHydrated, useNow } from "@/lib/format";
@@ -203,6 +206,7 @@ export default function ChatInbox({
   const [query, setQuery] = useState("");
   const [text, setText] = useState("");
   const [ticketSubject, setTicketSubject] = useState("");
+  const ticketFieldId = useId();
   const [ticketNote, setTicketNote] = useState("");
   const [ticketNotify, setTicketNotify] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -475,8 +479,10 @@ export default function ChatInbox({
       <aside className={detail ? "hidden md:block" : "block"}>
         <div className="space-y-2">
           <div className="relative">
-            <Search className="absolute top-2.5 left-2.5 size-3.5 text-muted-foreground" />
+            <Search className="absolute top-2.5 left-2.5 size-3.5 text-muted-foreground" aria-hidden />
             <Input
+              type="search"
+              aria-label="Search chats"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search name, email or message"
@@ -487,7 +493,7 @@ export default function ChatInbox({
               app on the board the control is a label that filters nothing. */}
           {appOptions.length > 1 && (
             <Select value={app} onValueChange={setApp}>
-              <SelectTrigger size="sm" className="w-full text-xs">
+              <SelectTrigger size="sm" className="w-full text-xs" aria-label="Filter by app">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -500,26 +506,39 @@ export default function ChatInbox({
               </SelectContent>
             </Select>
           )}
-          <div className="flex flex-wrap gap-1">
-            {(
-              [
-                ["needs_human", waiting ? `Needs a person · ${waiting}` : "Needs a person"],
-                ["open", "With Jetta"],
-                ["ticketed", "Ticketed"],
-                ["all", "All live"],
-                ["resolved", resolvedCount ? `Resolved · ${resolvedCount}` : "Resolved"],
-              ] as [Filter, string][]
-            ).map(([f, label]) => (
-              <Button
-                key={f}
-                size="sm"
-                variant={filter === f ? "default" : "outline"}
-                className="h-7 px-2 text-2xs"
-                onClick={() => setFilter(f)}
-              >
-                {label}
-              </Button>
-            ))}
+          <div className="flex items-start gap-1">
+            {/* One segmented control, not five loose buttons: the filters are
+                mutually exclusive, and should look like it. */}
+            <div
+              role="group"
+              aria-label="Filter chats"
+              className="inline-flex flex-wrap gap-0.5 rounded-md border bg-muted/40 p-0.5"
+            >
+              {(
+                [
+                  ["needs_human", waiting ? `Needs a person · ${waiting}` : "Needs a person"],
+                  ["open", "With Jetta"],
+                  ["ticketed", "Ticketed"],
+                  ["all", "All live"],
+                  ["resolved", resolvedCount ? `Resolved · ${resolvedCount}` : "Resolved"],
+                ] as [Filter, string][]
+              ).map(([f, label]) => (
+                <button
+                  key={f}
+                  type="button"
+                  aria-pressed={filter === f}
+                  className={cn(
+                    "h-6 rounded-sm px-2 text-2xs font-medium whitespace-nowrap transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
+                    filter === f
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                  onClick={() => setFilter(f)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
             {/* The chime's off switch lives where the chime is about — and the
                 setting is shared with the sidebar's waiting-visitor sound, so
                 one bell governs everything that rings. */}
@@ -541,10 +560,16 @@ export default function ChatInbox({
 
           <div className="max-h-[70dvh] space-y-1.5 overflow-y-auto pr-1">
             {visible.length === 0 && (
-              <p className="px-1 py-6 text-center text-xs text-muted-foreground">
-                Nothing here{query ? " matches that search" : ""}
-                {app !== ALL_APPS ? ` for ${appOptions.find((o) => o.value === app)?.label ?? app}` : ""}.
-              </p>
+              <EmptyState
+                className="border-0 py-6"
+                icon={query ? Search : undefined}
+                title={query ? "No chats match that search" : "No chats here"}
+                hint={
+                  app !== ALL_APPS
+                    ? `Showing ${appOptions.find((o) => o.value === app)?.label ?? app} only.`
+                    : undefined
+                }
+              />
             )}
             {visible.map((c) => {
               const last = c.messages[c.messages.length - 1];
@@ -552,12 +577,14 @@ export default function ChatInbox({
               return (
                 <button
                   key={c.id}
+                  type="button"
+                  aria-current={active ? "true" : undefined}
                   onClick={() => select(c.id)}
-                  className={[
-                    "w-full rounded-lg border p-2.5 text-left transition-colors",
+                  className={cn(
+                    "w-full rounded-lg border p-2.5 text-left transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
                     active ? "border-primary bg-muted" : "hover:bg-muted/50",
-                    c.status === "waiting_human" ? "border-destructive/50" : "",
-                  ].join(" ")}
+                    c.status === "waiting_human" && !active && "border-tone-bad/50",
+                  )}
                 >
                   <div className="flex items-center gap-1.5">
                     <ChatAvatar
@@ -617,7 +644,7 @@ export default function ChatInbox({
           <div className="flex h-[76dvh] flex-col rounded-lg border">
             <header className="flex flex-wrap items-center gap-2 border-b px-3 py-2">
               <Button size="sm" variant="ghost" className="md:hidden" onClick={() => select(null)}>
-                ← Back
+                <ArrowLeft /> Back
               </Button>
               <div className="min-w-0">
                 <p className="truncate text-sm font-medium">
@@ -629,8 +656,8 @@ export default function ChatInbox({
                     // the conversation. Anyone taking over needs to know the
                     // collecting is now THEIRS — without an email there is no
                     // ticket and no follow-up.
-                    <span className="rounded-full border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-3xs font-normal text-amber-600 dark:text-amber-400">
-                      no email yet — if you take over, get it
+                    <span className={cn(CHIP_BASE, TONE_SOFT.warn, "font-medium tracking-normal")}>
+                      No email yet — get it if you take over
                     </span>
                   )}
                 </p>
@@ -647,7 +674,7 @@ export default function ChatInbox({
                     className="text-2xs text-muted-foreground"
                     title={`Transcript times are in your own zone${zone.name ? ` (${zone.name})` : ""}. The transcript on the Freshdesk ticket is in UTC.`}
                   >
-                    times in {zone.short}
+                    Times in {zone.short}
                   </span>
                 )}
                 <StatusChip tone={TONES[detail.status]}>{LABELS[detail.status]}</StatusChip>
@@ -669,7 +696,7 @@ export default function ChatInbox({
                     className="inline-flex items-center gap-1 text-2xs text-primary hover:underline"
                     title="Open this ticket in Freshdesk"
                   >
-                    ticket #{detail.ticketId} <ExternalLink className="size-3" />
+                    Ticket #{detail.ticketId} <ExternalLink className="size-3" aria-hidden />
                   </a>
                 )}
                 {/* A chat that raised two separate problems has two tickets.
@@ -685,7 +712,7 @@ export default function ChatInbox({
                     className="inline-flex items-center gap-1 text-2xs text-muted-foreground hover:underline"
                     title="An earlier ticket from this conversation"
                   >
-                    also #{id} <ExternalLink className="size-3" />
+                    Also #{id} <ExternalLink className="size-3" aria-hidden />
                   </a>
                 ))}
               </div>
@@ -840,6 +867,7 @@ export default function ChatInbox({
                 rows={2}
                 value={text}
                 placeholder="Reply to the visitor…"
+                aria-label="Reply to the visitor"
                 onChange={(e) => setText(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && !e.shiftKey && text.trim() && !busy) {
@@ -893,18 +921,22 @@ export default function ChatInbox({
                     description={
                       <div className="space-y-3 text-left">
                         <div className="space-y-1">
-                          <label className="text-xs font-medium text-foreground">Subject</label>
+                          <Label htmlFor={`${ticketFieldId}-subject`} className="text-xs text-foreground">
+                            Subject
+                          </Label>
                           <Input
+                            id={`${ticketFieldId}-subject`}
                             value={ticketSubject || suggestSubject(detail)}
                             onChange={(e) => setTicketSubject(e.target.value)}
                             className="text-sm"
                           />
                         </div>
                         <div className="space-y-1">
-                          <label className="text-xs font-medium text-foreground">
+                          <Label htmlFor={`${ticketFieldId}-note`} className="text-xs text-foreground">
                             For whoever picks it up
-                          </label>
+                          </Label>
                           <Textarea
+                            id={`${ticketFieldId}-note`}
                             rows={3}
                             value={ticketNote}
                             placeholder="What you already know, what you ruled out…"
@@ -919,20 +951,25 @@ export default function ChatInbox({
                             ` and ${attachmentCount} file${attachmentCount === 1 ? "" : "s"}`}{" "}
                           {attachmentCount > 0 ? "go" : "goes"} with it.
                         </p>
-                        <label className="flex items-start gap-2">
+                        <div className="flex items-start gap-2">
                           <Checkbox
+                            id={`${ticketFieldId}-notify`}
+                            className="mt-0.5"
                             checked={ticketNotify}
                             onCheckedChange={(v) => setTicketNotify(!!v)}
                           />
-                          <span className="text-xs">
+                          <Label
+                            htmlFor={`${ticketFieldId}-notify`}
+                            className="block text-xs leading-normal font-normal"
+                          >
                             Tell the visitor in the chat
                             <span className="block text-2xs text-muted-foreground">
                               Jetta keeps chatting either way, but she won&apos;t announce a ticket
                               she didn&apos;t open — without this, nothing tells them their question
                               moved.
                             </span>
-                          </span>
-                        </label>
+                          </Label>
+                        </div>
                       </div>
                     }
                   >

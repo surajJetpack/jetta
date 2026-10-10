@@ -60,7 +60,7 @@ export default async function ConsoleLayout({ children }: { children: React.Reac
           </p>
         )}
 
-        <main className="min-w-0 flex-1 px-4 pt-5 pb-16 sm:px-6">
+        <main className="min-w-0 flex-1 px-4 pt-5 pb-24 sm:px-6">
           <div className="mx-auto flex w-full max-w-6xl flex-col gap-5">
             <GuideBanner user={user} />
             {children}

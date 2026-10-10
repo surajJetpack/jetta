@@ -33,19 +33,22 @@ import {
   Info,
   ListChecks,
   Loader2,
-  PartyPopper,
   Play,
   RotateCw,
   Sparkles,
+  TriangleAlert,
   Users,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { StepCard } from "@/components/jetta/step-card";
 import { SectionHeader } from "@/components/jetta/page-header";
+import { CHIP_BASE } from "@/components/jetta/tone";
 import { cn } from "@/lib/utils";
 import {
   PLAYBOOK,
@@ -257,8 +260,8 @@ export default function PlaybookContent({
 // ── Overview ───────────────────────────────────────────────────────
 
 function outcomeIcon(progress?: ScenarioProgress) {
-  if (progress?.outcome === "pass") return <CircleCheck className="size-4 shrink-0 text-primary" />;
-  if (progress?.outcome === "fail") return <CircleX className="size-4 shrink-0 text-destructive" />;
+  if (progress?.outcome === "pass") return <CircleCheck className="size-4 shrink-0 text-tone-good" aria-label="Passed" />;
+  if (progress?.outcome === "fail") return <CircleX className="size-4 shrink-0 text-tone-bad" aria-label="Failed" />;
   return <Circle className="size-4 shrink-0 text-muted-foreground/40" />;
 }
 
@@ -288,19 +291,19 @@ function Overview({
     <div className="space-y-6">
       {/* Scoreboard */}
       <Card>
-        <CardContent className="space-y-3 pt-4">
+        <CardContent className="space-y-3">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <p className="text-sm">
               <b>{user}</b> — {done} of {total} scenarios done
               {done === total && total > 0 && (
-                <span className="ml-2 inline-flex items-center gap-1 font-semibold text-primary">
-                  <PartyPopper className="size-4" /> all of them!
+                <span className="ml-2 inline-flex items-center gap-1 font-medium text-tone-good">
+                  <CircleCheck className="size-4" /> Complete
                 </span>
               )}
             </p>
             {others.length > 0 && (
               <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <Users className="size-3.5" />
+                <Users className="size-4" />
                 {others.map((o) => `${o.name} · ${o.done}/${total}`).join("   ")}
               </p>
             )}
@@ -380,18 +383,18 @@ function IntroView({
                       key={s.id}
                       type="button"
                       onClick={() => onGo(stopIndex)}
-                      className="flex w-full cursor-pointer items-center gap-3 px-4 py-2.5 text-left text-sm transition-colors first:rounded-t-xl last:rounded-b-xl hover:bg-muted/50"
+                      className="flex w-full cursor-pointer items-center gap-3 px-4 py-2.5 text-left text-sm transition-colors first:rounded-t-xl last:rounded-b-xl hover:bg-muted/50 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
                     >
                       {outcomeIcon(mine[s.id])}
                       <span className="w-4 shrink-0 text-xs font-semibold text-muted-foreground">{i + 1}</span>
                       <span className="min-w-0 flex-1 truncate font-medium">{s.title}</span>
                       {s.pair && (
-                        <span className="inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-2xs font-medium text-muted-foreground">
-                          <Users className="size-3" /> both of you
+                        <span className={cn(CHIP_BASE, "border font-medium tracking-normal text-muted-foreground")}>
+                          <Users className="size-3" /> Both of you
                         </span>
                       )}
                       <span className="shrink-0 text-xs text-muted-foreground">~{s.minutes} min</span>
-                      <ArrowRight className="size-3.5 shrink-0 text-muted-foreground/60" />
+                      <ArrowRight className="size-4 shrink-0 text-muted-foreground/60" />
                     </button>
                   );
                 })}
@@ -411,17 +414,17 @@ function IntroView({
             <button
               type="button"
               onClick={() => onGo(STOPS.length - 1)}
-              className="flex w-full cursor-pointer items-center gap-3 rounded-xl px-4 py-2.5 text-left text-sm transition-colors hover:bg-muted/50"
+              className="flex w-full cursor-pointer items-center gap-3 rounded-xl px-4 py-2.5 text-left text-sm transition-colors hover:bg-muted/50 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
             >
               <ListChecks className="size-4 shrink-0 text-muted-foreground" />
               <span className="min-w-0 flex-1">
                 The tests touched real systems on purpose — this puts them back. Jetta can now do
                 most of it for you.
               </span>
-              <span className="inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-2xs font-medium text-primary">
-                <Sparkles className="size-3" /> auto-cleanup
+              <span className={cn(CHIP_BASE, "border font-medium tracking-normal text-primary")}>
+                <Sparkles className="size-3" /> Auto-cleanup
               </span>
-              <ArrowRight className="size-3.5 shrink-0 text-muted-foreground/60" />
+              <ArrowRight className="size-4 shrink-0 text-muted-foreground/60" />
             </button>
           </CardContent>
         </Card>
@@ -480,76 +483,74 @@ function TeamResults({
         Team results
       </SectionHeader>
       <Card>
-        <CardContent className="space-y-3 pt-4">
+        <CardContent className="space-y-3">
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-xs text-muted-foreground">
-                  <th className="pb-2 pr-3 font-medium">Scenario</th>
+            <Table>
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead>Scenario</TableHead>
                   {users.map((name) => (
-                    <th key={name} className="pb-2 pr-3 text-center font-medium whitespace-nowrap">
+                    <TableHead key={name} className="text-center">
                       {name}
-                      {name === user && <span className="text-muted-foreground/60"> (you)</span>}
-                    </th>
+                      {name === user && <span className="font-normal text-muted-foreground"> (you)</span>}
+                    </TableHead>
                   ))}
-                </tr>
-              </thead>
-              <tbody>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {scenarioStops.map((s) => (
-                  <tr key={s.scenario.id} className="border-t">
-                    <td className="py-1.5 pr-3">
+                  <TableRow key={s.scenario.id}>
+                    <TableCell>
                       <button
                         type="button"
                         onClick={() => onGo(STOPS.indexOf(s))}
-                        className="flex cursor-pointer items-baseline gap-2 text-left hover:underline"
+                        className="flex cursor-pointer items-baseline gap-2 rounded-sm text-left hover:underline outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
                       >
                         <span className="w-6 shrink-0 text-xs font-semibold text-muted-foreground">
                           {scenarioCode(s.track, s.nthInTrack)}
                         </span>
                         <span className="truncate">{s.scenario.title}</span>
                       </button>
-                    </td>
+                    </TableCell>
                     {users.map((name) => {
                       const outcome = progressFor(name)[s.scenario.id]?.outcome;
                       return (
-                        <td key={name} className="py-1.5 pr-3 text-center">
+                        <TableCell key={name} className="text-center">
                           {outcome === "pass" ? (
-                            <CircleCheck className="inline size-4 text-primary" aria-label="passed" />
+                            <CircleCheck className="inline size-4 text-tone-good" aria-label="Passed" />
                           ) : outcome === "fail" ? (
-                            <CircleX className="inline size-4 text-destructive" aria-label="failed" />
+                            <CircleX className="inline size-4 text-tone-bad" aria-label="Failed" />
                           ) : (
-                            <Circle className="inline size-3 text-muted-foreground/30" aria-label="not run" />
+                            <Circle className="inline size-3 text-muted-foreground/30" aria-label="Not run" />
                           )}
-                        </td>
+                        </TableCell>
                       );
                     })}
-                  </tr>
+                  </TableRow>
                 ))}
-                <tr className="border-t text-xs text-muted-foreground">
-                  <td className="py-1.5 pr-3">Cleanup ticked</td>
+                <TableRow className="text-xs text-muted-foreground hover:bg-transparent">
+                  <TableCell>Cleanup ticked</TableCell>
                   {users.map((name) => (
-                    <td key={name} className="py-1.5 pr-3 text-center">
+                    <TableCell key={name} className="text-center tabular-nums">
                       {(progressFor(name)["cleanup"]?.checks ?? []).length}/{PLAYBOOK_CLEANUP.length}
-                    </td>
+                    </TableCell>
                   ))}
-                </tr>
-              </tbody>
-            </table>
+                </TableRow>
+              </TableBody>
+            </Table>
           </div>
 
           {failures.length > 0 && (
             <div className="space-y-1.5 border-t pt-3">
-              <p className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
-                What failed, in the tester&apos;s words
-              </p>
+              <SectionHeader>What failed, in the tester&apos;s words</SectionHeader>
               {failures.map((f, i) => (
                 <p key={i} className="text-sm">
-                  <CircleX className="mr-1.5 inline size-3.5 text-destructive" />
+                  <CircleX className="mr-1.5 inline size-4 align-[-3px] text-tone-bad" />
                   <b>{f.name}</b> ·{" "}
                   <button
                     type="button"
                     onClick={() => onGo(f.stopIndex)}
-                    className="cursor-pointer font-medium hover:underline"
+                    className="cursor-pointer rounded-sm font-medium hover:underline outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
                   >
                     {f.code} {f.title}
                   </button>
@@ -584,7 +585,7 @@ function WizardHeader({
     <div className="space-y-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <Button variant="ghost" size="sm" className="-ml-2 h-7 px-2 text-xs" onClick={() => onGo(null)}>
-          <ArrowLeft className="size-3.5" /> Overview
+          <ArrowLeft /> Overview
         </Button>
         <p className="text-xs text-muted-foreground">
           {stop.kind === "intro" ? (
@@ -618,9 +619,9 @@ function WizardHeader({
               aria-current={i === at ? "step" : undefined}
               onClick={() => onGo(i)}
               className={cn(
-                "h-1.5 flex-1 cursor-pointer rounded-full transition-all",
-                progress?.outcome === "pass" && "bg-primary",
-                progress?.outcome === "fail" && "bg-destructive",
+                "h-1.5 flex-1 cursor-pointer rounded-full transition-all outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
+                progress?.outcome === "pass" && "bg-tone-good",
+                progress?.outcome === "fail" && "bg-tone-bad",
                 !progress?.outcome && "bg-muted",
                 s.kind !== "scenario" && "max-w-8 bg-muted",
                 i === at && "ring-2 ring-ring/50",
@@ -689,7 +690,7 @@ function ScenarioView({
   const [note, setNote] = useState(progress?.note ?? "");
 
   return (
-    <Card className={cn(outcome === "pass" && "border-primary/40", outcome === "fail" && "border-destructive/50")}>
+    <Card className={cn(outcome === "pass" && "border-tone-good/40", outcome === "fail" && "border-tone-bad/50")}>
       <CardHeader className="pb-2">
         <CardTitle className="flex flex-wrap items-center gap-2 text-base">
           <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground">
@@ -698,18 +699,18 @@ function ScenarioView({
           {scenario.title}
           <span className="text-xs font-normal text-muted-foreground">~{scenario.minutes} min</span>
           {scenario.pair && (
-            <span className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-2xs font-medium text-muted-foreground">
-              <Users className="size-3" /> needs both of you
+            <span className={cn(CHIP_BASE, "border font-medium tracking-normal text-muted-foreground")}>
+              <Users className="size-3" /> Needs both of you
             </span>
           )}
           {outcome === "pass" && (
-            <span className="ml-auto inline-flex items-center gap-1 text-xs font-semibold text-primary">
-              <CircleCheck className="size-4" /> passed
+            <span className="ml-auto inline-flex items-center gap-1 text-xs font-semibold text-tone-good">
+              <CircleCheck className="size-4" /> Passed
             </span>
           )}
           {outcome === "fail" && (
-            <span className="ml-auto inline-flex items-center gap-1 text-xs font-semibold text-destructive">
-              <CircleX className="size-4" /> failed
+            <span className="ml-auto inline-flex items-center gap-1 text-xs font-semibold text-tone-bad">
+              <CircleX className="size-4" /> Failed
             </span>
           )}
         </CardTitle>
@@ -719,9 +720,7 @@ function ScenarioView({
       <CardContent className="space-y-3">
         {scenario.links && scenario.links.length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
-              Have open
-            </span>
+            <SectionHeader>Have open</SectionHeader>
             {scenario.links.map((l) => (
               <LinkButton key={l.href} link={l} />
             ))}
@@ -736,7 +735,7 @@ function ScenarioView({
         )}
 
         <div className="space-y-2">
-          <p className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">Do this</p>
+          <SectionHeader>Do this</SectionHeader>
           <ol className="space-y-2">
             {scenario.steps.map((step, i) => (
               <li key={i} className="space-y-1.5 text-sm">
@@ -778,18 +777,19 @@ function ScenarioView({
         </div>
 
         <div className="space-y-2">
-          <p className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
-            You should see — tick what you saw
-          </p>
+          <SectionHeader>You should see — tick what you saw</SectionHeader>
           {scenario.checks.map((c) => (
-            <label key={c.id} className="flex cursor-pointer items-start gap-2 text-sm">
+            <div key={c.id} className="flex items-start gap-2">
               <Checkbox
+                id={`check-${c.id}`}
                 className="mt-0.5"
                 checked={checks.includes(c.id)}
                 onCheckedChange={() => onCheck(c.id)}
               />
-              <span>{c.text}</span>
-            </label>
+              <Label htmlFor={`check-${c.id}`} className="cursor-pointer leading-snug font-normal">
+                {c.text}
+              </Label>
+            </div>
           ))}
         </div>
 
@@ -869,8 +869,8 @@ function CleanupView({
     <div className="space-y-4">
       {done === total && total > 0 && (
         <Alert>
-          <PartyPopper className="size-4" />
-          <AlertTitle>Every scenario has an outcome — you&apos;re done testing</AlertTitle>
+          <CircleCheck className="size-4" />
+          <AlertTitle>Every scenario has an outcome</AlertTitle>
           <AlertDescription>
             One last thing: the tests touched real systems on purpose. Run the auto-cleanup below,
             then tick off whatever it couldn&apos;t reach.
@@ -890,14 +890,17 @@ function CleanupView({
         </CardHeader>
         <CardContent className="space-y-2">
           {PLAYBOOK_CLEANUP.map((c) => (
-            <label key={c.id} className="flex cursor-pointer items-start gap-2 text-sm">
+            <div key={c.id} className="flex items-start gap-2">
               <Checkbox
+                id={`cleanup-${c.id}`}
                 className="mt-0.5"
                 checked={ticked.includes(c.id)}
                 onCheckedChange={() => onCheck(c.id)}
               />
-              <span>{c.text}</span>
-            </label>
+              <Label htmlFor={`cleanup-${c.id}`} className="cursor-pointer leading-snug font-normal">
+                {c.text}
+              </Label>
+            </div>
           ))}
         </CardContent>
       </Card>
@@ -989,8 +992,9 @@ function AutoCleanup({ onTickAll }: { onTickAll: (ids: string[]) => void }) {
               <ScanList scan={scan} />
             )}
             {scan.notes.map((n, i) => (
-              <p key={i} className="text-xs text-muted-foreground">
-                ⚠ {n}
+              <p key={i} className="flex items-start gap-1.5 text-xs text-muted-foreground">
+                <TriangleAlert className="mt-px size-3.5 shrink-0 text-tone-warn" aria-hidden />
+                {n}
               </p>
             ))}
             <div className="flex flex-wrap items-center gap-2">
@@ -1010,7 +1014,7 @@ function AutoCleanup({ onTickAll }: { onTickAll: (ids: string[]) => void }) {
                 </Button>
               )}
               <Button variant="ghost" size="sm" onClick={doScan} disabled={phase === "cleaning"}>
-                <RotateCw className="size-3.5" /> Rescan
+                <RotateCw /> Rescan
               </Button>
             </div>
           </>
@@ -1039,12 +1043,13 @@ function AutoCleanup({ onTickAll }: { onTickAll: (ids: string[]) => void }) {
               </AlertDescription>
             </Alert>
             {report.notes.map((n, i) => (
-              <p key={i} className="text-xs text-muted-foreground">
-                ⚠ {n}
+              <p key={i} className="flex items-start gap-1.5 text-xs text-muted-foreground">
+                <TriangleAlert className="mt-px size-3.5 shrink-0 text-tone-warn" aria-hidden />
+                {n}
               </p>
             ))}
             <Button variant="ghost" size="sm" onClick={doScan}>
-              <RotateCw className="size-3.5" /> Scan again
+              <RotateCw /> Scan again
             </Button>
           </>
         )}
@@ -1058,9 +1063,7 @@ function ScanList({ scan }: { scan: CleanupScanResult }) {
     <div className="space-y-2 text-sm">
       {scan.tickets.length > 0 && (
         <div>
-          <p className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
-            Tickets to close
-          </p>
+          <SectionHeader>Tickets to close</SectionHeader>
           <ul className="mt-1 space-y-0.5">
             {scan.tickets.map((t) => (
               <li key={t.id} className="flex items-center gap-2">
@@ -1081,9 +1084,7 @@ function ScanList({ scan }: { scan: CleanupScanResult }) {
       )}
       {scan.chats.length > 0 && (
         <div>
-          <p className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
-            Chats to resolve
-          </p>
+          <SectionHeader>Chats to resolve</SectionHeader>
           <ul className="mt-1 space-y-0.5">
             {scan.chats.map((c) => (
               <li key={c.id} className="flex items-center gap-2">
@@ -1099,9 +1100,7 @@ function ScanList({ scan }: { scan: CleanupScanResult }) {
       )}
       {scan.monday.length > 0 && (
         <div>
-          <p className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
-            Dev-board items to delete
-          </p>
+          <SectionHeader>Dev-board items to delete</SectionHeader>
           <ul className="mt-1 space-y-0.5">
             {scan.monday.map((m) => (
               <li key={m.id} className="flex items-center gap-2">

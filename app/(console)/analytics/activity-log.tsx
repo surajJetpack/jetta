@@ -9,6 +9,7 @@ import { Alert, AlertAction, AlertTitle } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StepCard, TraceIO } from "@/components/jetta/step-card";
 import { StatusChip } from "@/components/jetta/status-chip";
+import { SectionHeader } from "@/components/jetta/page-header";
 import { EmptyState } from "@/components/jetta/empty-state";
 import { RelativeTime } from "@/components/jetta/relative-time";
 
@@ -37,10 +38,6 @@ interface RunLog {
   kbHits: { title: string; source: string; score?: number }[];
   trace: { tool: string; input: unknown; result: string }[];
   error?: string;
-}
-
-function SectionLabel({ children }: { children: React.ReactNode }) {
-  return <div className="text-2xs font-semibold tracking-wider text-muted-foreground uppercase">{children}</div>;
 }
 
 export default function ActivityLog() {
@@ -154,9 +151,9 @@ export default function ActivityLog() {
                   .join(" · ")}
               </TraceIO>
             )}
-            {l.error && <p className="text-xs font-medium text-destructive">error: {l.error}</p>}
+            {l.error && <p className="text-xs font-medium text-tone-bad">Error: {l.error}</p>}
 
-            <SectionLabel>KB hits ({l.kbHits.length})</SectionLabel>
+            <SectionHeader>KB hits ({l.kbHits.length})</SectionHeader>
             {l.kbHits.length ? (
               l.kbHits.map((h, i) => (
                 <TraceIO key={i}>
@@ -168,7 +165,7 @@ export default function ActivityLog() {
               <p className="text-xs text-muted-foreground">none</p>
             )}
 
-            <SectionLabel>Tool trace ({l.trace.length})</SectionLabel>
+            <SectionHeader>Tool trace ({l.trace.length})</SectionHeader>
             {l.trace.map((t, i) => (
               <TraceIO key={i}>
                 <span className="text-primary">
@@ -181,7 +178,7 @@ export default function ActivityLog() {
 
             {l.reply && (
               <>
-                <SectionLabel>Reply</SectionLabel>
+                <SectionHeader>Reply</SectionHeader>
                 <div className="rounded-md bg-background/60 p-2 text-sm whitespace-pre-wrap">{l.reply}</div>
               </>
             )}

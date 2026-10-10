@@ -30,6 +30,14 @@ import { PerfDrillSheet, type OpenPerf, type PerfDrillRequest } from "./perf-dri
 import { InsightCard } from "@/components/jetta/insight-card";
 import { fmtHours, fmtDayKey } from "@/lib/format";
 
+/** The error a reader sees when a request fails; the raw status goes to the console. */
+function requestFailed(r: Response): string {
+  console.error(`${r.url} → HTTP ${r.status}`);
+  if (r.status === 401) return "Your session has expired. Sign in again.";
+  if (r.status === 403) return "You don't have access to this.";
+  return "The server couldn't load this. Try again in a moment.";
+}
+
 interface SyncInfo {
   cursor: string;
   queued: number;
@@ -78,7 +86,7 @@ function ChartCard({ title, description, children }: { title: string; descriptio
   return (
     <Card className="gap-2 py-4">
       <CardHeader className="px-4">
-        <CardTitle className="text-sm">{title}</CardTitle>
+        <CardTitle>{title}</CardTitle>
         <CardDescription className="text-xs">{description}</CardDescription>
       </CardHeader>
       <CardContent className="px-4">{children}</CardContent>
@@ -195,7 +203,7 @@ export default function PerformancePanel() {
     fetch("/api/admin/performance", { cache: "no-store" })
       .then(async (r) => {
         const d = await r.json();
-        if (!r.ok) throw new Error(d.message ?? d.error ?? `HTTP ${r.status}`);
+        if (!r.ok) throw new Error(d.message ?? d.error ?? requestFailed(r));
         setData(d);
         setErr(null);
         setRows(null);
@@ -215,7 +223,7 @@ export default function PerformancePanel() {
     rowsReq.current = fetch("/api/admin/performance?rows=1", { cache: "no-store" })
       .then(async (r) => {
         const d = await r.json();
-        if (!r.ok) throw new Error(d.message ?? d.error ?? `HTTP ${r.status}`);
+        if (!r.ok) throw new Error(d.message ?? d.error ?? requestFailed(r));
         setRowsMissing(d.rows == null);
         setRows(d.rows ?? []);
       })
@@ -230,7 +238,7 @@ export default function PerformancePanel() {
     try {
       const r = await fetch("/api/admin/performance", { method: "POST" });
       const d = await r.json();
-      if (!r.ok) throw new Error(d.message ?? d.error ?? `HTTP ${r.status}`);
+      if (!r.ok) throw new Error(d.message ?? d.error ?? requestFailed(r));
       toast.success(`Read ${d.read} ticket${d.read === 1 ? "" : "s"} from Freshdesk${d.queued ? ` · ${d.queued} still queued` : ""}`);
       load();
     } catch (e) {
@@ -295,7 +303,7 @@ export default function PerformancePanel() {
     };
 
   return (
-    <div className="grid min-w-0 gap-6 [&>*]:min-w-0">
+    <div className="grid min-w-0 gap-5 [&>*]:min-w-0">
       <div id="ai-read" className="scroll-mt-16">
         <InsightCard
           endpoint="/api/admin/performance/insight"
@@ -307,7 +315,7 @@ export default function PerformancePanel() {
 
       <Card id="last-28-days" className="scroll-mt-16 py-4">
         <CardHeader className="px-4">
-          <CardTitle className="text-sm">Last 28 days</CardTitle>
+          <CardTitle>Last 28 days</CardTitle>
           <CardDescription className="text-xs">
             Tickets with at least one agent reply. Marketing and vendor mail nobody answers is left out. Click any
             number to see the tickets behind it.
@@ -411,7 +419,7 @@ export default function PerformancePanel() {
 
       <Card id="by-agent" className="scroll-mt-16 py-4">
         <CardHeader className="px-4">
-          <CardTitle className="text-sm">By agent, last 28 days</CardTitle>
+          <CardTitle>By agent, last 28 days</CardTitle>
           <CardDescription className="text-xs">
             For coaching, not ranking. A low draft-use rate is a question to ask — which drafts don&apos;t help, and why — not a score.
           </CardDescription>

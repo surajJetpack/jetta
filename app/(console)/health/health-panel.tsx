@@ -34,6 +34,14 @@ import { DrillSheet, type DrillRequest } from "./drill-sheet";
 import { InsightCard } from "@/components/jetta/insight-card";
 import { fmtHours, fmtDayKey } from "@/lib/format";
 
+/** The error a reader sees when a request fails; the raw status goes to the console. */
+function requestFailed(r: Response): string {
+  console.error(`${r.url} → HTTP ${r.status}`);
+  if (r.status === 401) return "Your session has expired. Sign in again.";
+  if (r.status === 403) return "You don't have access to this.";
+  return "The server couldn't load this. Try again in a moment.";
+}
+
 interface Payload {
   health: SupportHealth | null;
   sync: { lastRunAt: number | null; queued: number; lastError: string | null };
@@ -81,7 +89,7 @@ function ChartCard({ title, description, children }: { title: string; descriptio
   return (
     <Card className="gap-2 py-4">
       <CardHeader className="px-4">
-        <CardTitle className="text-sm">{title}</CardTitle>
+        <CardTitle>{title}</CardTitle>
         <CardDescription className="text-xs">{description}</CardDescription>
       </CardHeader>
       <CardContent className="px-4">{children}</CardContent>
@@ -259,7 +267,7 @@ function BallBar({ b, open }: { b: Backlog; open: Open }) {
               type="button"
               onClick={() => show(p)}
               disabled={!p.n}
-              className="flex items-center gap-1.5 rounded-sm hover:text-foreground hover:underline disabled:pointer-events-none"
+              className="flex items-center gap-1.5 rounded-sm outline-none hover:text-foreground hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none"
             >
               <span className={cn("size-2 rounded-full", p.cls)} aria-hidden />
               {p.label} <span className="font-medium text-foreground tabular-nums">{p.n}</span>
@@ -275,7 +283,7 @@ function RightNow({ b, base, open }: { b: Backlog; base: string; open: Open }) {
   return (
     <Card id="right-now" className="scroll-mt-16 py-4">
       <CardHeader className="px-4">
-        <CardTitle className="text-sm">Right now · {b.open} open</CardTitle>
+        <CardTitle>Right now · {b.open} open</CardTitle>
         <CardDescription className="text-xs">
           Whose turn it is, read from the conversation itself: a customer is waiting on us when theirs is the newest
           message, whatever the ticket&apos;s status says.
@@ -352,7 +360,7 @@ function ByApp({ apps, open }: { apps: AppHealth[]; open: Open }) {
   return (
     <Card id="by-app" className="scroll-mt-16 py-4">
       <CardHeader className="px-4">
-        <CardTitle className="text-sm">By app, last 28 days</CardTitle>
+        <CardTitle>By app, last 28 days</CardTitle>
         <CardDescription className="text-xs">
           Bugs and knowledge gaps come from reviewing each ticket Jetta handed to people: did it need a developer, or
           just an answer she didn&apos;t have?
@@ -443,7 +451,7 @@ function Topics({ h, open }: { h: SupportHealth; open: Open }) {
   return (
     <Card id="themes" className="scroll-mt-16 gap-2 py-4">
       <CardHeader className="px-4">
-        <CardTitle className="text-sm">What customers asked about</CardTitle>
+        <CardTitle>What customers asked about</CardTitle>
         <CardDescription className="text-xs">
           Last 28 days, by theme. {h.topicCoverage != null && `${pct(h.topicCoverage)} of tickets carry a theme.`}
         </CardDescription>
@@ -516,7 +524,7 @@ function Load({ h, open }: { h: SupportHealth; open: Open }) {
   return (
     <Card id="load" className="scroll-mt-16 gap-2 py-4">
       <CardHeader className="px-4">
-        <CardTitle className="text-sm">Who carried the load</CardTitle>
+        <CardTitle>Who carried the load</CardTitle>
         <CardDescription className="text-xs">Last 28 days. Every email reply is still sent by a person.</CardDescription>
       </CardHeader>
       <CardContent className="px-4">
@@ -542,7 +550,7 @@ export default function HealthPanel() {
     fetch("/api/admin/support-health", { cache: "no-store" })
       .then(async (r) => {
         const d = await r.json();
-        if (!r.ok) throw new Error(d.message ?? d.error ?? `HTTP ${r.status}`);
+        if (!r.ok) throw new Error(d.message ?? d.error ?? requestFailed(r));
         setData(d);
         setErr(null);
         setRows(null);
@@ -581,7 +589,7 @@ export default function HealthPanel() {
     rowsReq.current = fetch("/api/admin/support-health?rows=1", { cache: "no-store" })
       .then(async (r) => {
         const d = await r.json();
-        if (!r.ok) throw new Error(d.message ?? d.error ?? `HTTP ${r.status}`);
+        if (!r.ok) throw new Error(d.message ?? d.error ?? requestFailed(r));
         setRowsMissing(d.rows == null);
         setRows(d.rows ?? []);
       })
@@ -596,7 +604,7 @@ export default function HealthPanel() {
     try {
       const r = await fetch("/api/admin/support-health", { method: "POST" });
       const d = await r.json();
-      if (!r.ok) throw new Error(d.message ?? d.error ?? `HTTP ${r.status}`);
+      if (!r.ok) throw new Error(d.message ?? d.error ?? requestFailed(r));
       toast.success(`Read ${d.read} ticket${d.read === 1 ? "" : "s"} from Freshdesk${d.queued ? ` · ${d.queued} still queued` : ""}`);
       load();
     } catch (e) {
@@ -669,14 +677,14 @@ export default function HealthPanel() {
   );
 
   return (
-    <div className="grid min-w-0 gap-6 [&>*]:min-w-0">
+    <div className="grid min-w-0 gap-5 [&>*]:min-w-0">
       <div id="ai-read" className="scroll-mt-16">
         <InsightCard endpoint="/api/admin/support-health/insight" basedOn={h.computedAt} open={open} />
       </div>
 
       <Card id="last-28-days" className="scroll-mt-16 py-4">
         <CardHeader className="px-4">
-          <CardTitle className="text-sm">Last 28 days</CardTitle>
+          <CardTitle>Last 28 days</CardTitle>
           <CardDescription className="text-xs">
             Tickets a person answered or that are still open. Marketing and vendor mail closed without a reply is left
             out. Click any number to see the tickets behind it.

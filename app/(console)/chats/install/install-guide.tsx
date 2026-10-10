@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Alert, AlertTitle } from "@/components/ui/alert";
+import { Skeleton } from "@/components/ui/skeleton";
 import { StatusChip } from "@/components/jetta/status-chip";
 import { APP_NAMES } from "@/lib/types";
 
@@ -20,6 +21,7 @@ function Snippet({ code }: { code: string }) {
         <code>{code}</code>
       </pre>
       <Button
+        type="button"
         size="sm"
         variant="outline"
         className="absolute top-2 right-2"
@@ -38,7 +40,7 @@ function Snippet({ code }: { code: string }) {
 function Step({ n, title, children }: { n: number; title: string; children: React.ReactNode }) {
   return (
     <div className="flex gap-3">
-      <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
+      <span aria-hidden className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
         {n}
       </span>
       <div className="min-w-0 flex-1 space-y-2">
@@ -50,16 +52,24 @@ function Step({ n, title, children }: { n: number; title: string; children: Reac
 }
 
 export default function InstallGuide({ baseUrl }: { baseUrl: string }) {
-  const [origins, setOrigins] = useState<string[]>([]);
+  /** null while loading; the allowlist the check below compares against. */
+  const [origins, setOrigins] = useState<string[] | null>(null);
+  const [originsErr, setOriginsErr] = useState(false);
   const [probe, setProbe] = useState("");
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [checking, setChecking] = useState(false);
 
   useEffect(() => {
     fetch("/api/admin/chat-settings", { cache: "no-store" })
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) throw new Error(String(r.status));
+        return r.json();
+      })
       .then((d: { settings: { allowedOrigins: string[] } }) => setOrigins(d.settings.allowedOrigins ?? []))
-      .catch(() => {});
+      .catch(() => {
+        setOrigins([]);
+        setOriginsErr(true);
+      });
   }, []);
 
   // The check that saves the most time: paste the site's address and find out
@@ -80,7 +90,7 @@ export default function InstallGuide({ baseUrl }: { baseUrl: string }) {
     fetch(`/api/chat/config`)
       .then((r) => r.json())
       .then((cfg: { enabled: boolean }) => {
-        const allowed = origins.includes(origin);
+        const allowed = (origins ?? []).includes(origin);
         if (!cfg.enabled) {
           setResult({ ok: false, message: "The chat is currently switched off, so nothing will load anywhere." });
         } else if (!allowed) {
@@ -289,6 +299,7 @@ export async function openSupport() {
           </p>
           <div className="flex flex-wrap gap-2">
             <Input
+              aria-label="Site address to check"
               value={probe}
               placeholder="jetpackapps.io"
               onChange={(e) => setProbe(e.target.value)}
@@ -307,14 +318,25 @@ export async function openSupport() {
           )}
           <div className="flex flex-wrap items-center gap-1.5 pt-1">
             <span className="text-2xs text-muted-foreground">Currently allowed:</span>
-            {origins.length ? (
+            {origins === null ? (
+              <>
+                <Skeleton className="h-5 w-32 rounded-full" />
+                <Skeleton className="h-5 w-24 rounded-full" />
+              </>
+            ) : originsErr ? (
+              <span className="inline-flex items-center gap-1 text-2xs text-tone-bad">
+                <TriangleAlert className="size-3.5" aria-hidden /> Couldn&apos;t load the allowed list
+                — the check above may be wrong. Reload to try again.
+              </span>
+            ) : origins.length ? (
               origins.map((o) => (
-                <StatusChip key={o} tone="published">
+                // Origins are case-sensitive addresses, not labels — keep them as typed.
+                <StatusChip key={o} tone="published" className="tracking-normal normal-case">
                   {o}
                 </StatusChip>
               ))
             ) : (
-              <StatusChip tone="draft">nothing yet — the chat can only run on this domain</StatusChip>
+              <StatusChip tone="draft">Nothing yet — the chat can only run on this domain</StatusChip>
             )}
           </div>
         </CardContent>

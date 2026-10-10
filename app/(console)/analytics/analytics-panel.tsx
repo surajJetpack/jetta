@@ -10,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { StepCard } from "@/components/jetta/step-card";
 import { StatusChip } from "@/components/jetta/status-chip";
+import { SectionHeader } from "@/components/jetta/page-header";
 import { BrandFilter, brandQuery, type Brand } from "@/components/jetta/brand-filter";
 
 interface Gap { ticketId: string; subject: string; reason: string; at: number; url: string }
@@ -47,14 +48,10 @@ interface Stats {
 function Stat({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="rounded-lg border bg-muted/40 p-3">
-      <div className="text-2xs font-medium tracking-wide text-muted-foreground uppercase">{label}</div>
+      <div className="text-2xs font-medium tracking-wider text-muted-foreground uppercase">{label}</div>
       <div className="mt-1 flex items-center gap-2 font-mono text-sm font-semibold">{children}</div>
     </div>
   );
-}
-
-function SectionLabel({ children }: { children: React.ReactNode }) {
-  return <div className="text-2xs font-semibold tracking-wider text-muted-foreground uppercase">{children}</div>;
 }
 
 export default function AnalyticsPanel() {
@@ -139,7 +136,7 @@ export default function AnalyticsPanel() {
             </div>
 
             <div className="space-y-2">
-              <SectionLabel>Knowledge gaps — document these next ({s.gaps.length})</SectionLabel>
+              <SectionHeader>Knowledge gaps — document these next ({s.gaps.length})</SectionHeader>
               {s.gaps.length ? (
                 s.gaps.slice(0, 12).map((g) => (
                   <StepCard
@@ -163,7 +160,7 @@ export default function AnalyticsPanel() {
 
             {s.gapKeywords.length > 0 && (
               <div className="space-y-2">
-                <SectionLabel>Recurring gap themes</SectionLabel>
+                <SectionHeader>Recurring gap themes</SectionHeader>
                 <div className="flex flex-wrap gap-1.5">
                   {s.gapKeywords.map((k) => (
                     <StatusChip key={k.term}>
@@ -175,7 +172,7 @@ export default function AnalyticsPanel() {
             )}
 
             <div className="space-y-2">
-              <SectionLabel>Learned via the Knowledge Loop ({s.approvedArticles.length})</SectionLabel>
+              <SectionHeader>Learned via the Knowledge Loop ({s.approvedArticles.length})</SectionHeader>
               {s.approvedArticles.length ? (
                 <ul className="space-y-1.5">
                   {s.approvedArticles.slice(0, 10).map((a, i) => (
@@ -201,7 +198,7 @@ export default function AnalyticsPanel() {
 
             {(s.models?.length ?? 0) > 0 && (
               <div className="space-y-2">
-                <SectionLabel>Model quality — evidence for tiered routing</SectionLabel>
+                <SectionHeader>Model quality — evidence for tiered routing</SectionHeader>
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -266,7 +263,7 @@ export default function AnalyticsPanel() {
 
             {(s.taskTokens?.length ?? 0) > 0 && (
               <div className="space-y-2">
-                <SectionLabel>Token consumption by task</SectionLabel>
+                <SectionHeader>Token consumption by task</SectionHeader>
                 <div className="flex flex-wrap gap-1.5">
                   {s.taskTokens!.map((t) => (
                     <StatusChip key={t.task} className="font-mono">
@@ -280,7 +277,7 @@ export default function AnalyticsPanel() {
 
             {s.toolUsage.length > 0 && (
               <div className="space-y-2">
-                <SectionLabel>Tool usage</SectionLabel>
+                <SectionHeader>Tool usage</SectionHeader>
                 <div className="flex flex-wrap gap-1.5">
                   {s.toolUsage.map((t) => (
                     <StatusChip key={t.tool} className="font-mono">

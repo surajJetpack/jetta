@@ -79,7 +79,7 @@ function DraftCard({ draft, onDecide }: { draft: Article; onDecide: () => void }
       meta={
         <>
           {draft.origin} · {draft.createdBy}
-          {dup && <StatusChip tone="stale">dup? {dup.title.slice(0, 40)}</StatusChip>}
+          {dup && <StatusChip tone="stale">Possible duplicate: {dup.title.slice(0, 40)}</StatusChip>}
         </>
       }
     >
@@ -90,7 +90,7 @@ function DraftCard({ draft, onDecide }: { draft: Article; onDecide: () => void }
           <div className="rounded-lg border bg-background px-3 py-1">
             <Md>{draft.body}</Md>
           </div>
-          {draft.keywords.length > 0 && <TraceIO>keywords: {draft.keywords.join(", ")}</TraceIO>}
+          {draft.keywords.length > 0 && <TraceIO>Keywords: {draft.keywords.join(", ")}</TraceIO>}
 
           {similar && (
             <div className="text-xs text-muted-foreground">
@@ -100,7 +100,7 @@ function DraftCard({ draft, onDecide }: { draft: Article; onDecide: () => void }
               </Link>
               {similar.score !== undefined && ` (${similar.score.toFixed(3)})`}
               <Button variant="link" size="sm" onClick={() => setShowDiff(!showDiff)}>
-                {showDiff ? "hide diff" : "show diff"}
+                {showDiff ? "Hide diff" : "Show diff"}
               </Button>
               {showDiff && <DiffView oldText={similar.body} newText={draft.body} />}
             </div>
@@ -108,7 +108,7 @@ function DraftCard({ draft, onDecide }: { draft: Article; onDecide: () => void }
 
           <div className="flex flex-wrap items-center gap-2">
             <Button disabled={busy} onClick={() => decide("approve")}>
-              <Check /> Approve → publish
+              <Check /> Approve and publish
             </Button>
             <Button variant="secondary" asChild>
               <Link href={`/kb/article?id=${encodeURIComponent(draft.id)}`}>

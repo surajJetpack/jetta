@@ -29,13 +29,14 @@ export function BrandFilter({
   disabled?: boolean;
 }) {
   return (
-    <div className="flex gap-1.5">
+    <div className="flex gap-1.5" role="group" aria-label="Brand">
       {OPTIONS.map((o) => (
         <Button
           key={o.label}
           type="button"
           size="sm"
           variant={value === o.value ? "default" : "outline"}
+          aria-pressed={value === o.value}
           disabled={disabled}
           onClick={() => onChange(o.value)}
         >

@@ -45,7 +45,7 @@ export function MetricRow({
           key={m.label}
           className={cn("min-w-0", m.onClick && "group relative -m-1.5 rounded-md p-1.5 transition-colors hover:bg-muted/60")}
         >
-          <dt className="truncate text-2xs font-medium tracking-wider text-muted-foreground uppercase">
+          <dt className="text-2xs font-medium tracking-wider text-pretty text-muted-foreground uppercase">
             {m.label}
           </dt>
           <dd
@@ -57,14 +57,14 @@ export function MetricRow({
           >
             {m.value}
           </dd>
-          {m.hint && <p className="mt-1 truncate text-xs text-muted-foreground">{m.hint}</p>}
+          {m.hint && <p className="mt-1 text-xs text-pretty text-muted-foreground">{m.hint}</p>}
           {m.onClick && (
             // Covers the cell so the label and hint are part of the target; dt/dd can't live inside a <button>.
             <button
               type="button"
               onClick={m.onClick}
               aria-label={`Show the records behind ${m.label}`}
-              className="absolute inset-0 rounded-md focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+              className="absolute inset-0 rounded-md outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
             />
           )}
         </div>

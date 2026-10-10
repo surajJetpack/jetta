@@ -95,7 +95,7 @@ export default function HandoffPanel({ h, ticketUrlBase, open }: { h: HandoffSum
   return (
     <Card id="handoffs" className="scroll-mt-16 py-4">
       <CardHeader className="px-4">
-        <CardTitle className="text-sm">Handoffs: real bugs or knowledge gaps?</CardTitle>
+        <CardTitle>Handoffs: real bugs or knowledge gaps?</CardTitle>
         <CardDescription className="text-xs">
           Every ticket Jetta passed to people — a dev item, a Slack escalation, or a chat she couldn&apos;t finish —
           judged by what happened next: engineering&apos;s comments on the dev item and the agents&apos; later

@@ -12,6 +12,7 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { StatusRows } from "@/components/jetta/signal";
+import { PageHeader, SectionHeader } from "@/components/jetta/page-header";
 import SlackChannelHealth from "@/components/jetta/slack-channel-health";
 import TicketTester from "./ticket-tester";
 
@@ -32,6 +33,11 @@ export default async function SystemPage() {
 
   return (
     <>
+      <PageHeader
+        title="System"
+        description="What Jetta is allowed to do in this environment, and how it's wired."
+      />
+
       <Card id="capabilities" className="scroll-mt-16">
         <CardHeader>
           <CardTitle>What Jetta can change</CardTitle>
@@ -104,9 +110,7 @@ export default async function SystemPage() {
           </div>
 
           <div className="border-t pt-3">
-            <p className="mb-2 text-2xs font-medium tracking-wide text-muted-foreground uppercase">
-              Scheduled
-            </p>
+            <SectionHeader className="mb-2">Scheduled</SectionHeader>
             {CRONS.map((c, i) => (
               <div key={c.path}>
                 {i > 0 && <Separator className="my-2" />}

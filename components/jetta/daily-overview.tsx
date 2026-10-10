@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Alert, AlertAction, AlertTitle } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusChip } from "@/components/jetta/status-chip";
+import { SectionHeader } from "@/components/jetta/page-header";
 import { useDataVersion } from "@/lib/use-data-version";
 
 interface Insight {
@@ -40,7 +41,7 @@ interface Rollup {
 function Stat({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="rounded-lg border bg-muted/40 p-3">
-      <div className="text-2xs font-medium tracking-wide text-muted-foreground uppercase">{label}</div>
+      <div className="text-2xs font-medium tracking-wider text-muted-foreground uppercase">{label}</div>
       <div className="mt-1 flex items-center gap-2 font-mono text-sm font-semibold">{children}</div>
     </div>
   );
@@ -84,7 +85,12 @@ export default function DailyOverview() {
       body: JSON.stringify(day ? { date: day.date } : {}),
     })
       .then(async (r) => {
-        if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error ?? `HTTP ${r.status}`);
+        if (!r.ok) {
+          console.error(`/api/admin/daily: HTTP ${r.status}`);
+          throw new Error(
+            (await r.json().catch(() => ({}))).error ?? "Couldn't regenerate the overview. Try again in a moment.",
+          );
+        }
       })
       .then(() => load())
       .catch((e) => setErr(e instanceof Error ? e.message : String(e)))
@@ -163,9 +169,7 @@ export default function DailyOverview() {
             <div className="rounded-lg border bg-muted/30 p-4">
               <div className="mb-2 flex items-center gap-2">
                 <Sparkles className="size-4 text-muted-foreground" aria-hidden />
-                <span className="text-2xs font-semibold tracking-wider text-muted-foreground uppercase">
-                  AI Insight
-                </span>
+                <SectionHeader>AI insight</SectionHeader>
               </div>
               {day.insight ? (
                 <div className="space-y-3">

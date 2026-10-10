@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Activity as ActivityIcon, ExternalLink, RotateCw, TriangleAlert, X } from "lucide-react";
+import { Activity as ActivityIcon, ExternalLink, Loader2, RotateCw, TriangleAlert, X } from "lucide-react";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -15,7 +15,7 @@ import { CellLink } from "@/components/jetta/cell-link";
 import { EmptyState } from "@/components/jetta/empty-state";
 import { RelativeTime } from "@/components/jetta/relative-time";
 import { useDataVersion } from "@/lib/use-data-version";
-import { useNow } from "@/lib/format";
+import { fmtHours, useNow } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import {
   ACTION_LABEL,
@@ -27,6 +27,14 @@ import {
   type Place,
   type Scorecard,
 } from "@/lib/activity";
+
+/** The error a reader sees when a request fails; the raw status goes to the console. */
+function requestFailed(r: Response): string {
+  console.error(`${r.url} → HTTP ${r.status}`);
+  if (r.status === 401) return "Your session has expired. Sign in again.";
+  if (r.status === 403) return "You don't have access to this.";
+  return "The server couldn't load this. Try again in a moment.";
+}
 
 type Row = Activity & { person: { key: string; name: string } };
 
@@ -81,8 +89,8 @@ const PLACE_DOT: Record<Place, string> = {
   console: "bg-[var(--chart-5)]",
 };
 
-const mins = (v: number | null) =>
-  v == null ? null : v < 60 ? `${Math.round(v)} min` : v < 48 * 60 ? `${(v / 60).toFixed(1)} h` : `${Math.round(v / 1440)} d`;
+/** A span in minutes, in the console's one duration format — null stays null so callers can omit it. */
+const mins = (v: number | null) => (v == null ? null : fmtHours(v / 60));
 
 function query(days: number, f: Filter, before?: number | null): string {
   const p = new URLSearchParams({ days: String(days) });
@@ -111,7 +119,7 @@ export default function ActivityPanel() {
     fetch(query(days, filter), { cache: "no-store" })
       .then(async (r) => {
         const d = await r.json();
-        if (!r.ok) throw new Error(d.message ?? d.error ?? `HTTP ${r.status}`);
+        if (!r.ok) throw new Error(d.message ?? d.error ?? requestFailed(r));
         if (id !== reqId.current) return;
         setData(d);
         setMore([]);
@@ -131,7 +139,7 @@ export default function ActivityPanel() {
     try {
       const r = await fetch(query(days, filter, nextBefore), { cache: "no-store" });
       const d = (await r.json()) as Payload;
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      if (!r.ok) throw new Error(requestFailed(r));
       setMore((m) => [...m, ...d.timeline]);
       setNextBefore(d.nextBefore);
     } catch (e) {
@@ -146,7 +154,7 @@ export default function ActivityPanel() {
     try {
       const r = await fetch("/api/admin/activity", { method: "POST" });
       const d = await r.json();
-      if (!r.ok) throw new Error(d.message ?? d.error ?? `HTTP ${r.status}`);
+      if (!r.ok) throw new Error(d.message ?? d.error ?? requestFailed(r));
       if (d.status === "partial") toast.warning(`Read ${d.added} new actions — some sources aren't reporting (see below).`);
       else toast.success(`Read ${d.added} actions from Slack, monday and the KB`);
       load();
@@ -205,7 +213,7 @@ export default function ActivityPanel() {
   ];
 
   return (
-    <div className="grid min-w-0 gap-6 [&>*]:min-w-0">
+    <div className="grid min-w-0 gap-5 [&>*]:min-w-0">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="inline-flex rounded-md border p-0.5" role="group" aria-label="Time window">
           {WINDOWS.map((w) => (
@@ -228,7 +236,7 @@ export default function ActivityPanel() {
 
       <Card id="scorecard" className="scroll-mt-16 py-4">
         <CardHeader className="px-4">
-          <CardTitle className="text-sm">Who did what, last {windowLabel}</CardTitle>
+          <CardTitle>Who did what, last {windowLabel}</CardTitle>
           <CardDescription className="text-xs">
             Every number opens the actions behind it. Pick-up is how long a visitor had waited when the person joined;
             Slack response is how long a Jetta post sat before their first reply. The hour strip is when they worked ({data.timeZone}).
@@ -269,7 +277,7 @@ export default function ActivityPanel() {
 
       <Card id="timeline" ref={timelineRef} className="scroll-mt-16 py-4">
         <CardHeader className="px-4">
-          <CardTitle className="text-sm">Timeline</CardTitle>
+          <CardTitle>Timeline</CardTitle>
           <CardDescription className="text-xs">
             {data.matching} action{data.matching === 1 ? "" : "s"}, newest first.
           </CardDescription>
@@ -304,12 +312,23 @@ export default function ActivityPanel() {
               ))}
             </ol>
           ) : (
-            <p className="py-6 text-center text-sm text-muted-foreground">Nothing matches these filters in the last {windowLabel}.</p>
+            <EmptyState
+              icon={ActivityIcon}
+              title="Nothing matches these filters"
+              hint={`No activity in the last ${windowLabel} for this combination. Clear a filter to widen it.`}
+              className="border-0 py-6"
+            />
           )}
           {nextBefore && (
             <div className="mt-3 flex justify-center">
               <Button variant="outline" size="sm" onClick={loadMore} disabled={loadingMore}>
-                {loadingMore ? "Loading…" : "Show older"}
+                {loadingMore ? (
+                  <>
+                    <Loader2 className="animate-spin" /> Loading
+                  </>
+                ) : (
+                  "Show older"
+                )}
               </Button>
             </div>
           )}
@@ -328,7 +347,7 @@ function PersonLine({ p, show }: { p: PersonRow; show: (f: Filter) => void }) {
       <TableCell className="font-medium">
         <button
           type="button"
-          className="flex items-center gap-2 text-left hover:underline"
+          className="flex items-center gap-2 rounded-sm text-left hover:underline outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
           onClick={() => show({ person: p.key })}
         >
           {p.name}
@@ -389,7 +408,7 @@ function TimelineItem({ a, onPerson }: { a: Row; onPerson: (key: string) => void
       <span className={cn("mt-1.5 size-2 shrink-0 rounded-full", PLACE_DOT[a.place])} aria-hidden />
       <div className="min-w-0 flex-1">
         <div>
-          <button type="button" className="font-medium hover:underline" onClick={() => onPerson(a.person.key)}>
+          <button type="button" className="rounded-sm font-medium hover:underline outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50" onClick={() => onPerson(a.person.key)}>
             {a.person.name}
           </button>{" "}
           <span className="text-muted-foreground">{ACTION_LABEL[a.action]}</span>
@@ -425,7 +444,7 @@ function Chip({ children, onClear }: { children: React.ReactNode; onClear: () =>
   return (
     <Badge variant="secondary" className="gap-1 pr-1">
       {children}
-      <button type="button" onClick={onClear} aria-label="Clear filter" className="rounded-full hover:bg-muted">
+      <button type="button" onClick={onClear} aria-label="Clear filter" className="rounded-full hover:bg-muted outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50">
         <X className="size-3" />
       </button>
     </Badge>
@@ -468,7 +487,7 @@ function SourcesCard({ data, onChanged }: { data: Payload; onChanged: () => void
         body: JSON.stringify({ action: "register-monday" }),
       });
       const d = await r.json();
-      if (!r.ok) throw new Error(d.problem ?? d.error ?? `HTTP ${r.status}`);
+      if (!r.ok) throw new Error(d.problem ?? d.error ?? requestFailed(r));
       toast.success(d.created ? `Subscribed to ${d.created} monday board events` : "monday was already connected");
       onChanged();
     } catch (e) {
@@ -546,7 +565,7 @@ function SourcesCard({ data, onChanged }: { data: Payload; onChanged: () => void
   return (
     <Card className="py-4">
       <CardHeader className="px-4">
-        <CardTitle className="text-sm">Where this comes from</CardTitle>
+        <CardTitle>Where this comes from</CardTitle>
         <CardDescription className="text-xs">
           {lastRunAt ? (
             <>
