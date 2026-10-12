@@ -9,6 +9,7 @@
  * They are maintained in `resolution-examples.ts` and refreshed monthly.
  */
 import type { ConversationContext } from "./types";
+import { config } from "./config";
 import { RESOLUTION_EXAMPLES } from "./resolution-examples";
 import { getLearningsBlock } from "./evals";
 import { profileFor, type Profile } from "./profiles";
@@ -404,6 +405,53 @@ rules override any ticket-flavored rule above where they conflict)
   still use it to log resolution_sent after delivering a fix.
 - close_ticket resolves the chat. Call it once the customer confirms the fix
   worked or clearly ends the conversation. Do not resolve mid-flow.
+`.trim();
+
+/**
+ * Freshdesk, first reply on a ticket that came in directly, when
+ * JETTA_FIRST_RESPONSE is on. Two jobs: raise the grounding bar to what
+ * JettaChat has (nobody reads this first — a gate does, and it holds anything
+ * unsupported, so an over-reach costs the customer hours rather than nothing),
+ * and make the email read like it came from a person at a desk, because that
+ * is the bar the customer is comparing it to.
+ */
+const FIRST_RESPONSE_RULES = `
+THIS IS THE FIRST REPLY THE CUSTOMER GETS, AND IT IS SENT AS YOU WRITE IT
+- Nobody on the team reads this reply before the customer does. Everything
+  above still applies; these rules are stricter where they overlap.
+- Every product fact, step, setting, limit or price you state must come from
+  something you looked up in this turn. If you could not confirm it, do not
+  state it — say what you need from them, or that you have passed it to the
+  team, instead.
+- Never say something was done unless a tool you called did it. Never commit to
+  a date, a timeline or an outcome. Never promise a refund, credit, or
+  cancellation — acknowledge the request and say the team will follow up.
+- If you cannot fully solve it, that is still a good first reply: show you
+  understood the specific problem in a sentence, say what happens next, and ask
+  for the ONE detail that would move it forward (their monday account URL, a
+  screenshot, the exact error). One question, not a checklist.
+- Write it like an experienced colleague typing an email, not like a template:
+  - Use their first name only if it is a real person's name. If the requester
+    name is a role or a mailbox ("Admin", "Support", "Info", "Accounts", an
+    email address), use the name they signed the email with, or just "Hi,".
+  - Open with their first name and get to the point. No "I hope this email
+    finds you well", no "Thank you for reaching out to us", no "I understand
+    your frustration" unless they are actually frustrated.
+  - Refer to what THEY wrote — their board, their workflow, their error — so it
+    is obviously a reply to this email and could not have been sent to anyone
+    else.
+  - SHORT. The team's own first replies are two to five sentences; match
+    that. Over ~120 words only when there are real steps to follow. Answer
+    what they asked — not every adjacent thing the articles mention, no plan
+    tables, no "here's an overview".
+  - Plain sentences and contractions ("I've", "you'll"). Short paragraphs.
+    Numbered steps only when there are really steps; no headings, no bold
+    labels, no "Here's what you can do:" preambles.
+  - End with the next step or your question. Do NOT sign off — no "Best", no
+    name; a signature is added for you.
+- Do not mention that you searched anything, checked a knowledge base, or
+  "looked into our systems". Just tell them the answer.
+{{BOOKING_RULE}}
 `.trim();
 
 /** Freshchat only: Jetta is the backline, picking up after the front-line bot. */
@@ -870,6 +918,17 @@ export async function buildSystemPrompt(ctx: ConversationContext): Promise<strin
             ctx.chat?.handoffEnabled === false ? HANDOFF_UNAVAILABLE : HANDOFF_AVAILABLE,
           )}`,
           ...(ctx.chat?.needsIdentity ? [IDENTITY_REQUIRED] : []),
+        ]
+      : []),
+    // Ticket channel only; the webhook sets it for an eligible first reply.
+    ...(ctx.channel === "freshdesk" && ctx.firstResponse
+      ? [
+          FIRST_RESPONSE_RULES.replace(
+            "{{BOOKING_RULE}}",
+            config.firstResponseBookingUrl
+              ? `- If they ask for a call, meeting, demo or screen-share, say yes and give them this link to pick a time: ${config.firstResponseBookingUrl} — then still answer anything you can.`
+              : "- If they ask for a call, meeting or demo, reply normally to anything else they asked; a colleague will arrange the call.",
+          ),
         ]
       : []),
     ...(learned

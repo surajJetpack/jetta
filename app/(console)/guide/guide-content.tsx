@@ -56,10 +56,11 @@ export default function GuideContent({ isAdmin }: { isAdmin: boolean }) {
             board, works out which app the ticket is about, and writes a suggested reply.
           </p>
           <p>
-            <b>On Freshdesk, nothing reaches a customer until a human sends it.</b>{" "}Jetta&apos;s
+            <b>On Freshdesk, Jetta&apos;s replies are suggestions for a human to send.</b>{" "}Each
             suggestion is posted as a <b>private note on the ticket</b>{" "}(customers never see notes).
             You copy it into the reply editor, edit freely, and send as yourself. There is no console
-            step and no queue to clear.
+            step and no queue to clear. The one exception is the first reply on an email ticket, when
+            that is switched on. See Replying below.
           </p>
           <p>
             <b>Live chat is the exception</b> — there Jetta answers the visitor directly, with no
@@ -164,6 +165,20 @@ export default function GuideContent({ isAdmin }: { isAdmin: boolean }) {
             old one is marked <i>superseded</i>{" "}and Jetta writes a fresh one against the new message.
             And if nobody ever replies to a ticket, its suggestion quietly <i>expires</i>{" "}after two
             weeks rather than piling up — an expired suggestion is not a black mark against anyone.
+          </p>
+          <p>
+            <b>First replies on email tickets (when /system shows it ON).</b>{" "}Jetta sends the{" "}
+            <i>first</i>{" "}reply herself on tickets that came in by email, the support portal or the
+            in-app form, if nobody has replied yet. <b>Never on tickets that came from a chat.</b>{" "}That
+            customer has already been talking to her. Every later reply is a suggestion as usual.
+          </p>
+          <p>
+            A few minutes before it goes out, a private note says{" "}
+            <b>&ldquo;Jetta — sending the first response at HH:MM UTC&rdquo;</b>{" "}with the text.{" "}
+            <b>To stop it, reply yourself or add the tag <code>jetta-hold</code>.</b>{" "}Anything a second
+            check doesn&apos;t trust is held and arrives as the usual suggestion, labelled with why:
+            claims she couldn&apos;t confirm, promised refunds or dates, legal or chargeback threats,
+            data requests, call requests and pricing talk.
           </p>
           <p className="text-muted-foreground">
             Every suggestion is kept at <code>/drafts</code>{" "}as an audit trail. It is not in the nav

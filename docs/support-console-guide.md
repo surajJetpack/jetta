@@ -7,9 +7,9 @@ Jetta is our AI support agent. It reads every incoming Freshdesk ticket,
 searches the knowledge base, checks the customer's account and the dev board,
 works out which app the ticket is about, and writes a suggested reply.
 
-**On Freshdesk, nothing reaches a customer until a human sends it.** The
+**On Freshdesk, Jetta's replies are suggestions for a human to send.** Each
 suggestion is posted as a **private note on the ticket** (customers never see
-notes).
+notes). The one exception is the first reply below, when it is switched on.
 
 **Live chat is the exception** — there Jetta answers the visitor directly, with
 nobody reading it first. Review happens after the fact, in the Chats tab.
@@ -34,6 +34,31 @@ Two things worth knowing:
 - If nobody ever replies to a ticket, its suggestion quietly *expires* after
   two weeks rather than piling up. An expired suggestion is not a black mark
   against anyone.
+
+### First replies on email tickets (when switched on)
+
+When `/system` shows **First response on email tickets: ON**, Jetta sends the
+*first* reply herself on tickets that came in by **email, the support portal or
+the in-app form**, provided nobody has replied yet. **Never on tickets that came
+from a chat.** That customer has already been talking to Jetta, so the first
+reply there is yours. Every reply after the first is a suggestion, exactly as
+above.
+
+Before it goes out:
+
+- A second check reads her reply against what she looked up. Anything that
+  states something she couldn't confirm, promises a refund, a date or an
+  outcome, or touches a legal threat, chargeback, data request, call request or
+  pricing talk is **held**. It then arrives as the usual suggestion note,
+  labelled with why.
+- A private note says **"Jetta — sending the first response at HH:MM UTC"**
+  with the text, a few minutes ahead. **To stop it, reply to the customer
+  yourself, or add the tag `jetta-hold`.** Either one cancels it. If the
+  customer writes again in that window, she drops the old reply and works from
+  the new message.
+
+She signs as *Jetta, Jetpack Apps Support* (or *GetSign Support*). If a
+customer asks whether they're talking to an AI, she says yes.
 
 Every suggestion is kept at `/drafts` as an audit trail. It is not in the nav,
 because it is not a queue anyone works.

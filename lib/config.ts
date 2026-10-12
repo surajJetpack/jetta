@@ -12,6 +12,15 @@ function env(name: string): string | undefined {
   return v && v.length > 0 ? v : undefined;
 }
 
+/** "3-7" → [3, 7]. Junk, inverted or negative ranges fall back. */
+function parseRange(raw: string | undefined, fallback: [number, number]): [number, number] {
+  const m = /^\s*(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)\s*$/.exec(raw ?? "");
+  if (!m) return fallback;
+  const lo = Number(m[1]);
+  const hi = Number(m[2]);
+  return lo <= hi && hi <= 120 ? [lo, hi] : fallback;
+}
+
 /** Join comma-separated env values, skipping unset ones; undefined if all unset. */
 function joinCsv(...parts: (string | undefined)[]): string | undefined {
   const v = parts.filter(Boolean).join(",");
@@ -81,6 +90,36 @@ export const config = {
    * over-filters. Freshdesk (email) intake only — see app/api/webhook/route.ts.
    */
   intakeFilter: env("JETTA_INTAKE_FILTER") !== "false",
+
+  /**
+   * Jetta sends the FIRST public reply herself on tickets that came straight
+   * in by email, the portal or the in-app form — never on a ticket that came
+   * from a chat, where the customer has already been talking to her. Every
+   * later reply stays a draft. Only meaningful in draft mode ("auto" already
+   * sends everything). See lib/first-response.ts.
+   *  - "off" (default): today's behaviour, every reply is a private-note draft.
+   *  - "shadow": runs the gate and labels the draft note with what she WOULD
+   *    have done. Nothing reaches a customer. Read these before "on".
+   *  - "on": a reply that passes the gate is scheduled, announced on the
+   *    ticket as a private note, and sent after the delay unless a teammate
+   *    replies first or adds the `jetta-hold` tag.
+   */
+  firstResponse: (["shadow", "on"].includes(env("JETTA_FIRST_RESPONSE") ?? "")
+    ? env("JETTA_FIRST_RESPONSE")
+    : "off") as "off" | "shadow" | "on",
+  /**
+   * Minutes between Jetta writing a first reply and sending it, picked at
+   * random in this range ("3-7"). A considered email that lands 40 seconds
+   * after the customer hit send reads as a bot; the window is also when a
+   * teammate can step in.
+   */
+  firstResponseDelayMinutes: parseRange(env("JETTA_FIRST_RESPONSE_DELAY"), [3, 7]),
+  /**
+   * A calendar link customers can book a call on. Unset: a first email asking
+   * for a call or demo is left for a person (that is what the team does — a
+   * booking link). Set: Jetta offers it herself.
+   */
+  firstResponseBookingUrl: env("JETTA_BOOKING_URL"),
 
   /**
    * Which day is "Saturday". Ticket search buckets by calendar day and weekday,

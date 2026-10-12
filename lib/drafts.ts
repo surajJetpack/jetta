@@ -25,6 +25,13 @@ import { logOpsEvent } from "./events";
 export async function createDraftFromRun(
   ctx: ConversationContext,
   result: AgentResult,
+  opts: {
+    /**
+     * One line shown above the suggestion on the Freshdesk note — today, why
+     * an eligible first response was held, or what shadow mode would have done.
+     */
+    banner?: string;
+  } = {},
 ): Promise<ReplyDraft | null> {
   const lastReply = [...result.trace].reverse().find((t) => t.tool === "reply_to_ticket");
   let body = (lastReply?.input as { body?: string } | undefined)?.body;
@@ -71,7 +78,9 @@ export async function createDraftFromRun(
   // themselves; the agent-reply webhook then reconciles the draft.
   if (draft.channel === "freshdesk" && config.draftNoteToFreshdesk) {
     const noteHtml =
-      `<p><b>Jetta — suggested reply (pending)</b></p><hr>` +
+      `<p><b>Jetta — suggested reply (pending)</b></p>` +
+      (opts.banner ? `<p><i>${freshdesk.textToFdHtml(opts.banner).replace(/^<p>|<\/p>$/g, "")}</i></p>` : "") +
+      `<hr>` +
       freshdesk.textToFdHtml(body) +
       `<hr><p><b>To use it:</b> copy into the reply editor, edit freely, and send as yourself.<br>` +
       `Your decision is recorded automatically when you reply — no console step needed.<br>` +
