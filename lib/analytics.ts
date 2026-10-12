@@ -16,6 +16,7 @@ export const PRICES: Record<string, { in: number; out: number; cacheRead?: numbe
   "openrouter/anthropic/claude-sonnet-5": { in: 2, out: 10, cacheRead: 0.2 },
   "openrouter/anthropic/claude-haiku-4.5": { in: 1, out: 5, cacheRead: 0.1 },
   "openrouter/z-ai/glm-5.2": { in: 0.42, out: 1.32, cacheRead: 0.078 },
+  "openrouter/z-ai/glm-5.3": { in: 0.079, out: 4.8, cacheRead: 0.059 },
 };
 
 export interface ModelTokenStat {

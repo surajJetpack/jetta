@@ -13,7 +13,7 @@
  *   npx tsx --env-file=.env.local scripts/chat-eval.ts cleanup
  *
  * Flags:
- *   --model <id>        model under test (default z-ai/glm-5.2, what production runs)
+ *   --model <id>        model under test (default z-ai/glm-5.3, what production runs)
  *   --local-provider    use LLM_PROVIDER from the environment instead of pinning
  *   --only <id|class>   run a single scenario, or one class
  *   --limit <n>         first n scenarios
@@ -55,7 +55,7 @@ const opt = (n: string) => {
  * that, and produced a confident baseline for a model that has never spoken to
  * a customer. Default to what production runs; --model overrides it.
  */
-const PROD_MODEL = "z-ai/glm-5.2";
+const PROD_MODEL = "z-ai/glm-5.3";
 const MODEL = opt("--model") ?? PROD_MODEL;
 
 // Before any import: lib/config.ts snapshots the environment on first load.

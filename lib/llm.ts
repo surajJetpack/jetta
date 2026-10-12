@@ -26,7 +26,12 @@ export function getModel(tier: ModelTier = "standard"): LanguageModel {
       return anthropic(modelId);
     case "openrouter":
       if (!config.openrouter.apiKey) throw new Error("OPENROUTER_API_KEY is not set.");
-      return createOpenRouter({ apiKey: config.openrouter.apiKey }).chat(modelId);
+      return createOpenRouter({ apiKey: config.openrouter.apiKey }).chat(
+        modelId,
+        tier === "light" && modelId.startsWith("z-ai/")
+          ? { reasoning: { effort: config.llm.lightReasoningEffort } }
+          : undefined,
+      );
     default:
       throw new Error(`Unknown LLM provider: ${provider}`);
   }

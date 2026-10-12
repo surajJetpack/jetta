@@ -21,9 +21,9 @@
  *      served from our origin.
  *
  *   3. **A vision pass runs at upload time, and its words are stored.** The
- *      answering model (glm-5.2 in prod) is not reliably multimodal, and
+ *      answering model (glm-5.3 in prod) is not reliably multimodal, and
  *      swapping it shouldn't silently blind Jetta to attachments. So one cheap
- *      light-tier call turns the image into text at the door, and every
+ *      vision-tier call turns the image into text at the door, and every
  *      downstream consumer — the agent turn, the Freshdesk hand-off, the
  *      console — reads the same description. It is stored rather than
  *      recomputed because it becomes part of the transcript record: what Jetta
@@ -365,8 +365,8 @@ export async function describeAttachment(
 
   try {
     const { text } = await generateText({
-      // Light tier: this is a transcription job, and it runs on every upload.
-      model: getModel("light"),
+      // Vision tier: the text tiers (GLM) can't read images.
+      model: getModel("vision"),
       messages: [
         {
           role: "user",
@@ -381,7 +381,7 @@ export async function describeAttachment(
     const clean = text.trim().replace(/\s+/g, " ");
     return clean ? clean.slice(0, DESCRIPTION_MAX) : undefined;
   } catch (e) {
-    // The commonest cause is a light-tier model without vision. Loud in the
+    // The commonest cause is a vision-tier model that can't see. Loud in the
     // ops log, silent to the visitor.
     console.warn("attachment description failed:", e instanceof Error ? e.message : e);
     await logOpsEvent({

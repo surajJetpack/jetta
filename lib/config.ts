@@ -61,10 +61,11 @@ export type LlmProvider = "google" | "anthropic" | "openrouter";
 /**
  * Model tiers: "standard" is the quality anchor for customer-facing agent
  * runs; "light" is the cheap+fast tier for classification, reranking, and
- * other quality-insensitive calls. Defined here (not llm.ts) so config never
- * imports llm.
+ * other quality-insensitive calls; "vision" reads images (chat screenshots),
+ * kept separate because the GLM text tiers can't see. Defined here (not
+ * llm.ts) so config never imports llm.
  */
-export type ModelTier = "light" | "standard";
+export type ModelTier = "light" | "standard" | "vision";
 const explicitProvider = env("LLM_PROVIDER") as LlmProvider | undefined;
 export const LLM_PROVIDER: LlmProvider =
   explicitProvider ??
@@ -152,14 +153,32 @@ export const config = {
       standard: {
         google: "gemini-2.5-pro",
         anthropic: "claude-sonnet-5",
-        openrouter: env("OPENROUTER_MODEL") ?? "anthropic/claude-sonnet-5",
+        openrouter: env("OPENROUTER_MODEL") ?? "z-ai/glm-5.3",
       },
       light: {
         google: "gemini-2.5-flash-lite",
         anthropic: "claude-haiku-4-5",
-        openrouter: env("OPENROUTER_MODEL_LIGHT") ?? "anthropic/claude-haiku-4.5",
+        openrouter: env("OPENROUTER_MODEL_LIGHT") ?? "z-ai/glm-5.3",
+      },
+      vision: {
+        google: "gemini-2.5-flash-lite",
+        anthropic: "claude-haiku-4-5",
+        openrouter: env("OPENROUTER_MODEL_VISION") ?? "anthropic/claude-haiku-4.5",
       },
     } as Record<ModelTier, Record<LlmProvider, string>>,
+    /**
+     * GLM-5.3 always reasons (OpenRouter rejects disabling it), and at default
+     * effort it spends ~300 thinking tokens even on a 4-item rerank — ~3s,
+     * against rerank's 3.5s timeout, and an EMPTY answer when the call caps
+     * output tokens. "low" brings it to ~1s with the same answers. Applied to
+     * z-ai/* models on the light tier only, so a rollback to Haiku doesn't
+     * switch on Anthropic thinking. OPENROUTER_LIGHT_REASONING overrides.
+     */
+    lightReasoningEffort: (env("OPENROUTER_LIGHT_REASONING") ?? "low") as
+      | "minimal"
+      | "low"
+      | "medium"
+      | "high",
     /** Max tool-loop steps per turn — bounds runaway loops. */
     maxSteps: 10,
     maxTokens: 4096,

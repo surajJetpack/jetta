@@ -298,6 +298,12 @@ export function reasoningRows(): StatusRow[] {
       meaning: "Quality-insensitive calls, at a fraction of the cost.",
     },
     {
+      label: "Vision tier — chat screenshots",
+      tone: "on",
+      state: modelLabel("vision"),
+      meaning: "Describes images visitors upload in chat, so the text tiers can read them.",
+    },
+    {
       label: "Complexity routing",
       tone: config.llm.tieredAgent ? "on" : "off",
       state: config.llm.tieredAgent ? "ON" : "OFF",
