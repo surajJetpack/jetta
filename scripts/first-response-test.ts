@@ -9,6 +9,7 @@
 import {
   firstResponseEligibility,
   hardBlock,
+  humanize,
   judgeFirstResponse,
   pickDelayMs,
   sendDecision,
@@ -65,7 +66,10 @@ async function main() {
   check("clean reply passes", hardBlock(good) === null, hardBlock(good));
   check("too short", hardBlock("Hi, thanks!") === "too_short");
   check("FD link blocked", hardBlock(`${good}\nhttps://jetpackapps.freshdesk.com/a/tickets/14535`) === "internal_link");
-  check("monday board link blocked", hardBlock(`${good}\nhttps://jetpack.monday.com/boards/2978633042/pulses/1`) === "internal_link");
+  const ours = { mondayHost: "jetpackteam.monday.com", boardIds: ["2978633042"] };
+  check("our dev board link blocked", hardBlock(`${good}\nhttps://x.monday.com/boards/2978633042/pulses/1`, ours) === "internal_link");
+  check("our monday account blocked", hardBlock(`${good}\nhttps://jetpackteam.monday.com/boards/1`, ours) === "internal_link");
+  check("customer's own board link allowed", hardBlock(`${good}\nhttps://bullionsharks.monday.com/boards/6352458365`, ours) === null);
   check("ticket number blocked", hardBlock(`${good}\nYour ticket #14535 is with us.`) === "ticket_number");
   check("placeholder blocked", hardBlock(`Hi [Customer Name],\n\n${good}`) === "placeholder");
   check("markdown link is not a placeholder", hardBlock(`${good}\nSee [link to the guide](https://getsign.io/help).`) === null);
@@ -78,6 +82,14 @@ async function main() {
   check("keeps a closing sentence that isn't a sign-off", stripSignOff(`${good}\n\nThanks for the screenshot, it helped a lot.`).endsWith("helped a lot."));
   const signed = withSignOff(`${good}\n\nCheers,\nJetta`, "GetSign");
   check("exactly one sign-off, ours", signed.endsWith("Best,\nJetta\nGetSign Support") && signed.split("Jetta").length === 2, signed.slice(-60));
+
+  console.log("── humanize ──");
+  check("'Hi Admin,' → 'Hi,'", humanize("Hi Admin,\n\nThe fields are opaque now.", "Admin").startsWith("Hi,\n\nThe fields"));
+  check("real name kept", humanize("Hi Dan,\n\nOk.", "Dan Smith").startsWith("Hi Dan,"));
+  check("email-as-name → 'Hi,'", humanize("Hi ops@acme.com,\n\nOk.", "ops@acme.com").startsWith("Hi,"), humanize("Hi ops@acme.com,\n\nOk.", "ops@acme.com"));
+  const fl = humanize("Hi Ryan,\n\nThanks for getting in touch. That's a great question about how our plans work. Monthly lets you change each month.\n\nWe'll be in touch shortly.", "Ryan");
+  check("filler sentences removed, content kept", fl === "Hi Ryan,\n\nMonthly lets you change each month.", fl);
+  check("list left alone", humanize("Steps:\n1. Great question.\n2. Go.", null) === "Steps:\n1. Great question.\n2. Go.");
 
   console.log("── markdown → Freshdesk HTML ──");
   const html = markdownToFdHtml(

@@ -75,13 +75,36 @@ export function proposedReply(result: Pick<AgentResult, "trace">): string | null
   return body || null;
 }
 
+export interface InternalRefs {
+  /** Our own monday account host, e.g. "jetpackteam.monday.com". */
+  mondayHost?: string;
+  /** Our dev board ids. */
+  boardIds: string[];
+}
+
+export function internalRefs(): InternalRefs {
+  const host = /^https?:\/\/([^/]+)/.exec(config.monday.accountUrl)?.[1]?.toLowerCase();
+  return {
+    // The default "monday.com" names no account, so it guards nothing.
+    mondayHost: host && host !== "monday.com" ? host : undefined,
+    boardIds: Object.values(config.monday.boardIds).filter((v): v is string => !!v),
+  };
+}
+
 /**
  * Things that never leave, whatever a model thinks of the reply. Pure.
  * Returns the reason, or null when the text is clean.
  */
-export function hardBlock(body: string): string | null {
+export function hardBlock(body: string, internal: InternalRefs = internalRefs()): string | null {
   if (body.length < 40) return "too_short";
-  if (/\bfreshdesk\.com\b|\bmonday\.com\/boards\/|\/a\/tickets\/|\bslack\.com\b|\bvercel\.app\b/i.test(body)) {
+  if (/\bfreshdesk\.com\b|\/a\/tickets\/|\bslack\.com\b|\bvercel\.app\b/i.test(body)) return "internal_link";
+  // OUR monday account and dev boards only. A customer's own board link
+  // (acme.monday.com/boards/…) is a normal thing to hand back to them.
+  const lower = body.toLowerCase();
+  if (
+    (internal.mondayHost && lower.includes(internal.mondayHost)) ||
+    internal.boardIds.some((id) => new RegExp(`/boards/${id}\\b`).test(body))
+  ) {
     return "internal_link";
   }
   if (/\bticket\s*#?\s*\d{4,}|#\d{5}\b/i.test(body)) return "ticket_number";
@@ -107,6 +130,44 @@ const SIGN_OFF =
 
 export function stripSignOff(body: string): string {
   return body.replace(SIGN_OFF, "").trimEnd();
+}
+
+/** Requester names that are a mailbox or a role, not a person. */
+const ROLE_NAME = /^(admin|administrator|support|info|team|office|accounts?|billing|sales|hello|contact|hr|it|operations|ops|no-?reply|customer|user|owner)$/i;
+
+/**
+ * Whole sentences that are pure filler, the stock lines a person skips and a
+ * bot can't stop writing. The voice rules already ban most of them and the
+ * model writes them anyway, so they are removed here rather than asked for
+ * again. Each pattern must match a sentence that carries NO information —
+ * removing it can only make the reply shorter, never wrong.
+ */
+const FILLER = [
+  /^(that's|that is|this is) (a )?(great|good|excellent) (question|use case)[^.!?]*[.!?]$/i,
+  /^(great|good|excellent) question[^.!?]*[.!?]$/i,
+  /^i hope (this|my) (email|message) finds you well[.!]$/i,
+  /^(thank you|thanks) (so much )?for (your patience|reaching out( to us)?|getting in touch|contacting us)[.!]$/i,
+  /^(we'll|we will|i'll|i will) be in touch( shortly| soon)?[.!]$/i,
+  /^i hope this (helps|clears (things|this) up)[.!]?$/i,
+];
+
+/**
+ * Deterministic clean-up of the two tells prompts did not fix: a greeting to
+ * "Admin", and filler sentences. Pure.
+ */
+export function humanize(body: string, requesterName: string | null | undefined): string {
+  let out = body.trim();
+  const first = requesterName?.trim().split(/\s+/)[0] ?? "";
+  if (first && (ROLE_NAME.test(first) || first.includes("@"))) {
+    out = out.replace(new RegExp(`^(hi|hello|hey|dear)\\s+${first.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b[,!]?`, "i"), "Hi,");
+  }
+  const paras = out.split(/\n{2,}/).map((para) => {
+    // Lists and multi-line blocks are left alone; filler lives in prose.
+    if (para.includes("\n")) return para;
+    const sentences = para.match(/[^.!?]+[.!?]+(\s+|$)|[^.!?]+$/g) ?? [para];
+    return sentences.filter((x) => !FILLER.some((re) => re.test(x.trim()))).join("").trim();
+  });
+  return paras.filter(Boolean).join("\n\n");
 }
 
 /**
@@ -195,7 +256,7 @@ export async function judgeFirstResponse(
         "- unsupported_claim: it states a specific product fact, step, setting, price, limit or behaviour that the EVIDENCE does not support or contradicts.",
         "- promise: it says something was done that no tool in the evidence did (a refund, cancellation, discount, trial extension applied, a fix shipped, a request passed on when nothing was escalated), or commits to a date, a timeline, or an outcome.",
         "- sensitive: the customer makes a legal threat, a chargeback or payment dispute, a data-protection request (deletion, export, DPA), reports a security incident, or is abusive.",
-        `- needs_person: the customer asks for a call, meeting, demo or screen-share${config.firstResponseBookingUrl ? " and the reply does not give them the booking link" : ""}; or it is a sales conversation — negotiating price, asking for a nonprofit/education/volume discount, a custom quote, or a partnership. A colleague handles these personally.`,
+        `- needs_person: the customer asks for a call, meeting, demo or screen-share${config.firstResponseBookingUrl ? " and the reply does not give them the booking link" : ""}; or it is a sales negotiation — haggling over price, asking for a nonprofit/education/volume discount, a custom quote, an invoice/bank-transfer arrangement, or a partnership. A colleague handles these personally. Simply asking which plan suits them, or what a plan includes, is NOT a negotiation: approve a reply that answers it from the evidence.`,
         "- misread: it answers a different question from the one asked, or ignores a main part of it.",
         "- tone: it is cold, curt, blames the customer, or reads like a form letter.",
         "",

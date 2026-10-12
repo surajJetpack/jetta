@@ -13,7 +13,7 @@
 import { buildContext, buildMessages } from "../lib/context";
 import { buildSystemPrompt } from "../lib/system-prompt";
 import { runAgentLoop } from "../lib/agent";
-import { hardBlock, judgeFirstResponse, proposedReply, signingBrand, withSignOff } from "../lib/first-response";
+import { hardBlock, humanize, judgeFirstResponse, proposedReply, signingBrand, withSignOff } from "../lib/first-response";
 
 const PACE_MS = 20_000;
 
@@ -42,7 +42,8 @@ async function main() {
     const result = await runAgentLoop(await buildSystemPrompt(ctx), buildMessages(ctx.ticket, "freshdesk"), ctx, {
       dryRun: true,
     });
-    const reply = proposedReply(result);
+    const proposed = proposedReply(result);
+    const reply = proposed && humanize(proposed, ctx.ticket.requesterName);
     const brand = signingBrand(ctx.product);
     const blocked = reply ? hardBlock(reply) : "no_reply";
     const verdict = blocked

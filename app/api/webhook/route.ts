@@ -35,6 +35,7 @@ import {
   HOLD_TAG,
   firstResponseEligibility,
   hardBlock,
+  humanize,
   judgeFirstResponse,
   newestCustomerMessageAt,
   pickDelayMs,
@@ -342,7 +343,8 @@ async function tryFirstResponse(
   const shadow = config.firstResponse === "shadow";
   const via = DIRECT_SOURCES[ticket.source ?? 0] ?? "email";
 
-  const reply = proposedReply(result);
+  const proposed = proposedReply(result);
+  const reply = proposed && humanize(proposed, ticket.requesterName);
   if (!reply) {
     // An escalation-only turn with no reply: nothing to send, and the draft
     // path already knows how to stay quiet about it.
