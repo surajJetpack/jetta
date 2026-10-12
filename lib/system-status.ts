@@ -75,7 +75,9 @@ export function channelRows(): StatusRow[] {
         ? `Connected to ${fd.domain}. ${
             config.replyMode === "auto"
               ? "Replies go straight to the customer."
-              : "Every reply waits for a human."
+              : config.firstResponse === "on"
+                ? "Jetta sends first replies on direct tickets; the rest wait for a human."
+                : "Every reply waits for a human."
           }`
         : "Switched on, but FRESHDESK_API_KEY or FRESHDESK_DOMAIN is missing — every call will fail.",
     setting: "FRESHDESK_LIVE",
@@ -166,6 +168,19 @@ export function capabilityRows(): StatusRow[] {
         ? "Replies reach the customer with no human in front of them."
         : "Jetta proposes and a human sends. The suggestion is posted as a private note on the ticket.",
       setting: "JETTA_REPLY_MODE",
+    },
+    {
+      label: "First response on email tickets",
+      tone: auto || config.firstResponse === "off" ? "off" : config.firstResponse === "on" ? "warn" : "good",
+      state: auto ? "N/A" : config.firstResponse.toUpperCase(),
+      meaning: auto
+        ? "Reply mode is AUTO, so every reply already goes out."
+        : config.firstResponse === "on"
+          ? `Jetta sends the first reply herself on tickets that came in by email, the portal or the in-app form, ${config.firstResponseDelayMinutes.join("–")} minutes after writing it, if a second check passes. Never on tickets from a chat. Reply first or tag jetta-hold to stop one. Later replies are drafts.`
+          : config.firstResponse === "shadow"
+            ? "Shadow: drafts say whether Jetta would have sent them as the first response. Nothing reaches a customer."
+            : "Off. The first reply is a draft like every other.",
+      setting: "JETTA_FIRST_RESPONSE",
     },
     {
       label: "Write to the monday dev boards",
@@ -347,7 +362,9 @@ export function headlineState(): StatusRow[] {
     state: auto ? "AUTO" : "DRAFT",
     meaning: auto
       ? "Replies reach the customer with no human in front of them."
-      : "Every Freshdesk reply waits for a human.",
+      : config.firstResponse === "on"
+        ? "Jetta sends the first reply on direct email tickets; every later reply waits for a human."
+        : "Every Freshdesk reply waits for a human.",
     anchor: "capabilities",
   });
 

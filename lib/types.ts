@@ -97,6 +97,20 @@ export interface Ticket {
   productHint?: string | null;
   /** Files attached across the description and every reply, oldest first. */
   attachments?: Attachment[];
+  /**
+   * Freshdesk ticket source: 1 email, 2 portal, 3 phone (our in-app support
+   * form arrives as this), 7 chat (JettaChat and Freshchat tickets), 9
+   * feedback widget, 10 outbound. Decides whether Jetta may send the first
+   * response herself — see lib/first-response.ts. Absent on stub/chat tickets.
+   */
+  source?: number | null;
+  /** Freshdesk tags. `jetta-hold` stops an automatic first response. */
+  tags?: string[];
+  /**
+   * Whether ANY public agent reply exists in the whole thread — not just the
+   * capped `replies` slice, which keeps the newest 20 and could miss it.
+   */
+  hasPublicAgentReply?: boolean;
 }
 
 export interface FastSpringInvoice {
@@ -349,6 +363,13 @@ export interface ChatConversation {
 export interface ConversationContext {
   channel: Channel;
   ticket: Ticket | null;
+  /**
+   * This turn's reply may be emailed to the customer with nobody reading it
+   * first — the first response on a direct ticket (lib/first-response.ts).
+   * Set by the webhook in "shadow" too, so shadow tests the prompt that "on"
+   * would run.
+   */
+  firstResponse?: boolean;
   account: FastSpringAccount | null;
   /** Fuzzy subject matches off the board — leads, not this ticket's item. */
   relatedDevItems: DevBoardItem[];

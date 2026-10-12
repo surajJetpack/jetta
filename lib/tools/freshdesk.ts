@@ -329,6 +329,8 @@ export async function getTicketDetails(ticketId: string): Promise<Ticket> {
     requester_id: number;
     custom_fields?: Record<string, unknown>;
     attachments?: FDAttachment[];
+    source?: number;
+    tags?: string[];
   };
   type FDContact = { name: string; email: string };
 
@@ -391,6 +393,9 @@ export async function getTicketDetails(ticketId: string): Promise<Ticket> {
     replies,
     productHint: (ticket.custom_fields?.cf_product as string | undefined) ?? null,
     attachments,
+    source: ticket.source ?? null,
+    tags: ticket.tags ?? [],
+    hasPublicAgentReply: conversations.some((c) => !c.incoming && !c.private),
   };
 }
 
@@ -938,6 +943,75 @@ export function textToFdHtml(text: string): string {
     .split(/\n{2,}/)
     .map((para) => `<p>${para.replace(/\n/g, "<br>")}</p>`)
     .join("");
+}
+
+/**
+ * Model-written reply → the HTML a customer's email client renders.
+ *
+ * The reply field is HTML, so the model's markdown sent as-is arrives as one
+ * run-on paragraph with literal `**` and `1.` in it. That never showed while a
+ * human copied every draft into the editor; it shows the first time Jetta
+ * sends one herself, and it is the single most bot-looking thing an email can
+ * do. Deliberately small: paragraphs, line breaks, bullet and numbered lists,
+ * bold, `[label](url)` links and bare URLs. No inline styles — the reply sits
+ * inside Freshdesk's own email template and should look like an agent typed it.
+ */
+export function markdownToFdHtml(md: string): string {
+  const esc = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const inline = (raw: string) => {
+    const links: string[] = [];
+    // Markdown links first, parked behind placeholders so the bare-URL pass
+    // below can't wrap the href a second time.
+    let t = esc(raw).replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, (_m, label: string, url: string) => {
+      links.push(`<a href="${url}">${label}</a>`);
+      return `\u0000${links.length - 1}\u0000`;
+    });
+    t = t.replace(/https?:\/\/[^\s<>"']+/g, (url) => {
+      const trimmed = url.replace(/[.,;:!?)]+$/, "");
+      return `<a href="${trimmed}">${trimmed}</a>${url.slice(trimmed.length)}`;
+    });
+    t = t.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>").replace(/__([^_]+)__/g, "<strong>$1</strong>");
+    // Headings have no place in an email reply; keep the words.
+    t = t.replace(/^#{1,6}\s+/, "");
+    return t.replace(/\u0000(\d+)\u0000/g, (_m, i: string) => links[Number(i)]);
+  };
+  const BULLET = /^\s*[-*•]\s+(.*)$/;
+  const NUMBERED = /^\s*\d+[.)]\s+(.*)$/;
+  const out: string[] = [];
+  for (const block of md.trim().replace(/\r\n/g, "\n").split(/\n{2,}/)) {
+    const lines = block.split("\n");
+    let para: string[] = [];
+    let list: { tag: "ul" | "ol"; items: string[] } | null = null;
+    const flushPara = () => {
+      if (para.length) out.push(`<p>${para.map(inline).join("<br>")}</p>`);
+      para = [];
+    };
+    const flushList = () => {
+      if (list) out.push(`<${list.tag}>${list.items.map((i) => `<li>${inline(i)}</li>`).join("")}</${list.tag}>`);
+      list = null;
+    };
+    for (const line of lines) {
+      const b = BULLET.exec(line);
+      const n = b ? null : NUMBERED.exec(line);
+      const item = b ?? n;
+      if (item) {
+        const tag = b ? "ul" : "ol";
+        flushPara();
+        if (list && list.tag !== tag) flushList();
+        list ??= { tag, items: [] };
+        list.items.push(item[1]);
+      } else if (list && /^\s{2,}\S/.test(line)) {
+        // A wrapped continuation of the previous list item.
+        list.items[list.items.length - 1] += ` ${line.trim()}`;
+      } else {
+        flushList();
+        if (line.trim()) para.push(line.trim());
+      }
+    }
+    flushPara();
+    flushList();
+  }
+  return out.join("");
 }
 
 export interface FdArticleRef {

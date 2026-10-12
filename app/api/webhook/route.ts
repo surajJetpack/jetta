@@ -28,6 +28,21 @@ import { markEventSeen, unmarkEventSeen, scheduleFollowUp, recordOutcome } from 
 import { logOpsEvent } from "@/lib/events";
 import { recordRun } from "@/lib/runlog";
 import { createDraftFromRun } from "@/lib/drafts";
+import type { AgentResult } from "@/lib/agent";
+import type { ConversationContext } from "@/lib/types";
+import {
+  DIRECT_SOURCES,
+  HOLD_TAG,
+  firstResponseEligibility,
+  hardBlock,
+  judgeFirstResponse,
+  newestCustomerMessageAt,
+  pickDelayMs,
+  proposedReply,
+  scheduleFirstResponse,
+  signingBrand,
+  withSignOff,
+} from "@/lib/first-response";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -206,9 +221,16 @@ async function processTicket(ticketId: string, channel: "freshdesk" | "freshchat
     }
     claimedMarker = marker;
 
+    const draftMode = config.replyMode === "draft";
+    // First response: on a ticket that came in directly and nobody has
+    // answered, Jetta may send this reply herself. Decided BEFORE the run so
+    // the prompt knows its reply may go out unread.
+    const firstResponse =
+      draftMode && config.firstResponse !== "off" ? firstResponseEligibility(ctx) : null;
+    if (firstResponse?.eligible) ctx.firstResponse = true;
+
     const messages = buildMessages(ctx.ticket, channel);
     const system = await buildSystemPrompt(ctx);
-    const draftMode = config.replyMode === "draft";
     const started = Date.now();
     // autoTier: complexity-based routing, only active when JETTA_TIERED_AGENT
     // is on. Safe surface: draft mode means humans review every reply anyway.
@@ -225,7 +247,21 @@ async function processTicket(ticketId: string, channel: "freshdesk" | "freshchat
     // ReplyDraft for human approval. Follow-up scheduling moves to approve time
     // (the reply hasn't actually gone out yet).
     if (draftMode) {
-      const draft = await createDraftFromRun(ctx, result);
+      let banner: string | undefined;
+      if (firstResponse?.eligible) {
+        const outcome = await tryFirstResponse(ctx, result);
+        if (outcome.scheduled) return;
+        banner = outcome.banner;
+      } else if (firstResponse) {
+        await logOpsEvent({
+          level: "info",
+          event: "first_response.not_eligible",
+          source: "webhook",
+          ticketId,
+          data: { reason: firstResponse.reason },
+        });
+      }
+      const draft = await createDraftFromRun(ctx, result, { banner });
       await recordOutcome({
         ticketId,
         subject: ctx.ticket.subject,
@@ -289,6 +325,98 @@ async function processTicket(ticketId: string, channel: "freshdesk" | "freshchat
     // Release the customer-message marker so a retry can process this message.
     if (claimedMarker) await unmarkEventSeen(claimedMarker).catch(() => {});
   }
+}
+
+/**
+ * An eligible first response: check it, then schedule it ("on") or label the
+ * draft with what would have happened ("shadow"). Returns `scheduled: true`
+ * only when the reply is queued to send — every other path falls through to
+ * the ordinary private-note draft, carrying `banner` to say why.
+ */
+async function tryFirstResponse(
+  ctx: ConversationContext,
+  result: AgentResult,
+): Promise<{ scheduled: true } | { scheduled: false; banner?: string }> {
+  const ticket = ctx.ticket!;
+  const ticketId = ticket.id;
+  const shadow = config.firstResponse === "shadow";
+  const via = DIRECT_SOURCES[ticket.source ?? 0] ?? "email";
+
+  const reply = proposedReply(result);
+  if (!reply) {
+    // An escalation-only turn with no reply: nothing to send, and the draft
+    // path already knows how to stay quiet about it.
+    await logOpsEvent({ level: "info", event: "first_response.no_reply", source: "webhook", ticketId });
+    return { scheduled: false, banner: "First response: Jetta did not write a reply this time — over to you." };
+  }
+
+  const brand = signingBrand(ctx.product);
+  const blocked = hardBlock(reply);
+  const verdict = blocked
+    ? { send: false, risk: "hard_check", reason: `hard check: ${blocked.replace(/_/g, " ")}` }
+    : await judgeFirstResponse(ticket, reply, result, brand);
+
+  await logOpsEvent({
+    level: verdict.send ? "info" : "warn",
+    event: verdict.send ? "first_response.passed" : "first_response.held",
+    source: "webhook",
+    ticketId,
+    data: { shadow, via, risk: verdict.risk, reason: verdict.reason.slice(0, 300) },
+  });
+
+  if (!verdict.send) {
+    return {
+      scheduled: false,
+      banner: `${shadow ? "Shadow mode — would have been held" : "First response held for you"} (${verdict.reason}). This ticket came in by ${via} and nobody has replied yet.`,
+    };
+  }
+  if (shadow) {
+    return {
+      scheduled: false,
+      banner: `Shadow mode: Jetta WOULD have sent this as the first response automatically. Nothing was sent — reply as usual.`,
+    };
+  }
+
+  const now = Date.now();
+  const sendAt = now + pickDelayMs(config.firstResponseDelayMinutes);
+  const body = withSignOff(reply, brand);
+  await scheduleFirstResponse({
+    ticketId,
+    body,
+    sendAt,
+    createdAt: now,
+    answersMessageAt: newestCustomerMessageAt(ticket),
+    subject: ticket.subject,
+    product: ctx.product,
+    app: ctx.app,
+    topic: ctx.topic,
+    model: result.model,
+    toolsUsed: result.toolsUsed,
+    resolutionSent: result.resolutionSent,
+    escalated: result.toolsUsed.includes("send_escalation"),
+    gateReason: verdict.reason,
+  });
+
+  // The announcement doubles as the veto: whoever opens the ticket in the
+  // next few minutes sees what is about to go out and how to stop it.
+  const at = new Date(sendAt).toISOString().slice(11, 16);
+  await freshdesk
+    .addPrivateNote(
+      ticketId,
+      `<p><b>Jetta — sending the first response at ${at} UTC</b></p>` +
+        `<p><i>To stop it, reply to the customer yourself or add the tag <code>${HOLD_TAG}</code> before then.</i></p><hr>` +
+        freshdesk.markdownToFdHtml(body),
+      { html: true },
+    )
+    .catch((e) => console.warn(`first-response note failed on ${ticketId}:`, e));
+  await logOpsEvent({
+    level: "info",
+    event: "first_response.scheduled",
+    source: "webhook",
+    ticketId,
+    data: { sendAt: new Date(sendAt).toISOString(), via },
+  });
+  return { scheduled: true };
 }
 
 // Lightweight health check for the webhook endpoint.
