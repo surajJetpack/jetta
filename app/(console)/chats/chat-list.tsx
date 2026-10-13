@@ -6,7 +6,7 @@
  * comes from ChatInbox, which owns the state and the polls.
  */
 import Link from "next/link";
-import { Bell, BellOff, Code2, Search, Settings2 } from "lucide-react";
+import { Bell, BellOff, Check, Code2, Search, Settings2 } from "lucide-react";
 import { ChatAvatar } from "@/components/jetta/chat-avatar";
 import { Button } from "@/components/ui/button";
 import { StatusChip } from "@/components/jetta/status-chip";
@@ -37,6 +37,79 @@ const DOT: Record<Conv["status"], string> = {
 };
 
 export type FilterCounts = Record<Filter, number>;
+
+/**
+ * The views, stacked like mail folders. They were five tabs in one row, which
+ * did not fit a 300px column: the last ones were cut off behind a sideways
+ * scroll. "All live" sits under a rule because it is the union of the three
+ * above it, not a fourth bucket.
+ */
+const VIEWS: { f: Filter; label: string; dot: string; ruleAbove?: boolean }[] = [
+  { f: "needs_human", label: "Needs a person", dot: "bg-tone-bad" },
+  { f: "open", label: "With Jetta", dot: "bg-tone-info" },
+  { f: "ticketed", label: "Ticketed", dot: "bg-muted-foreground/50" },
+  { f: "all", label: "All live", dot: "bg-foreground/70", ruleAbove: true },
+  { f: "resolved", label: "Resolved", dot: "bg-tone-good" },
+];
+
+/** What an empty view says instead of "No chats here". */
+function EmptyView({
+  filter,
+  query,
+  counts,
+  setFilter,
+  appLabel,
+}: {
+  filter: Filter;
+  query: string;
+  counts: FilterCounts;
+  setFilter: (f: Filter) => void;
+  appLabel?: string;
+}) {
+  const scope = appLabel ? ` in ${appLabel}` : "";
+  if (query) {
+    return (
+      <EmptyState
+        className="border-0 py-10"
+        icon={Search}
+        title="No chats match that search"
+        hint={`Searching ${VIEWS.find((v) => v.f === filter)?.label ?? "this view"}${scope}.`}
+      />
+    );
+  }
+  if (filter === "needs_human") {
+    return (
+      <div className="flex flex-col items-center gap-2 px-6 py-10 text-center">
+        <span className="flex size-11 items-center justify-center rounded-full bg-tone-good-bg text-tone-good">
+          <Check className="size-5" aria-hidden />
+        </span>
+        <p className="text-sm font-semibold">Nobody is waiting</p>
+        <p className="max-w-56 text-xs text-muted-foreground">
+          {counts.open > 0
+            ? `Jetta is handling ${counts.open} ${counts.open === 1 ? "chat" : "chats"}${scope} on her own right now.`
+            : `No live chats${scope} right now.`}
+        </p>
+        {counts.open > 0 && (
+          <button
+            type="button"
+            onClick={() => setFilter("open")}
+            className="text-xs font-medium text-primary outline-none hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/50"
+          >
+            Show With Jetta
+          </button>
+        )}
+      </div>
+    );
+  }
+  const title = {
+    open: "Jetta has no live chats",
+    ticketed: "Nothing ticketed",
+    all: "No live chats",
+    resolved: "Nothing resolved yet",
+    needs_human: "",
+  }[filter];
+  return <EmptyState className="border-0 py-10" title={title} hint={appLabel ? `Showing ${appLabel} only.` : undefined} />;
+}
 
 export function ChatList({
   detail,
@@ -69,17 +142,6 @@ export function ChatList({
   abandoned: number;
   isAdmin: boolean;
 }) {
-  // Mutually exclusive views, so tabs rather than loose buttons. "All live"
-  // excludes resolved, which is why it is not called "All" — see the filter
-  // in ChatInbox.
-  const tabs: [Filter, string][] = [
-    ["needs_human", "Needs a person"],
-    ["open", "With Jetta"],
-    ["ticketed", "Ticketed"],
-    ["all", "All live"],
-    ["resolved", "Resolved"],
-  ];
-
   return (
     <aside
       aria-label="Conversations"
@@ -88,10 +150,9 @@ export function ChatList({
         detail ? "hidden" : "flex",
       )}
     >
-      <div className="space-y-3 px-4 pt-4">
+      <div className="space-y-2 px-4 pt-4 pb-2">
         <div className="flex items-center gap-2">
           <h1 className="text-lg font-semibold">Inbox</h1>
-          <span className="text-sm text-muted-foreground">{counts.all} live</span>
           <div className="ml-auto flex items-center gap-1">
             {isAdmin && (
               <>
@@ -127,6 +188,44 @@ export function ChatList({
           </div>
         </div>
 
+        <nav aria-label="Views" className="-mx-1 flex flex-col gap-px">
+          {VIEWS.map(({ f, label, dot, ruleAbove }) => {
+            const on = filter === f;
+            const n = counts[f];
+            return (
+              <div key={f}>
+                {ruleAbove && <div className="mx-1 my-1.5 h-px bg-border" />}
+                <button
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() => setFilter(f)}
+                  className={cn(
+                    "flex h-8 w-full items-center gap-2.5 rounded-md px-2.5 text-sm transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
+                    on ? "bg-primary/10 font-semibold text-foreground" : "font-medium text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+                  )}
+                >
+                  <span className={cn("size-2 shrink-0 rounded-full", dot)} aria-hidden />
+                  <span className="flex-1 text-left">{label}</span>
+                  <span
+                    className={cn(
+                      "text-xs tabular-nums",
+                      // Solid red only for someone waiting: the one count on
+                      // this page that has a person sitting behind it.
+                      f === "needs_human" && n > 0
+                        ? "rounded-full bg-tone-bad px-1.5 font-bold text-background"
+                        : "text-muted-foreground",
+                    )}
+                  >
+                    {n}
+                  </span>
+                </button>
+              </div>
+            );
+          })}
+        </nav>
+      </div>
+
+      <div className="space-y-2 border-b px-4 pt-1 pb-3">
         <label className="flex h-9 items-center gap-2 rounded-lg border bg-muted/40 px-2.5 text-muted-foreground focus-within:ring-[3px] focus-within:ring-ring/50">
           <Search className="size-3.5 shrink-0" aria-hidden />
           <input
@@ -134,7 +233,7 @@ export function ChatList({
             aria-label="Search chats"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Name, email or message"
+            placeholder={`Search in ${VIEWS.find((v) => v.f === filter)?.label ?? "chats"}`}
             className="h-full min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
           />
         </label>
@@ -156,61 +255,16 @@ export function ChatList({
             </SelectContent>
           </Select>
         )}
-
-        <div
-          role="tablist"
-          aria-label="Filter chats"
-          // One row that scrolls sideways when the counts make it long, rather
-          // than wrapping a lone tab onto a second line.
-          className="-mx-4 flex gap-4 overflow-x-auto border-b px-4 [scrollbar-width:none]"
-        >
-          {tabs.map(([f, label]) => {
-            const on = filter === f;
-            const n = counts[f];
-            return (
-              <button
-                key={f}
-                type="button"
-                role="tab"
-                aria-selected={on}
-                onClick={() => setFilter(f)}
-                className={cn(
-                  "flex shrink-0 items-center gap-1.5 pb-2.5 text-xs whitespace-nowrap outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
-                  on
-                    ? "font-semibold text-foreground shadow-[inset_0_-2px_0_var(--primary)]"
-                    : "font-medium text-muted-foreground hover:text-foreground",
-                )}
-              >
-                {label}
-                {n > 0 && (
-                  <span
-                    className={cn(
-                      "rounded-full px-1.5 text-3xs font-semibold tabular-nums",
-                      // Solid red only for someone waiting: the one count on
-                      // this page that has a person sitting behind it.
-                      f === "needs_human" ? "bg-tone-bad text-background" : "bg-muted text-muted-foreground",
-                    )}
-                  >
-                    {n}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
         {visible.length === 0 && (
-          <EmptyState
-            className="border-0 py-8"
-            icon={query ? Search : undefined}
-            title={query ? "No chats match that search" : "No chats here"}
-            hint={
-              app !== ALL_APPS
-                ? `Showing ${appOptions.find((o) => o.value === app)?.label ?? app} only.`
-                : undefined
-            }
+          <EmptyView
+            filter={filter}
+            query={query}
+            counts={counts}
+            setFilter={setFilter}
+            appLabel={app !== ALL_APPS ? (appOptions.find((o) => o.value === app)?.label ?? app) : undefined}
           />
         )}
         {visible.map((c) => {
