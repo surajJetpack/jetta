@@ -16,6 +16,7 @@ import * as freshdesk from "./tools/freshdesk";
 import * as slack from "./tools/slack";
 import { log } from "./logger";
 import { logOpsEvent } from "./events";
+import { humanizeText } from "./human-text";
 
 /**
  * Create a pending ReplyDraft from the run's trace. Returns null when the
@@ -51,6 +52,9 @@ export async function createDraftFromRun(
     log.info("draft.skipped_internal_hold", { ticketId: ctx.ticket?.id });
   }
   if (!body || !ctx.ticket) return null;
+  // The agent sends this from Freshdesk as themselves, so it never passes
+  // through replyToTicket; clean it here.
+  body = humanizeText(body);
 
   const draft: ReplyDraft = {
     id: crypto.randomUUID(),

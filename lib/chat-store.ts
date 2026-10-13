@@ -27,6 +27,7 @@ import { Redis } from "@upstash/redis";
 import { config } from "./config";
 import { getChatSettings } from "./chat-settings";
 import { textWithAttachments } from "./chat-files";
+import { humanizeText } from "./human-text";
 import type {
   AppProduct,
   ChatAttachment,
@@ -219,7 +220,8 @@ async function appendMessageLocked(
     ...(meta.authorName ? { authorName: meta.authorName } : {}),
     ...(meta.system ? { system: true } : {}),
     ...(meta.attachments?.length ? { attachments: meta.attachments } : {}),
-    text,
+    // Jetta's words only; a human who took over writes how they write.
+    text: author === "agent" && (meta.via ?? "jetta") === "jetta" ? humanizeText(text) : text,
     createdAt: nowIso(),
   };
   conv.messages.push(msg);
