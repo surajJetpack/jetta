@@ -5,6 +5,7 @@
  * canned data so the Claude loop and webhook path can be exercised end-to-end.
  */
 import { config } from "../config";
+import { humanizeText } from "../human-text";
 import { imageDimensions } from "../image-dims";
 import { shiftDayKey, supportTimeZone, zonedDayKey, zonedWeekday } from "../tz";
 import type { Attachment, AttachmentFile, Ticket, TicketReply } from "../types";
@@ -1271,7 +1272,7 @@ export async function replyToTicket(ticketId: string, body: string): Promise<voi
   }
   await fd(`/tickets/${ticketId}/reply`, {
     method: "POST",
-    body: JSON.stringify({ body }),
+    body: JSON.stringify({ body: humanizeText(body) }),
   });
 }
 
