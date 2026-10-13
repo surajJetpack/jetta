@@ -57,6 +57,8 @@ export interface Conv {
   humanAgent?: string;
   /** Who finished it — a console username, or "jetta" when she did. */
   resolvedBy?: string;
+  /** When it was resolved; cleared again on reopen. */
+  resolvedAt?: string;
   ticketId?: string;
   /** Earlier tickets this conversation opened, oldest first. */
   previousTicketIds?: string[];

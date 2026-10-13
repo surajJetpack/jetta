@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
-import { EmptyState } from "@/components/jetta/empty-state";
 import { appName } from "@/lib/types";
 import { localZone, useHydrated } from "@/lib/format";
 import { usePolling } from "@/lib/use-polling";
@@ -13,6 +12,7 @@ import { ChatList, type FilterCounts } from "./chat-list";
 import { ConversationHeader, Transcript } from "./chat-transcript";
 import { ChatComposer, ConversationActions, type ChatAction } from "./chat-composer";
 import { ChatDetails, ChatDetailsSheet } from "./chat-details";
+import { InboxOverview } from "./chat-overview";
 
 /**
  * The chat inbox.
@@ -411,11 +411,7 @@ export default function ChatInbox({
         className={detail ? "flex min-w-0 flex-1 flex-col" : "hidden min-w-0 flex-1 flex-col md:flex"}
       >
         {!detail ? (
-          <EmptyState
-            title="Pick a conversation"
-            hint="Anyone waiting for a person is pinned to the top of the list."
-            className="flex-1 justify-center border-0 bg-muted/30"
-          />
+          <InboxOverview list={list} inApp={inApp} hydrated={hydrated} select={select} />
         ) : (
           <>
             <ConversationHeader
