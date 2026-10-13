@@ -10,15 +10,7 @@ import { ConsoleSidebar } from "./console-sidebar";
  * desktop space-saving trick and pointless in an overlay) and closes itself on
  * navigation, which `onNavigate` signals.
  */
-export function MobileSidebar({
-  isAdmin,
-  defaultCollapsed,
-  icon,
-}: {
-  isAdmin: boolean;
-  defaultCollapsed: boolean;
-  icon: React.ReactNode;
-}) {
+export function MobileSidebar({ isAdmin, icon }: { isAdmin: boolean; icon: React.ReactNode }) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -33,11 +25,7 @@ export function MobileSidebar({
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/40 md:hidden data-[state=open]:animate-in data-[state=open]:fade-in-0" />
         <Dialog.Content data-surface="sidebar" className="fixed inset-y-0 left-0 z-50 w-60 border-r md:hidden data-[state=open]:animate-in data-[state=open]:slide-in-from-left">
           <Dialog.Title className="sr-only">Navigation</Dialog.Title>
-          <ConsoleSidebar
-            isAdmin={isAdmin}
-            defaultCollapsed={defaultCollapsed}
-            onNavigate={() => setOpen(false)}
-          />
+          <ConsoleSidebar isAdmin={isAdmin} onNavigate={() => setOpen(false)} />
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>

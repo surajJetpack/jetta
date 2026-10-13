@@ -23,19 +23,17 @@ export function ConsoleTopbar({
   isAdmin,
   canViewAs,
   viewingAsGeneral,
-  sidebarCollapsed,
 }: {
   user: string;
   isAdmin: boolean;
   canViewAs: boolean;
   viewingAsGeneral: boolean;
-  sidebarCollapsed: boolean;
 }) {
   const headline = headlineState();
 
   return (
     <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-3 border-b bg-background/80 px-4 backdrop-blur-md sm:px-6">
-      <MobileSidebar isAdmin={isAdmin} defaultCollapsed={sidebarCollapsed} icon={<Menu />} />
+      <MobileSidebar isAdmin={isAdmin} icon={<Menu />} />
 
       <Breadcrumbs isAdmin={isAdmin} />
 
