@@ -1,15 +1,11 @@
 import { redirect } from "next/navigation";
 import { freshdeskDomain } from "@/lib/tools/freshdesk";
-import Link from "next/link";
-import { Code2, Settings2 } from "lucide-react";
 import { Suspense } from "react";
 import { gate } from "@/lib/console-auth";
 import { listConversations } from "@/lib/chat-store";
 import { getChatSettings, publicSettings } from "@/lib/chat-settings";
 import { chatBrandKey } from "@/lib/profiles";
 import ChatInbox from "./chat-inbox";
-import { PageHeader } from "@/components/jetta/page-header";
-import { Button } from "@/components/ui/button";
 
 export const dynamic = "force-dynamic";
 
@@ -34,38 +30,18 @@ export default async function ChatsPage() {
   };
 
   return (
-    <>
-      <PageHeader
-        title="Chats"
-        description="Jetta answers these without review — you are reading after the fact."
-        actions={
-          isAdmin && (
-            <>
-              <Button variant="outline" size="sm" asChild>
-                <Link href="/chats/settings">
-                  <Settings2 />
-                  Settings
-                </Link>
-              </Button>
-              <Button variant="outline" size="sm" asChild>
-                <Link href="/chats/install">
-                  <Code2 />
-                  Install
-                </Link>
-              </Button>
-            </>
-          )
-        }
-      />
-
+    // data-wide-page lets the console layout widen its container: three panes
+    // do not fit the reading width every other page uses.
+    <div data-wide-page>
       {/* useSearchParams needs a boundary; the list is already rendered above it. */}
       <Suspense fallback={null}>
         <ChatInbox
           initial={conversations.map((c) => ({ ...c, brandKey: chatBrandKey(c) }))}
           avatars={avatars}
           freshdeskDomain={freshdeskDomain()}
+          isAdmin={isAdmin}
         />
       </Suspense>
-    </>
+    </div>
   );
 }

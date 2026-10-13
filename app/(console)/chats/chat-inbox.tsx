@@ -9,9 +9,10 @@ import { localZone, useHydrated } from "@/lib/format";
 import { usePolling } from "@/lib/use-polling";
 import { armChime, chimeEnabled, playChime, subscribeChime } from "@/components/jetta/chime";
 import { ALL_APPS, NO_APP, appOf, type Conv, type Filter } from "./chat-types";
-import { ChatList } from "./chat-list";
+import { ChatList, type FilterCounts } from "./chat-list";
 import { ConversationHeader, Transcript } from "./chat-transcript";
-import { ChatComposer, type ChatAction } from "./chat-composer";
+import { ChatComposer, ConversationActions, type ChatAction } from "./chat-composer";
+import { ChatDetails } from "./chat-details";
 
 /**
  * The chat inbox.
@@ -28,11 +29,14 @@ export default function ChatInbox({
   initial,
   avatars,
   freshdeskDomain,
+  isAdmin,
 }: {
   initial: Conv[];
   /** Jetta's configured widget avatar per brand — icon fallback when unset. */
   avatars: { main?: string; getsign?: string };
   freshdeskDomain: string;
+  /** Shows the Settings and Install shortcuts; the pages themselves gate too. */
+  isAdmin: boolean;
 }) {
   const params = useSearchParams();
   const selectedId = params.get("c");
@@ -183,7 +187,10 @@ export default function ChatInbox({
   // back through it isn't yanked to the bottom every three seconds.
   useEffect(() => {
     const n = detail?.messages.length ?? 0;
-    if (n > msgCount.current) endRef.current?.scrollIntoView({ behavior: "smooth" });
+    // The transcript's own scroller, not scrollIntoView: that scrolls every
+    // ancestor too, which nudged the whole page down on each new message.
+    const pane = endRef.current?.parentElement;
+    if (n > msgCount.current) pane?.scrollTo({ top: pane.scrollHeight, behavior: "smooth" });
     msgCount.current = n;
   }, [detail?.messages.length]);
 
@@ -350,17 +357,34 @@ export default function ChatInbox({
       }));
   }, [list]);
 
-  const waiting = list.filter((c) => c.status === "waiting_human" && inApp(c)).length;
-  // Counted the same way as `waiting`: after the app filter, so the number
-  // describes the bucket you would land in rather than the whole store.
-  const resolvedCount = list.filter(
-    (c) => c.status === "resolved" && c.messages.length > 0 && inApp(c),
-  ).length;
+  // One count per tab, taken after the app filter so each number describes
+  // the bucket you would land in rather than the whole store.
+  const counts = useMemo<FilterCounts>(() => {
+    const n: FilterCounts = { needs_human: 0, open: 0, ticketed: 0, all: 0, resolved: 0 };
+    for (const c of list) {
+      if (!c.messages.length || !inApp(c)) continue;
+      if (c.status === "waiting_human" || c.status === "human") n.needs_human++;
+      if (c.status === "open") n.open++;
+      if (c.status === "ticketed") n.ticketed++;
+      if (c.status === "resolved") n.resolved++;
+      else n.all++;
+    }
+    return n;
+  }, [list, inApp]);
+  // The same visitor's other conversations, for the details pane. Matched on
+  // email only: names are typed freehand and collide.
+  const related = useMemo(() => {
+    const email = detail?.visitor.email?.toLowerCase();
+    if (!email) return [];
+    return list
+      .filter((c) => c.id !== detail?.id && c.visitor.email?.toLowerCase() === email && c.messages.length > 0)
+      .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+  }, [list, detail?.id, detail?.visitor.email]);
   const abandoned = list.filter((c) => c.messages.length === 0).length;
   const mine = detail?.status === "human";
 
   return (
-    <div className="grid gap-5 md:grid-cols-[360px_1fr]">
+    <div className="flex h-[calc(100dvh-8.5rem)] min-h-[560px] overflow-hidden rounded-xl border bg-card shadow-card">
       {/* ── list ─────────────────────────────────────────────── */}
       <ChatList
         detail={detail}
@@ -371,52 +395,68 @@ export default function ChatInbox({
         setApp={setApp}
         filter={filter}
         setFilter={setFilter}
-        waiting={waiting}
-        resolvedCount={resolvedCount}
+        counts={counts}
         sound={sound}
         visible={visible}
         select={select}
         abandoned={abandoned}
+        isAdmin={isAdmin}
       />
 
       {/* ── conversation ─────────────────────────────────────── */}
-      <section className="min-w-0">
+      <section
+        aria-label="Conversation"
+        className={detail ? "flex min-w-0 flex-1 flex-col" : "hidden min-w-0 flex-1 flex-col md:flex"}
+      >
         {!detail ? (
           <EmptyState
             title="Pick a conversation"
             hint="Anyone waiting for a person is pinned to the top of the list."
-            className="min-h-96 justify-center rounded-xl border bg-card shadow-card"
+            className="flex-1 justify-center border-0 bg-muted/30"
           />
         ) : (
-          <div className="flex h-[76dvh] flex-col rounded-lg border">
+          <>
             <ConversationHeader
               detail={detail}
-              hydrated={hydrated}
-              zone={zone}
-              freshdeskDomain={freshdeskDomain}
               select={select}
+              freshdeskDomain={freshdeskDomain}
+              actions={
+                <ConversationActions
+                  detail={detail}
+                  mine={mine}
+                  busy={busy}
+                  act={act}
+                  convert={convert}
+                  ticketFieldId={ticketFieldId}
+                  ticketSubject={ticketSubject}
+                  setTicketSubject={setTicketSubject}
+                  ticketNote={ticketNote}
+                  setTicketNote={setTicketNote}
+                  ticketNotify={ticketNotify}
+                  setTicketNotify={setTicketNotify}
+                  attachmentCount={attachmentCount}
+                />
+              }
             />
             <Transcript detail={detail} hydrated={hydrated} zone={zone} avatars={avatars} endRef={endRef} />
-            <ChatComposer
-              detail={detail}
-              mine={mine}
-              text={text}
-              setText={setText}
-              busy={busy}
-              act={act}
-              convert={convert}
-              ticketFieldId={ticketFieldId}
-              ticketSubject={ticketSubject}
-              setTicketSubject={setTicketSubject}
-              ticketNote={ticketNote}
-              setTicketNote={setTicketNote}
-              ticketNotify={ticketNotify}
-              setTicketNotify={setTicketNotify}
-              attachmentCount={attachmentCount}
-            />
-          </div>
+            <div className="bg-muted/30">
+              <ChatComposer detail={detail} mine={mine} text={text} setText={setText} busy={busy} act={act} />
+            </div>
+          </>
         )}
       </section>
+
+      {/* ── details ──────────────────────────────────────────── */}
+      {detail && (
+        <ChatDetails
+          detail={detail}
+          related={related}
+          hydrated={hydrated}
+          zone={zone}
+          freshdeskDomain={freshdeskDomain}
+          select={select}
+        />
+      )}
     </div>
   );
 }
