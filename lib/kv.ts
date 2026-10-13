@@ -297,6 +297,12 @@ export interface MonetApproval {
   ticketId?: string;
   /** Set when the request looks abusive (e.g. repeat trial extension) — shown to the reviewer. */
   flagged?: string;
+  /**
+   * True when `app` is triage's reading of the conversation rather than ground
+   * truth (embed / cf_product / the app named in the text). The reviewer is
+   * told to check it before approving.
+   */
+  appGuessed?: boolean;
   createdAt: number; // unix seconds
 }
 

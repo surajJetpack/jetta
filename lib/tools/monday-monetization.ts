@@ -30,6 +30,14 @@ function storeFor(appProduct: AppProduct): Store | undefined {
   return s?.collaboratorToken && s?.appId ? s : undefined;
 }
 
+/**
+ * Whether a trial/discount for this app can actually be applied. Stub mode
+ * counts as yes (every call stubs); live mode needs the app's store config.
+ */
+export function isConfigured(appProduct: AppProduct): boolean {
+  return !config.monday.live || !!storeFor(appProduct);
+}
+
 async function gql<T>(query: string, variables: Record<string, unknown>, token: string): Promise<T> {
   const res = await fetch(GRAPHQL, {
     method: "POST",
