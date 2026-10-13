@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { EmptyState } from "@/components/jetta/empty-state";
 import { appName } from "@/lib/types";
@@ -34,7 +34,6 @@ export default function ChatInbox({
   avatars: { main?: string; getsign?: string };
   freshdeskDomain: string;
 }) {
-  const router = useRouter();
   const params = useSearchParams();
   const selectedId = params.get("c");
 
@@ -45,7 +44,14 @@ export default function ChatInbox({
   // Derived rather than cleared in an effect: this both satisfies
   // react-hooks/set-state-in-effect and stops the PREVIOUS conversation
   // flashing up for a poll cycle after you click a different one.
-  const detail = fetched && fetched.id === selectedId ? fetched : null;
+  //
+  // Until the fresh fetch lands, the list's copy stands in: the list carries
+  // every conversation's full messages already, so a click paints at once
+  // instead of showing "Pick a conversation" for a round trip.
+  const detail =
+    fetched && fetched.id === selectedId
+      ? fetched
+      : (list.find((c) => c.id === selectedId) ?? null);
   /*
    * Named next to the transcript because the transcript's times are local and
    * the SAME conversation's Freshdesk transcript is fixed to UTC. Without the
@@ -143,20 +149,24 @@ export default function ChatInbox({
     }
   }, [noteMessages]);
 
+  const loadDetail = useCallback(
+    async (id: string) => {
+      try {
+        const r = await fetch(`/api/admin/chats?id=${encodeURIComponent(id)}`, { cache: "no-store" });
+        if (!r.ok) return;
+        const conv = ((await r.json()).conversation ?? null) as Conv | null;
+        setFetched(conv);
+        if (conv) noteMessages([conv]);
+      } catch {
+        /* keep showing what we have */
+      }
+    },
+    [noteMessages],
+  );
+
   const pollDetail = useCallback(async () => {
-    if (!selectedId) return;
-    try {
-      const r = await fetch(`/api/admin/chats?id=${encodeURIComponent(selectedId)}`, {
-        cache: "no-store",
-      });
-      if (!r.ok) return;
-      const conv = ((await r.json()).conversation ?? null) as Conv | null;
-      setFetched(conv);
-      if (conv) noteMessages([conv]);
-    } catch {
-      /* keep showing what we have */
-    }
-  }, [selectedId, noteMessages]);
+    if (selectedId) await loadDetail(selectedId);
+  }, [selectedId, loadDetail]);
 
   // usePolling rather than a hand-rolled interval: it is the console's existing
   // idiom, it pauses in a background tab, and its callback shape keeps every
@@ -185,7 +195,13 @@ export default function ChatInbox({
     const q = new URLSearchParams(Array.from(params.entries()));
     if (id) q.set("c", id);
     else q.delete("c");
-    router.replace(`/chats${q.size ? `?${q}` : ""}`, { scroll: false });
+    // The native history API, not router.replace: Next keeps useSearchParams
+    // in sync with it, and router.replace re-ran this force-dynamic page on the
+    // server (auth + listConversations(100), ~1s) on every click, only for the
+    // client to ignore the result: the list it rebuilt is already on screen.
+    window.history.replaceState(null, "", `/chats${q.size ? `?${q}` : ""}`);
+    // Fetch the fresh copy now; the 3s poll would otherwise leave it for a tick.
+    if (id) void loadDetail(id);
   };
 
   const act = async (action: ChatAction, body?: string) => {
