@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { AudioLines, ChevronRight, ExternalLink, Mic, MicOff, Minus, PhoneOff, Send } from "lucide-react";
+import { AudioLines, ChevronRight, ExternalLink, MessageSquareText, Mic, Minus, PhoneOff, Send } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TONE_SOFT } from "../tone";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -63,16 +63,23 @@ const STATE_LABEL: Record<VoiceState, string> = {
   error: "Disconnected",
 };
 
+/** In chat she is never "listening" — nothing is, until the mic is switched on. */
+const CHAT_LABEL: Partial<Record<VoiceState, string>> = { listening: "Ready", speaking: "Answering" };
+
 /**
- * Talk to Jetta while you use the console.
+ * Ask Jetta while you use the console — typed by default, voice on demand.
+ *
+ * It opens as a chat: no microphone, no permission prompt, no sound, and no
+ * session until the first question. The mic button switches the same
+ * conversation to voice, and back.
  *
  * A floating panel rather than a modal sheet: the whole point is that she moves
  * the page while you keep talking, and an overlay would hide the page she just
  * took you to. It lives in the console layout, so the conversation survives
  * every navigation — including the ones she makes.
  *
- * Admin-only for now; the layout decides whether to mount it, and the session
- * route refuses a general user regardless.
+ * Admins plus CONSOLE_ASSISTANT_USERS; the layout decides whether to mount it,
+ * and the session route refuses anyone else regardless.
  */
 export function AssistantPanel({ freshdeskDomain }: { freshdeskDomain: string }) {
   const router = useRouter();
@@ -80,12 +87,13 @@ export function AssistantPanel({ freshdeskDomain }: { freshdeskDomain: string })
   const [open, setOpen] = useState(false);
   const [state, setState] = useState<VoiceState>("idle");
   const [mode, setMode] = useState<AssistantMode>("live");
-  const [muted, setMuted] = useState(false);
+  const [voiceOn, setVoiceOn] = useState(false);
   const [lines, setLines] = useState<TranscriptLine[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const voice = useRef<LiveVoice | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
+  const input = useRef<HTMLInputElement>(null);
   const pathRef = useRef(pathname);
   const seenUrls = useRef(new Set<string>());
 
@@ -176,14 +184,23 @@ export function AssistantPanel({ freshdeskDomain }: { freshdeskDomain: string })
       onToolCall,
       onError: setError,
       onMode: setMode,
+      onVoice: setVoiceOn,
     });
     return voice.current;
   }, [onToolCall]);
 
+  /** Connects as a chat; the first question is queued until the socket is up. */
   const start = useCallback(() => {
     setError(null);
-    setMuted(false);
     void ensureVoice().start(pathRef.current);
+  }, [ensureVoice]);
+
+  /** From a click only — browsers let audio start from a user gesture alone. */
+  const toggleVoice = useCallback(() => {
+    setError(null);
+    const v = ensureVoice();
+    if (v.voice) v.disableVoice();
+    else void v.enableVoice(pathRef.current);
   }, [ensureVoice]);
 
   /**
@@ -204,27 +221,30 @@ export function AssistantPanel({ freshdeskDomain }: { freshdeskDomain: string })
 
   const connected = state !== "idle" && state !== "error";
 
-  // ⌘J, or "Ask Jetta" in the palette — both are user gestures, which is what
-  // lets the audio start without a second click.
+  // ⌘J, or "Ask Jetta" in the palette. Opening only shows the chat; nothing
+  // connects until a question is asked.
   useEffect(() => {
-    function openAndStart() {
+    function openPanel() {
       setOpen(true);
-      if (state === "idle" || state === "error") start();
     }
     function onKey(e: KeyboardEvent) {
       if (e.key.toLowerCase() === "j" && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
         if (open) minimise();
-        else openAndStart();
+        else openPanel();
       }
     }
     window.addEventListener("keydown", onKey);
-    window.addEventListener(OPEN_ASSISTANT_EVENT, openAndStart);
+    window.addEventListener(OPEN_ASSISTANT_EVENT, openPanel);
     return () => {
       window.removeEventListener("keydown", onKey);
-      window.removeEventListener(OPEN_ASSISTANT_EVENT, openAndStart);
+      window.removeEventListener(OPEN_ASSISTANT_EVENT, openPanel);
     };
-  }, [open, state, start, minimise]);
+  }, [open, minimise]);
+
+  useEffect(() => {
+    if (open) input.current?.focus();
+  }, [open]);
 
   // Tell her where the user is, so "what am I looking at?" just works.
   useEffect(() => {
@@ -239,12 +259,6 @@ export function AssistantPanel({ freshdeskDomain }: { freshdeskDomain: string })
   // Never leave a microphone open behind an unmounted panel.
   useEffect(() => () => void voice.current?.stop(), []);
 
-  function toggleMute() {
-    const next = !muted;
-    setMuted(next);
-    voice.current?.setMuted(next);
-  }
-
   function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!draft.trim()) return;
@@ -255,7 +269,8 @@ export function AssistantPanel({ freshdeskDomain }: { freshdeskDomain: string })
 
   const readSpectrum = useCallback((out: Float32Array) => voice.current?.readSpectrum(out) ?? (out.fill(0), 0), []);
   const deepNow = mode === "deep" && connected;
-  const statusText = deepNow && state === "thinking" ? "Thinking deeper" : STATE_LABEL[state].replace(/…$/, "");
+  const label = (!voiceOn && CHAT_LABEL[state]) || STATE_LABEL[state];
+  const statusText = deepNow && state === "thinking" ? "Thinking deeper" : label.replace(/…$/, "");
   const talking = lines.length > 0;
 
   function ask(q: string) {
@@ -269,19 +284,16 @@ export function AssistantPanel({ freshdeskDomain }: { freshdeskDomain: string })
         <TooltipTrigger asChild>
           <button
             type="button"
-            onClick={() => {
-              setOpen(true);
-              start();
-            }}
-            aria-label="Talk to Jetta (⌘J)"
+            onClick={() => setOpen(true)}
+            aria-label="Ask Jetta (⌘J)"
             aria-keyshortcuts="Meta+J"
             className="fixed right-5 bottom-5 z-40 flex size-12 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg ring-1 ring-black/5 transition-[transform,background-color] hover:bg-primary/90 active:scale-95 dark:ring-white/10 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
           >
-            <AudioLines className="size-5" aria-hidden />
+            <MessageSquareText className="size-5" aria-hidden />
           </button>
         </TooltipTrigger>
         <TooltipContent side="left">
-          Talk to Jetta <kbd className="ml-1 font-sans opacity-70">⌘J</kbd>
+          Ask Jetta <kbd className="ml-1 font-sans opacity-70">⌘J</kbd>
         </TooltipContent>
       </Tooltip>
     );
@@ -289,47 +301,63 @@ export function AssistantPanel({ freshdeskDomain }: { freshdeskDomain: string })
 
   return (
     <section
-      aria-label="Jetta voice assistant"
+      aria-label="Jetta assistant"
       className="fixed right-4 bottom-4 z-40 flex h-[min(38rem,calc(100svh-6rem))] w-[min(24rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-xl border bg-popover text-popover-foreground shadow-lg"
     >
       <header className="flex items-center gap-2 border-b px-4 py-2.5">
-        <AudioLines className="size-4 text-primary" aria-hidden />
-        <h2 className="text-sm font-medium">Voice assistant</h2>
+        {voiceOn ? (
+          <AudioLines className="size-4 text-primary" aria-hidden />
+        ) : (
+          <MessageSquareText className="size-4 text-primary" aria-hidden />
+        )}
+        <h2 className="text-sm font-medium">Ask Jetta</h2>
+        {!voiceOn && connected && (
+          <span
+            aria-live="polite"
+            className={cn("text-xs", deepNow ? "text-chart-4" : "text-muted-foreground")}
+          >
+            · {statusText}
+          </span>
+        )}
         <span className="ml-auto" />
         <button
           type="button"
           onClick={minimise}
-          aria-label="Minimise — stops listening"
+          aria-label={voiceOn ? "Minimise — stops listening" : "Minimise"}
           className="flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
         >
           <Minus className="size-4" />
         </button>
       </header>
 
-      <div className="flex flex-col items-center pt-3">
-        <VoiceOrb
-          state={state}
-          deep={deepNow}
-          readSpectrum={readSpectrum}
-          size={132}
-          className={cn("transition-[width,height] duration-500 motion-reduce:transition-none", talking ? "!size-[84px]" : "!size-[132px]")}
-        />
-        <p
-          aria-live="polite"
-          className={cn(
-            "flex items-center gap-1.5 text-xs font-medium",
-            state === "error" ? "text-tone-bad" : deepNow ? "text-chart-4" : state === "idle" ? "text-muted-foreground" : "text-tone-info",
-          )}
-        >
-          <span className={cn("size-1.5 rounded-full bg-current", state !== "idle" && state !== "error" && "animate-pulse motion-reduce:animate-none")} />
-          {statusText}
-        </p>
-      </div>
+      {voiceOn && (
+        <div className="flex flex-col items-center pt-3">
+          <VoiceOrb
+            state={state}
+            deep={deepNow}
+            readSpectrum={readSpectrum}
+            size={132}
+            className={cn("transition-[width,height] duration-500 motion-reduce:transition-none", talking ? "!size-[84px]" : "!size-[132px]")}
+          />
+          <p
+            aria-live="polite"
+            className={cn(
+              "flex items-center gap-1.5 text-xs font-medium",
+              state === "error" ? "text-tone-bad" : deepNow ? "text-chart-4" : state === "idle" ? "text-muted-foreground" : "text-tone-info",
+            )}
+          >
+            <span className={cn("size-1.5 rounded-full bg-current", state !== "idle" && state !== "error" && "animate-pulse motion-reduce:animate-none")} />
+            {statusText}
+          </p>
+        </div>
+      )}
 
       <div ref={scroller} className="mt-2 flex-1 space-y-3 overflow-y-auto px-4 py-3 text-sm [scrollbar-width:thin]">
         {!talking && !error && (
           <div className="space-y-3 pt-2 text-center">
-            <p className="text-muted-foreground">Ask about tickets, support health, or how Jetta works.</p>
+            <p className="text-muted-foreground">
+              Ask about tickets, support health, or how Jetta works. Press the mic to talk instead.
+            </p>
             <div className="flex flex-wrap justify-center gap-1.5">
               {[
                 "What came in yesterday?",
@@ -389,37 +417,28 @@ export function AssistantPanel({ freshdeskDomain }: { freshdeskDomain: string })
       </div>
 
       <footer className="flex items-center gap-2 border-t px-3 py-3">
-        {connected ? (
-          <>
-            <button
-              type="button"
-              onClick={toggleMute}
-              aria-label={muted ? "Unmute" : "Mute"}
-              aria-pressed={muted}
-              className={cn(
-                "flex size-10 shrink-0 items-center justify-center rounded-full border transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none",
-                muted ? "bg-muted text-muted-foreground" : "border-primary/40 bg-tone-info-bg text-tone-info hover:bg-tone-info-bg/70",
-              )}
-            >
-              {muted ? <MicOff className="size-4" /> : <Mic className="size-4" />}
-            </button>
-            <button
-              type="button"
-              onClick={end}
-              aria-label="End conversation"
-              className="flex size-10 shrink-0 items-center justify-center rounded-full border border-tone-bad/30 bg-tone-bad-bg text-tone-bad transition-colors hover:border-tone-bad/60 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
-            >
-              <PhoneOff className="size-4" />
-            </button>
-          </>
-        ) : (
+        <button
+          type="button"
+          onClick={toggleVoice}
+          aria-label={voiceOn ? "Turn voice off — back to typing" : "Talk instead — turns the mic on"}
+          aria-pressed={voiceOn}
+          className={cn(
+            "flex size-10 shrink-0 items-center justify-center rounded-full border transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none",
+            voiceOn
+              ? "border-primary/40 bg-tone-info-bg text-tone-info hover:bg-tone-info-bg/70"
+              : "text-muted-foreground hover:border-primary/40 hover:text-foreground",
+          )}
+        >
+          <Mic className="size-4" />
+        </button>
+        {connected && (
           <button
             type="button"
-            onClick={() => start()}
-            className="flex h-10 shrink-0 items-center gap-2 rounded-full bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+            onClick={end}
+            aria-label="End conversation"
+            className="flex size-10 shrink-0 items-center justify-center rounded-full border border-tone-bad/30 bg-tone-bad-bg text-tone-bad transition-colors hover:border-tone-bad/60 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
           >
-            <Mic className="size-4" aria-hidden />
-            {state === "error" ? "Reconnect" : "Start"}
+            <PhoneOff className="size-4" />
           </button>
         )}
         <form
@@ -427,9 +446,10 @@ export function AssistantPanel({ freshdeskDomain }: { freshdeskDomain: string })
           className="flex min-w-0 flex-1 items-center rounded-full border border-input bg-background pr-1 transition-[box-shadow,border-color] focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50"
         >
           <input
+            ref={input}
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
-            placeholder="Or type…"
+            placeholder={voiceOn ? "Or type…" : "Ask Jetta…"}
             aria-label="Type a question"
             className="h-10 min-w-0 flex-1 bg-transparent px-4 text-sm outline-none placeholder:text-muted-foreground"
           />

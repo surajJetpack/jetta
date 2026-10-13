@@ -52,6 +52,8 @@ export interface VoiceCallbacks {
   onError: (message: string) => void;
   /** Deep mode is entered and left by Jetta herself; the panel only shows it. */
   onMode?: (m: AssistantMode) => void;
+  /** Voice (mic + spoken replies) switched on or off. Off = typed chat. */
+  onVoice?: (on: boolean) => void;
 }
 
 interface SessionGrant {
@@ -116,6 +118,13 @@ export class LiveVoice {
   private inCtx: AudioContext | null = null;
   private outCtx: AudioContext | null = null;
   private muted = false;
+  /**
+   * Chat is the default: no microphone, and her replies are shown, not played.
+   * The session is the same either way (she always answers in audio, and the
+   * transcription is what the panel prints), so voice can be switched on and
+   * off mid-conversation without losing anything.
+   */
+  private voiceOn = false;
   private pending: number[] = [];
   private ratio = 3;
   private carry = 0;
@@ -139,11 +148,11 @@ export class LiveVoice {
   // ── lifecycle ──────────────────────────────────────────────────────────
 
   /**
-   * Start listening. If there is a transcript from before a pause (the panel was
-   * minimised), the new session is handed it, so the conversation resumes
-   * rather than restarts.
+   * Connect, as a typed chat unless `voice` is set. If there is a transcript
+   * from before a pause (the panel was minimised), the new session is handed
+   * it, so the conversation resumes rather than restarts.
    */
-  async start(pathname: string): Promise<void> {
+  async start(pathname: string, voice = false): Promise<void> {
     const run = ++this.run;
     this.setMode("live");
     this.pathname = pathname;
@@ -151,19 +160,74 @@ export class LiveVoice {
     if (history) this.sendContext(`The panel was minimised and reopened. The conversation so far:\n${history}`);
     this.setState("connecting");
     try {
-      // Both contexts are created inside the click that started the session:
-      // browsers only let audio play from a user gesture.
-      this.outCtx = new AudioContext({ sampleRate: OUT_RATE });
-      this.outAnalyser = this.outCtx.createAnalyser();
-      this.outAnalyser.fftSize = 256;
-      this.outAnalyser.smoothingTimeConstant = 0.7;
-      this.outAnalyser.connect(this.outCtx.destination);
-      await this.startMic(run);
+      if (voice) await this.openAudio(run);
       if (run !== this.run) return;
       await this.connect();
     } catch (e) {
       if (run === this.run) this.fail(e);
     }
+  }
+
+  /**
+   * Switch to voice. Before a session exists this starts one with voice on;
+   * during one it only adds the microphone and the speaker, so the conversation
+   * carries on. Must be called from a click: browsers only let audio play from
+   * a user gesture, which is why the output context is made first, before any
+   * await.
+   */
+  async enableVoice(pathname: string): Promise<void> {
+    if (this.voiceOn) return;
+    if (this.state === "idle" || this.state === "error") return this.start(pathname, true);
+    const run = this.run;
+    try {
+      await this.openAudio(run);
+    } catch (e) {
+      // No mic (refused, or none attached): stay in chat rather than drop the session.
+      this.closeAudio();
+      this.cb.onError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  /** Back to typed chat: the mic and the speaker close, the session stays. */
+  disableVoice(): void {
+    if (!this.voiceOn) return;
+    this.closeAudio();
+    if (this.state === "speaking") this.setState("listening");
+    this.maybeReturn();
+  }
+
+  get voice(): boolean {
+    return this.voiceOn;
+  }
+
+  private async openAudio(run: number): Promise<void> {
+    this.outCtx = new AudioContext({ sampleRate: OUT_RATE });
+    this.outAnalyser = this.outCtx.createAnalyser();
+    this.outAnalyser.fftSize = 256;
+    this.outAnalyser.smoothingTimeConstant = 0.7;
+    this.outAnalyser.connect(this.outCtx.destination);
+    await this.startMic(run);
+    if (run !== this.run) return;
+    this.setVoice(true);
+  }
+
+  /** Synchronous, so a start() straight after never has its new contexts nulled. */
+  private closeAudio(): void {
+    this.flushPlayback();
+    this.micStream?.getTracks().forEach((t) => t.stop());
+    this.micStream = null;
+    const contexts = [this.inCtx, this.outCtx];
+    this.inCtx = this.outCtx = null;
+    this.inAnalyser = this.outAnalyser = null;
+    this.pending = [];
+    this.setVoice(false);
+    void Promise.all(contexts.map((c) => c?.close().catch(() => {})));
+  }
+
+  private setVoice(on: boolean): void {
+    if (this.voiceOn === on) return;
+    this.voiceOn = on;
+    this.cb.onVoice?.(on);
   }
 
   /**
@@ -175,16 +239,10 @@ export class LiveVoice {
     this.run++;
     this.dropSession();
     this.outbox = [];
-    this.flushPlayback();
-    this.micStream?.getTracks().forEach((t) => t.stop());
-    this.micStream = null;
-    const contexts = [this.inCtx, this.outCtx];
-    this.inCtx = this.outCtx = null;
-    this.inAnalyser = this.outAnalyser = null;
+    this.closeAudio();
     this.resumeHandle = undefined;
     this.escalated = this.returnPending = false;
     this.setState("idle");
-    await Promise.all(contexts.map((c) => c?.close().catch(() => {})));
   }
 
   /**
