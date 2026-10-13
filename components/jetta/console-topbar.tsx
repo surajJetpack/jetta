@@ -23,11 +23,13 @@ export function ConsoleTopbar({
   isAdmin,
   canViewAs,
   viewingAsGeneral,
+  canUseAssistant,
 }: {
   user: string;
   isAdmin: boolean;
   canViewAs: boolean;
   viewingAsGeneral: boolean;
+  canUseAssistant: boolean;
 }) {
   const headline = headlineState();
 
@@ -38,7 +40,7 @@ export function ConsoleTopbar({
       <Breadcrumbs isAdmin={isAdmin} />
 
       <div className="flex min-w-0 flex-1 justify-center">
-        <CommandPalette isAdmin={isAdmin} freshdeskDomain={freshdeskDomain() ?? ""} />
+        <CommandPalette isAdmin={isAdmin} canUseAssistant={canUseAssistant} freshdeskDomain={freshdeskDomain() ?? ""} />
       </div>
 
       <div className="flex shrink-0 items-center gap-2">

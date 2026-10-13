@@ -14,11 +14,11 @@
  * browser at connect time, for the same reason: locked fields are not the
  * client's to set, including this one.
  *
- * Admin-only for now (decided 2026-09-30); read-only either way.
+ * Admins plus CONSOLE_ASSISTANT_USERS (see canUseAssistant); read-only either way.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenAI, Modality, type LiveConnectConfig } from "@google/genai";
-import { requireAdmin } from "@/lib/roles";
+import { requireAssistant } from "@/lib/roles";
 import { adminActor } from "@/lib/auth";
 import { config } from "@/lib/config";
 import { logOpsEvent } from "@/lib/events";
@@ -35,7 +35,7 @@ const TOKEN_TTL_MS = 30 * 60_000;
 const CONNECT_WINDOW_MS = 60_000;
 
 export async function POST(req: NextRequest) {
-  const denied = requireAdmin(req);
+  const denied = requireAssistant(req);
   if (denied) return denied;
   if (!config.google.apiKey) {
     return NextResponse.json({ error: "no_key", message: "GOOGLE_GENERATIVE_AI_API_KEY is not set." }, { status: 503 });

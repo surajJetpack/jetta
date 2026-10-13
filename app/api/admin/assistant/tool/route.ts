@@ -4,7 +4,8 @@
  *   POST { name, args, callId? } → { result } | { error }
  *
  * The Live session asks for a tool; the browser relays it here, and only here
- * does it run — after the caller is re-checked as an admin. The browser is a
+ * does it run — after the caller is re-checked against the
+ * assistant's allowlist. The browser is a
  * courier: it cannot run a data tool itself, and cannot reach one that was not
  * declared, because runConsoleTool only knows the read-only set.
  *
@@ -12,7 +13,7 @@
  * anywhere else, so this is the record of what customer data was read out loud.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/roles";
+import { requireAssistant } from "@/lib/roles";
 import { adminActor } from "@/lib/auth";
 import { logOpsEvent } from "@/lib/events";
 import { runConsoleTool } from "@/lib/console-assistant";
@@ -20,7 +21,7 @@ import { runConsoleTool } from "@/lib/console-assistant";
 export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
-  const denied = requireAdmin(req);
+  const denied = requireAssistant(req);
   if (denied) return denied;
   const actor = adminActor(req) ?? "unknown";
   const body = (await req.json().catch(() => ({}))) as { name?: string; args?: unknown };
