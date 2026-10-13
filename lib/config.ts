@@ -448,6 +448,16 @@ export const config = {
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean),
+  /**
+   * General users who may also use the console voice assistant (⌘J). Admins
+   * always can. A per-person list rather than a role, because the assistant
+   * reads anything a lookup can reach — including /performance, which names
+   * agents — so it is handed to people, not to everyone who can log in.
+   */
+  consoleAssistantUsers: (env("CONSOLE_ASSISTANT_USERS") ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean),
 
   /**
    * /activity identity merging: "Cherryl=Cherryl B,U07ABC;Suraj=suraj,Suraj Malla".

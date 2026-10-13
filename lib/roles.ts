@@ -81,6 +81,23 @@ export function effectiveRole(username: string | null | undefined, viewAs?: stri
 }
 
 /**
+ * The console voice assistant: every admin, plus the general users named in
+ * CONSOLE_ASSISTANT_USERS. Read-only either way. An admin previewing as general
+ * loses it unless they are on the list too, so the preview stays honest.
+ */
+export function canUseAssistant(username: string | null | undefined, viewAs?: string | null): boolean {
+  if (effectiveRole(username, viewAs) === "admin") return true;
+  return !!username && config.consoleAssistantUsers.includes(username);
+}
+
+/** requireAdmin, widened to the assistant's allowlist. Refusals read the same. */
+export function requireAssistant(req: NextRequest): NextResponse | null {
+  const actor = adminActor(req);
+  if (actor && canUseAssistant(actor, req.cookies.get(VIEW_AS_COOKIE)?.value)) return null;
+  return requireAdmin(req);
+}
+
+/**
  * Gate an API route. Returns a response to send back, or null to continue.
  * 403 rather than 404: the caller is a known colleague, and pretending the
  * route does not exist would send them hunting for a bug instead of asking

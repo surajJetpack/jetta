@@ -25,9 +25,11 @@ import { navItemsFor } from "./console-nav";
  */
 export function CommandPalette({
   isAdmin,
+  canUseAssistant,
   freshdeskDomain,
 }: {
   isAdmin: boolean;
+  canUseAssistant: boolean;
   /** Empty when Freshdesk isn't configured — the ticket row then hides itself. */
   freshdeskDomain: string;
 }) {
@@ -65,7 +67,7 @@ export function CommandPalette({
       });
     }
 
-    if (isAdmin && (!term || "ask jetta talk voice assistant".includes(term) || term.split(" ").length > 2)) {
+    if (canUseAssistant && (!term || "ask jetta talk voice assistant".includes(term) || term.split(" ").length > 2)) {
       rows.push({ key: "assistant", label: "Ask Jetta", hint: "Talk to her — she can look things up and take you there (⌘J)", href: "", assistant: true });
     }
 
@@ -74,7 +76,7 @@ export function CommandPalette({
       rows.push({ key: item.id, label: item.label, hint: item.hint, href: item.href });
     }
     return rows;
-  }, [q, isAdmin, freshdeskDomain]);
+  }, [q, isAdmin, canUseAssistant, freshdeskDomain]);
 
   // Typing resets the cursor to the best match — done here rather than in an
   // effect, because the cursor is derived from the same event as the query and

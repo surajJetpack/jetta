@@ -142,9 +142,9 @@ export function channelRows(): StatusRow[] {
   rows.push({
     label: "Console voice assistant",
     tone: config.google.apiKey ? "on" : "off",
-    state: config.google.apiKey ? "ADMINS" : "NO KEY",
+    state: !config.google.apiKey ? "NO KEY" : config.consoleAssistantUsers.length ? `ADMINS + ${config.consoleAssistantUsers.length}` : "ADMINS",
     meaning: config.google.apiKey
-      ? "Admins can talk to Jetta in the console (⌘J) on Gemini Live. Read-only: she looks things up and moves the page, and every lookup is logged as assistant.tool."
+      ? `Admins${config.consoleAssistantUsers.length ? ` and ${config.consoleAssistantUsers.join(", ")}` : ""} can talk to Jetta in the console (⌘J) on Gemini Live. Read-only: she looks things up and moves the page, and every lookup is logged as assistant.tool.`
       : "Needs GOOGLE_GENERATIVE_AI_API_KEY — the voice panel will refuse to start.",
     setting: "GOOGLE_GENERATIVE_AI_API_KEY",
   });

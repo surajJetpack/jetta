@@ -27,7 +27,7 @@ export const dynamic = "force-dynamic";
  * ever forgot to gate would leak its own content, never the navigation.
  */
 export default async function ConsoleLayout({ children }: { children: React.ReactNode }) {
-  const { locked, user, isAdmin, viewingAsGeneral } = await gate();
+  const { locked, user, isAdmin, viewingAsGeneral, canUseAssistant } = await gate();
   if (locked) return <>{children}</>;
 
   const collapsed = (await cookies()).get("jetta_sidebar")?.value === "collapsed";
@@ -42,6 +42,7 @@ export default async function ConsoleLayout({ children }: { children: React.Reac
           isAdmin={isAdmin}
           canViewAs={isAdmin || viewingAsGeneral}
           viewingAsGeneral={viewingAsGeneral}
+          canUseAssistant={canUseAssistant}
         />
 
         {viewingAsGeneral && (
@@ -61,10 +62,10 @@ export default async function ConsoleLayout({ children }: { children: React.Reac
         </main>
       </div>
 
-      {/* Admin-only for now (2026-09-30). isAdmin already honours "view as
-          general", so the preview hides her too — and the session route
-          refuses a general user whatever the UI does. */}
-      {isAdmin && <AssistantPanel freshdeskDomain={freshdeskDomain() ?? ""} />}
+      {/* Admins plus CONSOLE_ASSISTANT_USERS. canUseAssistant already honours
+          "view as general", and the session route refuses anyone else
+          whatever the UI does. */}
+      {canUseAssistant && <AssistantPanel freshdeskDomain={freshdeskDomain() ?? ""} />}
     </div>
   );
 }
