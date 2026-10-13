@@ -28,8 +28,6 @@ export interface MonetRequestInput {
   daysValid?: number;
   period?: "MONTHLY" | "YEARLY";
   ticketId?: string;
-  /** See MonetApproval.appGuessed. */
-  appGuessed?: boolean;
   /** Human-readable summary for the Slack message, e.g. "set trial to 23 days". */
   summary: string;
   ticketUrl?: string;
@@ -79,7 +77,6 @@ export async function submitMonetApproval(
     period: input.period,
     ticketId: input.ticketId,
     flagged,
-    appGuessed: input.appGuessed,
     createdAt: Math.floor(Date.now() / 1000),
   });
   await slack.requestMonetApproval({
@@ -87,9 +84,7 @@ export async function submitMonetApproval(
     action: input.action,
     app: input.app,
     accountSlug: input.accountSlug,
-    summary: input.appGuessed
-      ? `${input.summary} — app guessed from the conversation, check it before approving`
-      : input.summary,
+    summary: input.summary,
     ticketUrl: input.ticketUrl,
     flagged,
   });

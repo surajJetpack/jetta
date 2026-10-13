@@ -12,7 +12,7 @@
  */
 import { tool, type ToolSet } from "ai";
 import { z } from "zod";
-import type { AppProduct, ConversationContext } from "../types";
+import type { ConversationContext } from "../types";
 import { config } from "../config";
 import * as freshdesk from "./freshdesk";
 import * as freshchat from "./freshchat";
@@ -83,35 +83,6 @@ export function buildTools(
   // relevant chat console for chats, the Freshdesk ticket otherwise.
   const interactionUrl = (id: string) =>
     isChat ? chatClient.conversationUrl(id) : ticketUrl(id);
-  /*
-   * Which monday app a trial/discount request is for, and whether that is a
-   * guess. `ctx.appProduct` stays LLM-free because it routes billing WRITES on
-   * its own (FastSpring). Monday requests only queue for a person to approve,
-   * so triage's reading (`ctx.app`) is allowed here — marked as a guess so the
-   * reviewer checks it. Without it, a chat on the generic page that never
-   * names the app queued as "unknown" and could never be applied.
-   *
-   * Returns a message for the model instead when the request cannot succeed,
-   * so Jetta never tells a customer "being processed" for something no
-   * approval can apply.
-   */
-  const monetTarget = (): { app: AppProduct; appGuessed: boolean } | { stop: string } => {
-    const guessed = ctx.appProduct === "unknown";
-    const app = guessed ? (ctx.app ?? "unknown") : ctx.appProduct;
-    if (app === "unknown") {
-      return { stop: "Not sent — it isn't clear which of our apps this is for. Ask the customer which app they need it for, then call this again." };
-    }
-    if (!mondayMonetization.isConfigured(app)) {
-      const handoff = isOwnChat
-        ? "Open a ticket with create_support_ticket so the team can handle it by email"
-        : "Leave it for the team in the private note";
-      return {
-        stop: `Not sent — trials and discounts for ${app} can't be applied from here yet, so a person has to handle it. ${handoff}. Tell the customer the team will follow up about it — do NOT say a request is being processed or approved.`,
-      };
-    }
-    return { app, appGuessed: guessed };
-  };
-
   // Set by create_dev_item so send_escalation can attach the Dev board item
   // link automatically, the same way ticket/account URLs are.
   let mondayItemUrl: string | undefined;
@@ -888,14 +859,6 @@ export function buildTools(
 
         }),
 
-    /*
-     * Which monday app a trial/discount request is for, and whether that is a
-     * guess. `ctx.appProduct` stays LLM-free because it routes billing WRITES
-     * on its own (FastSpring). These requests only queue for a person to
-     * approve, so triage's reading (`ctx.app`) is allowed in here — marked as a
-     * guess so the reviewer checks it. Without it, a chat on the generic page
-     * that never names the app queued as "unknown" and could never be applied.
-     */
     extend_trial: tool({
       description:
         "REQUEST the standard 7-day trial extension for the customer's monday.com app (a human on the team approves it in Slack before it takes effect — it is NOT applied immediately). Extensions are always 7 days — do not offer a different length even if the customer asks for more. Requires their monday account (their monday URL, e.g. https://acme.monday.com, or account slug) — ask for it if you don't have it.",
@@ -906,11 +869,9 @@ export function buildTools(
         const slug = mondayMonetization.parseAccountSlug(account);
         if (!slug) return "That doesn't look like a monday account URL or slug — ask the customer for their monday URL (e.g. https://acme.monday.com).";
         const days = TRIAL_EXTENSION_DAYS; // standard, fixed
-        const target = monetTarget();
-        if ("stop" in target) return target.stop;
-        if (dry) return `[dry-run] would request approval to extend ${slug}'s ${target.app} trial by the standard ${days} days.`;
+        if (dry) return `[dry-run] would request approval to extend ${slug}'s trial by the standard ${days} days.`;
         const { id, deduped, flagged } = await submitMonetApproval({
-          action: "trial", app: target.app, appGuessed: target.appGuessed, accountSlug: slug, days, ticketId,
+          action: "trial", app: ctx.appProduct, accountSlug: slug, days, ticketId,
           summary: `extend trial by ${days} days`,
           ticketUrl: ticketId ? interactionUrl(ticketId) : undefined,
         });
@@ -931,11 +892,9 @@ export function buildTools(
       execute: async ({ account, percent, days_valid, period }) => {
         const slug = mondayMonetization.parseAccountSlug(account);
         if (!slug) return "That doesn't look like a monday account URL or slug — ask the customer for their monday URL.";
-        const target = monetTarget();
-        if ("stop" in target) return target.stop;
-        if (dry) return `[dry-run] would request approval for a ${percent}% ${period.toLowerCase()} ${target.app} discount to ${slug} for ${days_valid} days.`;
+        if (dry) return `[dry-run] would request approval for a ${percent}% ${period.toLowerCase()} discount to ${slug} for ${days_valid} days.`;
         const { id, deduped } = await submitMonetApproval({
-          action: "discount", app: target.app, appGuessed: target.appGuessed, accountSlug: slug,
+          action: "discount", app: ctx.appProduct, accountSlug: slug,
           percent, daysValid: days_valid, period, ticketId,
           summary: `${percent}% off ${period.toLowerCase()}, valid ${days_valid} days (one-time)`,
           ticketUrl: ticketId ? interactionUrl(ticketId) : undefined,

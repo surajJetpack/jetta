@@ -46,7 +46,6 @@ export interface MonetApproval {
   period?: "MONTHLY" | "YEARLY";
   ticketId?: string;
   flagged?: string;
-  appGuessed?: boolean;
   createdAt: number;
 }
 
@@ -103,14 +102,6 @@ function ApprovalCard({
         <Alert variant="destructive">
           <TriangleAlert />
           <AlertTitle>Flagged: {appr.flagged}</AlertTitle>
-        </Alert>
-      )}
-      {appr.appGuessed && (
-        <Alert>
-          <TriangleAlert />
-          <AlertTitle>
-            Jetta guessed the app ({appr.app}) — the customer never named it. Check the conversation before approving; reject if it&apos;s wrong.
-          </AlertTitle>
         </Alert>
       )}
       <div className="flex flex-wrap items-center gap-1.5 text-sm">
