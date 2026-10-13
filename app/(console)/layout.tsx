@@ -1,7 +1,6 @@
 import { cookies } from "next/headers";
 import { gate } from "@/lib/console-auth";
-import { cn } from "@/lib/utils";
-import { ConsoleSidebar } from "@/components/jetta/console-sidebar";
+import { SidebarRail } from "@/components/jetta/sidebar-rail";
 import { ConsoleTopbar } from "@/components/jetta/console-topbar";
 import { GuideBanner } from "@/components/jetta/guide-banner";
 import { AssistantPanel } from "@/components/jetta/assistant/assistant-panel";
@@ -35,15 +34,7 @@ export default async function ConsoleLayout({ children }: { children: React.Reac
 
   return (
     <div className="flex min-h-svh" data-console>
-      <aside
-        data-surface="sidebar"
-        className={cn(
-          "sticky top-0 hidden h-svh shrink-0 border-r md:block",
-          collapsed ? "w-16" : "w-60",
-        )}
-      >
-        <ConsoleSidebar isAdmin={isAdmin} defaultCollapsed={collapsed} />
-      </aside>
+      <SidebarRail isAdmin={isAdmin} savedCollapsed={collapsed} />
 
       <div className="flex min-w-0 flex-1 flex-col">
         <ConsoleTopbar
@@ -51,7 +42,6 @@ export default async function ConsoleLayout({ children }: { children: React.Reac
           isAdmin={isAdmin}
           canViewAs={isAdmin || viewingAsGeneral}
           viewingAsGeneral={viewingAsGeneral}
-          sidebarCollapsed={collapsed}
         />
 
         {viewingAsGeneral && (

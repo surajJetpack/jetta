@@ -127,7 +127,7 @@ export function ConversationHeader({
             {appOf(detail) !== NO_APP && ` · ${appName(appOf(detail))}`}
             {/* The details pane only fits on wide screens; below that, the two
                 things you'd otherwise lose ride along here. */}
-            <span className="min-[1500px]:hidden">
+            <span className="min-[1400px]:hidden">
               {detail.visitor.mondayAccountSlug && (
                 <>
                   {" "}· <span className="font-mono">{detail.visitor.mondayAccountSlug}</span>

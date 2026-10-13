@@ -84,7 +84,7 @@ export function ChatList({
     <aside
       aria-label="Conversations"
       className={cn(
-        "min-h-0 w-full flex-col border-r md:flex md:w-[340px] md:shrink-0",
+        "min-h-0 w-full flex-col border-r md:flex md:w-[300px] md:shrink-0 2xl:w-[340px]",
         detail ? "hidden" : "flex",
       )}
     >

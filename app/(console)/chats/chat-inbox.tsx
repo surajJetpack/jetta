@@ -12,7 +12,7 @@ import { ALL_APPS, NO_APP, appOf, type Conv, type Filter } from "./chat-types";
 import { ChatList, type FilterCounts } from "./chat-list";
 import { ConversationHeader, Transcript } from "./chat-transcript";
 import { ChatComposer, ConversationActions, type ChatAction } from "./chat-composer";
-import { ChatDetails } from "./chat-details";
+import { ChatDetails, ChatDetailsSheet } from "./chat-details";
 
 /**
  * The chat inbox.
@@ -383,6 +383,8 @@ export default function ChatInbox({
   const abandoned = list.filter((c) => c.messages.length === 0).length;
   const mine = detail?.status === "human";
 
+  const detailsProps = detail ? { detail, related, hydrated, zone, freshdeskDomain, select } : null;
+
   return (
     <div className="flex h-[calc(100dvh-8.5rem)] min-h-[560px] overflow-hidden rounded-xl border bg-card shadow-card">
       {/* ── list ─────────────────────────────────────────────── */}
@@ -421,21 +423,24 @@ export default function ChatInbox({
               select={select}
               freshdeskDomain={freshdeskDomain}
               actions={
-                <ConversationActions
-                  detail={detail}
-                  mine={mine}
-                  busy={busy}
-                  act={act}
-                  convert={convert}
-                  ticketFieldId={ticketFieldId}
-                  ticketSubject={ticketSubject}
-                  setTicketSubject={setTicketSubject}
-                  ticketNote={ticketNote}
-                  setTicketNote={setTicketNote}
-                  ticketNotify={ticketNotify}
-                  setTicketNotify={setTicketNotify}
-                  attachmentCount={attachmentCount}
-                />
+                <div className="flex flex-wrap items-center gap-2">
+                  {detailsProps && <ChatDetailsSheet {...detailsProps} />}
+                  <ConversationActions
+                    detail={detail}
+                    mine={mine}
+                    busy={busy}
+                    act={act}
+                    convert={convert}
+                    ticketFieldId={ticketFieldId}
+                    ticketSubject={ticketSubject}
+                    setTicketSubject={setTicketSubject}
+                    ticketNote={ticketNote}
+                    setTicketNote={setTicketNote}
+                    ticketNotify={ticketNotify}
+                    setTicketNotify={setTicketNotify}
+                    attachmentCount={attachmentCount}
+                  />
+                </div>
               }
             />
             <Transcript detail={detail} hydrated={hydrated} zone={zone} avatars={avatars} endRef={endRef} />
@@ -447,16 +452,7 @@ export default function ChatInbox({
       </section>
 
       {/* ── details ──────────────────────────────────────────── */}
-      {detail && (
-        <ChatDetails
-          detail={detail}
-          related={related}
-          hydrated={hydrated}
-          zone={zone}
-          freshdeskDomain={freshdeskDomain}
-          select={select}
-        />
-      )}
+      {detailsProps && <ChatDetails {...detailsProps} />}
     </div>
   );
 }

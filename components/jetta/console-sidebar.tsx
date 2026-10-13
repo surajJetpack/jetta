@@ -13,20 +13,23 @@ import { TONE_SOLID } from "./tone";
 /**
  * The console's spine.
  *
- * Collapsed state arrives as a prop read from a cookie on the server, so the
- * sidebar renders at its final width on the first paint — deciding it on the
- * client would flash a wide rail on every navigation.
+ * Collapsed state is owned by SidebarRail, which seeds it from a cookie read
+ * on the server (so the first paint is already the right width) and then
+ * flips it in place: toggling used to set the cookie and reload the page.
  *
  * Only ever ONE poll behind all the badges (see useAttention), where the old
  * tab bar ran a separate one per badge.
  */
 export function ConsoleSidebar({
   isAdmin,
-  defaultCollapsed,
+  collapsed: collapsedProp = false,
+  onToggle,
   onNavigate,
 }: {
   isAdmin: boolean;
-  defaultCollapsed: boolean;
+  collapsed?: boolean;
+  /** Shows the collapse button. The mobile drawer has none. */
+  onToggle?: () => void;
   /** Set by the mobile sheet so tapping a link closes it. */
   onNavigate?: () => void;
 }) {
@@ -35,17 +38,7 @@ export function ConsoleSidebar({
   const active = activeId(pathname, isAdmin);
   const groups = navFor(isAdmin);
 
-  function toggle() {
-    const next = !defaultCollapsed;
-    // A year, because this is a workstation preference and re-choosing it every
-    // session is the kind of small friction people stop noticing and start
-    // resenting. Lax so it survives following a link in from Slack.
-    document.cookie = `jetta_sidebar=${next ? "collapsed" : "open"};path=/;max-age=31536000;samesite=lax`;
-    // The layout reads the cookie on the server, so a reload is what applies it.
-    window.location.reload();
-  }
-
-  const collapsed = defaultCollapsed && !onNavigate;
+  const collapsed = collapsedProp && !onNavigate;
 
   return (
     <div className="flex h-full flex-col gap-1 overflow-y-auto px-3 py-3">
@@ -63,10 +56,10 @@ export function ConsoleSidebar({
             <span className="truncate text-xs text-muted-foreground">Support operations</span>
           </span>
         )}
-        {!onNavigate && (
+        {onToggle && !onNavigate && (
           <button
             type="button"
-            onClick={toggle}
+            onClick={onToggle}
             aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
             className="shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
           >

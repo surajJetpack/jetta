@@ -9,7 +9,9 @@
  * its own on wide screens and stays out of the way on narrow ones.
  */
 import type { ReactNode } from "react";
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, PanelRight } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { RelativeTime } from "@/components/jetta/relative-time";
 import { CHIP_BASE, TONE_SOFT } from "@/components/jetta/tone";
 import { cn } from "@/lib/utils";
@@ -39,14 +41,7 @@ function Fields({ rows }: { rows: [string, ReactNode][] }) {
   );
 }
 
-export function ChatDetails({
-  detail,
-  related,
-  hydrated,
-  zone,
-  freshdeskDomain,
-  select,
-}: {
+export interface ChatDetailsProps {
   detail: Conv;
   /** The same visitor's other conversations, newest first. */
   related: Conv[];
@@ -54,7 +49,47 @@ export function ChatDetails({
   zone: { short: string; name: string };
   freshdeskDomain: string;
   select: (id: string | null) => void;
-}) {
+}
+
+/**
+ * Where the details live depends on the room. From 1400px they are a third
+ * column, which is what a 13" laptop's ~1440px gives; below that, the
+ * conversation would be squeezed to a strip, so they open as a slide-over
+ * from the header's Details button instead (ChatDetailsSheet).
+ */
+export function ChatDetails(props: ChatDetailsProps) {
+  return (
+    <aside
+      aria-label="Visitor details"
+      className="hidden w-[280px] shrink-0 flex-col gap-5 overflow-y-auto border-l bg-card p-5 min-[1400px]:flex 2xl:w-[300px]"
+    >
+      <DetailsBody {...props} />
+    </aside>
+  );
+}
+
+export function ChatDetailsSheet(props: ChatDetailsProps) {
+  return (
+    <Sheet>
+      <SheetTrigger asChild>
+        <Button size="sm" variant="outline" className="min-[1400px]:hidden">
+          <PanelRight /> Details
+        </Button>
+      </SheetTrigger>
+      <SheetContent className="w-[320px] gap-0 overflow-y-auto sm:max-w-[320px]">
+        <SheetHeader className="border-b">
+          <SheetTitle>{props.detail.visitor.name || "Anonymous"}</SheetTitle>
+          <SheetDescription className="text-xs">Visitor and conversation details</SheetDescription>
+        </SheetHeader>
+        <div className="flex flex-col gap-5 p-5">
+          <DetailsBody {...props} />
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+function DetailsBody({ detail, related, hydrated, zone, freshdeskDomain, select }: ChatDetailsProps) {
   const v = detail.visitor;
   const page = detail.pageUrl?.replace(/^https?:\/\//, "");
   // The newest ticket first, then the earlier ones: a chat that raised two
@@ -65,10 +100,7 @@ export function ChatDetails({
   ];
 
   return (
-    <aside
-      aria-label="Visitor details"
-      className="hidden w-[300px] shrink-0 flex-col gap-5 overflow-y-auto border-l bg-card p-5 min-[1500px]:flex"
-    >
+    <>
       <Section title="Visitor">
         <Fields
           rows={[
@@ -174,6 +206,6 @@ export function ChatDetails({
           </Section>
         </>
       )}
-    </aside>
+    </>
   );
 }
