@@ -101,6 +101,12 @@ export class LiveVoice {
   private pathname = "/";
   private reconnecting = false;
   private gen = 0;
+  /**
+   * Bumped by every start() and stop(). A start() that finds it moved after an
+   * await was cancelled meanwhile (minimised while still connecting) and must
+   * not go on to open the microphone or keep a socket.
+   */
+  private run = 0;
   private outbox: ClientContent[] = [];
   /** In deep mode because she escalated a question — go back once it is answered. */
   private escalated = false;
@@ -138,6 +144,7 @@ export class LiveVoice {
    * rather than restarts.
    */
   async start(pathname: string): Promise<void> {
+    const run = ++this.run;
     this.setMode("live");
     this.pathname = pathname;
     const history = this.historyText();
@@ -151,26 +158,33 @@ export class LiveVoice {
       this.outAnalyser.fftSize = 256;
       this.outAnalyser.smoothingTimeConstant = 0.7;
       this.outAnalyser.connect(this.outCtx.destination);
-      await this.startMic();
+      await this.startMic(run);
+      if (run !== this.run) return;
       await this.connect();
     } catch (e) {
-      this.fail(e);
+      if (run === this.run) this.fail(e);
     }
   }
 
+  /**
+   * Everything is released synchronously, before the first await: a start()
+   * that follows straight away (reopened at once) creates new contexts, and a
+   * stop() still finishing must not null those out from under it.
+   */
   async stop(): Promise<void> {
+    this.run++;
     this.dropSession();
     this.outbox = [];
     this.flushPlayback();
     this.micStream?.getTracks().forEach((t) => t.stop());
     this.micStream = null;
-    await this.inCtx?.close().catch(() => {});
-    await this.outCtx?.close().catch(() => {});
+    const contexts = [this.inCtx, this.outCtx];
     this.inCtx = this.outCtx = null;
     this.inAnalyser = this.outAnalyser = null;
     this.resumeHandle = undefined;
     this.escalated = this.returnPending = false;
     this.setState("idle");
+    await Promise.all(contexts.map((c) => c?.close().catch(() => {})));
   }
 
   /**
@@ -417,17 +431,25 @@ export class LiveVoice {
 
   // ── microphone ─────────────────────────────────────────────────────────
 
-  private async startMic(): Promise<void> {
-    this.micStream = await navigator.mediaDevices.getUserMedia({
+  private async startMic(run: number): Promise<void> {
+    const stream = await navigator.mediaDevices.getUserMedia({
       // Echo cancellation is what stops her hearing herself through the
       // speakers and interrupting her own answer.
       audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 },
     });
+    // Minimised while the permission prompt was up: hand the mic straight back.
+    if (run !== this.run) {
+      stream.getTracks().forEach((t) => t.stop());
+      return;
+    }
+    this.micStream = stream;
     this.inCtx = new AudioContext();
     this.ratio = this.inCtx.sampleRate / IN_RATE;
     const url = URL.createObjectURL(new Blob([WORKLET], { type: "application/javascript" }));
     await this.inCtx.audioWorklet.addModule(url);
     URL.revokeObjectURL(url);
+    // stop() during the await has already released the stream and the context.
+    if (run !== this.run || !this.inCtx || !this.micStream) return;
     const src = this.inCtx.createMediaStreamSource(this.micStream);
     const node = new AudioWorkletNode(this.inCtx, "jetta-capture");
     node.port.onmessage = (e: MessageEvent<Float32Array>) => this.onFrames(e.data);
