@@ -25,11 +25,13 @@ function Points<D>({
   points,
   tone,
   open,
+  unit,
 }: {
   title: string;
   points: InsightPoint<D>[];
   tone: string;
   open: (r: InsightDrill<D>) => void;
+  unit: string;
 }) {
   if (!points.length) return null;
   return (
@@ -47,7 +49,8 @@ function Points<D>({
                   onClick={() => open({ title: p.evidence!.title, description: p.evidence!.description, drill: p.evidence!.drill })}
                   className="ml-1.5 rounded-sm text-xs whitespace-nowrap text-muted-foreground underline decoration-dotted underline-offset-4 outline-none hover:text-foreground hover:decoration-solid focus-visible:ring-[3px] focus-visible:ring-ring/50"
                 >
-                  {p.evidence.count} ticket{p.evidence.count === 1 ? "" : "s"}
+                  {p.evidence.count} {unit}
+                  {p.evidence.count === 1 ? "" : "s"}
                 </button>
               )}
             </span>
@@ -68,12 +71,15 @@ export function InsightCard<D>({
   basedOn,
   open,
   description = "Written from the numbers on this page. Each point links to the tickets behind it.",
+  unit = "ticket",
 }: {
   /** GET returns { insight, stale?, reason? }; `?refresh=1` rewrites. */
   endpoint: string;
   basedOn: number;
   open: (r: InsightDrill<D>) => void;
   description?: string;
+  /** What a citation counts — "ticket" on /health, "item" on /dev-board. */
+  unit?: string;
 }) {
   const [insight, setInsight] = useState<Insight<D> | null>(null);
   const [state, setState] = useState<State>("loading");
@@ -127,7 +133,7 @@ export function InsightCard<D>({
           </div>
         ) : state === "not_built" && !insight ? (
           <p className="text-sm text-muted-foreground">
-            The analysis needs the ticket lists, which the next sync builds. Press Sync now below, then Rewrite.
+            The analysis needs the {unit} lists, which the next sync builds. Press Sync now below, then Rewrite.
           </p>
         ) : !insight ? (
           <p className="text-sm text-muted-foreground">Couldn&apos;t write the analysis just now. The numbers below are unaffected — try Rewrite.</p>
@@ -135,9 +141,9 @@ export function InsightCard<D>({
           <>
             {insight.headline && <p className="text-sm font-semibold">{insight.headline}</p>}
             <div className="grid gap-4 md:grid-cols-3">
-              <Points title="Going well" points={insight.goingWell} tone="bg-tone-good" open={open} />
-              <Points title="Worth watching" points={insight.watch} tone="bg-tone-warn" open={open} />
-              <Points title="To do" points={insight.actions} tone="bg-tone-info" open={open} />
+              <Points title="Going well" unit={unit} points={insight.goingWell} tone="bg-tone-good" open={open} />
+              <Points title="Worth watching" unit={unit} points={insight.watch} tone="bg-tone-warn" open={open} />
+              <Points title="To do" unit={unit} points={insight.actions} tone="bg-tone-info" open={open} />
             </div>
             <p className="text-xs text-muted-foreground">
               Written <RelativeTime at={Math.floor(insight.generatedAt / 1000)} />. It can be wrong — the numbers below are the

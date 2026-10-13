@@ -418,4 +418,5 @@ export const CRONS: readonly EndpointRow[] = [
   { path: "/api/cron/daily-overview", detail: "Yesterday's rollup and its written narrative", schedule: "daily 06:10" },
   { path: "/api/cron/performance-sync", detail: "Reads changed Freshdesk tickets into the Support health and Performance stores", schedule: "hourly at :40" },
   { path: "/api/cron/activity-sync", detail: "Reads Slack, monday and the KB audit into Team activity", schedule: "hourly at :25" },
+  { path: "/api/cron/dev-board-sync", detail: "Reads both monday dev boards (read-only) and analyses new item conversations for Dev board", schedule: "hourly at :50" },
 ] as const;

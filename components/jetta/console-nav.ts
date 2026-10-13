@@ -23,6 +23,7 @@ import {
   Activity,
   GraduationCap,
   HeartPulse,
+  KanbanSquare,
   LifeBuoy,
   MessageSquare,
   Monitor,
@@ -109,6 +110,14 @@ export const NAV: NavGroup[] = [
         label: "Team activity",
         icon: Activity,
         hint: "What each person did, and where — Freshdesk, chats, Slack, monday, the console",
+        adminOnly: true,
+      },
+      {
+        id: "dev-board",
+        href: "/dev-board",
+        label: "Dev board",
+        icon: KanbanSquare,
+        hint: "Client issues on the monday dev boards — pace, whose move, support's part, recurring problems, lessons for the KB",
         adminOnly: true,
       },
       {
@@ -228,6 +237,15 @@ export const PAGE_SECTIONS: Record<string, Record<string, string>> = {
     "last-28-days": "Last 28 days — reply times and Jetta's share",
     handoffs: "Handoffs: real bugs or knowledge gaps",
     "by-agent": "By agent, last 28 days",
+  },
+  "dev-board": {
+    "ai-read": "The AI read",
+    "last-28-days": "Client issues, last 28 days — filed, resolved, response and resolve times",
+    "right-now": "Right now — whose move each open client issue is on",
+    engineering: "Engineering — per developer",
+    support: "Support on the boards — per support person",
+    patterns: "Patterns from the conversations — kinds, friction, recurring areas",
+    knowledge: "Knowledge from the threads — lessons for the KB",
   },
   activity: {
     scorecard: "Who did what — the scorecard",

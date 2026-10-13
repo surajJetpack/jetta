@@ -80,6 +80,8 @@ export interface KbArticle {
      * revise. A notice is a to-do, not content — it can never be published.
      */
     revises?: string;
+    /** Drafted on /dev-board from this monday dev item's conversation. */
+    devItemId?: string;
   };
   /** Possible duplicates flagged at save time — advisory only. */
   duplicates?: { id: string; title: string; score: number }[];

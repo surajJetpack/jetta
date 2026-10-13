@@ -456,6 +456,12 @@ export const config = {
    */
   agentAliases: env("AGENT_ALIASES"),
 
+  /**
+   * /dev-board: who on the monday dev boards is SUPPORT, by first name. Everyone
+   * else who writes there (developers, QA, design, leads) counts as engineering.
+   */
+  devBoardSupport: env("DEV_BOARD_SUPPORT") ?? "Cherryl,Sujata,Gabriel",
+
   /** HMAC key for session cookies; falls back to ADMIN_SECRET. */
   sessionSecret: env("SESSION_SECRET") ?? env("ADMIN_SECRET"),
 
