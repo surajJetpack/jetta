@@ -14,6 +14,27 @@ import { EmptyState } from "@/components/jetta/empty-state";
 import { RelativeTime } from "@/components/jetta/relative-time";
 import { usePolling } from "@/lib/use-polling";
 
+/**
+ * Link to where the request came from. Freshdesk tickets are numeric; JettaChat
+ * conversations are keyed by UUID and live in the console — a UUID pasted into
+ * /a/tickets/ is a dead Freshdesk link (same split as refFor in lib/today.ts).
+ */
+export function TicketLink({ id, freshdeskDomain }: { id: string; freshdeskDomain: string }) {
+  const className = "inline-flex items-center gap-1 font-medium text-primary hover:underline";
+  if (!/^\d+$/.test(id)) {
+    return (
+      <a href={`/chats/${id}`} className={className}>
+        chat {id.slice(0, 8)}
+      </a>
+    );
+  }
+  return (
+    <a href={`https://${freshdeskDomain}/a/tickets/${id}`} target="_blank" rel="noreferrer" className={className}>
+      #{id} <ExternalLink className="size-3.5" />
+    </a>
+  );
+}
+
 export interface MonetApproval {
   id: string;
   action: "trial" | "discount";
@@ -85,16 +106,7 @@ function ApprovalCard({
       )}
       <div className="flex flex-wrap items-center gap-1.5 text-sm">
         <StatusChip tone={appr.action === "trial" ? "draft" : "published"}>{summary(appr)}</StatusChip>
-        {appr.ticketId && (
-          <a
-            href={`https://${freshdeskDomain}/a/tickets/${appr.ticketId}`}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1 font-medium text-primary hover:underline"
-          >
-            #{appr.ticketId} <ExternalLink className="size-3.5" />
-          </a>
-        )}
+        {appr.ticketId && <TicketLink id={appr.ticketId} freshdeskDomain={freshdeskDomain} />}
         <span className="font-mono text-xs text-muted-foreground">ref {appr.id}</span>
       </div>
 

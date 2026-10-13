@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type RefObject } from "react";
-import { ExternalLink, HandCoins, History, Hourglass } from "lucide-react";
+import { HandCoins, History, Hourglass } from "lucide-react";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -10,7 +10,7 @@ import { StatusChip, type ChipTone } from "@/components/jetta/status-chip";
 import { EmptyState } from "@/components/jetta/empty-state";
 import { RelativeTime } from "@/components/jetta/relative-time";
 import { usePolling } from "@/lib/use-polling";
-import { summary, type MonetApproval } from "./billing-queue";
+import { summary, TicketLink, type MonetApproval } from "./billing-queue";
 
 /** lib/kv MonetDecision, plus the decider's display name from the API. */
 interface MonetDecision extends Omit<MonetApproval, "createdAt"> {
@@ -163,14 +163,7 @@ export default function BillingHistory({
                     </TableCell>
                     <TableCell>
                       {d.ticketId ? (
-                        <a
-                          href={`https://${freshdeskDomain}/a/tickets/${d.ticketId}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex items-center gap-1 font-medium text-primary hover:underline"
-                        >
-                          #{d.ticketId} <ExternalLink className="size-3.5" />
-                        </a>
+                        <TicketLink id={d.ticketId} freshdeskDomain={freshdeskDomain} />
                       ) : (
                         <span className="text-muted-foreground">—</span>
                       )}
