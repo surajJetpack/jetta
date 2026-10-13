@@ -458,6 +458,17 @@ export const config = {
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean),
+  /**
+   * General users who also get the whole Understand section: Insights,
+   * Performance, Team activity, Dev board and Evals, including what those pages
+   * can do (syncs, KB drafts from the dev board, approving learnings). Admins
+   * always can. Per-person for the same reason as the assistant: these pages
+   * name individual agents.
+   */
+  consoleUnderstandUsers: (env("CONSOLE_UNDERSTAND_USERS") ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean),
 
   /**
    * /activity identity merging: "Cherryl=Cherryl B,U07ABC;Suraj=suraj,Suraj Malla".

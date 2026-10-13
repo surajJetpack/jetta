@@ -30,6 +30,8 @@ Use your own username — every decision you make is recorded under your name. S
 
 If you're an admin, you'll see a **View as general** control in the header. It's a real downgrade, not a preview: while it's on, you get exactly the surfaces a general user gets.
 
+Some general users are given more, per person: the whole **Understand** section (Insights, Performance, Team activity, Dev board and Evals, including approving learnings) through `CONSOLE_UNDERSTAND_USERS`, and the voice assistant through `CONSOLE_ASSISTANT_USERS`.
+
 ---
 
 ## 3. Your morning: the Today page

@@ -185,25 +185,27 @@ export const GUIDE_ITEM: NavItem = {
 };
 
 /** The groups this reader should see, with empty groups dropped. */
-export function navFor(isAdmin: boolean): NavGroup[] {
+export function navFor(isAdmin: boolean, canUnderstand = false): NavGroup[] {
   if (isAdmin) return NAV;
-  return NAV.map((g) => ({ ...g, items: g.items.filter((i) => !i.adminOnly) })).filter(
+  // CONSOLE_UNDERSTAND_USERS see that whole group, admin-only items included.
+  const shows = (g: NavGroup, i: NavItem) => !i.adminOnly || (canUnderstand && g.label === "Understand");
+  return NAV.map((g) => ({ ...g, items: g.items.filter((i) => shows(g, i)) })).filter(
     (g) => g.items.length > 0,
   );
 }
 
 /** Flat list including the Guide — what the command palette offers. */
-export function navItemsFor(isAdmin: boolean): NavItem[] {
-  return [...navFor(isAdmin).flatMap((g) => g.items), GUIDE_ITEM];
+export function navItemsFor(isAdmin: boolean, canUnderstand = false): NavItem[] {
+  return [...navFor(isAdmin, canUnderstand).flatMap((g) => g.items), GUIDE_ITEM];
 }
 
 /**
  * Which nav item owns a pathname. Longest match wins so /kb/review does not
  * light up /kb, and /chats/settings still reads as Chats.
  */
-export function activeId(pathname: string, isAdmin: boolean): string | null {
+export function activeId(pathname: string, isAdmin: boolean, canUnderstand = false): string | null {
   let best: NavItem | null = null;
-  for (const item of navItemsFor(isAdmin)) {
+  for (const item of navItemsFor(isAdmin, canUnderstand)) {
     if (pathname === item.href || pathname.startsWith(`${item.href}/`)) {
       if (!best || item.href.length > best.href.length) best = item;
     }

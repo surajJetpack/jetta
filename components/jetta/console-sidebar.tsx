@@ -22,11 +22,14 @@ import { TONE_SOLID } from "./tone";
  */
 export function ConsoleSidebar({
   isAdmin,
+  canUnderstand = false,
   collapsed: collapsedProp = false,
   onToggle,
   onNavigate,
 }: {
   isAdmin: boolean;
+  /** CONSOLE_UNDERSTAND_USERS: the whole Understand group. */
+  canUnderstand?: boolean;
   collapsed?: boolean;
   /** Shows the collapse button. The mobile drawer has none. */
   onToggle?: () => void;
@@ -35,8 +38,8 @@ export function ConsoleSidebar({
 }) {
   const pathname = usePathname();
   const attention = useAttention();
-  const active = activeId(pathname, isAdmin);
-  const groups = navFor(isAdmin);
+  const active = activeId(pathname, isAdmin, canUnderstand);
+  const groups = navFor(isAdmin, canUnderstand);
 
   const collapsed = collapsedProp && !onNavigate;
 

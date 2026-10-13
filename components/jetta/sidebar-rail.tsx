@@ -22,7 +22,15 @@ const NARROW_RAIL = new Set(["/chats"]);
  * keeps the width you chose for it. usePathname is available during the
  * server render of a client component, so this too is right on first paint.
  */
-export function SidebarRail({ isAdmin, savedCollapsed }: { isAdmin: boolean; savedCollapsed: boolean }) {
+export function SidebarRail({
+  isAdmin,
+  canUnderstand,
+  savedCollapsed,
+}: {
+  isAdmin: boolean;
+  canUnderstand: boolean;
+  savedCollapsed: boolean;
+}) {
   const pathname = usePathname();
   const [saved, setSaved] = useState(savedCollapsed);
   const [narrowOverride, setNarrowOverride] = useState<boolean | null>(null);
@@ -51,7 +59,7 @@ export function SidebarRail({ isAdmin, savedCollapsed }: { isAdmin: boolean; sav
         collapsed ? "w-16" : "w-60",
       )}
     >
-      <ConsoleSidebar isAdmin={isAdmin} collapsed={collapsed} onToggle={toggle} />
+      <ConsoleSidebar isAdmin={isAdmin} canUnderstand={canUnderstand} collapsed={collapsed} onToggle={toggle} />
     </aside>
   );
 }

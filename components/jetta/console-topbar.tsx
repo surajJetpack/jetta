@@ -24,23 +24,25 @@ export function ConsoleTopbar({
   canViewAs,
   viewingAsGeneral,
   canUseAssistant,
+  canUnderstand,
 }: {
   user: string;
   isAdmin: boolean;
   canViewAs: boolean;
   viewingAsGeneral: boolean;
   canUseAssistant: boolean;
+  canUnderstand: boolean;
 }) {
   const headline = headlineState();
 
   return (
     <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-3 border-b bg-background/80 px-4 backdrop-blur-md sm:px-6">
-      <MobileSidebar isAdmin={isAdmin} icon={<Menu />} />
+      <MobileSidebar isAdmin={isAdmin} canUnderstand={canUnderstand} icon={<Menu />} />
 
-      <Breadcrumbs isAdmin={isAdmin} />
+      <Breadcrumbs isAdmin={isAdmin} canUnderstand={canUnderstand} />
 
       <div className="flex min-w-0 flex-1 justify-center">
-        <CommandPalette isAdmin={isAdmin} canUseAssistant={canUseAssistant} freshdeskDomain={freshdeskDomain() ?? ""} />
+        <CommandPalette isAdmin={isAdmin} canUseAssistant={canUseAssistant} canUnderstand={canUnderstand} freshdeskDomain={freshdeskDomain() ?? ""} />
       </div>
 
       <div className="flex shrink-0 items-center gap-2">

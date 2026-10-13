@@ -7,7 +7,7 @@
  * back to the item so the page shows "Draft made" and nobody drafts it twice.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/roles";
+import { requireUnderstand } from "@/lib/roles";
 import { adminActor } from "@/lib/auth";
 import { logOpsEvent } from "@/lib/events";
 import { createArticle } from "@/lib/kb-store";
@@ -20,7 +20,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
-  const denied = requireAdmin(req);
+  const denied = requireUnderstand(req);
   if (denied) return denied;
   const actor = adminActor(req) ?? "console";
   const { itemId } = (await req.json().catch(() => ({}))) as { itemId?: string };

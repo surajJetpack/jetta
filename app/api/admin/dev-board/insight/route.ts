@@ -6,7 +6,7 @@
  * looks; ?refresh=1 rewrites; a failed rewrite serves the previous read, stale.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/roles";
+import { requireUnderstand } from "@/lib/roles";
 import { adminActor } from "@/lib/auth";
 import { logOpsEvent } from "@/lib/events";
 import { getDevBoardInsight, getDevBoardRows, getDevBoardSummary, saveDevBoardInsight } from "@/lib/dev-board-sync";
@@ -17,7 +17,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 export async function GET(req: NextRequest) {
-  const denied = requireAdmin(req);
+  const denied = requireUnderstand(req);
   if (denied) return denied;
   const actor = adminActor(req) ?? undefined;
   const force = req.nextUrl.searchParams.get("refresh") === "1";

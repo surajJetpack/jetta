@@ -26,10 +26,12 @@ import { navItemsFor } from "./console-nav";
 export function CommandPalette({
   isAdmin,
   canUseAssistant,
+  canUnderstand,
   freshdeskDomain,
 }: {
   isAdmin: boolean;
   canUseAssistant: boolean;
+  canUnderstand: boolean;
   /** Empty when Freshdesk isn't configured — the ticket row then hides itself. */
   freshdeskDomain: string;
 }) {
@@ -71,12 +73,12 @@ export function CommandPalette({
       rows.push({ key: "assistant", label: "Ask Jetta", hint: "Talk to her — she can look things up and take you there (⌘J)", href: "", assistant: true });
     }
 
-    for (const item of navItemsFor(isAdmin)) {
+    for (const item of navItemsFor(isAdmin, canUnderstand)) {
       if (term && !`${item.label} ${item.hint}`.toLowerCase().includes(term)) continue;
       rows.push({ key: item.id, label: item.label, hint: item.hint, href: item.href });
     }
     return rows;
-  }, [q, isAdmin, canUseAssistant, freshdeskDomain]);
+  }, [q, isAdmin, canUseAssistant, canUnderstand, freshdeskDomain]);
 
   // Typing resets the cursor to the best match — done here rather than in an
   // effect, because the cursor is derived from the same event as the query and

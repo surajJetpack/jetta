@@ -8,7 +8,7 @@
 import { cookies } from "next/headers";
 import crypto from "node:crypto";
 import { config } from "./config";
-import { roleOf, effectiveRole, canUseAssistant, VIEW_AS_COOKIE, type Role } from "./roles";
+import { roleOf, effectiveRole, canUseAssistant, canUnderstand, VIEW_AS_COOKIE, type Role } from "./roles";
 
 export const SESSION_COOKIE = "jetta_session";
 export const SESSION_TTL_S = 7 * 24 * 3600;
@@ -91,6 +91,8 @@ export async function gate(): Promise<{
   viewingAsGeneral: boolean;
   /** May open the voice assistant (admins + CONSOLE_ASSISTANT_USERS). */
   canUseAssistant: boolean;
+  /** Sees the whole Understand section (admins + CONSOLE_UNDERSTAND_USERS). */
+  canUnderstand: boolean;
 }> {
   const jar = await cookies();
   const viewAs = jar.get(VIEW_AS_COOKIE)?.value;
@@ -103,11 +105,12 @@ export async function gate(): Promise<{
       isAdmin: role === "admin",
       viewingAsGeneral: roleOf(user) === "admin" && role === "general",
       canUseAssistant: canUseAssistant(user, viewAs),
+      canUnderstand: canUnderstand(user, viewAs),
     };
   };
   if (!config.consoleUsers && !config.adminSecret) return decide("dev", false);
   const user = verifySession(jar.get(SESSION_COOKIE)?.value);
   return user
     ? decide(user, false)
-    : { locked: true, user: "", role: "general", isAdmin: false, viewingAsGeneral: false, canUseAssistant: false };
+    : { locked: true, user: "", role: "general", isAdmin: false, viewingAsGeneral: false, canUseAssistant: false, canUnderstand: false };
 }

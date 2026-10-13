@@ -7,7 +7,7 @@
  * hourly cron), for an admin who wants fresh numbers or a faster backfill.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/roles";
+import { requireUnderstand } from "@/lib/roles";
 import { adminActor } from "@/lib/auth";
 import { getPerformanceRows, getPerformanceSummary, syncPerformance, syncStatus } from "@/lib/performance-sync";
 import { logOpsEvent } from "@/lib/events";
@@ -17,7 +17,7 @@ export const maxDuration = 300;
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
-  const denied = requireAdmin(req);
+  const denied = requireUnderstand(req);
   if (denied) return denied;
   if (req.nextUrl.searchParams.get("rows")) {
     return NextResponse.json({ rows: await getPerformanceRows() });
@@ -27,7 +27,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const denied = requireAdmin(req);
+  const denied = requireUnderstand(req);
   if (denied) return denied;
   const result = await syncPerformance();
   await logOpsEvent({

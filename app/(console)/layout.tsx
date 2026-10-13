@@ -27,14 +27,14 @@ export const dynamic = "force-dynamic";
  * ever forgot to gate would leak its own content, never the navigation.
  */
 export default async function ConsoleLayout({ children }: { children: React.ReactNode }) {
-  const { locked, user, isAdmin, viewingAsGeneral, canUseAssistant } = await gate();
+  const { locked, user, isAdmin, viewingAsGeneral, canUseAssistant, canUnderstand } = await gate();
   if (locked) return <>{children}</>;
 
   const collapsed = (await cookies()).get("jetta_sidebar")?.value === "collapsed";
 
   return (
     <div className="flex min-h-svh" data-console>
-      <SidebarRail isAdmin={isAdmin} savedCollapsed={collapsed} />
+      <SidebarRail isAdmin={isAdmin} canUnderstand={canUnderstand} savedCollapsed={collapsed} />
 
       <div className="flex min-w-0 flex-1 flex-col">
         <ConsoleTopbar
@@ -43,6 +43,7 @@ export default async function ConsoleLayout({ children }: { children: React.Reac
           canViewAs={isAdmin || viewingAsGeneral}
           viewingAsGeneral={viewingAsGeneral}
           canUseAssistant={canUseAssistant}
+          canUnderstand={canUnderstand}
         />
 
         {viewingAsGeneral && (

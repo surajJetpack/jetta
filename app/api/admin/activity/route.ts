@@ -8,7 +8,7 @@
  * POST {action:"register-monday"} subscribes the dev boards' webhooks once.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/roles";
+import { requireUnderstand } from "@/lib/roles";
 import { adminActor } from "@/lib/auth";
 import { config } from "@/lib/config";
 import { logOpsEvent } from "@/lib/events";
@@ -36,7 +36,7 @@ const WINDOWS = [1, 7, 28] as const;
 const PAGE = 100;
 
 export async function GET(req: NextRequest) {
-  const denied = requireAdmin(req);
+  const denied = requireUnderstand(req);
   if (denied) return denied;
   const q = req.nextUrl.searchParams;
   const days = WINDOWS.find((w) => String(w) === q.get("days")) ?? 7;
@@ -82,7 +82,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const denied = requireAdmin(req);
+  const denied = requireUnderstand(req);
   if (denied) return denied;
   const body = (await req.json().catch(() => ({}))) as { action?: string };
   if (body.action === "register-monday") {

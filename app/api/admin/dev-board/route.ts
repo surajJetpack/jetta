@@ -6,7 +6,7 @@
  * the first click. POST runs one sync now, the same work as the hourly cron.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/roles";
+import { requireUnderstand } from "@/lib/roles";
 import { adminActor } from "@/lib/auth";
 import { logOpsEvent } from "@/lib/events";
 import { getDevBoardRows, getDevBoardState, getDevBoardSummary, syncDevBoard } from "@/lib/dev-board-sync";
@@ -16,7 +16,7 @@ export const maxDuration = 300;
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
-  const denied = requireAdmin(req);
+  const denied = requireUnderstand(req);
   if (denied) return denied;
   if (req.nextUrl.searchParams.get("rows") === "1") {
     const rows = await getDevBoardRows();
@@ -34,7 +34,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const denied = requireAdmin(req);
+  const denied = requireUnderstand(req);
   if (denied) return denied;
   const result = await syncDevBoard();
   await logOpsEvent({
