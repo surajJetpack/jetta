@@ -4,6 +4,7 @@
  * subject. No React here, so any of the inbox's files can import it.
  */
 import type { ChipTone } from "@/components/jetta/status-chip";
+import type { Tone } from "@/components/jetta/tone";
 
 export interface Attachment {
   id: string;
@@ -67,19 +68,31 @@ export interface Conv {
   messages: Msg[];
 }
 
+/**
+ * One colour per status, used by the row's presence dot, its chip and the
+ * conversation's status strip: red is someone waiting, amber is a person on
+ * it, blue is Jetta, green is done, grey is handed to Freshdesk.
+ */
+export const STATUS_TONE: Record<Conv["status"], Tone> = {
+  waiting_human: "bad",
+  human: "warn",
+  open: "info",
+  resolved: "good",
+  ticketed: "neutral",
+};
 export const TONES: Record<Conv["status"], ChipTone> = {
   waiting_human: "stale",
-  human: "in_review",
-  open: "published",
-  ticketed: "draft",
-  resolved: "archived",
+  human: "draft",
+  open: "in_review",
+  ticketed: "archived",
+  resolved: "published",
 };
 export const LABELS: Record<Conv["status"], string> = {
-  waiting_human: "wants a person",
-  human: "with a person",
+  waiting_human: "Waiting",
+  human: "With a person",
   open: "Jetta",
-  ticketed: "ticketed",
-  resolved: "resolved",
+  ticketed: "Ticketed",
+  resolved: "Resolved",
 };
 
 export type Filter = "needs_human" | "all" | "open" | "ticketed" | "resolved";

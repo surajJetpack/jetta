@@ -62,7 +62,9 @@ export default async function ConsoleLayout({ children }: { children: React.Reac
         )}
 
         <main className="min-w-0 flex-1 px-4 pt-6 pb-24 sm:px-8">
-          <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
+          {/* A page that needs the room (the three-pane chat inbox) marks itself
+              data-wide-page; everything else keeps the reading width. */}
+          <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 has-[[data-wide-page]]:max-w-[1680px]">
             <GuideBanner user={user} />
             {children}
           </div>

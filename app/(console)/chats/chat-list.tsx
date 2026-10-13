@@ -1,14 +1,14 @@
 "use client";
 
 /**
- * The inbox's left pane: search, app and status filters, the sound switch, and
- * the conversation rows. Presentational — every value and handler comes from
- * ChatInbox, which owns the state and the polls.
+ * The inbox's left pane: title, search, status tabs, app filter, the sound
+ * switch, and the conversation rows. Presentational — every value and handler
+ * comes from ChatInbox, which owns the state and the polls.
  */
-import { Bell, BellOff, Search } from "lucide-react";
+import Link from "next/link";
+import { Bell, BellOff, Code2, Search, Settings2 } from "lucide-react";
 import { ChatAvatar } from "@/components/jetta/chat-avatar";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { StatusChip } from "@/components/jetta/status-chip";
 import { EmptyState } from "@/components/jetta/empty-state";
 import { RelativeTime } from "@/components/jetta/relative-time";
@@ -16,7 +16,27 @@ import { cn } from "@/lib/utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { appName } from "@/lib/types";
 import { setChimeEnabled } from "@/components/jetta/chime";
-import { ALL_APPS, LABELS, NO_APP, TONES, appOf, type AppOption, type Conv, type Filter } from "./chat-types";
+import {
+  ALL_APPS,
+  LABELS,
+  NO_APP,
+  TONES,
+  appOf,
+  type AppOption,
+  type Conv,
+  type Filter,
+} from "./chat-types";
+
+/** The presence dot on a row's avatar, one colour per status. */
+const DOT: Record<Conv["status"], string> = {
+  waiting_human: "bg-tone-bad",
+  human: "bg-tone-warn",
+  open: "bg-tone-info",
+  resolved: "bg-tone-good",
+  ticketed: "bg-muted-foreground/50",
+};
+
+export type FilterCounts = Record<Filter, number>;
 
 export function ChatList({
   detail,
@@ -27,12 +47,12 @@ export function ChatList({
   setApp,
   filter,
   setFilter,
-  waiting,
-  resolvedCount,
+  counts,
   sound,
   visible,
   select,
   abandoned,
+  isAdmin,
 }: {
   detail: Conv | null;
   query: string;
@@ -42,27 +62,83 @@ export function ChatList({
   setApp: (app: string) => void;
   filter: Filter;
   setFilter: (f: Filter) => void;
-  waiting: number;
-  resolvedCount: number;
+  counts: FilterCounts;
   sound: boolean;
   visible: Conv[];
   select: (id: string | null) => void;
   abandoned: number;
+  isAdmin: boolean;
 }) {
+  // Mutually exclusive views, so tabs rather than loose buttons. "All live"
+  // excludes resolved, which is why it is not called "All" — see the filter
+  // in ChatInbox.
+  const tabs: [Filter, string][] = [
+    ["needs_human", "Needs a person"],
+    ["open", "With Jetta"],
+    ["ticketed", "Ticketed"],
+    ["all", "All live"],
+    ["resolved", "Resolved"],
+  ];
+
   return (
-    <aside className={detail ? "hidden md:block" : "block"}>
-      <div className="space-y-2">
-        <div className="relative">
-          <Search className="absolute top-2.5 left-2.5 size-3.5 text-muted-foreground" aria-hidden />
-          <Input
+    <aside
+      aria-label="Conversations"
+      className={cn(
+        "min-h-0 w-full flex-col border-r md:flex md:w-[340px] md:shrink-0",
+        detail ? "hidden" : "flex",
+      )}
+    >
+      <div className="space-y-3 px-4 pt-4">
+        <div className="flex items-center gap-2">
+          <h1 className="text-lg font-semibold">Inbox</h1>
+          <span className="text-sm text-muted-foreground">{counts.all} live</span>
+          <div className="ml-auto flex items-center gap-1">
+            {isAdmin && (
+              <>
+                <Button size="icon" variant="ghost" className="size-8" asChild>
+                  <Link href="/chats/settings" aria-label="Chat settings" title="Chat settings">
+                    <Settings2 />
+                  </Link>
+                </Button>
+                <Button size="icon" variant="ghost" className="size-8" asChild>
+                  <Link href="/chats/install" aria-label="Install the widget" title="Install the widget">
+                    <Code2 />
+                  </Link>
+                </Button>
+              </>
+            )}
+            {/* The chime's off switch lives where the chime is about — and the
+                setting is shared with the sidebar's waiting-visitor sound, so
+                one bell governs everything that rings. */}
+            <Button
+              size="icon"
+              variant="outline"
+              className="size-8"
+              aria-label={sound ? "Turn notification sound off" : "Turn notification sound on"}
+              title={
+                sound
+                  ? "Sound on: rings when a visitor needs a person or replies to one"
+                  : "Sound off"
+              }
+              onClick={() => setChimeEnabled(!sound)}
+            >
+              {sound ? <Bell /> : <BellOff className="text-muted-foreground" />}
+            </Button>
+          </div>
+        </div>
+
+        <label className="flex h-9 items-center gap-2 rounded-lg border bg-muted/40 px-2.5 text-muted-foreground focus-within:ring-[3px] focus-within:ring-ring/50">
+          <Search className="size-3.5 shrink-0" aria-hidden />
+          <input
             type="search"
             aria-label="Search chats"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search name, email or message"
-            className="h-9 pl-8 text-xs"
+            placeholder="Name, email or message"
+            className="h-full min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
           />
-        </div>
+        </label>
+
         {/* Only worth showing once there is a choice to make: with a single
             app on the board the control is a label that filters nothing. */}
         {appOptions.length > 1 && (
@@ -80,133 +156,130 @@ export function ChatList({
             </SelectContent>
           </Select>
         )}
-        <div className="flex items-start gap-1">
-          {/* One segmented control, not five loose buttons: the filters are
-              mutually exclusive, and should look like it. */}
-          <div
-            role="group"
-            aria-label="Filter chats"
-            // One row that scrolls sideways when the counts make it long, rather than
-            // wrapping a lone "Resolved" onto a second line.
-            className="flex min-w-0 flex-1 gap-0.5 overflow-x-auto rounded-md border bg-muted/40 p-0.5 [scrollbar-width:none]"
-          >
-            {(
-              [
-                ["needs_human", waiting ? `Needs a person · ${waiting}` : "Needs a person"],
-                ["open", "With Jetta"],
-                ["ticketed", "Ticketed"],
-                ["all", "All live"],
-                ["resolved", resolvedCount ? `Resolved · ${resolvedCount}` : "Resolved"],
-              ] as [Filter, string][]
-            ).map(([f, label]) => (
+
+        <div
+          role="tablist"
+          aria-label="Filter chats"
+          // One row that scrolls sideways when the counts make it long, rather
+          // than wrapping a lone tab onto a second line.
+          className="-mx-4 flex gap-4 overflow-x-auto border-b px-4 [scrollbar-width:none]"
+        >
+          {tabs.map(([f, label]) => {
+            const on = filter === f;
+            const n = counts[f];
+            return (
               <button
                 key={f}
                 type="button"
-                aria-pressed={filter === f}
-                className={cn(
-                  "h-6 shrink-0 rounded-sm px-2 text-2xs font-medium whitespace-nowrap transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
-                  filter === f
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
+                role="tab"
+                aria-selected={on}
                 onClick={() => setFilter(f)}
+                className={cn(
+                  "flex shrink-0 items-center gap-1.5 pb-2.5 text-xs whitespace-nowrap outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
+                  on
+                    ? "font-semibold text-foreground shadow-[inset_0_-2px_0_var(--primary)]"
+                    : "font-medium text-muted-foreground hover:text-foreground",
+                )}
               >
                 {label}
-              </button>
-            ))}
-          </div>
-          {/* The chime's off switch lives where the chime is about — and the
-              setting is shared with the sidebar's waiting-visitor sound, so
-              one bell governs everything that rings. */}
-          <Button
-            size="sm"
-            variant="ghost"
-            className="ml-auto h-7 w-7 p-0"
-            aria-label={sound ? "Turn notification sound off" : "Turn notification sound on"}
-            title={
-              sound
-                ? "Sound on — rings when a visitor needs a person or replies to one"
-                : "Sound off"
-            }
-            onClick={() => setChimeEnabled(!sound)}
-          >
-            {sound ? <Bell /> : <BellOff className="text-muted-foreground" />}
-          </Button>
-        </div>
-
-        <div className="max-h-[70dvh] space-y-1.5 overflow-y-auto pr-1">
-          {visible.length === 0 && (
-            <EmptyState
-              className="border-0 py-6"
-              icon={query ? Search : undefined}
-              title={query ? "No chats match that search" : "No chats here"}
-              hint={
-                app !== ALL_APPS
-                  ? `Showing ${appOptions.find((o) => o.value === app)?.label ?? app} only.`
-                  : undefined
-              }
-            />
-          )}
-          {visible.map((c) => {
-            const last = c.messages[c.messages.length - 1];
-            const active = c.id === detail?.id;
-            return (
-              <button
-                key={c.id}
-                type="button"
-                aria-current={active ? "true" : undefined}
-                onClick={() => select(c.id)}
-                className={cn(
-                  "w-full rounded-lg border p-2.5 text-left transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
-                  active ? "border-primary bg-muted" : "hover:bg-muted/50",
-                  c.status === "waiting_human" && !active && "border-tone-bad/50",
+                {n > 0 && (
+                  <span
+                    className={cn(
+                      "rounded-full px-1.5 text-3xs font-semibold tabular-nums",
+                      // Solid red only for someone waiting: the one count on
+                      // this page that has a person sitting behind it.
+                      f === "needs_human" ? "bg-tone-bad text-background" : "bg-muted text-muted-foreground",
+                    )}
+                  >
+                    {n}
+                  </span>
                 )}
-              >
-                <div className="flex items-center gap-1.5">
-                  <ChatAvatar
-                    kind="visitor"
-                    name={c.visitor.name || c.visitor.email}
-                    className="size-5 text-3xs"
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto p-2">
+        {visible.length === 0 && (
+          <EmptyState
+            className="border-0 py-8"
+            icon={query ? Search : undefined}
+            title={query ? "No chats match that search" : "No chats here"}
+            hint={
+              app !== ALL_APPS
+                ? `Showing ${appOptions.find((o) => o.value === app)?.label ?? app} only.`
+                : undefined
+            }
+          />
+        )}
+        {visible.map((c) => {
+          const last = c.messages[c.messages.length - 1];
+          const active = c.id === detail?.id;
+          const name = c.visitor.name || c.visitor.email || "Anonymous";
+          return (
+            <button
+              key={c.id}
+              type="button"
+              aria-current={active ? "true" : undefined}
+              onClick={() => select(c.id)}
+              className={cn(
+                "mb-0.5 flex w-full gap-3 rounded-lg p-3 text-left transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
+                active ? "bg-primary/10" : "hover:bg-muted/60",
+              )}
+            >
+              <span className="relative h-fit shrink-0">
+                <ChatAvatar kind="visitor" name={c.visitor.name || c.visitor.email} className="size-9 text-2xs" />
+                <span
+                  className={cn("absolute -right-px -bottom-px size-3 rounded-full border-2 border-card", DOT[c.status])}
+                  aria-hidden
+                />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="flex items-baseline gap-1.5">
+                  <span className="truncate text-sm font-semibold">{name}</span>
+                  <RelativeTime
+                    at={Math.floor(Date.parse(c.lastActivityAt) / 1000)}
+                    className={cn(
+                      "ml-auto shrink-0 text-2xs",
+                      c.status === "waiting_human" ? "font-semibold text-tone-bad" : "text-muted-foreground",
+                    )}
                   />
-                  <span className="truncate text-xs font-medium">
-                    {c.visitor.name || c.visitor.email || "Anonymous"}
-                  </span>
-                  <span className="ml-auto shrink-0 text-3xs text-muted-foreground">
-                    <RelativeTime at={Math.floor(Date.parse(c.lastActivityAt) / 1000)} />
-                  </span>
-                </div>
-                <p className="mt-0.5 line-clamp-1 text-2xs text-muted-foreground">
+                </span>
+                <span className="mt-0.5 block truncate text-xs text-muted-foreground">
                   {last?.text ?? "No messages yet"}
-                </p>
-                <div className="mt-1 flex flex-wrap items-center gap-1">
-                  <StatusChip tone={TONES[c.status]}>{LABELS[c.status]}</StatusChip>
-                  {/* Which ticket this became. Without it the Ticketed
-                      filter is a list of chats with no way to tell them
-                      apart from the ticket you are holding. */}
-                  {c.ticketId && (
-                    <span className="text-3xs tabular-nums text-muted-foreground">#{c.ticketId}</span>
-                  )}
-                  {c.humanAgent && <span className="text-3xs text-muted-foreground">{c.humanAgent}</span>}
+                </span>
+                <span className="mt-1.5 flex items-center gap-1.5">
+                  <StatusChip tone={TONES[c.status]}>
+                    {c.status === "human" && c.humanAgent ? `With ${c.humanAgent}` : LABELS[c.status]}
+                  </StatusChip>
                   {/* Named on the row, not just in the filter: otherwise the
                       only way to check what a chat was attributed to is to
                       filter by each app in turn and see where it lands. */}
                   {appOf(c) !== NO_APP && (
-                    <span className="ml-auto shrink-0 text-3xs text-muted-foreground">
-                      {appName(appOf(c))}
+                    <span className="truncate text-2xs text-muted-foreground">{appName(appOf(c))}</span>
+                  )}
+                  {/* Which ticket this became. Without it the Ticketed
+                      filter is a list of chats with no way to tell them
+                      apart from the ticket you are holding. */}
+                  {c.ticketId && (
+                    <span className="ml-auto shrink-0 text-2xs tabular-nums text-muted-foreground">
+                      #{c.ticketId}
                     </span>
                   )}
-                </div>
-              </button>
-            );
-          })}
-          {abandoned > 0 && (
-            <p className="px-1 pt-2 text-2xs text-muted-foreground">
-              {abandoned} {abandoned === 1 ? "visitor" : "visitors"} opened the chat without sending
-              anything.
-            </p>
-          )}
-        </div>
+                </span>
+              </span>
+            </button>
+          );
+        })}
+        {abandoned > 0 && (
+          <p className="px-3 pt-2 pb-1 text-2xs text-muted-foreground">
+            {abandoned} {abandoned === 1 ? "visitor" : "visitors"} opened the chat without sending
+            anything.
+          </p>
+        )}
       </div>
     </aside>
   );
 }
+
