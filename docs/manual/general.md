@@ -6,13 +6,13 @@ Jetta is our AI support agent. Every incoming Freshdesk ticket runs through it: 
 
 The console lives at **https://jettajetpack.vercel.app**.
 
-> **The one rule.** On Freshdesk, nothing reaches a customer until a human sends it. Live chat is the exception — there Jetta replies to visitors directly, with nobody reading first. Almost everything in this handbook follows from those two sentences.
+> **The one rule.** On Freshdesk, Jetta sends the **first reply** on a ticket herself, a few minutes after writing it, when the ticket came in directly (email, portal or the in-app form) and nobody has answered yet. Every reply after that waits for a human to send it. Live chat is the other exception: there Jetta replies to visitors directly, with nobody reading first. Almost everything in this handbook follows from those sentences.
 
 ---
 
 ## 1. What Jetta actually does
 
-A ticket arrives. Jetta reads it, retrieves what it knows, and writes a reply — then posts that reply as a **private note on the ticket**. Customers never see private notes. You copy it, change what you want, and send it as yourself.
+A ticket arrives. Jetta reads it, retrieves what it knows, and writes a reply. If it is the first reply on a direct ticket and passes a second check, Jetta sends it to the customer herself a few minutes later (chapter 4). Otherwise she posts that reply as a **private note on the ticket**. Customers never see private notes. You copy it, change what you want, and send it as yourself.
 
 So there is no queue to clear and no console step in the critical path. If you never opened the console again, tickets would still get answered, because the suggestion is sitting on the ticket where you already work.
 
@@ -105,6 +105,8 @@ This is the job, and it happens in Freshdesk — not here.
 
 Open the ticket. Jetta's suggestion is in a private note. Copy it into the reply editor, change whatever you want, send as yourself. That's the whole workflow.
 
+**The first reply is the exception: Jetta sends it.** On a new ticket that came in by email, the portal or the in-app form (never one from a chat), Jetta writes the first reply, a second check reads it, and a private note says when it will go out, 3 to 7 minutes later. To answer it yourself instead, reply first, add the tag `jetta-hold`, or close the ticket. If the check fails, or it's a call request or a price negotiation, nothing is sent and you get the usual private-note suggestion. Every reply after the first is a suggestion.
+
 <div class="placeholder">Screenshot needed: Jetta's suggestion as a private note on a Freshdesk ticket.</div>
 
 **Writing the reply *is* the feedback.** Jetta reads back what you actually sent, compares it against what it suggested, and records the difference on its own — sent as-is, edited, or replaced entirely. You never have to tell it anything, and there is no button to press.
@@ -180,7 +182,7 @@ Escalations land in **#jetta-escalations**. When Jetta posts there, it decided a
 
 ## 7. Ground rules, and what needs an admin
 
-**Read before you send. You are the last check.** Jetta writes confidently whether or not it's right. Check facts, prices, links and account details — especially anything about money.
+**Read before you send. You are the last check.** (The one exception is Jetta's own first reply on a direct ticket; see chapter 4.) Jetta writes confidently whether or not it's right. Check facts, prices, links and account details — especially anything about money.
 
 **If a suggestion is wrong, just write your own reply.** Don't work around it or half-fix it. That disagreement is exactly what the learning loop feeds on, and a replaced reply teaches more than an edited one.
 
