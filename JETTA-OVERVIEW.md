@@ -4,7 +4,7 @@
 
 **Stack:** Next.js 16 (App Router, Fluid Compute) on Vercel · AI SDK · Upstash Redis (state) · Upstash Vector (RAG) · models via OpenRouter, tiered light/standard. The live model per tier is on /system, not here; this file goes stale.
 
-**Draft mode:** on Freshdesk, Jetta's reply is posted as a private-note suggestion and a human sends it. The reconciler compares what was sent against the suggestion. Live chat (JettaChat) is the one channel where she replies unreviewed.
+**Draft mode, with an auto-sent first reply:** on Freshdesk, Jetta's reply is posted as a private-note suggestion and a human sends it. The reconciler compares what was sent against the suggestion. The exception is the **first response** (`JETTA_FIRST_RESPONSE=on` in prod since 2026-10-12, `lib/first-response.ts`): on a ticket that came in directly (FD source 1 email, 2 portal, 3 in-app form, 9 widget; never 7 chat) with no public agent reply, a temperature-0 standard-tier gate checks the reply, a private note announces it, and `/api/cron/first-response` sends it 3–7 minutes later unless a teammate replied, the ticket was tagged `jetta-hold` or closed, or the customer wrote again. Held replies fall back to a normal draft. Live chat (JettaChat) also gets replies unreviewed.
 
 ---
 

@@ -6,13 +6,13 @@ Jetta is our AI support agent. Every incoming Freshdesk ticket runs through it: 
 
 The console lives at **https://jettajetpack.vercel.app**.
 
-> **The one rule.** On Freshdesk, nothing reaches a customer until a human sends it. Live chat is the exception — there Jetta replies to visitors directly, with nobody reading first. Almost everything else in this manual follows from those two sentences.
+> **The one rule.** On Freshdesk, Jetta sends the **first reply** on a ticket herself, a few minutes after writing it, when the ticket came in directly (email, portal or the in-app form) and nobody has answered yet. Every reply after that waits for a human to send it. Live chat is the other exception: there Jetta replies to visitors directly, with nobody reading first. Almost everything else in this manual follows from those sentences.
 
 ---
 
 ## 1. What Jetta actually does
 
-A ticket arrives. Jetta reads it, retrieves what it knows, and writes a reply — then posts that reply as a **private note on the ticket**. Customers never see private notes. You copy it, change what you want, and send it as yourself.
+A ticket arrives. Jetta reads it, retrieves what it knows, and writes a reply. If it is the first reply on a direct ticket and passes a second check, Jetta sends it to the customer herself a few minutes later (chapter 4, *The first reply*). Otherwise she posts that reply as a **private note on the ticket**. Customers never see private notes. You copy it, change what you want, and send it as yourself.
 
 That means there is no queue to clear and no console step in the critical path. If you never opened the console again, tickets would still get answered, because the suggestion is sitting on the ticket where you already work.
 
@@ -102,6 +102,16 @@ The week's unresolved tickets grouped **by theme**, worst-covered first, so one 
 This is the whole job, and it happens in Freshdesk — not here.
 
 Open the ticket. Jetta's suggestion is in a private note. Copy it into the reply editor, change whatever you want, send as yourself. That's it.
+
+### The first reply: Jetta sends it
+
+Since 2026-10-12, Jetta answers the **first message** on a ticket herself, so customers aren't waiting hours for a first response. This is on in production (`JETTA_FIRST_RESPONSE=on`; /system shows the live state).
+
+- **Which tickets:** ones the customer opened directly: email, the support portal, the in-app support form (Freshdesk calls it "phone") and the Freshdesk widget. **Never tickets that came from a chat** (JettaChat or Freshchat hand-offs), and never once anyone has replied publicly.
+- **How:** Jetta writes the reply, a second model checks it (no invented promises, refunds, dates or fixes, no internal details), and if it passes she posts a private note saying when it will go out. **3 to 7 minutes later** she re-reads the ticket and sends it.
+- **How to stop one:** reply first yourself, add the tag `jetta-hold`, or close the ticket. If the customer writes again before it goes, it is cancelled too.
+- **When the check fails** (or it's a call/demo request or a price negotiation), nothing is sent: you get the normal private-note suggestion, with a banner saying it was held for a person.
+- **Everything after the first reply** is a suggestion in a private note, exactly as described below.
 
 <div class="placeholder">Screenshot needed: Jetta's suggestion as a private note on a Freshdesk ticket.</div>
 
@@ -317,7 +327,7 @@ If you ever want to know whether Jetta *can* do something, this page answers it 
 
 ## 10. Ground rules
 
-**Read before you send. You are the last check.** Jetta writes confidently whether or not it's right. Check facts, prices, links and account details — especially anything about money.
+**Read before you send. You are the last check.** (The one exception is Jetta's own first reply on a direct ticket; see chapter 4. If you want to answer a new ticket yourself, reply first or tag it `jetta-hold`.) Jetta writes confidently whether or not it's right. Check facts, prices, links and account details — especially anything about money.
 
 **If a suggestion is wrong, just write your own reply.** Don't work around it or fix it half-way. That disagreement is exactly what the learning loop feeds on, and a replaced reply teaches more than an edited one.
 
