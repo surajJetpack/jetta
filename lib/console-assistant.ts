@@ -55,14 +55,12 @@ import {
   drillHref,
 } from "./drill-code";
 import { config } from "./config";
-import { listFollowUps, getEscalationTs, listMonetApprovals, listMonetDecisions } from "./kv";
+import { listMonetApprovals, listMonetDecisions } from "./kv";
+import { listTicketFollowUps } from "./ticket-followup";
 import { listConversations, getConversation } from "./chat-store";
 import { buildScorecard, filterTimeline, parseAliases, resolvePerson, PLACES, ACTION_LABEL, type Place } from "./activity";
 import { getSlackNames, loadActivities } from "./activity-store";
 import { supportTimeZone } from "./tz";
-import { getTicketStatus } from "./tools/freshdesk";
-import { devItemsForTicket } from "./tools/monday";
-import { describeFollowUpBlock, followUpCloseBlocker } from "./followup-guard";
 
 export type AssistantMode = "live" | "deep";
 
@@ -243,31 +241,24 @@ export function consoleTools(): ToolSet {
 
     followup_queue: tool({
       description:
-        "The ticket follow-up queue: tickets scheduled for the daily 09:00 UTC follow-up sweep, when each is due, and what the sweep would do with it today — send the closing \"I'll assume this is resolved\" note and resolve, or hold it (escalated, team owes a reply, open escalation, or a dev-board item for the ticket still in flight). Use for 'what will be auto-closed', 'why did ticket N get closed', 'is N going to be closed'.",
+        "Jetta's follow-ups with customers who went quiet on a Freshdesk ticket: which tickets she is following, how many of the three touches (check-in after 2 business days, nudge after 3 more, close + resolve after 3 more) have gone out, when the next is due, any touch written and waiting on the ticket as a note, and tickets where she decided not to follow up and why. Use for 'who is Jetta chasing', 'will N get a follow-up', 'why did N get closed', 'why didn't she follow up on N'.",
       inputSchema: z.object({}),
       execute: async () => {
-        const jobs = await listFollowUps().catch(() => []);
-        if (!jobs.length) return "No ticket follow-ups are scheduled.";
-        // A handful of jobs at most; one status read each, inside the shared FD budget.
-        const rows = await Promise.all(
-          jobs.slice(0, 20).map(async (j) => {
-            const [status, esc, devItems] = await Promise.all([
-              getTicketStatus(j.ticketId),
-              getEscalationTs(j.ticketId).catch(() => null),
-              devItemsForTicket(j.ticketId).catch(() => null),
-            ]);
-            const block = followUpCloseBlocker(status, !!esc, devItems ? devItems.filter((i) => i.state === "open") : null);
-            return {
-              ticket: j.ticketId,
-              due: new Date(j.dueAt * 1000).toISOString(),
-              status,
-              devItems: devItems === null ? "unreadable" : devItems.map((i) => `${i.title} — ${i.status}, ${i.state}`),
-              ifCustomerStaysSilent: block ? `held (${describeFollowUpBlock(block)})` : "closing note + resolve",
-            };
-          }),
-        );
+        const all = await listTicketFollowUps().catch(() => []);
+        if (!all.length) return `No ticket follow-ups in progress. The follow-up sweep is ${config.ticketFollowUp ? "armed" : "NOT armed (JETTA_TICKET_FOLLOWUP is not on)"}.`;
+        const rows = all.slice(0, 40).map((s) => ({
+          ticket: s.ticketId,
+          subject: s.subject,
+          countingFrom: `${s.anchorBy} at ${s.anchorAt}`,
+          touchesSent: s.touches.map((t) => `${t.n} at ${t.sentAt}`),
+          next: s.stopped
+            ? `not following up: ${s.stopped.reason}`
+            : s.pending
+              ? `touch ${s.pending.n} written, sends ${new Date(s.pending.sendAt).toISOString()}`
+              : `touch ${s.touches.length + 1} due ${new Date(s.dueAt).toISOString()}`,
+        }));
         return clip(
-          `The sweep runs daily at 09:00 UTC and takes every job due by then. If the customer has replied, it only runs Jetta when the webhook has not already answered.\n${JSON.stringify(rows)}`,
+          `Follow-up sweep ${config.ticketFollowUp ? "armed" : "NOT armed"}; runs every 20 min. A reply from anyone restarts the count; jetta-hold stops it.\n${JSON.stringify(rows)}`,
         );
       },
     }),

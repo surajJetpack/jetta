@@ -6,6 +6,10 @@
       "schedule": "0 9 * * *"
     },
     {
+      "path": "/api/cron/ticket-followup",
+      "schedule": "*/20 * * * *"
+    },
+    {
       "path": "/api/cron/kb-sync",
       "schedule": "0 5 * * *"
     },

@@ -120,6 +120,14 @@ export const config = {
    * booking link). Set: Jetta offers it herself.
    */
   firstResponseBookingUrl: env("JETTA_BOOKING_URL"),
+  /**
+   * Jetta follows up with customers who went quiet after our reply: a
+   * check-in, a nudge, then a close, in her own name, each announced on the
+   * ticket as a private note an hour before it goes. See
+   * lib/ticket-followup.ts. "on" arms it; anything else and the cron only
+   * reports (`?dry=1`).
+   */
+  ticketFollowUp: env("JETTA_TICKET_FOLLOWUP") === "on",
 
   /**
    * Which day is "Saturday". Ticket search buckets by calendar day and weekday,
