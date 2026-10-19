@@ -1,28 +1,23 @@
 /**
- * 24-hour follow-up checker. Runs daily at 09:00 UTC (see vercel.json), so a
- * job fires 24–47h after it was scheduled.
+ * Backstop for a customer reply the webhook missed. Runs daily at 09:00 UTC
+ * (see vercel.json), so a job fires 24–47h after it was scheduled.
  *
- * For each due follow-up job:
- *   - If the customer has replied since the resolution was sent: re-run the
- *     agent loop so Jetta handles the reply normally.
- *   - If not, and the ticket is still waiting on the customer
- *     (lib/followup-guard.ts — Freshdesk status, no open escalation, and no
- *     dev-board item still in flight): send a follow-up message and close
- *     the ticket.
- *   - Otherwise leave it alone — the team or engineering owes the next move.
+ * For each due job: if the customer has replied since the resolution was
+ * sent and the webhook never answered it, run Jetta on it now. A silent
+ * customer is no longer handled here — this used to send a fixed "I'll assume
+ * this is resolved" and close, which reads as a form letter and could not see
+ * a colleague's own follow-up (ticket 14520 got both). Following up with a
+ * quiet customer is app/api/cron/ticket-followup's job.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { config } from "@/lib/config";
-import { getDueFollowUps, clearFollowUp, recordOutcome, getEscalationTs, markEventSeen, unmarkEventSeen } from "@/lib/kv";
-import { describeFollowUpBlock, followUpCloseBlocker } from "@/lib/followup-guard";
-import { modelLabel } from "@/lib/llm";
+import { getDueFollowUps, clearFollowUp, recordOutcome, markEventSeen, unmarkEventSeen } from "@/lib/kv";
 import { buildContext, buildMessages } from "@/lib/context";
 import { buildSystemPrompt } from "@/lib/system-prompt";
 import { runAgentLoop } from "@/lib/agent";
 import { recordRun } from "@/lib/runlog";
 import { createDraftFromRun } from "@/lib/drafts";
 import * as freshdesk from "@/lib/tools/freshdesk";
-import { devItemsForTicket } from "@/lib/tools/monday";
 import { logOpsEvent } from "@/lib/events";
 
 export const runtime = "nodejs";
@@ -44,7 +39,6 @@ export async function GET(req: NextRequest) {
   const handled: { ticketId: string; action: string }[] = [];
 
   for (const job of due) {
-    let keep = false;
     // Released if the run fails, so the webhook can still answer the message.
     let claimedMarker: string | null = null;
     try {
@@ -97,62 +91,11 @@ export async function GET(req: NextRequest) {
           }).catch(() => {});
         }
       } else {
-        // The dev board is read for every job, not only when Freshdesk says
-        // "waiting on customer": a null here means "monday could not be
-        // read", and the guard treats that as a reason to hold, never as
-        // "no items". A handful of jobs a day, two board pages each.
-        const [status, escalationTs, devItems] = await Promise.all([
-          freshdesk.getTicketStatus(job.ticketId),
-          getEscalationTs(job.ticketId),
-          devItemsForTicket(job.ticketId).catch(() => null),
-        ]);
-        const block = followUpCloseBlocker(
-          status,
-          !!escalationTs,
-          devItems ? devItems.filter((i) => i.state === "open") : null,
-        );
-        if (block) {
-          keep = block.retry;
-          handled.push({
-            ticketId: job.ticketId,
-            action: `no reply → held (${describeFollowUpBlock(block)})`,
-          });
-          await logOpsEvent({
-            level: "info",
-            event: "cron.followup_held",
-            source: "cron",
-            ticketId: job.ticketId,
-            data: { ...block },
-          });
-          continue;
-        }
-        // No response, still waiting on the customer, and nothing for this
-        // ticket in flight on the dev board — send a closing follow-up, then
-        // resolve the ticket.
-        // Deliberately automatic even in draft mode: the message is a fixed
-        // template (not model-generated), and follow-ups are only scheduled
-        // when a human sent the resolution (console approve, or the reconciler
-        // seeing the draft used), and the guard above has just confirmed the
-        // ticket is waiting on the customer.
-        await freshdesk.replyToTicket(
-          job.ticketId,
-          "Following up — I haven't heard back, so I'll assume this is resolved and close the ticket. " +
-            "If the issue is still happening, just reply here and I'll pick it straight back up.",
-        );
-        await freshdesk.closeTicket(job.ticketId, true);
-        handled.push({ ticketId: job.ticketId, action: "no reply → closed" });
-        await recordOutcome({
-          ticketId: job.ticketId,
-          at: Math.floor(Date.now() / 1000),
-          channel: "freshdesk",
-          product: "unknown",
-          model: modelLabel(),
-          toolsUsed: ["reply_to_ticket", "close_ticket"],
-          replied: false,
-          resolutionSent: false,
-          escalated: false,
-          kind: "closed",
-        }).catch(() => {});
+        // Customer still silent: nothing to do here any more. Following up
+        // with them — the check-in, the nudge and the close — is the
+        // ticket-followup cron's job (lib/ticket-followup.ts), which watches
+        // every ticket we answered, not only the ones flagged as resolutions.
+        handled.push({ ticketId: job.ticketId, action: "no reply → left to ticket-followup" });
       }
     } catch (err) {
       if (claimedMarker) await unmarkEventSeen(claimedMarker).catch(() => {});
@@ -168,7 +111,7 @@ export async function GET(req: NextRequest) {
         data: { error: err instanceof Error ? err.message : String(err) },
       });
     } finally {
-      if (!keep) await clearFollowUp(job.ticketId);
+      await clearFollowUp(job.ticketId);
     }
   }
 

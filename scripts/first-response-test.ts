@@ -90,6 +90,12 @@ async function main() {
   const fl = humanize("Hi Ryan,\n\nThanks for getting in touch. That's a great question about how our plans work. Monthly lets you change each month.\n\nWe'll be in touch shortly.", "Ryan");
   check("filler sentences removed, content kept", fl === "Hi Ryan,\n\nMonthly lets you change each month.", fl);
   check("list left alone", humanize("Steps:\n1. Great question.\n2. Go.", null) === "Steps:\n1. Great question.\n2. Go.");
+  // A "." with no space after it is not a sentence end. The old splitter
+  // dropped every clause before one.
+  const dom = "Hi Sam,\n\nPlease invite support@jetpackwork.com to your monday.com board. Version 2.5 fixed it.";
+  check("domains, emails and decimals keep their sentence", humanize(dom, "Sam") === dom, humanize(dom, "Sam"));
+  const mixed = humanize("Hi Sam,\n\nThanks for reaching out. Open monday.com and pick the board.", "Sam");
+  check("filler still removed next to a domain", mixed === "Hi Sam,\n\nOpen monday.com and pick the board.", mixed);
 
   console.log("── markdown → Freshdesk HTML ──");
   const html = markdownToFdHtml(

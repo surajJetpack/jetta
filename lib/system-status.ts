@@ -408,10 +408,16 @@ export const ENDPOINTS: readonly EndpointRow[] = [
 export const CRONS: readonly EndpointRow[] = [
   {
     path: "/api/cron/followup",
-    detail:
-      "Ticket follow-ups, 24h+ after a resolution a human sent: customer silent → closing note + resolve, but only if the ticket is open/pending/waiting on customer and has no open escalation; customer replied → nothing if the webhook already answered",
+    detail: "Backstop: a customer reply the webhook never answered gets a Jetta run, 24h+ after a resolution was sent",
     schedule: "daily 09:00",
   },
+  {
+    path: "/api/cron/ticket-followup",
+    detail:
+      "Follows up with customers who went quiet after our reply: check-in after 2 business days, nudge after 3 more, close after 3 more. Each touch sits on the ticket as a private note for an hour first; any reply or the jetta-hold tag stops it. Armed by JETTA_TICKET_FOLLOWUP=on",
+    schedule: "every 20 min",
+  },
+  { path: "/api/cron/first-response", detail: "Sends the first replies Jetta scheduled on direct tickets, after re-reading the ticket; armed by JETTA_FIRST_RESPONSE=on", schedule: "every minute" },
   { path: "/api/cron/chat-followup", detail: "Chat sweep: one check-in after 15 min of visitor silence, auto-resolve after 24h", schedule: "every 5 min" },
   { path: "/api/cron/kb-sync", detail: "Re-crawls the sites into the knowledge base", schedule: "daily 05:00" },
   { path: "/api/cron/reconcile-drafts", detail: "Matches suggestions to what humans actually sent", schedule: "hourly at :15" },

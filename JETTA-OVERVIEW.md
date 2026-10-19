@@ -36,7 +36,8 @@ resolution sent? → scheduleFollowUp() (24h)
 | **System prompt** | Persona, voice, and mandatory decision rules (confidence, grounding, escalation, closing). Behavior changes happen here, not in code | `lib/system-prompt.ts` |
 | **Tools (13)** | Freshdesk (get ticket, search KB, reply, private note, close) · FastSpring (account, invoice, discount, cancel) · monday (search/create dev item, trial, discount) · Slack (escalate, partnerships) | `lib/tools/*` |
 | **RAG grounding** | Semantic search over Upstash Vector: GetSign KB + full Freshdesk Solutions + approved Knowledge-Loop articles. Keyword fallback when vector is off | `lib/vector.ts`, `lib/knowledge/*` |
-| **Follow-up cron** | Daily 09:00 UTC. Customer replied → run Jetta only if the webhook has not already answered that message. Silent → closing note + resolve, but ONLY when the FD status is open/pending/waiting on customer and there is no open escalation (`lib/followup-guard.ts`); otherwise held (`cron.followup_held`) | `app/api/cron/followup/route.ts` |
+| **Ticket follow-ups** | Every 20 min: a customer who went quiet after our reply gets a check-in after 2 business days, a nudge after 3 more, then a close + resolve after 3 more, each written from the thread, in Jetta's name, at the hour the customer last wrote. Each touch sits on the ticket as a private note for ~1h first; any reply or `jetta-hold` stops it, a colleague's reply restarts the count. Never over an open escalation or an in-flight dev item (only "Waiting Customer" items get check-ins, never the close). Armed by `JETTA_TICKET_FOLLOWUP=on` | `lib/ticket-followup*.ts`, `app/api/cron/ticket-followup/route.ts` |
+| **Missed-reply backstop** | Daily 09:00 UTC: a customer reply the webhook never answered gets a Jetta run | `app/api/cron/followup/route.ts` |
 | **Chat follow-up** | Every 5 min: one check-in after 15 min of visitor silence, auto-resolve after 24h | `app/api/cron/chat-followup/route.ts` |
 | **Analytics / learning** | Records every outcome; surfaces deflection rate + a "gap list" of tickets Jetta couldn't close → the document-next queue → Knowledge Loop → new KB → RAG | `app/api/admin/stats/route.ts`, `lib/kv.ts` |
 | **Ops console** | Today, Chats, Support health, Performance, Team activity, Evals, KB, System, Billing, Test Jetta, plus a read-only voice assistant (⌘J). Per-user login, admin/general roles; the full map is generated from `components/jetta/console-nav.ts` | `app/(console)/*` |
@@ -58,7 +59,8 @@ resolution sent? → scheduleFollowUp() (24h)
 | `POST /api/admin/run` | Run/replay a ticket (dry-run default) | console login / x-admin-secret |
 | `GET /api/admin/stats` | Outcome metrics + gaps + approved articles | console login / x-admin-secret |
 | `GET /api/admin/logs` | Run log | console login / x-admin-secret |
-| `GET /api/cron/followup` | 24h follow-up sweep | `CRON_SECRET` bearer |
+| `GET /api/cron/followup` | Missed-reply backstop | `CRON_SECRET` bearer |
+| `GET /api/cron/ticket-followup` | Ticket follow-ups (`?dry=1&preview=1` to read without sending) | `CRON_SECRET` bearer |
 | `/api/admin/kb`, `/api/slack` | KB management · Slack interactions | admin / signing |
 
 ## KPIs to highlight
