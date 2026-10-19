@@ -164,8 +164,12 @@ export function humanize(body: string, requesterName: string | null | undefined)
   const paras = out.split(/\n{2,}/).map((para) => {
     // Lists and multi-line blocks are left alone; filler lives in prose.
     if (para.includes("\n")) return para;
-    const sentences = para.match(/[^.!?]+[.!?]+(\s+|$)|[^.!?]+$/g) ?? [para];
-    return sentences.filter((x) => !FILLER.some((re) => re.test(x.trim()))).join("").trim();
+    // Split only where punctuation is followed by whitespace. Matching
+    // sentences out instead silently dropped every clause before a "." with
+    // no space after it — "invite support@jetpackwork.com" came out as
+    // "com", and so did anything mentioning monday.com or version 2.5.
+    const sentences = para.split(/(?<=[.!?])\s+/);
+    return sentences.filter((x) => !FILLER.some((re) => re.test(x.trim()))).join(" ").trim();
   });
   return paras.filter(Boolean).join("\n\n");
 }
