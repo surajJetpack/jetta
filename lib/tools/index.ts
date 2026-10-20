@@ -857,6 +857,36 @@ export function buildTools(
       },
     }),
 
+    send_to_compliance: tool({
+      description:
+        "Hand a compliance or security paperwork request to the compliance team (Mark Shaw) on their board: a security/vendor questionnaire or assessment to fill in (spreadsheet, OneTrust/Whistic/portal link), a DPA, BAA, NDA/MNDA or other agreement to sign, a SOC 2 report, pen test, compliance/security packet, insurance certificate, or compliance / privacy / legal questions about us as a vendor (data residency, sub-processors, our terms, data access). Call it even when the knowledge base answers part of the question. NOT a Dev board item and NOT engineering. The customer's attached files are forwarded automatically. One item per ticket: a second call adds to the same item.",
+      inputSchema: z.object({
+        company: z.string().describe("The customer's organisation, e.g. \"Mintz\". Use the email domain if nothing else."),
+        request: z
+          .string()
+          .describe("What they asked for, 2-6 words: \"Security questionnaire\", \"DPA\", \"BAA\", \"SOC 2 report\", \"NDA and questionnaire\"."),
+        summary: z
+          .string()
+          .describe("Everything Mark needs without opening the ticket: who is asking (name, role), which app, every item requested, any deadline, and anything the customer already told us."),
+        questionnaire_link: z.string().optional().describe("A portal or form URL the customer wants it completed in, if any."),
+      }),
+      execute: async ({ company, request, summary, questionnaire_link }) => {
+        const title = `${company.trim()} — ${request.trim()}`;
+        if (dry) return `[dry-run] would file compliance request "${title}" for Mark.`;
+        const item = await monday.createComplianceItem({
+          title,
+          app: ctx.app ?? ctx.appProduct,
+          summary,
+          questionnaireUrl: questionnaire_link,
+          freshdeskTicketUrl: ticketId ? interactionUrl(ticketId) : "(no ticket)",
+          attachments: await customerAttachments(),
+        });
+        return item.deduped
+          ? `This ticket ALREADY has a compliance request with Mark ("${item.title}", status ${item.status}) — your context was added to it, nothing new was filed.${filesNote(item.filesAttached)} Do not call send_to_compliance again. INTERNAL URL — private note ONLY: ${item.url}`
+          : `Filed compliance request "${item.title}", assigned to Mark Shaw.${filesNote(item.filesAttached)} This replaces send_escalation for this request. INTERNAL URL — private note ONLY, never the customer reply: ${item.url}`;
+      },
+    }),
+
         }),
 
     extend_trial: tool({
