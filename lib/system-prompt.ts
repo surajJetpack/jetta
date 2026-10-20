@@ -311,6 +311,9 @@ Roadmap / features:
 - Never confirm or deny that a feature is planned. Redirect to the relevant
   monday.com item for status.
 
+Compliance and security paperwork:
+{{COMPLIANCE_RULES}}
+
 Data hygiene:
 - Never ask the user for information already available in the ticket or in
   FastSpring. The ticket and account context are provided to you below.
@@ -364,6 +367,55 @@ const DEV_BOARD_WRITE = `
     decide two customers have the same bug on your own.
   - No match: call create_dev_item with full context, then send_escalation.
     Confirm to the user that the team is notified, without naming the tracker.`.trim();
+
+/**
+ * Questionnaires, DPAs/BAAs/NDAs, SOC 2 and compliance packs belong to Mark
+ * Shaw (external compliance) on the "Security Questionnaires" board. Before
+ * this the team filed each one by hand. The reply rules matter as much as the
+ * routing: on ticket 14425 the draft told a clinic "Great news — yes, we do
+ * offer signed BAAs" for an app whose BAA posture nobody had confirmed. What
+ * we sign and what we attest to is Mark's call, never the model's.
+ */
+const COMPLIANCE_SHARED = `
+- This covers: a security / vendor / IT / privacy questionnaire or assessment
+  to fill in (a spreadsheet, or a OneTrust, Whistic or similar portal link), a
+  DPA, BAA, NDA/MNDA, MSA or any agreement for us to sign, a request for a SOC
+  2 report, pen test, ISO certificate, insurance certificate or compliance /
+  security packet, and any compliance, privacy, data-protection or legal
+  question about us as a vendor (data residency, sub-processors, our terms,
+  what data an app can access) asked as part of a review or procurement.
+- All of it goes to the compliance team, even when the knowledge base answers
+  part of it. Where it plainly does (where data is stored, is GetSign GDPR /
+  HIPAA compliant), you may answer those parts in your reply as well, from
+  what you looked up, and say the compliance team will follow up on the rest.
+- Never fill in a questionnaire yourself, never say we will or will not sign an
+  agreement, never confirm or deny a certification, report or policy we hold
+  (SOC 2, ISO 27001, pen test, a BAA for a given app), and never give a
+  turnaround. Only the compliance team speaks to those. For GetSign you may
+  point to the public Trust Center (https://getsign.io/trust/) as general
+  reading, never as the answer to their form.`.trim();
+
+const COMPLIANCE_WRITE = `
+${COMPLIANCE_SHARED}
+- Call send_to_compliance on the FIRST turn you see the request, with a summary
+  complete enough that Mark never opens the ticket: who is asking (name, role,
+  company), which app, every document or form they asked for, any deadline,
+  and any portal link. Their attachments are forwarded for you. This replaces
+  send_escalation and create_dev_item for the request — do not file either.
+- Reply: thank them, confirm you have passed it to our compliance team, who
+  will come back to them on this ticket. If they gave no deadline and the
+  request is a form or questionnaire, ask whether they have one. Nothing else
+  about the content.
+- Put the item link in add_private_note, never in the reply. The ticket stays
+  open while the compliance team has it — do not close it or tag the note
+  resolution_sent.`.trim();
+
+const COMPLIANCE_CHAT = `
+${COMPLIANCE_SHARED}
+- You cannot file this from chat. It needs a ticket: open one with
+  create_support_ticket (say in it that this is a compliance request, and list
+  what they asked for), and ask them to reply to that email with the
+  questionnaire or document attached, since files do not travel from chat.`.trim();
 
 /**
  * …and the read-only version the chat channels get.
@@ -873,6 +925,16 @@ function contextBlock(ctx: ConversationContext, profile: Profile): string {
     );
   }
 
+  if (ctx.ticketComplianceItems?.length) {
+    lines.push(
+      `THIS TICKET'S compliance request${ctx.ticketComplianceItems.length === 1 ? "" : "s"} with Mark (INTERNAL, never name or link to the customer):`,
+      ...ctx.ticketComplianceItems.map(
+        (i) => `  - id ${i.id}: ${i.title} — Status: ${i.status}${i.group ? `, group: ${i.group}` : ""}`,
+      ),
+      `  The compliance team has this. Do NOT call send_to_compliance again unless the customer added something new (a document, a deadline, another form) — then call it once to add that. Do not close the ticket. If they ask for an update, say it is with our compliance team, no timeline.`,
+    );
+  }
+
   if (ctx.relatedDevItems.length) {
     // Confidence travels with the item. This block is assembled from the same
     // search the tool calls, off the ticket SUBJECT — a line written by a
@@ -906,6 +968,9 @@ export async function buildSystemPrompt(ctx: ConversationContext): Promise<strin
       ctx.channel === "jettachat" || ctx.channel === "freshchat"
         ? DEV_BOARD_READ_ONLY
         : DEV_BOARD_WRITE,
+    ).replace(
+      "{{COMPLIANCE_RULES}}",
+      ctx.channel === "jettachat" || ctx.channel === "freshchat" ? COMPLIANCE_CHAT : COMPLIANCE_WRITE,
     ),
     // Shared chat rules first, then the channel's own — Freshchat and
     // JettaChat are the same medium with different responsibilities.
