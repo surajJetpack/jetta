@@ -18,13 +18,18 @@ export function boardIdFor(product: Product): string | undefined {
   return product === "getsign" ? config.monday.boardIds.getsign : config.monday.boardIds.jetpackapps;
 }
 
-async function gql<T>(query: string, variables?: Record<string, unknown>): Promise<T> {
+async function gql<T>(
+  query: string,
+  variables?: Record<string, unknown>,
+  /** Only for a field the pinned version lacks — `mentions_list` arrived in 2025-07. */
+  apiVersion = "2024-10",
+): Promise<T> {
   const res = await fetch(GRAPHQL, {
     method: "POST",
     headers: {
       Authorization: config.monday.apiToken ?? "",
       "Content-Type": "application/json",
-      "API-Version": "2024-10",
+      "API-Version": apiVersion,
     },
     body: JSON.stringify({ query, variables }),
   });
@@ -441,6 +446,10 @@ const FINISHED_DEV_STATUS =
  * "Done" status still in "Client reported Field Issues" counts as in flight —
  * nobody has moved it, and on GetSign that usually means not yet deployed.
  */
+export function isFinishedDevStatus(status: string | null | undefined): boolean {
+  return FINISHED_DEV_STATUS.test((status ?? "").trim());
+}
+
 export function devItemInFlight(item: { group?: string | null; status?: string | null }): boolean {
   const group = (item.group ?? "").trim().toLowerCase();
   if (group && CLOSED_GROUP.test(group)) return false;
@@ -1179,3 +1188,167 @@ export async function deleteTestDevItem(itemId: string): Promise<{ deleted: bool
 // Trial extension + discounts moved to lib/tools/monday-monetization.ts — they
 // use the Marketplace monetization API (app collaborator token), not the
 // board GraphQL client above.
+
+// ── The dev bridge: Jetta's own voice on an item ────────────────────
+
+/**
+ * Every comment Jetta posts on a dev item starts with this.
+ *
+ * Her monday token is a PERSON's (Suraj's), so on the board her posts carry
+ * his name and avatar. The prefix is what tells a developer who they are
+ * talking to — and what tells the webhook, when monday echoes the post back,
+ * that it must not answer itself. lib/dev-bridge.ts also remembers the ids it
+ * posted, so a prefix mangled by an editor still can't start a loop.
+ */
+export const JETTA_POST_PREFIX = "🤖 Jetta:";
+
+export function isJettaPost(text: string | null | undefined): boolean {
+  return (text ?? "").trimStart().startsWith(JETTA_POST_PREFIX);
+}
+
+/** Context posts createDevItem makes ("Product: …\nAccount: …"). Also hers. */
+export function isJettaContextPost(text: string | null | undefined): boolean {
+  return /^\s*(Follow-up from the SAME Freshdesk ticket[^\n]*\s*)?Product:/.test(text ?? "");
+}
+
+/**
+ * The Freshdesk tickets an item was filed for, read off its columns and
+ * updates. The ticket named in Jetta's own context post comes first: that is
+ * the one it was filed FOR, while a ticket a developer pastes into a comment
+ * ("same as 14400") is only a reference. Pure, for the test script.
+ */
+export function ticketIdsOnItem(item: {
+  column_values?: { text: string | null }[] | null;
+  updates?: { text_body: string | null }[] | null;
+}): string[] {
+  const owned: string[] = [];
+  const mentioned: string[] = [];
+  const collect = (text: string, into: string[]) => {
+    for (const m of text.matchAll(/\/tickets\/(\d+)(?![0-9])/g)) into.push(m[1]);
+  };
+  for (const c of item.column_values ?? []) collect(c.text ?? "", owned);
+  // Oldest first, so the filing context outranks anything said later.
+  for (const u of [...(item.updates ?? [])].reverse()) {
+    collect(u.text_body ?? "", isJettaContextPost(u.text_body) ? owned : mentioned);
+  }
+  return [...new Set([...owned, ...mentioned])];
+}
+
+export interface DevItemSnapshot {
+  id: string;
+  name: string;
+  boardId: string;
+  product: Product;
+  url: string;
+  group: string | null;
+  devStatus: string | null;
+  /** The Developer column — who an @mention should reach. Teams are left out. */
+  developers: { id: string; name: string }[];
+  /** Linked Freshdesk tickets, the one it was filed for first. */
+  ticketIds: string[];
+}
+
+/**
+ * One item, as the dev bridge needs it: where it lives, how far along it is,
+ * who owns it and which ticket it belongs to. Null when monday is stubbed or
+ * the item is gone (deleted, or on a board this token cannot see).
+ */
+export async function getDevItemSnapshot(itemId: string): Promise<DevItemSnapshot | null> {
+  if (!config.monday.live || !/^\d+$/.test(itemId)) return null;
+  const data = await gql<{
+    items: {
+      id: string;
+      name: string;
+      board: { id: string } | null;
+      group: { title: string } | null;
+      column_values: {
+        text: string | null;
+        type: string;
+        column: { title: string } | null;
+        persons_and_teams?: { id: string | number; kind: string }[] | null;
+      }[];
+      updates: { text_body: string | null }[];
+    }[];
+  }>(
+    `query ($ids: [ID!]) {
+      items(ids: $ids) {
+        id name board { id } group { title }
+        column_values { text type column { title } ... on PeopleValue { persons_and_teams { id kind } } }
+        updates(limit: 50) { text_body }
+      }
+    }`,
+    { ids: [itemId] },
+  );
+  const item = data.items?.[0];
+  if (!item?.board) return null;
+
+  const devCol = item.column_values.find(
+    (c) => c.type === "people" && /^(developer|assignee|owner)/.test(c.column?.title?.trim().toLowerCase() ?? ""),
+  );
+  const devIds = (devCol?.persons_and_teams ?? []).filter((p) => p.kind === "person").map((p) => String(p.id));
+  let developers: { id: string; name: string }[] = [];
+  if (devIds.length) {
+    const users = await gql<{ users: { id: string; name: string }[] }>(
+      `query ($ids: [ID!]) { users(ids: $ids) { id name } }`,
+      { ids: devIds },
+    ).catch(() => null);
+    developers = devIds.map((id) => ({ id, name: users?.users.find((u) => String(u.id) === id)?.name ?? "developer" }));
+  }
+
+  const product: Product = item.board.id === config.monday.boardIds.getsign ? "getsign" : "jetpackapps";
+  return {
+    id: item.id,
+    name: item.name,
+    boardId: item.board.id,
+    product,
+    url: `${config.monday.accountUrl}/boards/${item.board.id}/pulses/${item.id}`,
+    group: item.group?.title ?? null,
+    devStatus: pickColumn(item.column_values, "status", PROGRESS_COLUMN_TITLES) ?? null,
+    developers,
+    ticketIds: ticketIdsOnItem(item),
+  };
+}
+
+/** Plain text → the minimal HTML monday renders in an update. */
+function updateHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\n/g, "<br>");
+}
+
+/**
+ * Post a comment as Jetta on a dev item, optionally as a reply in a thread and
+ * @mentioning people.
+ *
+ * `mentions_list` is what makes monday NOTIFY the person (a typed "@Name" is
+ * just text); it only exists from API 2025-07, hence the version override.
+ * Returns the new update's id, or null when writes are off — the caller logs
+ * that as "would have posted".
+ */
+export async function postJettaComment(
+  itemId: string,
+  text: string,
+  opts: { mentionUserIds?: string[]; parentUpdateId?: string } = {},
+): Promise<string | null> {
+  const body = `${JETTA_POST_PREFIX} ${text.trim()}`;
+  if (!config.monday.live || !config.monday.allowWrites) {
+    console.log(`[monday writes off] would comment on ${itemId}: ${body.slice(0, 200)}`);
+    return null;
+  }
+  const mentions = (opts.mentionUserIds ?? []).filter((id) => /^\d+$/.test(id)).map((id) => ({ id, type: "User" }));
+  const parent = opts.parentUpdateId && /^\d+$/.test(opts.parentUpdateId) ? opts.parentUpdateId : undefined;
+  const post = (parentId: string | undefined) =>
+    gql<{ create_update: { id: string } }>(
+      `mutation ($item: ID!, $body: String!, $parent: ID, $mentions: [UpdateMention]) {
+        create_update(item_id: $item, body: $body, parent_id: $parent, mentions_list: $mentions) { id }
+      }`,
+      { item: itemId, body: updateHtml(body), parent: parentId, mentions: mentions.length ? mentions : undefined },
+      "2025-10",
+    );
+  // A thread that can't take a reply (deleted, or the id was a reply's own)
+  // still gets the answer, as a fresh comment on the item.
+  const data = parent ? await post(parent).catch(() => post(undefined)) : await post(undefined);
+  return data.create_update.id;
+}
