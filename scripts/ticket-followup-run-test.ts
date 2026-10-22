@@ -8,7 +8,7 @@
  */
 import assert from "node:assert/strict";
 import { runTicketFollowUps, type Listed, type RunDeps, type ThreadRead } from "../lib/ticket-followup-run";
-import { getTicketFollowUp, type Written, type WriterInput } from "../lib/ticket-followup";
+import { getTicketFollowUp, saveTicketFollowUp, type Written, type WriterInput } from "../lib/ticket-followup";
 
 let failures = 0;
 async function test(name: string, fn: () => Promise<void>) {
@@ -278,6 +278,21 @@ async function main() {
     assert.equal(f.sent.length, 0);
     assert.match(f.notes.at(-1)!.text, /cancelled: Cherryl closed the ticket with the customer/);
     assert.ok((await getTicketFollowUp(id))?.stopped);
+  });
+
+  await test("a count that already restarted from a closing message stops when it comes due (#14560)", async () => {
+    const t = ticket();
+    t.messages[1].body = "We haven't heard back from you, so I will go ahead and close this ticket for now.";
+    const id = String(t.listed.id);
+    const f = fake([t]);
+    // State saved before the close check existed: anchored on the close, touch 1 due.
+    await f.run("2026-10-16T10:00:00Z");
+    const s = (await getTicketFollowUp(id))!;
+    assert.ok(s.stopped, "a fresh read stops at once");
+    await saveTicketFollowUp({ ...s, stopped: undefined });
+    const r = await f.run(new Date(s.dueAt + 60_000).toISOString());
+    assert.equal(r.handled[0].action, "stopped");
+    assert.equal(f.sent.length + f.notes.length, 0, "nothing posted");
   });
 
   await test("jetta-hold cancels a waiting touch", async () => {
