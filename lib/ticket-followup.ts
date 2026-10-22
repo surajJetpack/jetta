@@ -130,6 +130,15 @@ export function readThread(messages: PublicMessage[], touchTimes: string[]): Thr
   };
 }
 
+/**
+ * A colleague's "we haven't heard back, so I'll close this ticket for now".
+ * After that the customer has been told we're done: a fresh round of
+ * follow-ups would contradict it, so the count stops instead of restarting.
+ */
+const CLOSING =
+  /\b(?:clos(?:e|ing)|resolv(?:e|ing))\s+(?:this|the|your)\s+(?:ticket|request|case|conversation)\b|\b(?:mark(?:ed|ing)?|consider(?:ed|ing)?)\s+(?:this|the|your)\s+(?:ticket|request|case)\s+(?:as\s+)?(?:resolved|closed)\b|\bassume\s+(?:this|it|that)\s+(?:is|has been)\s+(?:resolved|sorted)\b/i;
+export const isClosingMessage = (body: string) => CLOSING.test(body);
+
 // ── which tickets (pure) ───────────────────────────────────────────
 
 /** Freshdesk sources that are a conversation with a customer. 10 = outbound (e.g. review requests) is ours, not theirs. */
