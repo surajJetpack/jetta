@@ -31,6 +31,7 @@ import { logOpsEvent } from "./events";
 import { getActivityState, getMondayUsers } from "./activity-store";
 import { isRememberedJettaPost, markEventSeen, rateCount } from "./kv";
 import * as monday from "./tools/monday";
+import { askForKb, draftFromItem, handleKbAnswer, pendingKbAsk, shouldAskForKb } from "./dev-kb";
 import type { MondayWebhookEvent } from "./activity";
 import type { DevEvent } from "./types";
 
@@ -116,11 +117,26 @@ function devBoardIds(): string[] {
  * been acknowledged, and a failure here must only cost this one run.
  */
 export async function handleDevBoardEvent(e: MondayWebhookEvent): Promise<void> {
-  if (config.devBridge === "off") return;
+  if (config.devBridge === "off" && config.devKb === "off") return;
   const itemId = e.pulseId != null ? String(e.pulseId) : "";
   try {
     const state = await getActivityState();
-    const trigger = classifyDevEvent(e, devBoardIds(), state.mondaySelf?.id ?? null);
+    const selfId = state.mondaySelf?.id ?? null;
+    const trigger = classifyDevEvent(e, devBoardIds(), selfId);
+
+    // A person posting on an item with an open KB request is answering it —
+    // including an update that is only a file, which is otherwise skipped as
+    // an empty comment. That answer is for the KB, not the customer.
+    const personPost = "kind" in trigger ? trigger.kind === "comment" : trigger.skip === "empty comment";
+    if (personPost && config.devKb !== "off") {
+      const askedAt = await pendingKbAsk(itemId);
+      if (askedAt) {
+        if (!(await markEventSeen(`devbridge:${e.triggerUuid ?? `${itemId}:${e.replyId ?? e.updateId}`}`, 24 * 3600))) return;
+        const item = await monday.getDevItemSnapshot(itemId);
+        if (item) await handleKbAnswer(item, (e.textBody ?? "").trim(), askedAt, selfId);
+        return;
+      }
+    }
     if ("skip" in trigger) return;
 
     // monday redelivers; one event, one run.
@@ -139,6 +155,12 @@ export async function handleDevBoardEvent(e: MondayWebhookEvent): Promise<void> 
       });
       return;
     }
+
+    // A finished bug: ask its developer, once, for something the KB can use.
+    if (trigger.kind === "finished" && config.devKb !== "off" && shouldAskForKb(item, trigger.status)) {
+      await askForKb(item).catch((err) => console.warn(`KB ask on ${itemId} failed:`, err));
+    }
+    if (config.devBridge === "off") return;
 
     if ((await rateCount(`devbridge:item:${itemId}`, 24 * 3600)) > MAX_RUNS_PER_ITEM_PER_DAY) {
       await logOpsEvent({
@@ -195,6 +217,17 @@ export async function handleDevBoardEvent(e: MondayWebhookEvent): Promise<void> 
     );
     await recordRun("devboard", ctx, result, Date.now() - started);
     const draft = !shadow && draftMode ? await createDraftFromRun(ctx, result) : null;
+
+    // A developer answered a Question item and the answer went (or, held, will
+    // go) to the customer: that answer is KB material.
+    if (
+      config.devKb !== "off" &&
+      ev.kind === "comment" &&
+      /question/i.test(item.type ?? "") &&
+      result.toolsUsed.includes("reply_to_ticket")
+    ) {
+      await draftFromItem(item, "question answered").catch((err) => console.warn(`KB draft for ${itemId} failed:`, err));
+    }
 
     await logOpsEvent({
       level: "info",

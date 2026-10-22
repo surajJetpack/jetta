@@ -1263,6 +1263,13 @@ export interface DevItemSnapshot {
   lastPersonActivityAt: string | null;
   /** Newest "asking for an update" post by Jetta (ISO), or null. */
   lastChaseAt: string | null;
+  /** Every time Jetta asked for an update (chase or nudge), oldest first. */
+  askTimes: string[];
+  /** The Type column — "Question", "Bugs and Field Issues", … */
+  type: string | null;
+  /** When the progress column last changed (ISO) — a developer moving the item is activity. */
+  devStatusChangedAt: string | null;
+  createdAt: string | null;
 }
 
 /**
@@ -1276,6 +1283,7 @@ export async function getDevItemSnapshot(itemId: string): Promise<DevItemSnapsho
     items: {
       id: string;
       name: string;
+      created_at: string | null;
       board: { id: string } | null;
       group: { title: string } | null;
       column_values: {
@@ -1283,6 +1291,7 @@ export async function getDevItemSnapshot(itemId: string): Promise<DevItemSnapsho
         type: string;
         column: { title: string } | null;
         persons_and_teams?: { id: string | number; kind: string }[] | null;
+        updated_at?: string | null;
       }[];
       updates: {
         text_body: string | null;
@@ -1295,8 +1304,12 @@ export async function getDevItemSnapshot(itemId: string): Promise<DevItemSnapsho
   }>(
     `query ($ids: [ID!]) {
       items(ids: $ids) {
-        id name board { id } group { title }
-        column_values { text type column { title } ... on PeopleValue { persons_and_teams { id kind } } }
+        id name created_at board { id } group { title }
+        column_values {
+          text type column { title }
+          ... on PeopleValue { persons_and_teams { id kind } }
+          ... on StatusValue { updated_at }
+        }
         updates(limit: 50) { text_body created_at replies { text_body created_at } assets { name } }
         assets { name }
       }
@@ -1334,11 +1347,19 @@ export async function getDevItemSnapshot(itemId: string): Promise<DevItemSnapsho
     // (every file Jetta forwards) hangs off its update.
     assetNames: [...(item.assets ?? []), ...item.updates.flatMap((u) => u.assets ?? [])].map((a) => a.name),
     ...itemActivity(item.updates),
+    type: pickColumn(item.column_values, "status", ["type"]) ?? null,
+    devStatusChangedAt:
+      item.column_values.find(
+        (c) => c.type === "status" && PROGRESS_COLUMN_TITLES.includes(c.column?.title?.trim().toLowerCase() ?? ""),
+      )?.updated_at ?? null,
+    createdAt: item.created_at ?? null,
   };
 }
 
 /** Marks Jetta's chase post — update_dev_item writes this exact phrase. */
 export const CHASE_PHRASE = "is asking for an update";
+/** Marks the follow-up cron's nudge (lib/dev-followup.ts). */
+export const NUDGE_PHRASE = "is still waiting";
 
 /**
  * When a person last spoke on an item, and when Jetta last chased it. Pure.
@@ -1346,18 +1367,22 @@ export const CHASE_PHRASE = "is asking for an update";
  */
 export function itemActivity(
   updates: { text_body: string | null; created_at: string; replies?: { text_body: string | null; created_at: string }[] | null }[],
-): { lastPersonActivityAt: string | null; lastChaseAt: string | null } {
+): { lastPersonActivityAt: string | null; lastChaseAt: string | null; askTimes: string[] } {
   let person: string | null = null;
   let chase: string | null = null;
+  const asks: string[] = [];
   const later = (a: string | null, b: string) => (!a || Date.parse(b) > Date.parse(a) ? b : a);
   for (const post of updates.flatMap((u) => [u, ...(u.replies ?? [])])) {
-    if (isJettaPost(post.text_body)) {
-      if ((post.text_body ?? "").includes(CHASE_PHRASE)) chase = later(chase, post.created_at);
-    } else if (!isJettaContextPost(post.text_body)) {
+    const text = post.text_body ?? "";
+    if (isJettaPost(text)) {
+      if (text.includes(CHASE_PHRASE)) chase = later(chase, post.created_at);
+      if (text.includes(CHASE_PHRASE) || text.includes(NUDGE_PHRASE)) asks.push(post.created_at);
+    } else if (!isJettaContextPost(text)) {
       person = later(person, post.created_at);
     }
   }
-  return { lastPersonActivityAt: person, lastChaseAt: chase };
+  asks.sort((a, b) => Date.parse(a) - Date.parse(b));
+  return { lastPersonActivityAt: person, lastChaseAt: chase, askTimes: asks };
 }
 
 /**
@@ -1417,4 +1442,70 @@ export async function postJettaComment(
   const data = parent ? await post(parent).catch(() => post(undefined)) : await post(undefined);
   const filesAttached = await attachFilesToUpdate(data.create_update.id, opts.attachments ?? []);
   return { id: data.create_update.id, filesAttached };
+}
+
+/**
+ * Every item in a LIVE group of either dev board that carries a Freshdesk
+ * ticket link — the follow-up cron's candidates. Wishes (feature / backlog /
+ * coming-up groups) are left out: nobody is waiting on those this week.
+ * Two queries per board; the live groups are a few hundred rows in all.
+ */
+export async function liveLinkedItemIds(): Promise<{ id: string; ticketIds: string[] }[]> {
+  if (!config.monday.live) return [];
+  const out: { id: string; ticketIds: string[] }[] = [];
+  type Row = { id: string; group: { title: string } | null; column_values: { text: string | null }[]; updates: { text_body: string | null }[] };
+  for (const board of [config.monday.boardIds.jetpackapps, config.monday.boardIds.getsign]) {
+    if (!board) continue;
+    const live = await liveGroupIds(board);
+    if (!live.length) continue;
+    const data = await gql<{ boards: { groups: { title: string; items_page: { items: Row[] } }[] }[] }>(
+      `query ($board: [ID!], $groups: [String!]) {
+        boards(ids: $board) { groups(ids: $groups) { title items_page(limit: 200) {
+          items { id group { title } column_values { text } updates(limit: ${UPDATES_PER_ITEM}) { text_body } }
+        } } }
+      }`,
+      { board: [board], groups: live },
+    );
+    for (const g of data.boards?.[0]?.groups ?? []) {
+      if (FEATURE_GROUP.test(g.title.trim().toLowerCase())) continue;
+      for (const row of g.items_page.items) {
+        const ticketIds = ticketIdsOnItem(row);
+        if (ticketIds.length) out.push({ id: row.id, ticketIds });
+      }
+    }
+  }
+  return out;
+}
+
+export interface ItemFile {
+  name: string;
+  extension: string;
+  url: string;
+  size: number;
+}
+
+/**
+ * Files people posted on an item's updates after `sinceIso` — what a developer
+ * attached in answer to Jetta's KB request. Jetta's own uploads (her token's
+ * user) are left out. Replies cannot carry files through the API, so the
+ * request asks for a new update.
+ */
+export async function itemFilesSince(itemId: string, sinceIso: string, selfId: string | null): Promise<ItemFile[]> {
+  if (!config.monday.live) return [];
+  const data = await gql<{
+    items: {
+      updates: {
+        created_at: string;
+        creator_id: string | null;
+        assets: { name: string; file_extension: string; public_url: string; file_size: number }[] | null;
+      }[];
+    }[];
+  }>(
+    `query ($ids: [ID!]) { items(ids: $ids) { updates(limit: 50) { created_at creator_id assets { name file_extension public_url file_size } } } }`,
+    { ids: [itemId] },
+  );
+  return (data.items?.[0]?.updates ?? [])
+    .filter((u) => Date.parse(u.created_at) > Date.parse(sinceIso) && String(u.creator_id ?? "") !== String(selfId ?? "-"))
+    .flatMap((u) => u.assets ?? [])
+    .map((a) => ({ name: a.name, extension: a.file_extension.replace(/^\./, "").toLowerCase(), url: a.public_url, size: a.file_size }));
 }
