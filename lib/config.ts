@@ -107,6 +107,22 @@ export const config = {
     : "off") as "off" | "shadow" | "on",
 
   /**
+   * The other half of the bridge, Freshdesk → monday: in ordinary ticket runs
+   * Jetta may put the customer's new information on the ticket's open dev
+   * item, chase a quiet item when the customer asks for an update
+   * (update_dev_item), and file a support QUESTION as a Type = Question item
+   * (ask_devs).
+   *  - "off" (default): neither tool exists and the prompt doesn't mention them.
+   *  - "shadow": the tools exist and are logged as devbridge.relay_shadow, and
+   *    nothing reaches the board. ask_devs tells the model the team was NOT
+   *    asked, so it escalates the old way and no customer is told otherwise.
+   *  - "on": live (monday writes still need MONDAY_ALLOW_WRITES).
+   */
+  devRelay: (["shadow", "on"].includes(env("JETTA_DEV_RELAY") ?? "")
+    ? env("JETTA_DEV_RELAY")
+    : "off") as "off" | "shadow" | "on",
+
+  /**
    * Jetta sends the FIRST public reply herself on tickets that came straight
    * in by email, the portal or the in-app form — never on a ticket that came
    * from a chat, where the customer has already been talking to her. Every

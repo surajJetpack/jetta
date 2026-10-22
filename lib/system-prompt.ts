@@ -366,6 +366,20 @@ const DEV_BOARD_WRITE = `
     Confirm to the user that the team is notified, without naming the tracker.`.trim();
 
 /**
+ * Appended to DEV_BOARD_WRITE when JETTA_DEV_RELAY is on (or shadow): the
+ * board is somewhere support can ASK, not only report bugs to.
+ */
+const DEV_RELAY_RULES = `
+- A QUESTION is not a bug. When the customer asks how something works,
+  whether something is possible, or how to do X, and search_knowledge_base
+  has no answer, do not guess and do not file it as a bug: call ask_devs with
+  the question as a developer needs it (what they are trying to do, their
+  account or board, what they tried), then send_escalation. Tell the customer
+  you are checking with the team and will come back to them, with no
+  timeline. Not for billing or account questions, and never for anything the
+  KB answers.`.trim();
+
+/**
  * …and the read-only version the chat channels get.
  *
  * Searching still earns its place: whether a bug is already tracked, and what
@@ -921,7 +935,11 @@ function contextBlock(ctx: ConversationContext, profile: Profile): string {
           `  - id ${i.id}: ${i.title} — Dev Status: ${i.status}${i.group ? `, group: ${i.group}` : ""} → ${i.state === "open" ? "STILL IN FLIGHT with engineering" : "finished"}`,
       ),
       open.length
-        ? `  The issue on this ticket is NOT resolved: engineering still has it. Before you reply, call read_dev_item_comments on the open item to see whether anything has moved (a workaround or a fix are worth passing on in your own words; nothing else is). Do NOT call close_ticket, do NOT tag the note resolution_sent, and do not file another item for the same problem. If the customer is asking for an update and nothing has moved, say it is still with the team — no timeline.`
+        ? `  The issue on this ticket is NOT resolved: engineering still has it. Before you reply, call read_dev_item_comments on the open item to see whether anything has moved (a workaround or a fix are worth passing on in your own words; nothing else is). Do NOT call close_ticket, do NOT tag the note resolution_sent, and do not file another item for the same problem. If the customer is asking for an update and nothing has moved, say it is still with the team — no timeline.${
+            config.devRelay !== "off" && !ctx.devEvent
+              ? ` The developers only see what reaches the item: if the customer just gave anything they can use (details, steps, an error, a file, an answer to something a developer asked), put it there with update_dev_item kind "new_info". Only when they explicitly ASK for an update or progress ("any news?", "when will this be fixed?") and the comments show nothing new, call update_dev_item kind "chase" before you reply. A thank-you, an "ok, I'll wait", or small talk is NOT a chase: post nothing on the item.`
+              : ""
+          }`
         : `  Engineering has finished with it. If the customer says it still happens, that is new information: add it with create_dev_item (it attaches to the item for this ticket) and escalate.`,
     );
   }
@@ -958,7 +976,9 @@ export async function buildSystemPrompt(ctx: ConversationContext): Promise<strin
       "{{DEV_BOARD_RULES}}",
       ctx.channel === "jettachat" || ctx.channel === "freshchat"
         ? DEV_BOARD_READ_ONLY
-        : DEV_BOARD_WRITE,
+        : config.devRelay !== "off" && !ctx.devEvent
+          ? `${DEV_BOARD_WRITE}\n${DEV_RELAY_RULES}`
+          : DEV_BOARD_WRITE,
     ),
     // Shared chat rules first, then the channel's own — Freshchat and
     // JettaChat are the same medium with different responsibilities.

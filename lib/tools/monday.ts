@@ -680,6 +680,12 @@ export interface CreateDevItemInput {
   freshdeskTicketUrl: string;
   /** Customer-supplied evidence to attach to the item's update. */
   attachments?: AttachmentFile[];
+  /**
+   * "question": not a bug — something support cannot answer and a developer
+   * can (ask_devs). Filed with Type = Question, and the context reads as a
+   * question rather than an error report. Default "bug".
+   */
+  kind?: "bug" | "question";
 }
 
 /** A created item, plus the names of the files that actually attached. */
@@ -707,9 +713,9 @@ function contextBody(input: CreateDevItemInput, followUp: boolean): string {
     `Account: ${input.accountUrl}`,
     `Freshdesk ticket: ${input.freshdeskTicketUrl}`,
     "",
-    `Error: ${input.errorDescription}`,
-    "",
-    `Reproduction steps:\n${input.reproSteps}`,
+    ...(input.kind === "question"
+      ? [`Question from support (not a bug report): ${input.errorDescription}`, "", `Context:\n${input.reproSteps}`]
+      : [`Error: ${input.errorDescription}`, "", `Reproduction steps:\n${input.reproSteps}`]),
   ].join("\n");
 }
 
@@ -824,6 +830,10 @@ export async function createDevItem(input: CreateDevItemInput): Promise<CreatedD
   if (tixCol && input.freshdeskTicketUrl.startsWith("http")) {
     cv[tixCol] = { url: input.freshdeskTicketUrl, text: "Freshdesk ticket" };
   }
+  // Bugs leave Type alone, as they always have; a question says so, so the
+  // board can tell "something is broken" from "support needs an answer".
+  const typeCol = find("status", /^type/);
+  if (typeCol && input.kind === "question") cv[typeCol] = { label: "Question" };
 
   // `group_id` is omitted rather than sent as null when no group matched —
   // monday then applies its own default (the board's top group), which is the
@@ -834,6 +844,7 @@ export async function createDevItem(input: CreateDevItemInput): Promise<CreatedD
         board_id: $board
         item_name: $name
         column_values: $cv
+        create_labels_if_missing: true
         ${groupId ? "group_id: $group" : ""}
       ) { id name }
     }`,
@@ -1246,6 +1257,12 @@ export interface DevItemSnapshot {
   developers: { id: string; name: string }[];
   /** Linked Freshdesk tickets, the one it was filed for first. */
   ticketIds: string[];
+  /** File names already on the item, so a relay doesn't post the same screenshot twice. */
+  assetNames: string[];
+  /** Newest comment or reply by anyone but Jetta (ISO), or null. */
+  lastPersonActivityAt: string | null;
+  /** Newest "asking for an update" post by Jetta (ISO), or null. */
+  lastChaseAt: string | null;
 }
 
 /**
@@ -1267,14 +1284,21 @@ export async function getDevItemSnapshot(itemId: string): Promise<DevItemSnapsho
         column: { title: string } | null;
         persons_and_teams?: { id: string | number; kind: string }[] | null;
       }[];
-      updates: { text_body: string | null }[];
+      updates: {
+        text_body: string | null;
+        created_at: string;
+        replies: { text_body: string | null; created_at: string }[] | null;
+        assets: { name: string }[] | null;
+      }[];
+      assets: { name: string }[] | null;
     }[];
   }>(
     `query ($ids: [ID!]) {
       items(ids: $ids) {
         id name board { id } group { title }
         column_values { text type column { title } ... on PeopleValue { persons_and_teams { id kind } } }
-        updates(limit: 50) { text_body }
+        updates(limit: 50) { text_body created_at replies { text_body created_at } assets { name } }
+        assets { name }
       }
     }`,
     { ids: [itemId] },
@@ -1306,7 +1330,48 @@ export async function getDevItemSnapshot(itemId: string): Promise<DevItemSnapsho
     devStatus: pickColumn(item.column_values, "status", PROGRESS_COLUMN_TITLES) ?? null,
     developers,
     ticketIds: ticketIdsOnItem(item),
+    // Item-level assets are file COLUMNS only; what was posted on a comment
+    // (every file Jetta forwards) hangs off its update.
+    assetNames: [...(item.assets ?? []), ...item.updates.flatMap((u) => u.assets ?? [])].map((a) => a.name),
+    ...itemActivity(item.updates),
   };
+}
+
+/** Marks Jetta's chase post — update_dev_item writes this exact phrase. */
+export const CHASE_PHRASE = "is asking for an update";
+
+/**
+ * When a person last spoke on an item, and when Jetta last chased it. Pure.
+ * Replies count: a developer answering inside an old thread is activity.
+ */
+export function itemActivity(
+  updates: { text_body: string | null; created_at: string; replies?: { text_body: string | null; created_at: string }[] | null }[],
+): { lastPersonActivityAt: string | null; lastChaseAt: string | null } {
+  let person: string | null = null;
+  let chase: string | null = null;
+  const later = (a: string | null, b: string) => (!a || Date.parse(b) > Date.parse(a) ? b : a);
+  for (const post of updates.flatMap((u) => [u, ...(u.replies ?? [])])) {
+    if (isJettaPost(post.text_body)) {
+      if ((post.text_body ?? "").includes(CHASE_PHRASE)) chase = later(chase, post.created_at);
+    } else if (!isJettaContextPost(post.text_body)) {
+      person = later(person, post.created_at);
+    }
+  }
+  return { lastPersonActivityAt: person, lastChaseAt: chase };
+}
+
+/**
+ * May Jetta chase this item again? Only once per silence: if she already
+ * asked and nobody has said anything since, a second ping is nagging. Pure.
+ */
+export function chaseAllowed(a: { lastPersonActivityAt: string | null; lastChaseAt: string | null }): boolean {
+  if (!a.lastChaseAt) return true;
+  return !!a.lastPersonActivityAt && Date.parse(a.lastPersonActivityAt) > Date.parse(a.lastChaseAt);
+}
+
+/** Dev Status values that mean "a developer is waiting on support". Read off both boards 2026-10-22. */
+export function isNeedsInfoDevStatus(status: string | null | undefined): boolean {
+  return /^(need more info|waiting customer|missing info)$/i.test((status ?? "").trim());
 }
 
 /** Plain text → the minimal HTML monday renders in an update. */
@@ -1324,14 +1389,14 @@ function updateHtml(text: string): string {
  *
  * `mentions_list` is what makes monday NOTIFY the person (a typed "@Name" is
  * just text); it only exists from API 2025-07, hence the version override.
- * Returns the new update's id, or null when writes are off — the caller logs
- * that as "would have posted".
+ * Returns the new update's id and the files that attached, or null when
+ * writes are off — the caller logs that as "would have posted".
  */
 export async function postJettaComment(
   itemId: string,
   text: string,
-  opts: { mentionUserIds?: string[]; parentUpdateId?: string } = {},
-): Promise<string | null> {
+  opts: { mentionUserIds?: string[]; parentUpdateId?: string; attachments?: AttachmentFile[] } = {},
+): Promise<{ id: string; filesAttached: string[] } | null> {
   const body = `${JETTA_POST_PREFIX} ${text.trim()}`;
   if (!config.monday.live || !config.monday.allowWrites) {
     console.log(`[monday writes off] would comment on ${itemId}: ${body.slice(0, 200)}`);
@@ -1350,5 +1415,6 @@ export async function postJettaComment(
   // A thread that can't take a reply (deleted, or the id was a reply's own)
   // still gets the answer, as a fresh comment on the item.
   const data = parent ? await post(parent).catch(() => post(undefined)) : await post(undefined);
-  return data.create_update.id;
+  const filesAttached = await attachFilesToUpdate(data.create_update.id, opts.attachments ?? []);
+  return { id: data.create_update.id, filesAttached };
 }

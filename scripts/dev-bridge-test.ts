@@ -11,7 +11,16 @@
  * that posts on a real board until the rate limit stops it.
  */
 import { classifyDevEvent, devEventMessage } from "../lib/dev-bridge";
-import { isJettaContextPost, isJettaPost, ticketIdsOnItem, JETTA_POST_PREFIX } from "../lib/tools/monday";
+import {
+  CHASE_PHRASE,
+  chaseAllowed,
+  isJettaContextPost,
+  isJettaPost,
+  isNeedsInfoDevStatus,
+  itemActivity,
+  ticketIdsOnItem,
+  JETTA_POST_PREFIX,
+} from "../lib/tools/monday";
 import type { MondayWebhookEvent } from "../lib/activity";
 
 export {};
@@ -138,6 +147,41 @@ console.log("The message the run sees");
     recent: [{ at: "2026-10-22", author: "Dev A", text: "Need the automation ids" }],
   });
   check("a status event carries the latest comments", msg.includes("Need the automation ids") && msg.includes("Need more info"));
+}
+
+console.log("Chasing a quiet item (update_dev_item kind chase)");
+{
+  const at = (h: number) => new Date(Date.UTC(2026, 9, 20, h)).toISOString();
+  const chase = (h: number) => ({ text_body: `${JETTA_POST_PREFIX} The customer on ticket #1 ${CHASE_PHRASE}.`, created_at: at(h) });
+  const dev = (h: number) => ({ text_body: "Looking into it", created_at: at(h) });
+  const ctxPost = (h: number) => ({ text_body: "Product: getsign\nAccount: x", created_at: at(h) });
+  const jettaInfo = (h: number) => ({ text_body: `${JETTA_POST_PREFIX} New from the customer on ticket #1:\nscreenshot`, created_at: at(h) });
+
+  check("never chased → may chase", chaseAllowed(itemActivity([ctxPost(1)])));
+  check("chased, nobody answered → may NOT chase again", !chaseAllowed(itemActivity([chase(5), ctxPost(1)])));
+  check("chased, then a developer spoke → may chase again", chaseAllowed(itemActivity([dev(6), chase(5)])));
+  check("a developer spoke BEFORE the chase only → no", !chaseAllowed(itemActivity([chase(5), dev(4)])));
+  check(
+    "a developer's reply inside an old thread counts as activity",
+    chaseAllowed(itemActivity([chase(5), { ...dev(2), replies: [{ text_body: "fix is in review", created_at: at(7) }] }])),
+  );
+  check("Jetta's own relays are not developer activity", !chaseAllowed(itemActivity([jettaInfo(8), chase(5)])));
+  check("her filing context is not developer activity", itemActivity([ctxPost(3)]).lastPersonActivityAt === null);
+}
+
+console.log("Needs-info statuses (shared by the bridge and the relay)");
+{
+  check("Need more info", isNeedsInfoDevStatus("Need more info"));
+  check("Waiting Customer", isNeedsInfoDevStatus(" Waiting Customer "));
+  check("Missing Info", isNeedsInfoDevStatus("Missing Info"));
+  check("not Working on it", !isNeedsInfoDevStatus("Working on it"));
+}
+
+console.log("Question items still read as Jetta's filing");
+{
+  const q = "Product: getsign\nAccount: x\nFreshdesk ticket: https://x/a/tickets/14611\n\nQuestion from support (not a bug report): which webhook?";
+  check("a question's context post is hers", isJettaContextPost(q));
+  check("…and names the ticket it was filed for", ticketIdsOnItem({ updates: [{ text_body: q }] })[0] === "14611");
 }
 
 console.log(failures ? `\n${failures} FAILED` : "\nall passed");

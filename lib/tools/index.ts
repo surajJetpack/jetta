@@ -87,6 +87,21 @@ export function buildTools(
   // link automatically, the same way ticket/account URLs are.
   let mondayItemUrl: string | undefined;
 
+  // Freshdesk → monday relay (JETTA_DEV_RELAY): only on a ticket, never on chat.
+  const relay = ticketId && !isChat && !ctx.devEvent ? config.devRelay : "off";
+  const openDevItem = ctx.ticketDevItems?.find((i) => i.state === "open");
+  let relayedThisTurn = false;
+  const relayLog = (tool: string, itemId: string) =>
+    events.logOpsEvent({ level: "info", event: "devbridge.relay", source: "webhook", ticketId, data: { tool, itemId } });
+  const relayShadow = (tool: string, input: Record<string, unknown>) =>
+    events.logOpsEvent({
+      level: "info",
+      event: "devbridge.relay_shadow",
+      source: "webhook",
+      ticketId,
+      data: { tool, itemId: openDevItem?.id, ...input },
+    });
+
   /**
    * The customer's own evidence (screenshots, screen recordings, documents),
    * downloaded to forward onto the Dev board. Not model-supplied and not
@@ -830,12 +845,12 @@ export function buildTools(
               const mentionIds = mention_developer ? ev.developers.map((d) => d.id) : [];
               const to = mentionIds.length ? ` (@${ev.developers.map((d) => d.name).join(", @")})` : "";
               if (dry) return `[dry-run] would comment on dev item "${ev.itemName}"${to}: ${message}`;
-              const id = await monday.postJettaComment(ev.itemId, message, {
+              const posted = await monday.postJettaComment(ev.itemId, message, {
                 mentionUserIds: mentionIds,
                 parentUpdateId: ev.threadUpdateId,
               });
-              if (!id) return `monday writes are off — nothing was posted on "${ev.itemName}".`;
-              await rememberJettaPost(id);
+              if (!posted) return `monday writes are off — nothing was posted on "${ev.itemName}".`;
+              await rememberJettaPost(posted.id);
               return `Posted on dev item "${ev.itemName}"${to}.`;
             },
           }),
@@ -889,6 +904,94 @@ export function buildTools(
           : `Created Dev board item "${item.title}".${filesNote(item.filesAttached)} INTERNAL URL — put in the private note ONLY, never the customer reply: ${item.url}`;
       },
     }),
+
+    /*
+     * Freshdesk → monday (JETTA_DEV_RELAY). Off the chat channel with the
+     * other board writes, for the same reason.
+     */
+    ...(relay !== "off"
+      ? {
+          ask_devs: tool({
+            description:
+              "Ask the developers a QUESTION support cannot answer — how a feature behaves, whether something is possible, how to do X — when search_knowledge_base has no answer. Files a Type = Question item on the Dev board (one item per ticket still applies). NOT for bugs (that is create_dev_item), billing, or anything the KB answers. Then call send_escalation, and tell the customer you are checking with the team — no timeline.",
+            inputSchema: z.object({
+              title: z.string().describe("Short item title, phrased as the question."),
+              question: z.string().describe("The question, exactly as a developer needs it."),
+              context: z
+                .string()
+                .describe("What the customer is trying to do, their account/board, what they tried, what the KB lacked."),
+            }),
+            execute: async ({ title, question, context }) => {
+              if (dry) return `[dry-run] would ask the developers: "${title}".`;
+              if (relay === "shadow") {
+                await relayShadow("ask_devs", { title, question, context });
+                return "SHADOW MODE: nothing was filed and the developers were NOT asked. Handle this ticket exactly as you would without ask_devs (search_dev_board, create_dev_item, send_escalation as the rules say), and do not tell the customer the team was asked unless that path asked them.";
+              }
+              const item = await monday.createDevItem({
+                kind: "question",
+                title: /^question\b/i.test(title) ? title : `Question: ${title}`,
+                product: ctx.product,
+                accountUrl: accountUrl(ctx),
+                errorDescription: question,
+                reproSteps: context,
+                freshdeskTicketUrl: ticketId ? interactionUrl(ticketId) : "(no ticket)",
+                attachments: await customerAttachments(),
+              });
+              mondayItemUrl = item.url;
+              await relayLog("ask_devs", item.id);
+              return item.deduped
+                ? `This ticket ALREADY has Dev board item "${item.title}" — your question was added to it as a comment; nothing new was filed.${filesNote(item.filesAttached)} Now send_escalation. INTERNAL URL — private note ONLY: ${item.url}`
+                : `Asked the developers: filed Question item "${item.title}".${filesNote(item.filesAttached)} Now send_escalation, and tell the customer you are checking with the team (no timeline, no mention of the tracker). INTERNAL URL — private note ONLY: ${item.url}`;
+            },
+          }),
+
+          ...(openDevItem
+            ? {
+                update_dev_item: tool({
+                  description:
+                    "Post on THIS ticket's open Dev board item, as Jetta, @mentioning its developer. kind \"new_info\": the customer just gave something the developers can use — details, steps, an error, a file, the answer to a developer's question (their new attachments go with it). kind \"chase\": the customer explicitly ASKS for an update or progress (not \"thanks\" or \"ok, I'll wait\") and read_dev_item_comments shows nothing new — this asks the developer for one (only once per silence; a repeat is refused). At most once per turn. Never for a thank-you, an acknowledgement, or small talk.",
+                  inputSchema: z.object({
+                    kind: z.enum(["new_info", "chase"]),
+                    message: z
+                      .string()
+                      .describe("For new_info: what the customer said, factually (quote their key words). For chase: one line of context, or empty."),
+                  }),
+                  execute: async ({ kind, message }) => {
+                    if (relayedThisTurn) return "Already posted on the item this turn — not posting again.";
+                    if (dry) return `[dry-run] would post ${kind} on dev item "${openDevItem.title}".`;
+                    const item = await monday.getDevItemSnapshot(openDevItem.id);
+                    if (!item) return `Dev item ${openDevItem.id} could not be read — nothing posted.`;
+                    if (kind === "chase" && !monday.chaseAllowed(item)) {
+                      return `Already asked the developers for an update (${item.lastChaseAt}) and nobody has posted since — not asking again. Tell the customer it is still with the team, no timeline.`;
+                    }
+                    const body =
+                      kind === "chase"
+                        ? `The customer on ticket #${ticketId} ${monday.CHASE_PHRASE}.${message.trim() ? `\n${message.trim()}` : ""}`
+                        : `New from the customer on ticket #${ticketId}:\n${message.trim()}`;
+                    const files =
+                      kind === "new_info"
+                        ? (await customerAttachments()).filter((f) => !item.assetNames.includes(f.name))
+                        : [];
+                    const to = item.developers.length ? ` (@${item.developers.map((d) => d.name).join(", @")})` : "";
+                    relayedThisTurn = true;
+                    if (relay === "shadow") {
+                      await relayShadow("update_dev_item", { kind, body, files: files.map((f) => f.name), to });
+                      return `Recorded (shadow mode — not posted on the board) ${kind} for "${item.name}"${to}.`;
+                    }
+                    const posted = await monday.postJettaComment(item.id, body, {
+                      mentionUserIds: item.developers.map((d) => d.id),
+                      attachments: files,
+                    });
+                    if (!posted) return `monday writes are off — nothing was posted on "${item.name}".`;
+                    await rememberJettaPost(posted.id);
+                    await relayLog(`update_dev_item:${kind}`, item.id);
+                    return `Posted on dev item "${item.name}"${to}.${filesNote(posted.filesAttached)} INTERNAL — do not mention the tracker or the developer to the customer.`;
+                  },
+                }),
+              }
+            : {}),
+        }
+      : {}),
 
         }),
 
