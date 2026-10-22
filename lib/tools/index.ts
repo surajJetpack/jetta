@@ -34,7 +34,7 @@ import { searchPublishedKb } from "../knowledge/dynamic-kb";
 import { vectorEnabled, queryVector, type VectorHit } from "../vector";
 import { rerankHits } from "../rerank";
 import { profileFor } from "../profiles";
-import { recordKbHits, clearEscalation } from "../kv";
+import { recordKbHits, clearEscalation, rememberJettaPost } from "../kv";
 import { submitMonetApproval } from "../monetization-approvals";
 
 /** Standard trial extension length Jetta grants — fixed policy, not customer-chosen. */
@@ -808,6 +808,39 @@ export function buildTools(
         });
       },
     }),
+
+    /*
+     * Talking back to the developer — only in a run a developer started
+     * (ctx.devEvent, lib/dev-bridge.ts). The item and thread come from the
+     * event, never from the model, so she can only answer where she was asked.
+     */
+    ...(ctx.devEvent
+      ? {
+          reply_on_dev_item: tool({
+            description:
+              "Post a comment on THIS ticket's Dev board item, as Jetta, to the developers. Use it to answer a developer's question from what the ticket already says, to tell them you have asked the customer for something (and what), or to pass on the customer's answer. Internal audience: you may give ticket facts, account URLs, error text and the customer's words. Do NOT post if there is nothing a developer needs from you (an FYI between developers, a progress note): silence is the right answer there. One comment per run.",
+            inputSchema: z.object({
+              message: z.string().describe("The comment, plain text. No greeting fluff, no sign-off — developers want the facts."),
+              mention_developer: z
+                .boolean()
+                .describe("@mention the item's Developer so they are notified. True when you are answering them or need something from them."),
+            }),
+            execute: async ({ message, mention_developer }) => {
+              const ev = ctx.devEvent!;
+              const mentionIds = mention_developer ? ev.developers.map((d) => d.id) : [];
+              const to = mentionIds.length ? ` (@${ev.developers.map((d) => d.name).join(", @")})` : "";
+              if (dry) return `[dry-run] would comment on dev item "${ev.itemName}"${to}: ${message}`;
+              const id = await monday.postJettaComment(ev.itemId, message, {
+                mentionUserIds: mentionIds,
+                parentUpdateId: ev.threadUpdateId,
+              });
+              if (!id) return `monday writes are off — nothing was posted on "${ev.itemName}".`;
+              await rememberJettaPost(id);
+              return `Posted on dev item "${ev.itemName}"${to}.`;
+            },
+          }),
+        }
+      : {}),
 
     /*
      * Dev board WRITES are off the chat channel entirely.

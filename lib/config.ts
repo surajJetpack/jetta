@@ -92,6 +92,21 @@ export const config = {
   intakeFilter: env("JETTA_INTAKE_FILTER") !== "false",
 
   /**
+   * The dev bridge (lib/dev-bridge.ts): Jetta acts on what developers do on a
+   * dev-board item filed for a ticket — answers their questions, asks the
+   * customer for what they need, tells the customer when it is fixed.
+   *  - "off" (default): monday webhooks feed /activity only, as before.
+   *  - "shadow": the run happens as a dry run — every write (monday comment,
+   *    private note, customer reply) is recorded in the trace and the ops log,
+   *    and nothing is posted anywhere.
+   *  - "on": live. Customer replies still follow JETTA_REPLY_MODE (held as a
+   *    draft in draft mode); monday comments need MONDAY_ALLOW_WRITES too.
+   */
+  devBridge: (["shadow", "on"].includes(env("JETTA_DEV_BRIDGE") ?? "")
+    ? env("JETTA_DEV_BRIDGE")
+    : "off") as "off" | "shadow" | "on",
+
+  /**
    * Jetta sends the FIRST public reply herself on tickets that came straight
    * in by email, the portal or the in-app form — never on a ticket that came
    * from a chat, where the customer has already been talking to her. Every

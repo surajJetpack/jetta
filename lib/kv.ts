@@ -278,6 +278,20 @@ export async function kvDel(key: string): Promise<void> {
   memKv.delete(key);
 }
 
+// ── Dev bridge: the monday updates Jetta posted herself ──────────────
+// Her token is a person's, so the webhook echo of her own comment looks like
+// that person typing. The "🤖 Jetta:" prefix catches it; this catches it even
+// if someone edits the prefix away. 30 days outlives any webhook retry.
+const jettaPostKey = (updateId: string) => `jetta:devbridge:own:${updateId}`;
+
+export async function rememberJettaPost(updateId: string): Promise<void> {
+  await kvSet(jettaPostKey(updateId), "1", 30 * 24 * 3600);
+}
+
+export async function isRememberedJettaPost(updateId: string): Promise<boolean> {
+  return (await kvGet(jettaPostKey(updateId))) !== null;
+}
+
 // ── Monetization approvals (Slack human-in-the-loop for trial/discount) ──
 // Jetta requests a trial extension or discount; a human approves it in Slack,
 // which then executes the monday call. Pending requests live here briefly.
@@ -726,7 +740,8 @@ export async function deleteDraft(id: string): Promise<void> {
 export interface RunLog {
   id: string;
   at: number;
-  source: "webhook" | "console" | "cron" | "jettachat";
+  /** "devboard" = a run started by a developer on a dev item (lib/dev-bridge.ts). */
+  source: "webhook" | "console" | "cron" | "jettachat" | "devboard";
   ticketId: string;
   subject?: string;
   channel: string;

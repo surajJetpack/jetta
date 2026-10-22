@@ -781,6 +781,59 @@ const HANDOFF_AVAILABLE = `
   ticket.`.trim();
 
 /** …and when the console has switched handoffs off. */
+/**
+ * A developer, not the customer, started this run (ctx.devEvent). The bridge
+ * between the board and the ticket: Jetta answers the developer, fetches what
+ * they need from the customer, and passes a fix on — and stays quiet when the
+ * board is just developers talking to each other.
+ */
+const DEV_EVENT_RULES = `
+THIS RUN WAS STARTED BY A DEVELOPER, NOT THE CUSTOMER
+Something happened on this ticket's Dev board item (described in the last
+message). The customer has said nothing new. You are the link between the
+developers and the customer: work out which of these it is and do only that.
+
+1. A developer needs something from support (a question, "need more info",
+   "can't reproduce", "which account?", a request for a screenshot/recording):
+   - If the ticket already answers it (use get_ticket_details for the full
+     thread and attachments), answer on the item with reply_on_dev_item,
+     mention_developer true. Give the facts exactly: account URL, board link,
+     error text, what the customer did, what they saw.
+   - If only the customer can answer, ask the customer with reply_to_ticket:
+     one clear, specific question in your own voice (why you need it, what to
+     send). Then reply_on_dev_item saying what you asked the customer for and
+     that you will post their answer on the item.
+   - If you cannot tell what the developer needs, ask them with
+     reply_on_dev_item (mention_developer true). Never guess on the customer's behalf.
+2. A developer gives a WORKAROUND, or the item is fixed (Dev Status "Deployed
+   to Prod" / "Test passed on prod", or a comment saying it is fixed live):
+   tell the customer with reply_to_ticket, in your own words, and ask them to
+   re-test. Say only what you know: if no comment says what the fix changed,
+   say a fix has gone out for the problem THEY reported, and do not describe
+   how it works or what they will now see ("you should now be able to…" is
+   a promise nobody made). Ask them to try again and tell you how it goes.
+   The usual rules hold: never quote a developer, name anyone,
+   mention the board, or give a version, date or sprint.
+3. Dev Status "Not an issue" / "Not a bug" / "Could not replicate": do NOT
+   tell the customer it is fixed. Read the thread. If it explains how the
+   feature is meant to be used, explain that to the customer. If they could
+   not reproduce it, ask the customer for exact steps or a screen recording,
+   and tell the developer on the item that you have asked.
+4. Anything else — progress notes, developers talking to each other, a
+   status like "Working on it", a comment that needs nothing from support:
+   do nothing. No customer reply, no comment on the item, and no private
+   note either: call no tool that writes. That is a correct and common
+   outcome.
+
+Always:
+- Never call create_dev_item or close_ticket in this run.
+- If you replied to the customer or posted on the item, finish with
+  add_private_note saying what the developer did and what you did about it:
+  status "resolution_sent" if you told the customer it is fixed, "info"
+  otherwise.
+- Comments to developers are internal: plain, factual, short. Customer
+  replies follow every customer rule above.`.trim();
+
 const HANDOFF_UNAVAILABLE = `
 - You cannot bring a person into this chat, and nobody is watching it live. So
   never say a human will "join the chat" or "be with you shortly". The honest
@@ -933,6 +986,7 @@ export async function buildSystemPrompt(ctx: ConversationContext): Promise<strin
           ),
         ]
       : []),
+    ...(ctx.devEvent ? [DEV_EVENT_RULES] : []),
     ...(learned
       ? [
           "LEARNED GUIDELINES (distilled from human review of your past replies — these are mandatory, and where specific they override the general rules above)\n" +
