@@ -34,9 +34,6 @@ import * as monday from "./tools/monday";
 import type { MondayWebhookEvent } from "./activity";
 import type { DevEvent } from "./types";
 
-/** Dev Status values that mean "a developer is waiting on support". Read off both boards 2026-10-22. */
-const NEEDS_INFO_STATUS = /^(need more info|waiting customer|missing info)$/i;
-
 /**
  * The progress column, by title. Dev Tasks has a second, support-facing
  * "Status" column ("Missing Info", "Not a Bug") next to "Dev Status"; both say
@@ -86,7 +83,7 @@ export function classifyDevEvent(
     const title = (e.columnTitle ?? "").replace(/\s*↗️?\s*$/, "").trim();
     if (!PROGRESS_TITLE.test(title)) return { skip: `column "${title}"` };
     const status = ((e.value as { label?: { text?: string } } | null)?.label?.text ?? "").trim();
-    if (NEEDS_INFO_STATUS.test(status)) return { kind: "needs_info", status };
+    if (monday.isNeedsInfoDevStatus(status)) return { kind: "needs_info", status };
     if (monday.isFinishedDevStatus(status)) return { kind: "finished", status };
     return { skip: `status "${status}"` };
   }
