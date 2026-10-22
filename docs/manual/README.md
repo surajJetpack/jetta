@@ -140,6 +140,25 @@ When the customer does reply on a ticket that has a dev item, Jetta sees that it
 
 If the customer replies to a closed ticket, Jetta picks it up and writes a suggestion even if Freshdesk hasn't reopened the ticket yet. Held tickets show in the event log as `cron.followup_held`, with the dev item named when that is the reason. Ask Jetta in the console "what's going to be auto-closed?" to see the queue.
 
+### Jetta and the dev board, both ways
+
+Jetta doesn't only file dev items; she keeps talking to the developers on them, and passes what they say back to the customer. Four parts, each with its own switch on **System → Dev bridge**: **off**, **shadow** (she works out what she would do and logs it as a `devbridge.*` event, but posts nothing), or **on**. Check System for which are live; this section describes what each does when on.
+
+- **Developers → customer** (`JETTA_DEV_BRIDGE`). When a developer comments on the dev item filed for a ticket, or moves its Dev Status, Jetta reads the ticket and acts:
+  - A question or **Need more info / Waiting Customer / Missing Info**: she answers on the item from the ticket, or asks the customer and says on the item what she asked.
+  - A workaround, or **Deployed to Prod / Test passed on prod**: she tells the customer the fix is out and asks them to try again.
+  - **Not an Issue / Could not Replicate**: she explains if the thread does, or asks the customer for exact steps.
+  - Developers talking to each other, progress notes, other statuses: she does nothing.
+  
+  Customer replies from this still follow the normal rules (a suggestion you send, outside her first reply).
+- **Customer → developers** (`JETTA_DEV_RELAY`). When a customer writes on a ticket that has an open dev item, Jetta puts anything the developers can use on the item: details, error text, answers, files. When the customer explicitly asks for an update and nothing has moved, she asks the developer, once per silence. When a customer asks how something works and the KB has no answer, she files it as a **Type = Question** item instead of guessing (`ask_devs`), and tells the customer she's checking with the team.
+- **Follow-up on quiet dev items** (`JETTA_DEV_FOLLOWUP`, daily). If a ticket is still open and its item has had no comment and no status change for 3 working days (Saturday off), Jetta asks the Developer for an update; 3 working days later she asks again; then she raises it once in the escalation channel and stops. Any comment or status change resets it. She leaves alone items set to Waiting Customer or Need more info, on hold, finished, or feature requests.
+- **KB drafts from developers** (`JETTA_DEV_KB`). When a developer answers a Question item, the question and answer are drafted into the KB review queue. When a bug reaches Deployed to Prod or Not an Issue, Jetta asks its Developer once for a short explanation or a doc (PDF, Word or text, posted as a new update) and drafts an article from it. "no KB" ends that. Nothing is published without review.
+
+**How it looks on monday.** Jetta posts with **Suraj's monday account**, because that is the token she has, so every post of hers starts with **🤖 Jetta:**. She @mentions whoever is in the item's **Developer** column, and posts without a mention when nobody is assigned. She never changes Dev Status or any other column. That stays the developers' call. Developers can reply in the thread, or set Need more info, and she will pick it up.
+
+**Safety rails.** A run a developer starts never files another item or closes the ticket. Jetta ignores her own posts, so she can't answer herself, and she runs at most six times per item per day. Never quoting engineers, naming them or giving dates to the customer still applies in full.
+
 These rules exist because of tickets 14453 and 14404, where escalated customers were told their issue was assumed resolved.
 
 ### The audit trail
@@ -269,7 +288,7 @@ The knowledge base syncs daily from our websites, so most articles maintain them
 
 ![The review queue](images/kb-review.webp)
 
-Draft articles waiting to be published, from two sources: the Knowledge Loop (Slack escalations) and Freshdesk mining. Nothing here reaches Jetta yet.
+Draft articles waiting to be published, from these sources: the Knowledge Loop (Slack escalations), Freshdesk mining, the Dev board page, and the developers themselves (tagged `dev-board`). When a developer answers a Question item, or sends a doc after a fix, Jetta drafts it here; see "Jetta and the dev board, both ways" in chapter 4. Nothing here reaches Jetta yet.
 
 Approving does two things at once — it publishes the article *and* embeds it for retrieval. That's the moment it starts affecting answers.
 
