@@ -236,6 +236,50 @@ async function main() {
     assert.match(f.notes.at(-1)!.text, /cancelled: Sujata replied/);
   });
 
+  await test("a colleague's 'I'll close this ticket for now' stops the follow-ups for good (#14557)", async () => {
+    const t = ticket();
+    const id = String(t.listed.id);
+    const f = fake([t]);
+    await f.run("2026-10-16T10:00:00Z");
+    assert.equal(await noteThenSend(f, id), "sent");
+    const after1 = (await getTicketFollowUp(id))!;
+    // The next day Cherryl sends her closing template; the status stays "waiting on customer".
+    const closedAt = new Date(Date.parse(after1.touches[0].sentAt) + 23 * 3600_000).toISOString().slice(0, 19) + "Z";
+    t.messages.push({
+      at: closedAt,
+      direction: "agent",
+      author: "Cherryl",
+      body: "Hi Mike, I'm reaching out to let you know that we haven't heard back from you regarding your request, so I will go ahead and close this ticket for now.",
+      private: false,
+    });
+    t.listed.stats = { ...t.listed.stats, agent_responded_at: closedAt };
+    const r = await f.run(new Date(Date.parse(closedAt) + 3600_000).toISOString());
+    assert.equal(r.handled[0].action, "stopped");
+    assert.match(r.handled[0].detail ?? "", /Cherryl closed it/);
+    // Days later, when a new round would have been due: nothing, and no re-reads.
+    const readsBefore = f.reads();
+    await f.run("2026-11-02T18:00:00Z");
+    await f.run("2026-11-06T18:00:00Z");
+    assert.equal(f.sent.length, 1, "only the one touch before the close");
+    assert.equal(f.reads(), readsBefore, "a stopped ticket isn't re-read");
+  });
+
+  await test("a closing message while a touch waits on its note cancels it, and says why", async () => {
+    const t = ticket();
+    const id = String(t.listed.id);
+    const f = fake([t]);
+    await f.run("2026-10-16T10:00:00Z");
+    const s = (await getTicketFollowUp(id))!;
+    await f.run(new Date(s.dueAt + 60_000).toISOString());
+    const at = new Date(s.dueAt + 5 * 60_000).toISOString();
+    t.messages.push({ at, direction: "agent", author: "Cherryl", body: "We haven't heard back, so I'll go ahead and close this ticket for now.", private: false });
+    t.listed.stats = { ...t.listed.stats, agent_responded_at: at };
+    await f.run(new Date(s.dueAt + 3 * 3600_000).toISOString());
+    assert.equal(f.sent.length, 0);
+    assert.match(f.notes.at(-1)!.text, /cancelled: Cherryl closed the ticket with the customer/);
+    assert.ok((await getTicketFollowUp(id))?.stopped);
+  });
+
   await test("jetta-hold cancels a waiting touch", async () => {
     const t = ticket();
     const id = String(t.listed.id);

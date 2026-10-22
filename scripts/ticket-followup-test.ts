@@ -10,6 +10,7 @@ import {
   addBusinessDays,
   activeHourOf,
   firstNameOf,
+  isClosingMessage,
   jitterFor,
   readThread,
   skipTicket,
@@ -113,6 +114,14 @@ assert.equal(firstNameOf("VICTONICE <ops@victonice.com>"), null, "a company in c
 assert.equal(firstNameOf("Admin <admin@acme.com>"), null);
 assert.equal(firstNameOf("support@acme.com"), null);
 assert.equal(firstNameOf(null), null);
+
+// ── a colleague closing the conversation ──
+assert.ok(isClosingMessage("we haven't heard back from you regarding your request, so I will go ahead and close this ticket for now."));
+assert.ok(isClosingMessage("I'm closing this ticket, but reply any time to reopen it."));
+assert.ok(isClosingMessage("I'll mark this ticket as resolved for now."));
+assert.ok(isClosingMessage("Since we haven't heard back, I'll assume this is resolved."));
+assert.ok(!isClosingMessage("Could you invite support@jetpackwork.com to the board?"));
+assert.ok(!isClosingMessage("Once you close the item, the status column should sync."));
 
 // ── checks on the text ──
 const thread = "Agent: please share the item link and a Loom at https://www.loom.com/ or invite support@jetpackwork.com.";
