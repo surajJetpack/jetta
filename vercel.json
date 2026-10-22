@@ -40,6 +40,10 @@
     {
       "path": "/api/cron/dev-board-sync",
       "schedule": "50 * * * *"
+    },
+    {
+      "path": "/api/cron/dev-followup",
+      "schedule": "30 4 * * *"
     }
   ]
 }

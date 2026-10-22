@@ -26,6 +26,7 @@ import { readOnlyTools } from "./assistant-tools";
 import { NAV, GUIDE_ITEM, PAGE_SECTIONS } from "@/components/jetta/console-nav";
 import {
   capabilityRows,
+  devBridgeRows,
   channelRows,
   reasoningRows,
   rolloutRows,
@@ -83,11 +84,27 @@ const DOCS = {
   overview: "JETTA-OVERVIEW.md",
   "support-console-guide": "docs/support-console-guide.md",
   jettachat: "docs/jettachat.md",
+  changelog: "docs/changelog.md",
 } as const;
 type DocId = keyof typeof DOCS;
 
 async function readDoc(id: DocId): Promise<string> {
   return readFile(path.join(process.cwd(), DOCS[id]), "utf8").catch(() => `(${DOCS[id]} is not available in this deployment)`);
+}
+
+/**
+ * The newest changelog entries, for the instructions: enough to answer "what's
+ * new?" and to know about a feature the manual covers only briefly. The full
+ * log is a read_doc away.
+ */
+const RECENT_CHANGE_ENTRIES = 12;
+export function recentChanges(md: string): string {
+  return md
+    .split(/^(?=## )/m)
+    .filter((p) => p.startsWith("## "))
+    .slice(0, RECENT_CHANGE_ENTRIES)
+    .join("")
+    .trim();
 }
 
 /** The manual split by "## " heading, so she can open one chapter instead of the whole book. */
@@ -122,6 +139,9 @@ function systemStatusText(): string {
   return [
     "CAPABILITIES (write gates):",
     ...capabilityRows().map(rowLine),
+    "",
+    "DEV BRIDGE (Freshdesk ⇄ monday dev boards):",
+    ...devBridgeRows().map(rowLine),
     "",
     "CHANNELS:",
     ...channelRows().map(rowLine),
@@ -400,7 +420,7 @@ export function consoleTools(): ToolSet {
 
     read_doc: tool({
       description:
-        "Open Jetta's own documentation. manual = the full console manual (pass `section` to open one chapter, e.g. 'Evals', 'Knowledge Base', 'Slack'); manual-general = the manual for general (non-admin) users; overview = the architecture overview; support-console-guide; jettachat = the chat widget. Use when the summary you already have is not enough.",
+        "Open Jetta's own documentation. manual = the full console manual (pass `section` to open one chapter, e.g. 'Evals', 'Knowledge Base', 'Slack'); manual-general = the manual for general (non-admin) users; overview = the architecture overview; support-console-guide; jettachat = the chat widget; changelog = every change, newest first (the newest are already in your instructions). Use when the summary you already have is not enough.",
       inputSchema: z.object({
         doc: z.enum(Object.keys(DOCS) as [DocId, ...DocId[]]),
         section: z.string().optional().describe("Heading text to match, for the manual."),
@@ -556,7 +576,7 @@ export interface InstructionContext {
  * cannot swap it for its own.
  */
 export async function buildInstructions(ctx: InstructionContext): Promise<string> {
-  const [manual, overview] = await Promise.all([readDoc("manual"), readDoc("overview")]);
+  const [manual, overview, changelog] = await Promise.all([readDoc("manual"), readDoc("overview"), readDoc("changelog")]);
   return [
     PERSONA,
     `You are talking to "${ctx.user}". They are currently on ${ctx.pathname}. The panel will tell you when they move ("[context] …" messages) — those are not the user speaking; never answer them aloud.`,
@@ -566,6 +586,7 @@ export async function buildInstructions(ctx: InstructionContext): Promise<string
       : "You are in QUICK mode: answer fast. When a question needs real reasoning across data, call think_deeper instead of answering — you will switch to a slower mode that reasons, and come back afterwards on your own.",
     `CONSOLE MAP (page ids for navigate):\n${consoleMap()}`,
     `LIVE CONFIGURATION (from /system, current as of this session):\n${systemStatusText()}`,
+    `RECENT CHANGES (newest first, from docs/changelog.md — where this and the manual disagree, the newer entry wins; LIVE CONFIGURATION above says what is switched on right now):\n${recentChanges(changelog)}`,
     `ARCHITECTURE OVERVIEW:\n${overview}`,
     `THE CONSOLE MANUAL:\n${manual}`,
   ].join("\n\n");

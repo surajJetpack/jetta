@@ -123,6 +123,33 @@ export const config = {
     : "off") as "off" | "shadow" | "on",
 
   /**
+   * Daily follow-up on quiet dev items (app/api/cron/dev-followup): when a
+   * customer is waiting and nobody has touched the item for `quietWorkdays`,
+   * Jetta asks the Developer for an update; after two unanswered asks it
+   * raises the item once in the escalation channel.
+   *  - "off" (default) / "shadow" (logged as devbridge.followup_shadow) / "on".
+   */
+  devFollowUp: (["shadow", "on"].includes(env("JETTA_DEV_FOLLOWUP") ?? "")
+    ? env("JETTA_DEV_FOLLOWUP")
+    : "off") as "off" | "shadow" | "on",
+  devFollowUpRules: {
+    quietWorkdays: Number(env("JETTA_DEV_QUIET_WORKDAYS") ?? "3"),
+    /** Days that don't count, 0 = Sunday. The team works in Nepal: Saturday off. */
+    weekend: (env("JETTA_DEV_WEEKEND") ?? "6").split(",").map(Number).filter((n) => n >= 0 && n <= 6),
+  },
+
+  /**
+   * KB drafts from the dev board (lib/dev-kb.ts): an answered Question item is
+   * drafted straight away; a finished bug asks its Developer once for a doc or
+   * explanation, and their answer (text, PDF, Word) is drafted. Drafts land in
+   * the KB review queue, never published.
+   *  - "off" (default) / "shadow" (logged as devbridge.kb_shadow) / "on".
+   */
+  devKb: (["shadow", "on"].includes(env("JETTA_DEV_KB") ?? "")
+    ? env("JETTA_DEV_KB")
+    : "off") as "off" | "shadow" | "on",
+
+  /**
    * Jetta sends the FIRST public reply herself on tickets that came straight
    * in by email, the portal or the in-app form — never on a ticket that came
    * from a chat, where the customer has already been talking to her. Every

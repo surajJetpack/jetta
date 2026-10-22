@@ -213,6 +213,57 @@ export function capabilityRows(): StatusRow[] {
 }
 
 /**
+ * The dev bridge: Freshdesk ⇄ monday dev boards, four separate switches,
+ * each off / shadow / on. Shadow does everything except the write, and logs
+ * what it would have written as a devbridge.* event (/events).
+ */
+export function devBridgeRows(): StatusRow[] {
+  const row = (
+    label: string,
+    mode: "off" | "shadow" | "on",
+    setting: string,
+    on: string,
+  ): StatusRow => ({
+    label,
+    tone: mode === "on" ? "on" : mode === "shadow" ? "good" : "off",
+    state: mode.toUpperCase(),
+    meaning:
+      mode === "on"
+        ? on
+        : mode === "shadow"
+          ? `Shadow: works out what it would do and logs it (devbridge.* events), posts nothing. When on: ${on}`
+          : `Off. When on: ${on}`,
+    setting,
+  });
+  return [
+    row(
+      "Developers → customer",
+      config.devBridge,
+      "JETTA_DEV_BRIDGE",
+      'A developer\'s comment or Dev Status change on a ticket\'s dev item starts a ticket run: Jetta answers the developer on the item ("🤖 Jetta:", @Developer), asks the customer for what the developer needs, or tells the customer a fix is out. Developer chatter gets no action. Customer replies still follow the reply mode (drafts).',
+    ),
+    row(
+      "Customer → developers",
+      config.devRelay,
+      "JETTA_DEV_RELAY",
+      'In ticket runs, the customer\'s new details and files go onto the open dev item (@Developer); an explicit "any update?" asks the developer once per silence; a how-to question the KB can\'t answer is filed as a Type = Question item (ask_devs).',
+    ),
+    row(
+      "Follow-up on quiet dev items",
+      config.devFollowUp,
+      "JETTA_DEV_FOLLOWUP",
+      `Daily: an open ticket's item with no comment or status change for ${config.devFollowUpRules.quietWorkdays} working days gets an ask to its Developer, a second ask ${config.devFollowUpRules.quietWorkdays} working days later, then one post in the escalation channel. Skips items waiting on the customer, on hold, finished, or feature requests.`,
+    ),
+    row(
+      "KB drafts from developers",
+      config.devKb,
+      "JETTA_DEV_KB",
+      "An answered Question item is drafted into the KB review queue; a fixed bug's developer is asked once for an explanation or a doc (PDF, Word, text), and their answer is drafted. Never published without review.",
+    ),
+  ];
+}
+
+/**
  * Which tickets Jetta is allowed to touch at all. These decide whether a run
  * happens — a ticket filtered out here produces no draft, no note and no
  * event, which from the outside is indistinguishable from Jetta ignoring it.
@@ -327,6 +378,15 @@ export function reasoningRows(): StatusRow[] {
       setting: "RERANK_ENABLED",
     },
     {
+      label: "GetSign knowledge scope",
+      tone: config.kbScopeEnabled ? "on" : "off",
+      state: config.kbScopeEnabled ? "SCOPED" : "SHARED",
+      meaning: config.kbScopeEnabled
+        ? "GetSign conversations search only GetSign and shared articles; the portfolio bot is unaffected."
+        : "Every conversation searches the whole knowledge base, GetSign and Jetpack apps alike.",
+      setting: "JETTA_KB_SCOPE",
+    },
+    {
       // Not driven by a flag — it's a property of the code paths, and the
       // asymmetry is the whole point. A chat screenshot becomes words the model
       // can read; the identical screenshot on an email ticket does not, and
@@ -425,4 +485,5 @@ export const CRONS: readonly EndpointRow[] = [
   { path: "/api/cron/performance-sync", detail: "Reads changed Freshdesk tickets into the Support health and Performance stores", schedule: "hourly at :40" },
   { path: "/api/cron/activity-sync", detail: "Reads Slack, monday and the KB audit into Team activity", schedule: "hourly at :25" },
   { path: "/api/cron/dev-board-sync", detail: "Reads both monday dev boards (read-only) and analyses new item conversations for Dev board", schedule: "hourly at :50" },
+  { path: "/api/cron/dev-followup", detail: "Asks developers for an update on quiet dev items a customer is waiting on; escalates after two unanswered asks. Armed by JETTA_DEV_FOLLOWUP", schedule: "daily 04:30" },
 ] as const;

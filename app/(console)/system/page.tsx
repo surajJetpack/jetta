@@ -4,6 +4,7 @@ import { gate } from "@/lib/console-auth";
 import {
   channelRows,
   capabilityRows,
+  devBridgeRows,
   rolloutRows,
   reasoningRows,
   ENDPOINTS,
@@ -48,6 +49,19 @@ export default async function SystemPage() {
         </CardHeader>
         <CardContent>
           <StatusRows rows={capabilityRows()} />
+        </CardContent>
+      </Card>
+
+      <Card id="dev-bridge" className="scroll-mt-16">
+        <CardHeader>
+          <CardTitle>Dev bridge</CardTitle>
+          <CardDescription>
+            Freshdesk and the monday dev boards, two-way. Each switch is separate: off, shadow (works
+            out what it would do and logs it, posts nothing) or on.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <StatusRows rows={devBridgeRows()} />
         </CardContent>
       </Card>
 
