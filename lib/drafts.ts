@@ -17,6 +17,7 @@ import * as slack from "./tools/slack";
 import { log } from "./logger";
 import { logOpsEvent } from "./events";
 import { humanizeText } from "./human-text";
+import { stripSignOff } from "./first-response";
 
 /**
  * Create a pending ReplyDraft from the run's trace. Returns null when the
@@ -53,8 +54,10 @@ export async function createDraftFromRun(
   }
   if (!body || !ctx.ticket) return null;
   // The agent sends this from Freshdesk as themselves, so it never passes
-  // through replyToTicket; clean it here.
-  body = humanizeText(body);
+  // through replyToTicket; clean it here. Any sign-off the model wrote goes
+  // too: it guessed one ("Best regards, Gabriel" copied from the thread, or
+  // "Jetta"), and the colleague's own signature is the only right one.
+  body = humanizeText(stripSignOff(body));
 
   const draft: ReplyDraft = {
     id: crypto.randomUUID(),

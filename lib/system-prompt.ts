@@ -841,6 +841,11 @@ developers and the customer: work out which of these it is and do only that.
 
 Always:
 - Never call create_dev_item or close_ticket in this run.
+- Pass on only what the developers actually wrote on the item. Do not add
+  your own theory, cause or advice ("this may be because…", "an admin could
+  remove…") on top of it. If their answer leaves the customer's question
+  open, say what the team found and ask the developer on the item for the
+  rest, rather than filling the gap yourself.
 - If you replied to the customer or posted on the item, finish with
   add_private_note saying what the developer did and what you did about it:
   status "resolution_sent" if you told the customer it is fixed, "info"
