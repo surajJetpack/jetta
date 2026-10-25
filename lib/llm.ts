@@ -26,10 +26,30 @@ export function getModel(tier: ModelTier = "standard"): LanguageModel {
       return anthropic(modelId);
     case "openrouter":
       if (!config.openrouter.apiKey) throw new Error("OPENROUTER_API_KEY is not set.");
-      return createOpenRouter({ apiKey: config.openrouter.apiKey }).chat(modelId);
+      return createOpenRouter({ apiKey: config.openrouter.apiKey }).chat(
+        modelId,
+        tier === "light" ? lightReasoningSettings(modelId) : undefined,
+      );
     default:
       throw new Error(`Unknown LLM provider: ${provider}`);
   }
+}
+
+/** The light tier's reasoning setting for an OpenRouter model, or undefined for its default. */
+export function lightReasoning(modelId: string): string | undefined {
+  if (modelId.startsWith("anthropic/")) return undefined;
+  return config.llm.lightReasoning ?? (modelId.startsWith("deepseek/") ? "off" : undefined);
+}
+
+function lightReasoningSettings(modelId: string) {
+  const r = lightReasoning(modelId);
+  if (!r) return undefined;
+  return {
+    reasoning:
+      r === "off"
+        ? { enabled: false, effort: "none" as const }
+        : { effort: r as "minimal" | "low" | "medium" | "high" },
+  };
 }
 
 /** True when the active provider's API key is present. */
