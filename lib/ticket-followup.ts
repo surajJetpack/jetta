@@ -267,6 +267,7 @@ export async function writeTouch(input: WriterInput, rejected?: { body: string; 
         "- Refer to their actual issue in their terms. Never state a product fact, step, link, price, date or promise that is not already in the thread.",
         "- Never use stock lines: \"following up on my previous message\", \"just checking in\", \"touching base\", \"I hope this finds you well\", \"friendly reminder\", \"quick nudge\". Never reuse a sentence from an earlier follow-up.",
         "- Plain text, short paragraphs, no bullet lists, no em dashes. Do not mention ticket numbers, internal notes, tools, or that you are an AI.",
+        "- Never admit fault or comment on how we handled the ticket (\"sorry we missed this\", \"you were right to push\"), never blame anyone, and never repeat how our systems work (logs, tokens, servers, error internals) even if the thread mentions it.",
       ].filter(Boolean).join("\n"),
       prompt: [
         `SUBJECT: ${input.subject}`,
