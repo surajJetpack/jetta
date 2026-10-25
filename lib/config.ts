@@ -226,6 +226,21 @@ export const config = {
         openrouter: env("OPENROUTER_MODEL_LIGHT") ?? "anthropic/claude-haiku-4.5",
       },
     } as Record<ModelTier, Record<LlmProvider, string>>,
+    /**
+     * Reasoning on the OpenRouter light tier: "off", or an effort
+     * ("minimal" | "low" | "medium" | "high"). Unset means the model's own
+     * default, except deepseek/* which defaults to "off": at default reasoning
+     * DeepSeek V4.1 Flash ran past rerank's 3.5s budget on 7–10 of 20 calls,
+     * and a timed-out rerank silently keeps vector order. Never applied to
+     * anthropic/*, so a rollback to Haiku doesn't switch on thinking.
+     */
+    lightReasoning: env("OPENROUTER_LIGHT_REASONING") as
+      | "off"
+      | "minimal"
+      | "low"
+      | "medium"
+      | "high"
+      | undefined,
     /** Max tool-loop steps per turn — bounds runaway loops. */
     maxSteps: 10,
     maxTokens: 4096,

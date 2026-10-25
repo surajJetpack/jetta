@@ -20,7 +20,7 @@
  * Slack channel?) live in their own components.
  */
 import { config } from "./config";
-import { modelLabel } from "./llm";
+import { lightReasoning, modelLabel } from "./llm";
 import type { Product } from "./types";
 
 /**
@@ -346,7 +346,12 @@ export function reasoningRows(): StatusRow[] {
       label: "Light tier — triage, reranking, small talk",
       tone: "on",
       state: modelLabel("light"),
-      meaning: "Quality-insensitive calls, at a fraction of the cost.",
+      meaning:
+        "Quality-insensitive calls, at a fraction of the cost. It also reads chat screenshots." +
+        (config.llm.provider === "openrouter" && lightReasoning(config.llm.models.light.openrouter)
+          ? ` Reasoning: ${lightReasoning(config.llm.models.light.openrouter)}.`
+          : ""),
+      setting: "OPENROUTER_MODEL_LIGHT",
     },
     {
       label: "Complexity routing",
