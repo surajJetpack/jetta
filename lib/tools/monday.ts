@@ -7,7 +7,7 @@
  * token can't provide, so it's a separate client.
  */
 import { config } from "../config";
-import type { AttachmentFile, DevBoardItem, Product } from "../types";
+import { APP_NAMES, type AppProduct, type AttachmentFile, type ComplianceItem, type DevBoardItem, type Product } from "../types";
 
 const GRAPHQL = "https://api.monday.com/v2";
 /** File uploads go to a separate multipart endpoint, not the GraphQL one. */
@@ -68,15 +68,19 @@ async function attachFilesToUpdate(
     console.warn(`monday: unexpected update id "${updateId}", skipping ${files.length} file(s).`);
     return [];
   }
+  return uploadFiles(`add_file_to_update(update_id: ${updateId}, file: $file) { id }`, files);
+}
 
+/**
+ * Upload each file through one multipart mutation (`field` takes `$file`).
+ * Best-effort: returns the names that landed, never throws.
+ */
+async function uploadFiles(field: string, files: AttachmentFile[]): Promise<string[]> {
   const uploaded: string[] = [];
   for (const file of files) {
     try {
       const form = new FormData();
-      form.append(
-        "query",
-        `mutation ($file: File!) { add_file_to_update(update_id: ${updateId}, file: $file) { id } }`,
-      );
+      form.append("query", `mutation ($file: File!) { ${field} }`);
       form.append("map", JSON.stringify({ image: "variables.file" }));
       form.append("image", new Blob([file.data], { type: file.contentType }), file.name);
 
@@ -1194,6 +1198,183 @@ export async function deleteTestDevItem(itemId: string): Promise<{ deleted: bool
     { item: itemId },
   );
   return { deleted: true };
+}
+
+// ── Compliance board ────────────────────────────────────────────────────────
+//
+// Security questionnaires, DPAs, BAAs, NDAs, SOC 2 reports and compliance
+// packs are not bugs and not engineering's. Mark Shaw (external compliance)
+// works them off the "Security Questionnaires" board, and until now the team
+// filed each one by hand and pasted the item link into a private note. These
+// follow the dev-board conventions: one item per ticket, the ticket link on
+// the item, and the customer's files forwarded.
+
+function complianceItemUrl(itemId: string): string {
+  return `${config.monday.accountUrl}/boards/${config.monday.compliance.boardId}/pulses/${itemId}`;
+}
+
+/**
+ * The board's "Apps" dropdown, in its own spelling. Reusing the existing
+ * labels keeps one app from splitting into "VLookup" and "VLOOKUP Auto-Link";
+ * an app the board has never seen gets its display name, created on write.
+ */
+const COMPLIANCE_APP_LABELS: Partial<Record<AppProduct, string>> = {
+  vlookup: "VLookup",
+  extract: "Extract AI",
+  getsign: "GetSign",
+  triggerly: "Triggerly",
+};
+
+function complianceAppLabel(app: AppProduct): string | undefined {
+  if (app === "unknown") return undefined;
+  return COMPLIANCE_APP_LABELS[app] ?? APP_NAMES[app];
+}
+
+/** Rows in the board's live groups (everything but Done), ticket-matchable. */
+async function complianceRows(): Promise<BoardItemRow[]> {
+  const board = config.monday.compliance.boardId;
+  if (!board) return [];
+  const live = await liveGroupIds(board);
+  if (!live.length) return [];
+  const data = await gql<{ boards: { groups: { items_page: { items: BoardItemRow[] } }[] }[] }>(
+    `query ($board: [ID!], $groups: [String!]) {
+      boards(ids: $board) { groups(ids: $groups) { items_page(limit: 100) { items {
+        id name group { title }
+        column_values { text type column { title } }
+        updates(limit: ${UPDATES_PER_ITEM}) { text_body }
+      } } } }
+    }`,
+    { board: [board], groups: live },
+  );
+  return (data.boards?.[0]?.groups ?? []).flatMap((g) => g.items_page.items);
+}
+
+function rowToComplianceItem(row: BoardItemRow): ComplianceItem {
+  return {
+    id: row.id,
+    title: row.name,
+    status: pickColumn(row.column_values, "status", ["status"]) ?? "not set",
+    assignee: pickColumn(row.column_values, "people", ["person", "owner"]),
+    url: complianceItemUrl(row.id),
+    group: row.group?.title?.trim() || undefined,
+  };
+}
+
+/**
+ * The open compliance requests for THIS ticket, by ticket link — the items
+ * Jetta filed and the ones the team filed by hand with the Ticket column set.
+ * Throws when monday is unreachable, like devItemsForTicket: the follow-up
+ * cron must hold on "don't know", not close on "none".
+ */
+export async function complianceItemsForTicket(ticketId: string): Promise<ComplianceItem[]> {
+  if (!config.monday.live || !/^\d+$/.test(ticketId)) return [];
+  return (await complianceRows()).filter((r) => itemCarriesTicket(r, ticketId)).map(rowToComplianceItem);
+}
+
+export interface CreateComplianceItemInput {
+  /** "<Company> — <what they asked for>", e.g. "Mintz — Security questionnaire". */
+  title: string;
+  app: AppProduct;
+  /** Everything Mark needs: who, what, which app, any deadline, what was said. */
+  summary: string;
+  /** A portal the customer wants it done in (OneTrust, Whistic, a form link). */
+  questionnaireUrl?: string;
+  freshdeskTicketUrl: string;
+  /** The customer's questionnaire/contract files, onto the board's file column. */
+  attachments?: AttachmentFile[];
+}
+
+export type CreatedComplianceItem = ComplianceItem & { filesAttached: string[]; deduped?: boolean };
+
+export async function createComplianceItem(input: CreateComplianceItemInput): Promise<CreatedComplianceItem> {
+  const fileCount = input.attachments?.length ?? 0;
+  const files = fileCount ? ` (+${fileCount} file${fileCount === 1 ? "" : "s"})` : "";
+  const stub = (why: string): CreatedComplianceItem => {
+    console.log(`[${why}] would create compliance item "${input.title}"${files} — no write made.`);
+    const id = "9900445566";
+    return { id, title: input.title, status: "Pending", url: complianceItemUrl(id), filesAttached: [] };
+  };
+  if (!config.monday.live) return stub("stub");
+  if (!config.monday.allowWrites) return stub("MONDAY_ALLOW_WRITES=false");
+  const board = config.monday.compliance.boardId;
+
+  const body = [
+    `Filed by Jetta from a support ticket.`,
+    `Freshdesk ticket: ${input.freshdeskTicketUrl}`,
+    `App: ${complianceAppLabel(input.app) ?? "not stated"}`,
+    ...(input.questionnaireUrl ? [`Questionnaire link: ${input.questionnaireUrl}`] : []),
+    "",
+    input.summary,
+  ].join("\n");
+
+  // One item per ticket. A customer replying with more detail (a deadline, a
+  // second form) lands on the item Mark already has.
+  const ticketId = freshdeskTicketId(input.freshdeskTicketUrl);
+  if (ticketId) {
+    const existing = (await complianceRows()).find((r) => itemCarriesTicket(r, ticketId));
+    if (existing) {
+      const alreadyPosted = (existing.updates ?? []).some((u) => (u.text_body ?? "").includes(input.summary.trim()));
+      const filesAttached = alreadyPosted
+        ? []
+        : await postContextUpdate(existing.id, `Follow-up from the SAME ticket.\n\n${body}`, input.attachments ?? []);
+      return { ...rowToComplianceItem(existing), filesAttached, deduped: true };
+    }
+  }
+
+  const meta = await gql<{
+    boards: { columns: { id: string; title: string; type: string }[]; groups: { id: string; title: string }[] }[];
+  }>(
+    `query ($board: [ID!]) { boards(ids: $board) { columns { id title type } groups { id title } } }`,
+    { board: [board] },
+  );
+  const cols = meta.boards?.[0]?.columns ?? [];
+  const find = (type: string, kw: RegExp) => cols.find((c) => c.type === type && kw.test(c.title.toLowerCase()))?.id;
+  const groupId = meta.boards?.[0]?.groups.find((g) => /in process|in progress/i.test(g.title))?.id;
+
+  const cv: Record<string, unknown> = {};
+  const person = find("people", /./);
+  const owner = Number(config.monday.compliance.ownerId);
+  if (person && owner) cv[person] = { personsAndTeams: [{ id: owner, kind: "person" }] };
+  const status = find("status", /status/);
+  if (status) cv[status] = { label: "Pending" };
+  const date = find("date", /./);
+  if (date) cv[date] = { date: new Date().toISOString().slice(0, 10) };
+  const apps = find("dropdown", /app/);
+  const appLabel = complianceAppLabel(input.app);
+  if (apps && appLabel) cv[apps] = { labels: [appLabel] };
+  const ticketCol = find("link", /ticket/);
+  if (ticketCol && input.freshdeskTicketUrl.startsWith("http")) {
+    cv[ticketCol] = { url: input.freshdeskTicketUrl, text: ticketId ? `#${ticketId}` : "Ticket" };
+  }
+  const linkCol = find("link", /questionn?air|link/);
+  if (linkCol && linkCol !== ticketCol && input.questionnaireUrl?.startsWith("http")) {
+    cv[linkCol] = { url: input.questionnaireUrl, text: "Questionnaire" };
+  }
+
+  const data = await gql<{ create_item: { id: string; name: string } }>(
+    `mutation ($board: ID!, $name: String!, $cv: JSON!${groupId ? ", $group: String!" : ""}) {
+      create_item(
+        board_id: $board
+        item_name: $name
+        column_values: $cv
+        create_labels_if_missing: true
+        ${groupId ? "group_id: $group" : ""}
+      ) { id name }
+    }`,
+    { board, name: input.title, cv: JSON.stringify(cv), ...(groupId ? { group: groupId } : {}) },
+  );
+  const id = data.create_item.id;
+
+  // The documents go on the board's file column, where the team keeps them;
+  // the context goes on an update, which is also what the ticket dedupe reads.
+  await postContextUpdate(id, body, []);
+  const fileCol = find("file", /./);
+  const filesAttached =
+    fileCol && input.attachments?.length
+      ? await uploadFiles(`add_file_to_column(item_id: ${id}, column_id: "${fileCol}", file: $file) { id }`, input.attachments)
+      : [];
+
+  return { id, title: input.title, status: "Pending", url: complianceItemUrl(id), filesAttached };
 }
 
 // Trial extension + discounts moved to lib/tools/monday-monetization.ts — they

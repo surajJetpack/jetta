@@ -316,7 +316,7 @@ export async function buildContext(
     appProductFromHint(ticket.productHint) ??
     inferAppProduct(`${ticket.subject}\n${ticket.description}`);
 
-  const [triage, account, relatedDevItems, ticketDevItems] = await Promise.all([
+  const [triage, account, relatedDevItems, ticketDevItems, ticketComplianceItems] = await Promise.all([
     contentIsLive
       ? triageTicket(ticket.subject, ticket.description, taskUsage)
       : Promise.resolve<TicketTriage>({
@@ -336,6 +336,10 @@ export async function buildContext(
     // create_support_ticket), so only Freshdesk looks. Best-effort: a monday
     // blip must not stop a reply, and the prompt says "none known", not "none".
     channel === "freshdesk" ? monday.devItemsForTicket(ticketId).catch(() => undefined) : Promise.resolve(undefined),
+    // Same for a request already with Mark on the compliance board.
+    channel === "freshdesk"
+      ? monday.complianceItemsForTicket(ticketId).catch(() => undefined)
+      : Promise.resolve(undefined),
   ]);
 
   // Attribution precedence: Freshdesk's cf_product field (ground truth set by
@@ -362,6 +366,7 @@ export async function buildContext(
     account,
     relatedDevItems,
     ticketDevItems,
+    ticketComplianceItems,
     product,
     productSource,
     appProduct,

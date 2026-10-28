@@ -4,6 +4,9 @@ Newest first. One entry per change people would notice: what Jetta does differen
 
 Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain words.
 
+## 2026-10-28: Compliance requests go to Mark's board (#160)
+Security questionnaires, DPAs, BAAs, NDAs, SOC 2 and other compliance requests on a ticket are filed for Mark Shaw on the Security Questionnaires board (`send_to_compliance`), with the customer's files, instead of a dev item or an escalation. Jetta's reply only confirms the hand-off; she never commits to signing, a certification or a turnaround. Live on merge; writes follow `MONDAY_ALLOW_WRITES`.
+
 ## 2026-10-28: Follow-ups on dev items with no ticket link (#168)
 Only 22 of about 214 live dev items carry a Freshdesk link, so the daily follow-up never saw the rest. Now items a Reporter filed by hand get the same two asks and one escalation: the Developer is asked, or the Reporter when the item is Waiting Customer or has no Developer. Any post of Jetta's now restarts the 3-day clock. Switch: `JETTA_DEV_FOLLOWUP_UNLINKED`.
 

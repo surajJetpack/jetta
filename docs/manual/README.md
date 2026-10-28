@@ -140,6 +140,10 @@ When the customer does reply on a ticket that has a dev item, Jetta sees that it
 
 If the customer replies to a closed ticket, Jetta picks it up and writes a suggestion even if Freshdesk hasn't reopened the ticket yet. Held tickets show in the event log as `cron.followup_held`, with the dev item named when that is the reason. Ask Jetta in the console "what's going to be auto-closed?" to see the queue.
 
+### Compliance and security paperwork goes to Mark
+
+Security or vendor questionnaires (a spreadsheet, or a OneTrust or Whistic link), DPAs, BAAs, NDAs and other agreements to sign, SOC 2 reports, pen tests, insurance certificates, and compliance or privacy questions asked as part of a review all go to **Mark Shaw** (external compliance) on the **Security Questionnaires** monday board, not to the dev board and not to engineering. On a ticket, Jetta files the item on the first turn (`send_to_compliance`), assigned to Mark, with the customer's files attached and a summary he can work from without opening the ticket. One item per ticket: a later turn adds to it. She tells the customer the compliance team has it and will reply on the ticket, and asks for a deadline if a questionnaire came without one. She never fills in a form, says whether we will sign something, confirms a certification, or gives a turnaround. For GetSign she may point to the Trust Center as general reading. The ticket stays open while Mark has it: quiet-customer follow-ups won't close it. In chat she can't file it, so she opens a ticket and asks the customer to send the documents by email.
+
 ### Jetta and the dev board, both ways
 
 Jetta doesn't only file dev items; she keeps talking to the developers on them, and passes what they say back to the customer. Four parts, each with its own switch on **System → Dev bridge**: **off**, **shadow** (she works out what she would do and logs it as a `devbridge.*` event, but posts nothing), or **on**. Check System for which are live; this section describes what each does when on.

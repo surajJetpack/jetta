@@ -415,6 +415,15 @@ export const config = {
       jetpackapps: env("MONDAY_BOARD_ID_JETPACKAPPS"),
       getsign: env("MONDAY_BOARD_ID_GETSIGN"),
     },
+    // Security questionnaires, DPAs/BAAs/NDAs, SOC 2 and compliance packs go to
+    // Mark Shaw (external compliance, compliancy.com) on the "Security
+    // Questionnaires" board — not the dev boards, and not engineering. Writes
+    // follow allowWrites below, like every other board.
+    compliance: {
+      boardId: env("MONDAY_BOARD_ID_COMPLIANCE") ?? "9796233506",
+      // monday user id of the person every request is assigned to (Mark Shaw).
+      ownerId: env("MONDAY_COMPLIANCE_OWNER_ID") ?? "55320719",
+    },
     // Explicit opt-in, independent of STUB_MODE/MONDAY_LIVE: creating items or
     // posting their context on the real boards requires this to be "true". Search
     // (read-only) is unaffected and follows MONDAY_LIVE as usual.

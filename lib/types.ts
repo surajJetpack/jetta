@@ -142,6 +142,21 @@ export interface FastSpringAccount {
   invoices: FastSpringInvoice[];
 }
 
+/**
+ * A request on the compliance board ("Security Questionnaires") — Mark's work,
+ * not engineering's: questionnaires, DPAs/BAAs/NDAs, SOC 2, compliance packs.
+ * Only items in live groups are ever carried; Done is not read.
+ */
+export interface ComplianceItem {
+  id: string;
+  title: string;
+  /** The board's Status ("Pending", "Client Reviewing", "Stuck"), or "not set". */
+  status: string;
+  assignee?: string;
+  url: string;
+  group?: string;
+}
+
 export interface DevBoardItem {
   id: string;
   title: string;
@@ -381,6 +396,11 @@ export interface ConversationContext {
    * still open, a turn can't count as a resolution. Absent = not looked up.
    */
   ticketDevItems?: DevBoardItem[];
+  /**
+   * Open compliance-board requests for THIS ticket (exact, by ticket link).
+   * Freshdesk only; absent = not looked up.
+   */
+  ticketComplianceItems?: ComplianceItem[];
   product: Product;
   /**
    * How `product` was determined. Drives brand-profile selection only — the

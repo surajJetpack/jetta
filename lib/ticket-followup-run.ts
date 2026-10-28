@@ -17,7 +17,7 @@
  */
 import { config } from "./config";
 import * as freshdesk from "./tools/freshdesk";
-import { devItemsForTicket } from "./tools/monday";
+import { complianceItemsForTicket, devItemsForTicket } from "./tools/monday";
 import { followUpCloseBlocker, describeFollowUpBlock } from "./followup-guard";
 import { getEscalationTs, recordOutcome } from "./kv";
 import { logOpsEvent } from "./events";
@@ -110,7 +110,15 @@ export const liveDeps: RunDeps = {
   reply: (id, md) => freshdesk.replyToTicket(id, freshdesk.markdownToFdHtml(md)),
   resolve: (id) => freshdesk.closeTicket(id, true),
   escalationTs: getEscalationTs,
-  devItems: (id) => devItemsForTicket(id).catch(() => null),
+  // A request with Mark on the compliance board holds the close exactly like a
+  // dev item: the next move is ours (his), not the customer's.
+  devItems: (id) =>
+    Promise.all([devItemsForTicket(id), complianceItemsForTicket(id)])
+      .then(([dev, compliance]) => [
+        ...dev,
+        ...compliance.map((c) => ({ ...c, title: `[Compliance] ${c.title}`, state: "open" })),
+      ])
+      .catch(() => null),
   ownAccountName: async () => (config.freshdesk.agentId ? freshdesk.getAgentName(Number(config.freshdesk.agentId)) : null),
   write: writeTouch,
   log: logOpsEvent,
