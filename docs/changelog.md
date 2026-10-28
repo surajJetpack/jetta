@@ -4,7 +4,7 @@ Newest first. One entry per change people would notice: what Jetta does differen
 
 Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain words.
 
-## 2026-10-28: Follow-ups on dev items with no ticket link (#PR)
+## 2026-10-28: Follow-ups on dev items with no ticket link (#168)
 Only 22 of about 214 live dev items carry a Freshdesk link, so the daily follow-up never saw the rest. Now items a Reporter filed by hand get the same two asks and one escalation: the Developer is asked, or the Reporter when the item is Waiting Customer or has no Developer. Any post of Jetta's now restarts the 3-day clock. Switch: `JETTA_DEV_FOLLOWUP_UNLINKED`.
 
 ## 2026-10-25: Light tier can run on DeepSeek V4.1 Flash (#166)
