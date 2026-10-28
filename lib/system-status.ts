@@ -255,6 +255,12 @@ export function devBridgeRows(): StatusRow[] {
       `Daily: an open ticket's item with no comment or status change for ${config.devFollowUpRules.quietWorkdays} working days gets an ask to its Developer, a second ask ${config.devFollowUpRules.quietWorkdays} working days later, then one post in the escalation channel. Skips items waiting on the customer, on hold, finished, or feature requests.`,
     ),
     row(
+      "Follow-up on unlinked dev items",
+      config.devFollowUp === "off" ? "off" : config.devFollowUpUnlinked,
+      "JETTA_DEV_FOLLOWUP_UNLINKED",
+      "The same daily follow-up for live items with no Freshdesk link that a Reporter filed (the customer named in the title). The Developer is asked; when the item is Waiting Customer or has no Developer, the Reporter is asked instead. Skips Internal Bug, features, and items quiet for over 60 working days. Needs JETTA_DEV_FOLLOWUP on.",
+    ),
+    row(
       "KB drafts from developers",
       config.devKb,
       "JETTA_DEV_KB",

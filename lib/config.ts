@@ -132,6 +132,16 @@ export const config = {
   devFollowUp: (["shadow", "on"].includes(env("JETTA_DEV_FOLLOWUP") ?? "")
     ? env("JETTA_DEV_FOLLOWUP")
     : "off") as "off" | "shadow" | "on",
+  /**
+   * The same follow-up for items with NO Freshdesk link — filed by hand, the
+   * customer named in the title — when a Reporter filed them for support. The
+   * Developer is asked; a Waiting Customer or unassigned item asks the
+   * Reporter instead. Needs JETTA_DEV_FOLLOWUP on too; this picks shadow/on.
+   *  - "off" (default) / "shadow" / "on".
+   */
+  devFollowUpUnlinked: (["shadow", "on"].includes(env("JETTA_DEV_FOLLOWUP_UNLINKED") ?? "")
+    ? env("JETTA_DEV_FOLLOWUP_UNLINKED")
+    : "off") as "off" | "shadow" | "on",
   devFollowUpRules: {
     quietWorkdays: Number(env("JETTA_DEV_QUIET_WORKDAYS") ?? "3"),
     /** Days that don't count, 0 = Sunday. The team works in Nepal: Saturday off. */
