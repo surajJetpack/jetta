@@ -1,14 +1,13 @@
 /**
  * Daily: ask developers for an update on quiet dev items a customer is
  * waiting on (lib/dev-followup.ts). JETTA_DEV_FOLLOWUP gates it; off returns
- * at once. `?dry=1` reports the decisions without acting, whatever the mode.
+ * at once. JETTA_DEV_FOLLOWUP_UNLINKED adds items with no ticket link.
+ * `?dry=1` reports the decisions without acting, whatever the mode.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { config } from "@/lib/config";
 import { logOpsEvent } from "@/lib/events";
-import { decideFollowUp, runDevFollowUp } from "@/lib/dev-followup";
-import * as monday from "@/lib/tools/monday";
-import * as freshdesk from "@/lib/tools/freshdesk";
+import { planDevFollowUp, runDevFollowUp } from "@/lib/dev-followup";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -24,15 +23,19 @@ export async function GET(req: NextRequest) {
   if (!authorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   if (req.nextUrl.searchParams.get("dry") === "1") {
-    const now = new Date();
-    const rows = [];
-    for (const { id, ticketIds } of await monday.liveLinkedItemIds()) {
-      const item = await monday.getDevItemSnapshot(id).catch(() => null);
-      if (!item) continue;
-      const status = await freshdesk.getTicketStatus(ticketIds[0]);
-      rows.push({ itemId: id, name: item.name, ticketId: ticketIds[0], ticketStatus: status, devStatus: item.devStatus, decision: decideFollowUp(item, status, now, config.devFollowUpRules) });
-    }
-    return NextResponse.json({ mode: config.devFollowUp, dry: true, rows });
+    // Unlinked items are planned whatever their switch says, so a dry run
+    // previews them before anyone turns it on.
+    const plan = await planDevFollowUp(new Date(), { unlinked: true });
+    const rows = plan.map(({ item, ticketId, ticketStatus, decision }) => ({
+      itemId: item.id,
+      name: item.name,
+      group: item.group,
+      ticketId,
+      ticketStatus,
+      devStatus: item.devStatus,
+      decision,
+    }));
+    return NextResponse.json({ mode: config.devFollowUp, unlinkedMode: config.devFollowUpUnlinked, dry: true, rows });
   }
 
   if (config.devFollowUp === "off") return NextResponse.json({ mode: "off" });
@@ -42,7 +45,7 @@ export async function GET(req: NextRequest) {
     level: "info",
     event: "cron.dev_followup_run",
     source: "cron",
-    data: { mode: config.devFollowUp, items: rows.length, acted: acted.map((r) => ({ itemId: r.itemId, ticketId: r.ticketId, done: r.done })) },
+    data: { mode: config.devFollowUp, unlinkedMode: config.devFollowUpUnlinked, items: rows.length, acted: acted.map((r) => ({ itemId: r.itemId, ticketId: r.ticketId, done: r.done })) },
   });
-  return NextResponse.json({ mode: config.devFollowUp, items: rows.length, acted });
+  return NextResponse.json({ mode: config.devFollowUp, unlinkedMode: config.devFollowUpUnlinked, items: rows.length, acted });
 }

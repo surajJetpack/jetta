@@ -1255,6 +1255,8 @@ export interface DevItemSnapshot {
   devStatus: string | null;
   /** The Developer column — who an @mention should reach. Teams are left out. */
   developers: { id: string; name: string }[];
+  /** The Reporter column — usually the support person who filed it, and who talks to the customer. */
+  reporters: { id: string; name: string }[];
   /** Linked Freshdesk tickets, the one it was filed for first. */
   ticketIds: string[];
   /** File names already on the item, so a relay doesn't post the same screenshot twice. */
@@ -1265,6 +1267,8 @@ export interface DevItemSnapshot {
   lastChaseAt: string | null;
   /** Every time Jetta asked for an update (chase or nudge), oldest first. */
   askTimes: string[];
+  /** Newest post of Jetta's of any kind (ISO), or null. */
+  lastJettaPostAt: string | null;
   /** The Type column — "Question", "Bugs and Field Issues", … */
   type: string | null;
   /** When the progress column last changed (ISO) — a developer moving the item is activity. */
@@ -1319,18 +1323,25 @@ export async function getDevItemSnapshot(itemId: string): Promise<DevItemSnapsho
   const item = data.items?.[0];
   if (!item?.board) return null;
 
-  const devCol = item.column_values.find(
-    (c) => c.type === "people" && /^(developer|assignee|owner)/.test(c.column?.title?.trim().toLowerCase() ?? ""),
-  );
-  const devIds = (devCol?.persons_and_teams ?? []).filter((p) => p.kind === "person").map((p) => String(p.id));
-  let developers: { id: string; name: string }[] = [];
-  if (devIds.length) {
-    const users = await gql<{ users: { id: string; name: string }[] }>(
-      `query ($ids: [ID!]) { users(ids: $ids) { id name } }`,
-      { ids: devIds },
-    ).catch(() => null);
-    developers = devIds.map((id) => ({ id, name: users?.users.find((u) => String(u.id) === id)?.name ?? "developer" }));
-  }
+  const peopleIn = (title: RegExp) =>
+    (
+      item.column_values.find((c) => c.type === "people" && title.test(c.column?.title?.trim().toLowerCase() ?? ""))
+        ?.persons_and_teams ?? []
+    )
+      .filter((p) => p.kind === "person")
+      .map((p) => String(p.id));
+  const devIds = peopleIn(/^(developer|assignee|owner)/);
+  const reporterIds = peopleIn(/^reporter/);
+  const allIds = [...new Set([...devIds, ...reporterIds])];
+  const users = allIds.length
+    ? await gql<{ users: { id: string; name: string }[] }>(`query ($ids: [ID!]) { users(ids: $ids) { id name } }`, {
+        ids: allIds,
+      }).catch(() => null)
+    : null;
+  const named = (ids: string[], fallback: string) =>
+    ids.map((id) => ({ id, name: users?.users.find((u) => String(u.id) === id)?.name ?? fallback }));
+  const developers = named(devIds, "developer");
+  const reporters = named(reporterIds, "reporter");
 
   const product: Product = item.board.id === config.monday.boardIds.getsign ? "getsign" : "jetpackapps";
   return {
@@ -1342,6 +1353,7 @@ export async function getDevItemSnapshot(itemId: string): Promise<DevItemSnapsho
     group: item.group?.title ?? null,
     devStatus: pickColumn(item.column_values, "status", PROGRESS_COLUMN_TITLES) ?? null,
     developers,
+    reporters,
     ticketIds: ticketIdsOnItem(item),
     // Item-level assets are file COLUMNS only; what was posted on a comment
     // (every file Jetta forwards) hangs off its update.
@@ -1367,14 +1379,16 @@ export const NUDGE_PHRASE = "is still waiting";
  */
 export function itemActivity(
   updates: { text_body: string | null; created_at: string; replies?: { text_body: string | null; created_at: string }[] | null }[],
-): { lastPersonActivityAt: string | null; lastChaseAt: string | null; askTimes: string[] } {
+): { lastPersonActivityAt: string | null; lastChaseAt: string | null; askTimes: string[]; lastJettaPostAt: string | null } {
   let person: string | null = null;
   let chase: string | null = null;
+  let jetta: string | null = null;
   const asks: string[] = [];
   const later = (a: string | null, b: string) => (!a || Date.parse(b) > Date.parse(a) ? b : a);
   for (const post of updates.flatMap((u) => [u, ...(u.replies ?? [])])) {
     const text = post.text_body ?? "";
     if (isJettaPost(text)) {
+      jetta = later(jetta, post.created_at);
       if (text.includes(CHASE_PHRASE)) chase = later(chase, post.created_at);
       if (text.includes(CHASE_PHRASE) || text.includes(NUDGE_PHRASE)) asks.push(post.created_at);
     } else if (!isJettaContextPost(text)) {
@@ -1382,7 +1396,7 @@ export function itemActivity(
     }
   }
   asks.sort((a, b) => Date.parse(a) - Date.parse(b));
-  return { lastPersonActivityAt: person, lastChaseAt: chase, askTimes: asks };
+  return { lastPersonActivityAt: person, lastChaseAt: chase, askTimes: asks, lastJettaPostAt: jetta };
 }
 
 /**
@@ -1445,14 +1459,15 @@ export async function postJettaComment(
 }
 
 /**
- * Every item in a LIVE group of either dev board that carries a Freshdesk
- * ticket link — the follow-up cron's candidates. Wishes (feature / backlog /
+ * Every item in a LIVE group of either dev board, with the Freshdesk tickets
+ * it links (often none: people filing by hand name the customer in the title
+ * instead) — the follow-up cron's candidates. Wishes (feature / backlog /
  * coming-up groups) are left out: nobody is waiting on those this week.
  * Two queries per board; the live groups are a few hundred rows in all.
  */
-export async function liveLinkedItemIds(): Promise<{ id: string; ticketIds: string[] }[]> {
+export async function liveItemIds(): Promise<{ id: string; group: string; ticketIds: string[] }[]> {
   if (!config.monday.live) return [];
-  const out: { id: string; ticketIds: string[] }[] = [];
+  const out: { id: string; group: string; ticketIds: string[] }[] = [];
   type Row = { id: string; group: { title: string } | null; column_values: { text: string | null }[]; updates: { text_body: string | null }[] };
   for (const board of [config.monday.boardIds.jetpackapps, config.monday.boardIds.getsign]) {
     if (!board) continue;
@@ -1469,8 +1484,7 @@ export async function liveLinkedItemIds(): Promise<{ id: string; ticketIds: stri
     for (const g of data.boards?.[0]?.groups ?? []) {
       if (FEATURE_GROUP.test(g.title.trim().toLowerCase())) continue;
       for (const row of g.items_page.items) {
-        const ticketIds = ticketIdsOnItem(row);
-        if (ticketIds.length) out.push({ id: row.id, ticketIds });
+        out.push({ id: row.id, group: g.title, ticketIds: ticketIdsOnItem(row) });
       }
     }
   }

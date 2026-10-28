@@ -8,9 +8,9 @@
  * No network for the decisions. The last block reads a PDF and a .docx
  * through docText via data: URLs, so the extractors are exercised for real.
  */
-import { decideFollowUp, nudgeText, workdaysBetween } from "../lib/dev-followup";
+import { decideFollowUp, decideUnlinkedFollowUp, nudgeText, unlinkedNudgeText, workdaysBetween } from "../lib/dev-followup";
 import { declinesKb, docText, noAnswer, shouldAskForKb } from "../lib/dev-kb";
-import { itemActivity, JETTA_POST_PREFIX } from "../lib/tools/monday";
+import { itemActivity, JETTA_POST_PREFIX, NUDGE_PHRASE } from "../lib/tools/monday";
 
 export {};
 
@@ -67,6 +67,60 @@ console.log("Follow-up decisions");
   check("Done group → nothing", d({ group: "Done" }).action === "none");
   check("feature request → nothing", d({ type: "Feature Enhancements" }).action === "none");
   check("GetSign 'Done' in a live group is still in flight → ask", d({ devStatus: "Done" }).action === "ask");
+}
+
+console.log("Any post of Jetta's restarts the clock");
+{
+  const rules = { quietWorkdays: 3, weekend: SAT };
+  const item = {
+    group: "Client reported Field Issues",
+    devStatus: "Working on it",
+    lastPersonActivityAt: day(12),
+    devStatusChangedAt: null,
+    createdAt: day(5),
+    askTimes: [] as string[],
+    type: null,
+  };
+  check("a hand-written ask yesterday → wait", decideFollowUp({ ...item, lastJettaPostAt: day(22) }, "open", new Date(day(23)), rules).action === "none");
+  check("…3 workdays later → first ask", (() => { const r = decideFollowUp({ ...item, lastJettaPostAt: day(22) }, "open", new Date(day(26)), rules); return r.action === "ask" && r.n === 1; })());
+  check("a post from BEFORE the last activity doesn't hold it", decideFollowUp({ ...item, lastJettaPostAt: day(9) }, "open", new Date(day(23)), rules).action === "ask");
+  check("itemActivity reports her newest post", itemActivity([{ text_body: `${JETTA_POST_PREFIX} hi`, created_at: day(22) }, { text_body: `${JETTA_POST_PREFIX} relay`, created_at: day(20) }]).lastJettaPostAt === day(22));
+}
+
+console.log("Unlinked items");
+{
+  const rules = { quietWorkdays: 3, weekend: SAT };
+  const sujata = { id: "53608181", name: "Sujata Shrestha" };
+  const swejal = { id: "78345437", name: "Swejal Shrestha" };
+  const base = {
+    group: "Client req",
+    devStatus: "Working on it",
+    lastPersonActivityAt: day(14),
+    devStatusChangedAt: null as string | null,
+    createdAt: day(12),
+    askTimes: [] as string[],
+    type: "Bugs and Field Issues" as string | null,
+    developers: [swejal] as { id: string; name: string }[],
+    reporters: [sujata] as { id: string; name: string }[],
+  };
+  const d = (over: Partial<typeof base> = {}, now = day(23)) => decideUnlinkedFollowUp({ ...base, ...over }, new Date(now), rules);
+  const about = (over: Partial<typeof base>) => { const r = d(over); return r.action === "ask" ? r.about : r.action; };
+
+  check("filed by support, dev quiet → ask the developer", about({}) === "developer");
+  check("Waiting Customer → ask the Reporter", about({ devStatus: "Waiting Customer" }) === "customer");
+  check("no Developer → ask the Reporter who owns it", about({ developers: [] }) === "owner");
+  check("no Reporter → nothing (nobody in support is waiting)", d({ reporters: [] }).action === "none");
+  check("Internal Bug group → nothing", d({ group: "Internal Bug" }).action === "none");
+  check("feature request → nothing", d({ type: "Feature Enhancements" }).action === "none");
+  check("on HOLD → nothing", d({ devStatus: "HOLD" }).action === "none");
+  check("quiet 2 workdays → nothing", d({}, day(16)).action === "none");
+  check("quiet over 60 workdays → abandoned, nothing", (() => { const r = d({ lastPersonActivityAt: "2026-06-01T09:00:00Z", createdAt: "2026-05-01T09:00:00Z" }); return r.action === "none" && r.reason.startsWith("abandoned"); })());
+  check("two asks unanswered → escalate", d({ askTimes: [day(19), day(22)] }, day(27)).action === "escalate");
+
+  const item = { devStatus: "Waiting Customer", reporters: [sujata] };
+  for (const a of ["developer", "customer", "owner"] as const)
+    check(`'${a}' nudge carries NUDGE_PHRASE, so it counts as an ask`, unlinkedNudgeText(item, a, 5, 1).includes(NUDGE_PHRASE));
+  check("developer nudge names the Reporter", unlinkedNudgeText(item, "developer", 5, 1).includes("Sujata Shrestha"));
 }
 
 console.log("The nudge counts as an ask next time");
