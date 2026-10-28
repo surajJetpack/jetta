@@ -18,13 +18,18 @@ export function boardIdFor(product: Product): string | undefined {
   return product === "getsign" ? config.monday.boardIds.getsign : config.monday.boardIds.jetpackapps;
 }
 
-async function gql<T>(query: string, variables?: Record<string, unknown>): Promise<T> {
+async function gql<T>(
+  query: string,
+  variables?: Record<string, unknown>,
+  /** Only for a field the pinned version lacks — `mentions_list` arrived in 2025-07. */
+  apiVersion = "2024-10",
+): Promise<T> {
   const res = await fetch(GRAPHQL, {
     method: "POST",
     headers: {
       Authorization: config.monday.apiToken ?? "",
       "Content-Type": "application/json",
-      "API-Version": "2024-10",
+      "API-Version": apiVersion,
     },
     body: JSON.stringify({ query, variables }),
   });
@@ -445,6 +450,10 @@ const FINISHED_DEV_STATUS =
  * "Done" status still in "Client reported Field Issues" counts as in flight —
  * nobody has moved it, and on GetSign that usually means not yet deployed.
  */
+export function isFinishedDevStatus(status: string | null | undefined): boolean {
+  return FINISHED_DEV_STATUS.test((status ?? "").trim());
+}
+
 export function devItemInFlight(item: { group?: string | null; status?: string | null }): boolean {
   const group = (item.group ?? "").trim().toLowerCase();
   if (group && CLOSED_GROUP.test(group)) return false;
@@ -675,6 +684,12 @@ export interface CreateDevItemInput {
   freshdeskTicketUrl: string;
   /** Customer-supplied evidence to attach to the item's update. */
   attachments?: AttachmentFile[];
+  /**
+   * "question": not a bug — something support cannot answer and a developer
+   * can (ask_devs). Filed with Type = Question, and the context reads as a
+   * question rather than an error report. Default "bug".
+   */
+  kind?: "bug" | "question";
 }
 
 /** A created item, plus the names of the files that actually attached. */
@@ -702,9 +717,9 @@ function contextBody(input: CreateDevItemInput, followUp: boolean): string {
     `Account: ${input.accountUrl}`,
     `Freshdesk ticket: ${input.freshdeskTicketUrl}`,
     "",
-    `Error: ${input.errorDescription}`,
-    "",
-    `Reproduction steps:\n${input.reproSteps}`,
+    ...(input.kind === "question"
+      ? [`Question from support (not a bug report): ${input.errorDescription}`, "", `Context:\n${input.reproSteps}`]
+      : [`Error: ${input.errorDescription}`, "", `Reproduction steps:\n${input.reproSteps}`]),
   ].join("\n");
 }
 
@@ -819,6 +834,10 @@ export async function createDevItem(input: CreateDevItemInput): Promise<CreatedD
   if (tixCol && input.freshdeskTicketUrl.startsWith("http")) {
     cv[tixCol] = { url: input.freshdeskTicketUrl, text: "Freshdesk ticket" };
   }
+  // Bugs leave Type alone, as they always have; a question says so, so the
+  // board can tell "something is broken" from "support needs an answer".
+  const typeCol = find("status", /^type/);
+  if (typeCol && input.kind === "question") cv[typeCol] = { label: "Question" };
 
   // `group_id` is omitted rather than sent as null when no group matched —
   // monday then applies its own default (the board's top group), which is the
@@ -829,6 +848,7 @@ export async function createDevItem(input: CreateDevItemInput): Promise<CreatedD
         board_id: $board
         item_name: $name
         column_values: $cv
+        create_labels_if_missing: true
         ${groupId ? "group_id: $group" : ""}
       ) { id name }
     }`,
@@ -1360,3 +1380,327 @@ export async function createComplianceItem(input: CreateComplianceItemInput): Pr
 // Trial extension + discounts moved to lib/tools/monday-monetization.ts — they
 // use the Marketplace monetization API (app collaborator token), not the
 // board GraphQL client above.
+
+// ── The dev bridge: Jetta's own voice on an item ────────────────────
+
+/**
+ * Every comment Jetta posts on a dev item starts with this.
+ *
+ * Her monday token is a PERSON's (Suraj's), so on the board her posts carry
+ * his name and avatar. The prefix is what tells a developer who they are
+ * talking to — and what tells the webhook, when monday echoes the post back,
+ * that it must not answer itself. lib/dev-bridge.ts also remembers the ids it
+ * posted, so a prefix mangled by an editor still can't start a loop.
+ */
+export const JETTA_POST_PREFIX = "🤖 Jetta:";
+
+export function isJettaPost(text: string | null | undefined): boolean {
+  return (text ?? "").trimStart().startsWith(JETTA_POST_PREFIX);
+}
+
+/** Context posts createDevItem makes ("Product: …\nAccount: …"). Also hers. */
+export function isJettaContextPost(text: string | null | undefined): boolean {
+  return /^\s*(Follow-up from the SAME Freshdesk ticket[^\n]*\s*)?Product:/.test(text ?? "");
+}
+
+/**
+ * The Freshdesk tickets an item was filed for, read off its columns and
+ * updates. The ticket named in Jetta's own context post comes first: that is
+ * the one it was filed FOR, while a ticket a developer pastes into a comment
+ * ("same as 14400") is only a reference. Pure, for the test script.
+ */
+export function ticketIdsOnItem(item: {
+  column_values?: { text: string | null }[] | null;
+  updates?: { text_body: string | null }[] | null;
+}): string[] {
+  const owned: string[] = [];
+  const mentioned: string[] = [];
+  const collect = (text: string, into: string[]) => {
+    for (const m of text.matchAll(/\/tickets\/(\d+)(?![0-9])/g)) into.push(m[1]);
+  };
+  for (const c of item.column_values ?? []) collect(c.text ?? "", owned);
+  // Oldest first, so the filing context outranks anything said later.
+  for (const u of [...(item.updates ?? [])].reverse()) {
+    collect(u.text_body ?? "", isJettaContextPost(u.text_body) ? owned : mentioned);
+  }
+  return [...new Set([...owned, ...mentioned])];
+}
+
+export interface DevItemSnapshot {
+  id: string;
+  name: string;
+  boardId: string;
+  product: Product;
+  url: string;
+  group: string | null;
+  devStatus: string | null;
+  /** The Developer column — who an @mention should reach. Teams are left out. */
+  developers: { id: string; name: string }[];
+  /** The Reporter column — usually the support person who filed it, and who talks to the customer. */
+  reporters: { id: string; name: string }[];
+  /** Linked Freshdesk tickets, the one it was filed for first. */
+  ticketIds: string[];
+  /** File names already on the item, so a relay doesn't post the same screenshot twice. */
+  assetNames: string[];
+  /** Newest comment or reply by anyone but Jetta (ISO), or null. */
+  lastPersonActivityAt: string | null;
+  /** Newest "asking for an update" post by Jetta (ISO), or null. */
+  lastChaseAt: string | null;
+  /** Every time Jetta asked for an update (chase or nudge), oldest first. */
+  askTimes: string[];
+  /** Newest post of Jetta's of any kind (ISO), or null. */
+  lastJettaPostAt: string | null;
+  /** The Type column — "Question", "Bugs and Field Issues", … */
+  type: string | null;
+  /** When the progress column last changed (ISO) — a developer moving the item is activity. */
+  devStatusChangedAt: string | null;
+  createdAt: string | null;
+}
+
+/**
+ * One item, as the dev bridge needs it: where it lives, how far along it is,
+ * who owns it and which ticket it belongs to. Null when monday is stubbed or
+ * the item is gone (deleted, or on a board this token cannot see).
+ */
+export async function getDevItemSnapshot(itemId: string): Promise<DevItemSnapshot | null> {
+  if (!config.monday.live || !/^\d+$/.test(itemId)) return null;
+  const data = await gql<{
+    items: {
+      id: string;
+      name: string;
+      created_at: string | null;
+      board: { id: string } | null;
+      group: { title: string } | null;
+      column_values: {
+        text: string | null;
+        type: string;
+        column: { title: string } | null;
+        persons_and_teams?: { id: string | number; kind: string }[] | null;
+        updated_at?: string | null;
+      }[];
+      updates: {
+        text_body: string | null;
+        created_at: string;
+        replies: { text_body: string | null; created_at: string }[] | null;
+        assets: { name: string }[] | null;
+      }[];
+      assets: { name: string }[] | null;
+    }[];
+  }>(
+    `query ($ids: [ID!]) {
+      items(ids: $ids) {
+        id name created_at board { id } group { title }
+        column_values {
+          text type column { title }
+          ... on PeopleValue { persons_and_teams { id kind } }
+          ... on StatusValue { updated_at }
+        }
+        updates(limit: 50) { text_body created_at replies { text_body created_at } assets { name } }
+        assets { name }
+      }
+    }`,
+    { ids: [itemId] },
+  );
+  const item = data.items?.[0];
+  if (!item?.board) return null;
+
+  const peopleIn = (title: RegExp) =>
+    (
+      item.column_values.find((c) => c.type === "people" && title.test(c.column?.title?.trim().toLowerCase() ?? ""))
+        ?.persons_and_teams ?? []
+    )
+      .filter((p) => p.kind === "person")
+      .map((p) => String(p.id));
+  const devIds = peopleIn(/^(developer|assignee|owner)/);
+  const reporterIds = peopleIn(/^reporter/);
+  const allIds = [...new Set([...devIds, ...reporterIds])];
+  const users = allIds.length
+    ? await gql<{ users: { id: string; name: string }[] }>(`query ($ids: [ID!]) { users(ids: $ids) { id name } }`, {
+        ids: allIds,
+      }).catch(() => null)
+    : null;
+  const named = (ids: string[], fallback: string) =>
+    ids.map((id) => ({ id, name: users?.users.find((u) => String(u.id) === id)?.name ?? fallback }));
+  const developers = named(devIds, "developer");
+  const reporters = named(reporterIds, "reporter");
+
+  const product: Product = item.board.id === config.monday.boardIds.getsign ? "getsign" : "jetpackapps";
+  return {
+    id: item.id,
+    name: item.name,
+    boardId: item.board.id,
+    product,
+    url: `${config.monday.accountUrl}/boards/${item.board.id}/pulses/${item.id}`,
+    group: item.group?.title ?? null,
+    devStatus: pickColumn(item.column_values, "status", PROGRESS_COLUMN_TITLES) ?? null,
+    developers,
+    reporters,
+    ticketIds: ticketIdsOnItem(item),
+    // Item-level assets are file COLUMNS only; what was posted on a comment
+    // (every file Jetta forwards) hangs off its update.
+    assetNames: [...(item.assets ?? []), ...item.updates.flatMap((u) => u.assets ?? [])].map((a) => a.name),
+    ...itemActivity(item.updates),
+    type: pickColumn(item.column_values, "status", ["type"]) ?? null,
+    devStatusChangedAt:
+      item.column_values.find(
+        (c) => c.type === "status" && PROGRESS_COLUMN_TITLES.includes(c.column?.title?.trim().toLowerCase() ?? ""),
+      )?.updated_at ?? null,
+    createdAt: item.created_at ?? null,
+  };
+}
+
+/** Marks Jetta's chase post — update_dev_item writes this exact phrase. */
+export const CHASE_PHRASE = "is asking for an update";
+/** Marks the follow-up cron's nudge (lib/dev-followup.ts). */
+export const NUDGE_PHRASE = "is still waiting";
+
+/**
+ * When a person last spoke on an item, and when Jetta last chased it. Pure.
+ * Replies count: a developer answering inside an old thread is activity.
+ */
+export function itemActivity(
+  updates: { text_body: string | null; created_at: string; replies?: { text_body: string | null; created_at: string }[] | null }[],
+): { lastPersonActivityAt: string | null; lastChaseAt: string | null; askTimes: string[]; lastJettaPostAt: string | null } {
+  let person: string | null = null;
+  let chase: string | null = null;
+  let jetta: string | null = null;
+  const asks: string[] = [];
+  const later = (a: string | null, b: string) => (!a || Date.parse(b) > Date.parse(a) ? b : a);
+  for (const post of updates.flatMap((u) => [u, ...(u.replies ?? [])])) {
+    const text = post.text_body ?? "";
+    if (isJettaPost(text)) {
+      jetta = later(jetta, post.created_at);
+      if (text.includes(CHASE_PHRASE)) chase = later(chase, post.created_at);
+      if (text.includes(CHASE_PHRASE) || text.includes(NUDGE_PHRASE)) asks.push(post.created_at);
+    } else if (!isJettaContextPost(text)) {
+      person = later(person, post.created_at);
+    }
+  }
+  asks.sort((a, b) => Date.parse(a) - Date.parse(b));
+  return { lastPersonActivityAt: person, lastChaseAt: chase, askTimes: asks, lastJettaPostAt: jetta };
+}
+
+/**
+ * May Jetta chase this item again? Only once per silence: if she already
+ * asked and nobody has said anything since, a second ping is nagging. Pure.
+ */
+export function chaseAllowed(a: { lastPersonActivityAt: string | null; lastChaseAt: string | null }): boolean {
+  if (!a.lastChaseAt) return true;
+  return !!a.lastPersonActivityAt && Date.parse(a.lastPersonActivityAt) > Date.parse(a.lastChaseAt);
+}
+
+/** Dev Status values that mean "a developer is waiting on support". Read off both boards 2026-10-22. */
+export function isNeedsInfoDevStatus(status: string | null | undefined): boolean {
+  return /^(need more info|waiting customer|missing info)$/i.test((status ?? "").trim());
+}
+
+/** Plain text → the minimal HTML monday renders in an update. */
+function updateHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\n/g, "<br>");
+}
+
+/**
+ * Post a comment as Jetta on a dev item, optionally as a reply in a thread and
+ * @mentioning people.
+ *
+ * `mentions_list` is what makes monday NOTIFY the person (a typed "@Name" is
+ * just text); it only exists from API 2025-07, hence the version override.
+ * Returns the new update's id and the files that attached, or null when
+ * writes are off — the caller logs that as "would have posted".
+ */
+export async function postJettaComment(
+  itemId: string,
+  text: string,
+  opts: { mentionUserIds?: string[]; parentUpdateId?: string; attachments?: AttachmentFile[] } = {},
+): Promise<{ id: string; filesAttached: string[] } | null> {
+  const body = `${JETTA_POST_PREFIX} ${text.trim()}`;
+  if (!config.monday.live || !config.monday.allowWrites) {
+    console.log(`[monday writes off] would comment on ${itemId}: ${body.slice(0, 200)}`);
+    return null;
+  }
+  const mentions = (opts.mentionUserIds ?? []).filter((id) => /^\d+$/.test(id)).map((id) => ({ id, type: "User" }));
+  const parent = opts.parentUpdateId && /^\d+$/.test(opts.parentUpdateId) ? opts.parentUpdateId : undefined;
+  const post = (parentId: string | undefined) =>
+    gql<{ create_update: { id: string } }>(
+      `mutation ($item: ID!, $body: String!, $parent: ID, $mentions: [UpdateMention]) {
+        create_update(item_id: $item, body: $body, parent_id: $parent, mentions_list: $mentions) { id }
+      }`,
+      { item: itemId, body: updateHtml(body), parent: parentId, mentions: mentions.length ? mentions : undefined },
+      "2025-10",
+    );
+  // A thread that can't take a reply (deleted, or the id was a reply's own)
+  // still gets the answer, as a fresh comment on the item.
+  const data = parent ? await post(parent).catch(() => post(undefined)) : await post(undefined);
+  const filesAttached = await attachFilesToUpdate(data.create_update.id, opts.attachments ?? []);
+  return { id: data.create_update.id, filesAttached };
+}
+
+/**
+ * Every item in a LIVE group of either dev board, with the Freshdesk tickets
+ * it links (often none: people filing by hand name the customer in the title
+ * instead) — the follow-up cron's candidates. Wishes (feature / backlog /
+ * coming-up groups) are left out: nobody is waiting on those this week.
+ * Two queries per board; the live groups are a few hundred rows in all.
+ */
+export async function liveItemIds(): Promise<{ id: string; group: string; ticketIds: string[] }[]> {
+  if (!config.monday.live) return [];
+  const out: { id: string; group: string; ticketIds: string[] }[] = [];
+  type Row = { id: string; group: { title: string } | null; column_values: { text: string | null }[]; updates: { text_body: string | null }[] };
+  for (const board of [config.monday.boardIds.jetpackapps, config.monday.boardIds.getsign]) {
+    if (!board) continue;
+    const live = await liveGroupIds(board);
+    if (!live.length) continue;
+    const data = await gql<{ boards: { groups: { title: string; items_page: { items: Row[] } }[] }[] }>(
+      `query ($board: [ID!], $groups: [String!]) {
+        boards(ids: $board) { groups(ids: $groups) { title items_page(limit: 200) {
+          items { id group { title } column_values { text } updates(limit: ${UPDATES_PER_ITEM}) { text_body } }
+        } } }
+      }`,
+      { board: [board], groups: live },
+    );
+    for (const g of data.boards?.[0]?.groups ?? []) {
+      if (FEATURE_GROUP.test(g.title.trim().toLowerCase())) continue;
+      for (const row of g.items_page.items) {
+        out.push({ id: row.id, group: g.title, ticketIds: ticketIdsOnItem(row) });
+      }
+    }
+  }
+  return out;
+}
+
+export interface ItemFile {
+  name: string;
+  extension: string;
+  url: string;
+  size: number;
+}
+
+/**
+ * Files people posted on an item's updates after `sinceIso` — what a developer
+ * attached in answer to Jetta's KB request. Jetta's own uploads (her token's
+ * user) are left out. Replies cannot carry files through the API, so the
+ * request asks for a new update.
+ */
+export async function itemFilesSince(itemId: string, sinceIso: string, selfId: string | null): Promise<ItemFile[]> {
+  if (!config.monday.live) return [];
+  const data = await gql<{
+    items: {
+      updates: {
+        created_at: string;
+        creator_id: string | null;
+        assets: { name: string; file_extension: string; public_url: string; file_size: number }[] | null;
+      }[];
+    }[];
+  }>(
+    `query ($ids: [ID!]) { items(ids: $ids) { updates(limit: 50) { created_at creator_id assets { name file_extension public_url file_size } } } }`,
+    { ids: [itemId] },
+  );
+  return (data.items?.[0]?.updates ?? [])
+    .filter((u) => Date.parse(u.created_at) > Date.parse(sinceIso) && String(u.creator_id ?? "") !== String(selfId ?? "-"))
+    .flatMap((u) => u.assets ?? [])
+    .map((a) => ({ name: a.name, extension: a.file_extension.replace(/^\./, "").toLowerCase(), url: a.public_url, size: a.file_size }));
+}

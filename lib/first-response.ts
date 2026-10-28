@@ -116,6 +116,15 @@ export function hardBlock(body: string, internal: InternalRefs = internalRefs())
   if (/\b(dev(elopment)? board|monday item|private note|escalation thread|internal note)\b/i.test(body)) {
     return "internal_detail";
   }
+  // How our systems work. Narrow on purpose: a customer's own "API token" or
+  // "activity log" is fine to talk about; OUR logs and stored tokens are not.
+  if (/\b(?:(?:our|the|server|backend|system) logs?\b|from the logs|in the logs|stack ?trace|stored tokens?|our database)/i.test(body)) {
+    return "internal_detail";
+  }
+  // A confession about how we handled it, not an apology for their trouble.
+  if (/\b(?:you were right to (?:push|insist|chase)|we (?:missed|overlooked|dropped the ball)|we should have (?:caught|spotted|noticed|looked))\b/i.test(body)) {
+    return "admission";
+  }
   return null;
 }
 

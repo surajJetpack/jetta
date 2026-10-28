@@ -75,6 +75,12 @@ async function main() {
   check("markdown link is not a placeholder", hardBlock(`${good}\nSee [link to the guide](https://getsign.io/help).`) === null);
   check("AI self-reference blocked", hardBlock(`${good}\nAs an AI, I can't see your board.`) === "self_reference");
   check("internal detail blocked", hardBlock(`${good}\nI've added it to the dev board.`) === "internal_detail");
+  check("our logs blocked", hardBlock(`${good}\nThe engineering team has an answer from the logs.`) === "internal_detail");
+  check("stored token blocked", hardBlock(`${good}\nThe stored token lost write access.`) === "internal_detail");
+  check("customer's API token allowed", hardBlock(`${good}\nPaste your monday API token into the settings.`) === null);
+  check("customer's activity log allowed", hardBlock(`${good}\nCheck the board's Activity Log for the change.`) === null);
+  check("admission blocked", hardBlock(`${good}\nYou were right to insist on a real answer.`) === "admission");
+  check("plain apology allowed", hardBlock(`${good}\nI'm sorry for the trouble this caused.`) === null);
 
   console.log("── sign-off ──");
   check("strips 'Best,\\nJetta'", stripSignOff(`${good}\n\nBest,\nJetta`) === good);

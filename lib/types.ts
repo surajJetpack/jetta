@@ -462,6 +462,32 @@ export interface ConversationContext {
      */
     needsIdentity: boolean;
   };
+  /**
+   * Set when a DEVELOPER started this run, not the customer: a comment or a
+   * Dev Status change on the dev item filed for this ticket (lib/dev-bridge.ts).
+   * Its presence adds reply_on_dev_item to the toolset and the dev-event rules
+   * to the prompt.
+   */
+  devEvent?: DevEvent;
+}
+
+export interface DevEvent {
+  /** comment: a developer wrote on the item. needs_info / finished: Dev Status moved there. */
+  kind: "comment" | "needs_info" | "finished";
+  itemId: string;
+  itemName: string;
+  itemUrl: string;
+  devStatus: string | null;
+  /** Who acted, by monday name. INTERNAL — never reaches a customer. */
+  author: string;
+  /** The comment itself (kind "comment"). */
+  text?: string;
+  /** The thread a reply should go into: the comment's root update. */
+  threadUpdateId?: string;
+  /** The item's Developer column — who reply_on_dev_item @mentions. */
+  developers: { id: string; name: string }[];
+  /** The item's latest thread, newest first, for status-only events. */
+  recent: { at: string; author: string; text: string }[];
 }
 
 /** Token usage of one LLM task, for the per-ticket cost breakdown. */

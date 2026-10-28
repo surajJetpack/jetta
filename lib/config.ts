@@ -92,6 +92,74 @@ export const config = {
   intakeFilter: env("JETTA_INTAKE_FILTER") !== "false",
 
   /**
+   * The dev bridge (lib/dev-bridge.ts): Jetta acts on what developers do on a
+   * dev-board item filed for a ticket — answers their questions, asks the
+   * customer for what they need, tells the customer when it is fixed.
+   *  - "off" (default): monday webhooks feed /activity only, as before.
+   *  - "shadow": the run happens as a dry run — every write (monday comment,
+   *    private note, customer reply) is recorded in the trace and the ops log,
+   *    and nothing is posted anywhere.
+   *  - "on": live. Customer replies still follow JETTA_REPLY_MODE (held as a
+   *    draft in draft mode); monday comments need MONDAY_ALLOW_WRITES too.
+   */
+  devBridge: (["shadow", "on"].includes(env("JETTA_DEV_BRIDGE") ?? "")
+    ? env("JETTA_DEV_BRIDGE")
+    : "off") as "off" | "shadow" | "on",
+
+  /**
+   * The other half of the bridge, Freshdesk → monday: in ordinary ticket runs
+   * Jetta may put the customer's new information on the ticket's open dev
+   * item, chase a quiet item when the customer asks for an update
+   * (update_dev_item), and file a support QUESTION as a Type = Question item
+   * (ask_devs).
+   *  - "off" (default): neither tool exists and the prompt doesn't mention them.
+   *  - "shadow": the tools exist and are logged as devbridge.relay_shadow, and
+   *    nothing reaches the board. ask_devs tells the model the team was NOT
+   *    asked, so it escalates the old way and no customer is told otherwise.
+   *  - "on": live (monday writes still need MONDAY_ALLOW_WRITES).
+   */
+  devRelay: (["shadow", "on"].includes(env("JETTA_DEV_RELAY") ?? "")
+    ? env("JETTA_DEV_RELAY")
+    : "off") as "off" | "shadow" | "on",
+
+  /**
+   * Daily follow-up on quiet dev items (app/api/cron/dev-followup): when a
+   * customer is waiting and nobody has touched the item for `quietWorkdays`,
+   * Jetta asks the Developer for an update; after two unanswered asks it
+   * raises the item once in the escalation channel.
+   *  - "off" (default) / "shadow" (logged as devbridge.followup_shadow) / "on".
+   */
+  devFollowUp: (["shadow", "on"].includes(env("JETTA_DEV_FOLLOWUP") ?? "")
+    ? env("JETTA_DEV_FOLLOWUP")
+    : "off") as "off" | "shadow" | "on",
+  /**
+   * The same follow-up for items with NO Freshdesk link — filed by hand, the
+   * customer named in the title — when a Reporter filed them for support. The
+   * Developer is asked; a Waiting Customer or unassigned item asks the
+   * Reporter instead. Needs JETTA_DEV_FOLLOWUP on too; this picks shadow/on.
+   *  - "off" (default) / "shadow" / "on".
+   */
+  devFollowUpUnlinked: (["shadow", "on"].includes(env("JETTA_DEV_FOLLOWUP_UNLINKED") ?? "")
+    ? env("JETTA_DEV_FOLLOWUP_UNLINKED")
+    : "off") as "off" | "shadow" | "on",
+  devFollowUpRules: {
+    quietWorkdays: Number(env("JETTA_DEV_QUIET_WORKDAYS") ?? "3"),
+    /** Days that don't count, 0 = Sunday. The team works in Nepal: Saturday off. */
+    weekend: (env("JETTA_DEV_WEEKEND") ?? "6").split(",").map(Number).filter((n) => n >= 0 && n <= 6),
+  },
+
+  /**
+   * KB drafts from the dev board (lib/dev-kb.ts): an answered Question item is
+   * drafted straight away; a finished bug asks its Developer once for a doc or
+   * explanation, and their answer (text, PDF, Word) is drafted. Drafts land in
+   * the KB review queue, never published.
+   *  - "off" (default) / "shadow" (logged as devbridge.kb_shadow) / "on".
+   */
+  devKb: (["shadow", "on"].includes(env("JETTA_DEV_KB") ?? "")
+    ? env("JETTA_DEV_KB")
+    : "off") as "off" | "shadow" | "on",
+
+  /**
    * Jetta sends the FIRST public reply herself on tickets that came straight
    * in by email, the portal or the in-app form — never on a ticket that came
    * from a chat, where the customer has already been talking to her. Every
@@ -168,6 +236,21 @@ export const config = {
         openrouter: env("OPENROUTER_MODEL_LIGHT") ?? "anthropic/claude-haiku-4.5",
       },
     } as Record<ModelTier, Record<LlmProvider, string>>,
+    /**
+     * Reasoning on the OpenRouter light tier: "off", or an effort
+     * ("minimal" | "low" | "medium" | "high"). Unset means the model's own
+     * default, except deepseek/* which defaults to "off": at default reasoning
+     * DeepSeek V4.1 Flash ran past rerank's 3.5s budget on 7–10 of 20 calls,
+     * and a timed-out rerank silently keeps vector order. Never applied to
+     * anthropic/*, so a rollback to Haiku doesn't switch on thinking.
+     */
+    lightReasoning: env("OPENROUTER_LIGHT_REASONING") as
+      | "off"
+      | "minimal"
+      | "low"
+      | "medium"
+      | "high"
+      | undefined,
     /** Max tool-loop steps per turn — bounds runaway loops. */
     maxSteps: 10,
     maxTokens: 4096,

@@ -31,6 +31,7 @@ import {
   finishTouch,
   firstNameOf,
   getSeenStamps,
+  isClosingMessage,
   jitterFor,
   listTicketFollowUps,
   markSeen,
@@ -263,10 +264,17 @@ async function handle(t: Listed, prev: TicketFollowUp | undefined, opts: RunOpti
 
   // A reply from anyone but her since the count started restarts it from that reply.
   let s: TicketFollowUp;
+  const closed = isClosingMessage(read.anchor.body);
   if (prev && prev.anchorAt === read.anchor.at) {
     s = { ...prev, stamp: stampOf(t) };
   } else {
-    if (prev?.pending) await note(`Follow-up ${prev.pending.n} of ${MAX_TOUCHES} cancelled: ${read.anchor.author} replied, so the count starts again from that reply.`);
+    if (prev?.pending) {
+      await note(
+        closed
+          ? `Follow-up ${prev.pending.n} of ${MAX_TOUCHES} cancelled: ${read.anchor.author} closed the ticket with the customer, so Jetta stops here.`
+          : `Follow-up ${prev.pending.n} of ${MAX_TOUCHES} cancelled: ${read.anchor.author} replied, so the count starts again from that reply.`,
+      );
+    }
     const activeHourUtc = activeHourOf(read.lastCustomerAt);
     s = {
       ticketId,
@@ -279,6 +287,15 @@ async function handle(t: Listed, prev: TicketFollowUp | undefined, opts: RunOpti
       stamp: stampOf(t),
       updatedAt: now,
     };
+  }
+  // A colleague told the customer the ticket is closed: respect that rather
+  // than opening a new round of follow-ups after it. Checked on every read,
+  // so a count that already restarted from the close stops too.
+  if (closed && !s.stopped) {
+    s = { ...s, pending: undefined, stopped: { reason: `${read.anchor.author} closed it with the customer`, at: new Date(now).toISOString() } };
+    if (write) await saveTicketFollowUp(s);
+    await stopped(opts, deps, ticketId, s.touches.length + 1, s.stopped!.reason);
+    return { ticketId, action: "stopped", detail: s.stopped!.reason };
   }
   const save = async () => {
     if (write) await saveTicketFollowUp(s);

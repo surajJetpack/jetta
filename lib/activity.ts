@@ -843,8 +843,9 @@ export function activityFromMondayWebhook(
 
   switch (e.type) {
     case "create_update": {
-      // Jetta's own context post, made with a person's token.
-      if (userId === selfId && /^\s*Product:/.test(e.textBody ?? "")) return null;
+      // Jetta's own posts — the filing context and her "🤖 Jetta:" comments
+      // (lib/dev-bridge.ts) — made with a person's token, so not that person's work.
+      if (userId === selfId && /^\s*(Product:|🤖 Jetta:)/.test(e.textBody ?? "")) return null;
       const id = e.replyId ?? e.updateId;
       const text = clip((e.textBody ?? "").replace(/\s+/g, " ").trim(), 90);
       return {

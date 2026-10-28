@@ -120,6 +120,18 @@ Two behaviours worth knowing:
 - If the customer writes again while a suggestion is waiting, the old one is marked **superseded** and Jetta writes a fresh one against the new message.
 - If nobody ever replies, the suggestion quietly **expires** after two weeks instead of piling up. An expired suggestion is not a black mark against anyone.
 
+### Jetta and the developers
+
+When a ticket needs engineering, Jetta files a dev item on monday. She can also keep the conversation going there. Whether each part is switched on is on the System page; "shadow" means she only logs what she would do.
+- **A developer asks something or marks the item "Need more info":** she answers from the ticket, or asks the customer. The question to the customer still comes to you as a suggestion.
+- **The fix ships:** she suggests telling the customer and asking them to try again.
+- **The customer adds details or files, or asks "any update?":** she passes it to the developer on the item.
+- **A question the knowledge base can't answer** ("can GetSign do X?"): she asks the developers as a Question item instead of guessing.
+- **An item goes quiet for 3 working days while a customer waits:** she asks the developer for an update, and raises it in Slack if nobody answers.
+- **A developer explains something:** she drafts a knowledge-base article for review.
+
+On monday her posts start with **🤖 Jetta:** and show Suraj's name, because she uses his account.
+
 ### If you want to see what it suggested
 
 ![Suggestions — an audit trail, not a queue](images-general/drafts.webp)

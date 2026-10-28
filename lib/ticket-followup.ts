@@ -130,6 +130,15 @@ export function readThread(messages: PublicMessage[], touchTimes: string[]): Thr
   };
 }
 
+/**
+ * A colleague's "we haven't heard back, so I'll close this ticket for now".
+ * After that the customer has been told we're done: a fresh round of
+ * follow-ups would contradict it, so the count stops instead of restarting.
+ */
+const CLOSING =
+  /\b(?:clos(?:e|ing)|resolv(?:e|ing))\s+(?:this|the|your)\s+(?:ticket|request|case|conversation)\b|\b(?:mark(?:ed|ing)?|consider(?:ed|ing)?)\s+(?:this|the|your)\s+(?:ticket|request|case)\s+(?:as\s+)?(?:resolved|closed)\b|\bassume\s+(?:this|it|that)\s+(?:is|has been)\s+(?:resolved|sorted)\b/i;
+export const isClosingMessage = (body: string) => CLOSING.test(body);
+
 // ── which tickets (pure) ───────────────────────────────────────────
 
 /** Freshdesk sources that are a conversation with a customer. 10 = outbound (e.g. review requests) is ours, not theirs. */
@@ -258,6 +267,7 @@ export async function writeTouch(input: WriterInput, rejected?: { body: string; 
         "- Refer to their actual issue in their terms. Never state a product fact, step, link, price, date or promise that is not already in the thread.",
         "- Never use stock lines: \"following up on my previous message\", \"just checking in\", \"touching base\", \"I hope this finds you well\", \"friendly reminder\", \"quick nudge\". Never reuse a sentence from an earlier follow-up.",
         "- Plain text, short paragraphs, no bullet lists, no em dashes. Do not mention ticket numbers, internal notes, tools, or that you are an AI.",
+        "- Never admit fault or comment on how we handled the ticket (\"sorry we missed this\", \"you were right to push\"), never blame anyone, and never repeat how our systems work (logs, tokens, servers, error internals) even if the thread mentions it.",
       ].filter(Boolean).join("\n"),
       prompt: [
         `SUBJECT: ${input.subject}`,
