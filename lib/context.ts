@@ -22,6 +22,7 @@ import * as jettachat from "./tools/jettachat";
 import * as chatStore from "./chat-store";
 import { getChatSettings, publicSettings } from "./chat-settings";
 import { accountTicketsForChat } from "./account-tickets";
+import { annotateIfInjection } from "./injection";
 import { chatBrandKey } from "./profiles";
 import * as fastspring from "./tools/fastspring";
 import * as monday from "./tools/monday";
@@ -412,7 +413,9 @@ export async function buildContext(
  * private notes are dropped (they are internal and would confuse the model).
  */
 export function buildMessages(ticket: Ticket, channel: RunChannel = "freshdesk"): ModelMessage[] {
-  const opening = clip(ticket.description, OPENING_CHARS);
+  // Customer text that imitates the "[system]" notes below gets a real one
+  // saying so (lib/injection.ts): the role alone can't tell them apart.
+  const opening = annotateIfInjection(clip(ticket.description, OPENING_CHARS));
   const openingContent =
     channel === "freshchat"
       ? `[Live chat — handed off to you by the front-line bot]\n\n${opening}`
@@ -438,7 +441,7 @@ export function buildMessages(ticket: Ticket, channel: RunChannel = "freshdesk")
   for (const reply of recent) {
     messages.push({
       role: reply.author === "customer" ? "user" : "assistant",
-      content: clip(reply.body, REPLY_CHARS),
+      content: reply.author === "customer" ? annotateIfInjection(clip(reply.body, REPLY_CHARS)) : clip(reply.body, REPLY_CHARS),
     });
   }
 
