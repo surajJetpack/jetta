@@ -292,6 +292,62 @@ export async function isRememberedJettaPost(updateId: string): Promise<boolean> 
   return (await kvGet(jettaPostKey(updateId))) !== null;
 }
 
+// ── Dev bridge: questions Jetta asked on a dev item ──────────────────
+// A question on the item is only worth asking if someone answers it. The
+// follow-up cron reads these to chase one that nobody has — including on an
+// item it would otherwise skip (Done, Waiting Customer), which is exactly
+// where a "what did you tell the customer?" goes unanswered. One per item:
+// a newer question replaces the older one.
+export interface DevQuestion {
+  itemId: string;
+  ticketId: string;
+  /** When she asked (ISO). Any person's comment after this answers it. */
+  at: string;
+  /** Who she @mentioned; empty when nobody was. */
+  to: string[];
+  /** Thread to chase in: the question's own root update. */
+  threadUpdateId: string;
+}
+
+const DEV_QUESTION_IDS = "jetta:devbridge:questions";
+const devQuestionKey = (itemId: string) => `jetta:devbridge:question:${itemId}`;
+const DEV_QUESTION_TTL = 30 * 24 * 3600;
+const memDevQuestions = new Map<string, DevQuestion>();
+
+export async function recordDevQuestion(q: DevQuestion): Promise<void> {
+  const r = client();
+  if (r) {
+    await r.set(devQuestionKey(q.itemId), q, { ex: DEV_QUESTION_TTL });
+    await r.sadd(DEV_QUESTION_IDS, q.itemId);
+    return;
+  }
+  memDevQuestions.set(q.itemId, q);
+}
+
+/** Open questions, dropping index entries whose record has expired. */
+export async function listDevQuestions(): Promise<DevQuestion[]> {
+  const r = client();
+  if (!r) return [...memDevQuestions.values()];
+  const ids = await r.smembers(DEV_QUESTION_IDS);
+  const out: DevQuestion[] = [];
+  for (const id of ids) {
+    const q = await r.get<DevQuestion>(devQuestionKey(id));
+    if (q) out.push(q);
+    else await r.srem(DEV_QUESTION_IDS, id);
+  }
+  return out;
+}
+
+export async function clearDevQuestion(itemId: string): Promise<void> {
+  const r = client();
+  if (r) {
+    await r.del(devQuestionKey(itemId));
+    await r.srem(DEV_QUESTION_IDS, itemId);
+    return;
+  }
+  memDevQuestions.delete(itemId);
+}
+
 // ── Monetization approvals (Slack human-in-the-loop for trial/discount) ──
 // Jetta requests a trial extension or discount; a human approves it in Slack,
 // which then executes the monday call. Pending requests live here briefly.

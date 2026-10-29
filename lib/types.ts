@@ -488,6 +488,12 @@ export interface DevEvent {
   developers: { id: string; name: string }[];
   /** The item's latest thread, newest first, for status-only events. */
   recent: { at: string; author: string; text: string }[];
+  /**
+   * A customer reply drafted earlier and still waiting for a colleague to
+   * send it. Held drafts are not in the ticket thread, so without this the
+   * run can't see it already told the customer.
+   */
+  pendingReply?: { at: string; body: string };
 }
 
 /** Token usage of one LLM task, for the per-ticket cost breakdown. */

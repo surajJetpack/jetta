@@ -34,7 +34,7 @@ import { searchPublishedKb } from "../knowledge/dynamic-kb";
 import { vectorEnabled, queryVector, type VectorHit } from "../vector";
 import { rerankHits } from "../rerank";
 import { profileFor } from "../profiles";
-import { recordKbHits, clearEscalation, rememberJettaPost } from "../kv";
+import { recordKbHits, clearEscalation, rememberJettaPost, recordDevQuestion } from "../kv";
 import { submitMonetApproval } from "../monetization-approvals";
 
 /** Standard trial extension length Jetta grants — fixed policy, not customer-chosen. */
@@ -851,6 +851,16 @@ export function buildTools(
               });
               if (!posted) return `monday writes are off — nothing was posted on "${ev.itemName}".`;
               await rememberJettaPost(posted.id);
+              // A question is followed up by the dev follow-up cron if nobody answers it.
+              if (message.includes("?") && ticketId) {
+                await recordDevQuestion({
+                  itemId: ev.itemId,
+                  ticketId,
+                  at: new Date().toISOString(),
+                  to: mentionIds,
+                  threadUpdateId: ev.threadUpdateId ?? posted.id,
+                });
+              }
               return `Posted on dev item "${ev.itemName}"${to}.`;
             },
           }),

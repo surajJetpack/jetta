@@ -1444,6 +1444,14 @@ export interface DevItemSnapshot {
   assetNames: string[];
   /** Newest comment or reply by anyone but Jetta (ISO), or null. */
   lastPersonActivityAt: string | null;
+  /** Newest comment or reply by one of the item's Developers (ISO), or null. */
+  lastDevActivityAt: string | null;
+  /**
+   * Comments by people who are NOT the item's Developers (support, mostly),
+   * oldest first. Empty when no Developer is set: then nobody can be told
+   * apart, and every comment is plain activity.
+   */
+  otherPersonPostTimes: string[];
   /** Newest "asking for an update" post by Jetta (ISO), or null. */
   lastChaseAt: string | null;
   /** Every time Jetta asked for an update (chase or nudge), oldest first. */
@@ -1481,7 +1489,8 @@ export async function getDevItemSnapshot(itemId: string): Promise<DevItemSnapsho
       updates: {
         text_body: string | null;
         created_at: string;
-        replies: { text_body: string | null; created_at: string }[] | null;
+        creator: { id: string | number } | null;
+        replies: { text_body: string | null; created_at: string; creator: { id: string | number } | null }[] | null;
         assets: { name: string }[] | null;
       }[];
       assets: { name: string }[] | null;
@@ -1495,7 +1504,7 @@ export async function getDevItemSnapshot(itemId: string): Promise<DevItemSnapsho
           ... on PeopleValue { persons_and_teams { id kind } }
           ... on StatusValue { updated_at }
         }
-        updates(limit: 50) { text_body created_at replies { text_body created_at } assets { name } }
+        updates(limit: 50) { text_body created_at creator { id } replies { text_body created_at creator { id } } assets { name } }
         assets { name }
       }
     }`,
@@ -1539,7 +1548,7 @@ export async function getDevItemSnapshot(itemId: string): Promise<DevItemSnapsho
     // Item-level assets are file COLUMNS only; what was posted on a comment
     // (every file Jetta forwards) hangs off its update.
     assetNames: [...(item.assets ?? []), ...item.updates.flatMap((u) => u.assets ?? [])].map((a) => a.name),
-    ...itemActivity(item.updates),
+    ...itemActivity(item.updates, devIds),
     type: pickColumn(item.column_values, "status", ["type"]) ?? null,
     devStatusChangedAt:
       item.column_values.find(
@@ -1554,17 +1563,34 @@ export const CHASE_PHRASE = "is asking for an update";
 /** Marks the follow-up cron's nudge (lib/dev-followup.ts). */
 export const NUDGE_PHRASE = "is still waiting";
 
+type ItemPost = { text_body: string | null; created_at: string; creator?: { id: string | number } | null };
+
 /**
  * When a person last spoke on an item, and when Jetta last chased it. Pure.
  * Replies count: a developer answering inside an old thread is activity.
+ *
+ * With `developerIds`, a comment is also sorted by who wrote it: the item's
+ * Developers, or someone else. Support writing "any update?" on a quiet item
+ * is a chase, not a sign the developer is on it — the follow-up cron needs
+ * the difference, or every ping from support restarts the developer's clock.
  */
 export function itemActivity(
-  updates: { text_body: string | null; created_at: string; replies?: { text_body: string | null; created_at: string }[] | null }[],
-): { lastPersonActivityAt: string | null; lastChaseAt: string | null; askTimes: string[]; lastJettaPostAt: string | null } {
+  updates: (ItemPost & { replies?: ItemPost[] | null })[],
+  developerIds: string[] = [],
+): {
+  lastPersonActivityAt: string | null;
+  lastDevActivityAt: string | null;
+  otherPersonPostTimes: string[];
+  lastChaseAt: string | null;
+  askTimes: string[];
+  lastJettaPostAt: string | null;
+} {
   let person: string | null = null;
+  let dev: string | null = null;
   let chase: string | null = null;
   let jetta: string | null = null;
   const asks: string[] = [];
+  const others: string[] = [];
   const later = (a: string | null, b: string) => (!a || Date.parse(b) > Date.parse(a) ? b : a);
   for (const post of updates.flatMap((u) => [u, ...(u.replies ?? [])])) {
     const text = post.text_body ?? "";
@@ -1574,10 +1600,22 @@ export function itemActivity(
       if (text.includes(CHASE_PHRASE) || text.includes(NUDGE_PHRASE)) asks.push(post.created_at);
     } else if (!isJettaContextPost(text)) {
       person = later(person, post.created_at);
+      if (!developerIds.length) continue;
+      if (developerIds.includes(String(post.creator?.id ?? ""))) dev = later(dev, post.created_at);
+      else others.push(post.created_at);
     }
   }
-  asks.sort((a, b) => Date.parse(a) - Date.parse(b));
-  return { lastPersonActivityAt: person, lastChaseAt: chase, askTimes: asks, lastJettaPostAt: jetta };
+  const byTime = (a: string, b: string) => Date.parse(a) - Date.parse(b);
+  asks.sort(byTime);
+  others.sort(byTime);
+  return {
+    lastPersonActivityAt: person,
+    lastDevActivityAt: dev,
+    otherPersonPostTimes: others,
+    lastChaseAt: chase,
+    askTimes: asks,
+    lastJettaPostAt: jetta,
+  };
 }
 
 /**
