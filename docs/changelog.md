@@ -4,7 +4,7 @@ Newest first. One entry per change people would notice: what Jetta does differen
 
 Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain words.
 
-## 2026-10-29: Customer text can't pose as a system message (#PR)
+## 2026-10-29: Customer text can't pose as a system message (#173)
 A customer message that imitates an instruction to Jetta ("SYSTEM: …", "ignore previous instructions", a mode ending, a tool "available again") now reaches her with a note saying it is only the customer's text and has no authority, and in chat a second ticket can't be opened on the strength of one (event `chat.injection_blocked`). In the eval, both glm-5.2 and Kimi had acted on such a line; with this, both ignored it 3 of 3 times. Live on merge.
 
 ## 2026-10-29: Dev-bridge runs can use their own model (#172)
