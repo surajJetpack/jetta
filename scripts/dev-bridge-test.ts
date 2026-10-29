@@ -22,6 +22,7 @@ import {
   JETTA_POST_PREFIX,
 } from "../lib/tools/monday";
 import type { MondayWebhookEvent } from "../lib/activity";
+import { countInlineImages } from "../lib/tools/freshdesk";
 
 export {};
 
@@ -182,6 +183,23 @@ console.log("Question items still read as Jetta's filing");
   const q = "Product: getsign\nAccount: x\nFreshdesk ticket: https://x/a/tickets/14611\n\nQuestion from support (not a bug report): which webhook?";
   check("a question's context post is hers", isJettaContextPost(q));
   check("…and names the ticket it was filed for", ticketIdsOnItem({ updates: [{ text_body: q }] })[0] === "14611");
+}
+
+console.log("Signature icons are not screenshots (#14652)");
+{
+  const fd = (attrs = "") => `<img src="https://attachment.freshdesk.com/inline/attachment?token=abc"${attrs}>`;
+  check("a pasted screenshot with no dimensions counts", countInlineImages(`<p>see this</p>${fd()}`) === 1);
+  check("an Outlook signature icon inside a link does not", countInlineImages(`<table id="pbpsiglinktable"><tr><td><a href="https://bookings.cloud.microsoft/x"><img src="https://attachment.freshdesk.com/inline/attachment?token=abc"></a></td></tr></table>`) === 0);
+  check("screenshot + linked icon → 1", countInlineImages(`${fd(' width="800" height="600"')}<a href="https://x">${fd()}</a>`) === 1);
+  check("a small declared size is still dropped", countInlineImages(fd(' width="20" height="20"')) === 0);
+}
+
+console.log("The run sees a reply already drafted");
+{
+  const ev = { kind: "comment", itemId: "1", itemName: "x", itemUrl: "u", devStatus: "ToDo", author: "Swejal", text: "fix is on dev", developers: [], recent: [] } as Parameters<typeof devEventMessage>[0];
+  check("no pending draft → no note", !devEventMessage(ev).includes("ALREADY DRAFTED"));
+  const withDraft = devEventMessage({ ...ev, pendingReply: { at: "2026-10-28T08:44:00Z", body: "Hi Sneha, a fix has gone out." } });
+  check("pending draft is shown to the run", withDraft.includes("ALREADY DRAFTED") && withDraft.includes("a fix has gone out"));
 }
 
 console.log(failures ? `\n${failures} FAILED` : "\nall passed");

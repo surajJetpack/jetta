@@ -8,7 +8,7 @@
  * No network for the decisions. The last block reads a PDF and a .docx
  * through docText via data: URLs, so the extractors are exercised for real.
  */
-import { decideFollowUp, decideUnlinkedFollowUp, nudgeText, unlinkedNudgeText, workdaysBetween } from "../lib/dev-followup";
+import { decideFollowUp, decideUnlinkedFollowUp, nudgeText, questionNudgeText, unlinkedNudgeText, workdaysBetween } from "../lib/dev-followup";
 import { declinesKb, docText, noAnswer, shouldAskForKb } from "../lib/dev-kb";
 import { itemActivity, JETTA_POST_PREFIX, NUDGE_PHRASE } from "../lib/tools/monday";
 
@@ -128,6 +128,56 @@ console.log("The nudge counts as an ask next time");
   const text = `${JETTA_POST_PREFIX} ${nudgeText("14611", 4, 1)}`;
   const a = itemActivity([{ text_body: text, created_at: day(23) }, { text_body: "dev note", created_at: day(19) }]);
   check("nudge recorded as an ask, not as activity", a.askTimes.length === 1 && a.lastPersonActivityAt === day(19));
+}
+
+console.log("Support pinging the item is a chase, not developer activity");
+{
+  const rules = { quietWorkdays: 3, weekend: SAT };
+  const prashant = "111";
+  const cherryl = "222";
+  // #14600: filed day 19, Jetta chased day 20, support pinged day 23, no developer ever spoke.
+  const posts = [
+    { text_body: `${JETTA_POST_PREFIX} The customer on ticket #14600 is asking for an update.`, created_at: day(20), creator: { id: "82879261" } },
+    { text_body: "@Prashant whats the update on this?", created_at: day(23), creator: { id: cherryl } },
+  ];
+  const a = itemActivity(posts, [prashant]);
+  check("support's comment is not developer activity", a.lastDevActivityAt === null && a.otherPersonPostTimes.length === 1);
+  check("…but is still person activity for the relay's chase guard", a.lastPersonActivityAt === day(23));
+  const item = { group: "Bugs", devStatus: "Ready to start", devStatusChangedAt: null, createdAt: day(19), type: null, ...a };
+  check("support's ping restarts the clock: wait", decideFollowUp(item, "open", new Date(day(24)), rules).action === "none");
+  check("…then the two asks are used up → escalate, not a fresh round", decideFollowUp(item, "open", new Date(day(28)), rules).action === "escalate");
+  const devSpoke = itemActivity([...posts, { text_body: "looking at it", created_at: day(24), creator: { id: prashant } }], [prashant]);
+  check("a developer's comment does reset it: a fresh first ask, not escalation", (() => { const r = decideFollowUp({ ...item, ...devSpoke }, "open", new Date(day(28)), rules); return r.action === "ask" && r.n === 1; })());
+  const noDev = itemActivity(posts, []);
+  check("no Developer on the item → every comment is activity, as before", noDev.otherPersonPostTimes.length === 0 && noDev.lastPersonActivityAt === day(23));
+  check("escalation carries when the silence began", (() => { const r = decideFollowUp(item, "open", new Date(day(28)), rules); return r.action === "escalate" && r.since === day(19); })());
+}
+
+console.log("Jetta's own unanswered question is chased");
+{
+  const rules = { quietWorkdays: 3, weekend: SAT };
+  const q = { at: day(20) };
+  const base = {
+    group: "Done",
+    devStatus: "Done",
+    lastPersonActivityAt: day(19),
+    devStatusChangedAt: day(19),
+    createdAt: day(12),
+    askTimes: [] as string[],
+    type: "Question",
+    lastJettaPostAt: day(20),
+  };
+  const d = (over: Partial<typeof base> = {}, now = day(24), ticket: string | null = "open") => decideFollowUp({ ...base, ...over }, ticket, new Date(now), rules, q);
+  check("Done item, question unanswered 3 workdays → chase it", (() => { const r = d(); return r.action === "ask" && r.n === 1 && r.question === true; })());
+  check("…on Waiting Customer too (#14646)", d({ group: "Bugs", devStatus: "Waiting Customer" }).action === "ask");
+  check("asked yesterday → wait", (() => { const r = d({}, day(21)); return r.action === "none" && r.reason.startsWith("question open"); })());
+  check("someone answered → back to the normal rules (Done → nothing)", (() => { const r = d({ lastPersonActivityAt: day(21) }); return r.action === "none" && !r.reason.startsWith("question open"); })());
+  check("ticket closed → nothing", d({}, day(24), "closed").action === "none");
+  check("chased once 3+ workdays ago → second chase", (() => { const r = d({ askTimes: [day(23)] }, day(27)); return r.action === "ask" && r.n === 2; })());
+  check("chased twice → escalate", (() => { const r = d({ askTimes: [day(23), day(27)] }, day(30)); return r.action === "escalate" && r.question === true; })());
+  check("no question → Done item is left alone", decideFollowUp(base, "open", new Date(day(24)), rules).action === "none");
+  const chase = itemActivity([{ text_body: `${JETTA_POST_PREFIX} ${questionNudgeText("14611", 1)}`, created_at: day(24) }]);
+  check("the chase counts as an ask, not as an answer", chase.askTimes.length === 1 && chase.lastPersonActivityAt === null);
 }
 
 console.log("KB loop");

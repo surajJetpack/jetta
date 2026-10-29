@@ -29,7 +29,7 @@ import { recordRun } from "./runlog";
 import { createDraftFromRun } from "./drafts";
 import { logOpsEvent } from "./events";
 import { getActivityState, getMondayUsers } from "./activity-store";
-import { isRememberedJettaPost, markEventSeen, rateCount } from "./kv";
+import { getPendingReplyDraftForTicket, isRememberedJettaPost, markEventSeen, rateCount } from "./kv";
 import * as monday from "./tools/monday";
 import { askForKb, draftFromItem, handleKbAnswer, pendingKbAsk, shouldAskForKb } from "./dev-kb";
 import type { MondayWebhookEvent } from "./activity";
@@ -92,11 +92,21 @@ export function classifyDevEvent(
   return { skip: `event ${e.type}` };
 }
 
+/**
+ * A held reply the run must know about. A status change and the comment
+ * explaining it usually land a minute apart, and each starts a run: without
+ * this, the second drafted the same news to the customer again (#14542).
+ */
+function pendingReplyNote(ev: DevEvent): string {
+  if (!ev.pendingReply) return "";
+  return `\n\nA reply to the customer is ALREADY DRAFTED (${ev.pendingReply.at}) and waiting for a colleague to send it:\n"""\n${ev.pendingReply.body}\n"""\nDo not draft another reply that says the same thing. Call reply_to_ticket only if this event changes what the customer must hear; then write one complete reply, which replaces the pending one.`;
+}
+
 /** The event, as the last message of the run. */
 export function devEventMessage(ev: DevEvent): string {
   const head = `[Dev board] Item "${ev.itemName}" — Dev Status: ${ev.devStatus ?? "unknown"}`;
   if (ev.kind === "comment") {
-    return `${head}\n${ev.author} commented on the item:\n"""\n${ev.text}\n"""\n\nDecide, by the developer-run rules, what (if anything) to do.`;
+    return `${head}\n${ev.author} commented on the item:\n"""\n${ev.text}\n"""${pendingReplyNote(ev)}\n\nDecide, by the developer-run rules, what (if anything) to do.`;
   }
   const recent = ev.recent.length
     ? `Latest comments on the item, newest first:\n${ev.recent.map((r) => `- ${r.author} (${r.at}): ${r.text}`).join("\n")}`
@@ -105,7 +115,7 @@ export function devEventMessage(ev: DevEvent): string {
     ev.kind === "needs_info"
       ? "That means a developer is waiting on support. Work out what they need from the comments."
       : "That is a finished status.";
-  return `${head}\n${ev.author} set Dev Status to "${ev.devStatus}". ${what}\n\n${recent}\n\nDecide, by the developer-run rules, what (if anything) to do.`;
+  return `${head}\n${ev.author} set Dev Status to "${ev.devStatus}". ${what}\n\n${recent}${pendingReplyNote(ev)}\n\nDecide, by the developer-run rules, what (if anything) to do.`;
 }
 
 function devBoardIds(): string[] {
@@ -177,6 +187,7 @@ export async function handleDevBoardEvent(e: MondayWebhookEvent): Promise<void> 
     if (!ctx.ticket) return;
 
     const users = await getMondayUsers();
+    const pending = await getPendingReplyDraftForTicket(ticketId).catch(() => null);
     const recent =
       trigger.kind === "comment"
         ? []
@@ -196,6 +207,9 @@ export async function handleDevBoardEvent(e: MondayWebhookEvent): Promise<void> 
       threadUpdateId: trigger.kind === "comment" ? trigger.threadUpdateId : undefined,
       developers: item.developers,
       recent,
+      pendingReply: pending
+        ? { at: new Date(pending.createdAt * 1000).toISOString(), body: pending.suggestedReply.slice(0, 3000) }
+        : undefined,
     };
     ctx.devEvent = ev;
 
@@ -216,7 +230,7 @@ export async function handleDevBoardEvent(e: MondayWebhookEvent): Promise<void> 
       shadow ? { dryRun: true } : draftMode ? { holdCustomerWrites: true } : {},
     );
     await recordRun("devboard", ctx, result, Date.now() - started);
-    const draft = !shadow && draftMode ? await createDraftFromRun(ctx, result) : null;
+    const draft = !shadow && draftMode ? await createDraftFromRun(ctx, result, { replyToolOnly: true }) : null;
 
     // A developer answered a Question item and the answer went (or, held, will
     // go) to the customer: that answer is KB material.
