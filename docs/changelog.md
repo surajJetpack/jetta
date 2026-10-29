@@ -4,7 +4,7 @@ Newest first. One entry per change people would notice: what Jetta does differen
 
 Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain words.
 
-## 2026-10-29: Dev bridge chases its own questions and stops double drafts (#PR)
+## 2026-10-29: Dev bridge chases its own questions and stops double drafts (#169)
 When Jetta asks a developer something on a dev item and nobody answers in 3 working days, the daily follow-up chases it in the same thread, twice, then raises it in the escalation channel. This works even on Done or Waiting Customer items. Support's own "any update?" on an item now counts as one of the two asks, so the developer's silence keeps counting and reaches escalation. A developer run now sees a reply that is already drafted for the customer, so a status change and its comment no longer produce two drafts. Live on merge under the existing `JETTA_DEV_BRIDGE` / `JETTA_DEV_FOLLOWUP` switches.
 
 ## 2026-10-28: Compliance requests go to Mark's board (#160)
