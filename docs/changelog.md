@@ -4,7 +4,7 @@ Newest first. One entry per change people would notice: what Jetta does differen
 
 Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain words.
 
-## 2026-10-29: Chat knows the tickets its monday account already has (#PR)
+## 2026-10-29: Chat knows the tickets its monday account already has (#170)
 In the GetSign or app view, Jetta now sees the newest tickets opened from chats on the same monday account, including a colleague's, with their status, our last reply and engineering's progress. "Did my template get fixed?" is answered from that ticket instead of asking what the problem was. Only accounts the in-app view vouches for; never another person's email, private notes or engineering comments. Live on merge.
 
 ## 2026-10-29: Dev bridge chases its own questions and stops double drafts (#169)
