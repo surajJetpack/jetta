@@ -989,7 +989,7 @@ export function buildTools(
             ? {
                 update_dev_item: tool({
                   description:
-                    "Post on THIS ticket's open Dev board item, as Jetta, @mentioning its developer. kind \"new_info\": the customer just gave something the developers can use — details, steps, an error, a file, the answer to a developer's question (their new attachments go with it). kind \"chase\": the customer explicitly ASKS for an update or progress (not \"thanks\" or \"ok, I'll wait\") and read_dev_item_comments shows nothing new — this asks the developer for one (only once per silence; a repeat is refused). At most once per turn. Never for a thank-you, an acknowledgement, or small talk.",
+                    "Post on THIS ticket's open Dev board item, as Jetta, @mentioning its developer. kind \"new_info\": the customer just gave something the developers can use — details, steps, an error, a file, the answer to a developer's question (their new attachments go with it, and the post lists them itself: do NOT mention screenshots, files or attachments in your message). kind \"chase\": the customer explicitly ASKS for an update or progress (not \"thanks\" or \"ok, I'll wait\") and read_dev_item_comments shows nothing new — this asks the developer for one (only once per silence; a repeat is refused). At most once per turn. Never for a thank-you, an acknowledgement, or small talk.",
                   inputSchema: z.object({
                     kind: z.enum(["new_info", "chase"]),
                     message: z
@@ -1012,18 +1012,35 @@ export function buildTools(
                       kind === "new_info"
                         ? (await customerAttachments()).filter((f) => !item.assetNames.includes(f.name))
                         : [];
+                    // What is attached is said by code, never by the model: it once
+                    // told a developer a screenshot was forwarded when nothing was (#14652).
+                    const fileLine =
+                      kind !== "new_info"
+                        ? ""
+                        : files.length
+                          ? `\n\nAttached from the ticket: ${files.map((f) => f.name).join(", ")}.`
+                          : /screenshot|attach|image|video|recording|file/i.test(message)
+                            ? `\n\nNo file came through with this. Anything the customer sent is on the ticket: ${interactionUrl(ticketId!)}`
+                            : "";
                     const to = item.developers.length ? ` (@${item.developers.map((d) => d.name).join(", @")})` : "";
                     relayedThisTurn = true;
                     if (relay === "shadow") {
-                      await relayShadow("update_dev_item", { kind, body, files: files.map((f) => f.name), to });
+                      await relayShadow("update_dev_item", { kind, body: body + fileLine, files: files.map((f) => f.name), to });
                       return `Recorded (shadow mode — not posted on the board) ${kind} for "${item.name}"${to}.`;
                     }
-                    const posted = await monday.postJettaComment(item.id, body, {
+                    const posted = await monday.postJettaComment(item.id, body + fileLine, {
                       mentionUserIds: item.developers.map((d) => d.id),
                       attachments: files,
                     });
                     if (!posted) return `monday writes are off — nothing was posted on "${item.name}".`;
                     await rememberJettaPost(posted.id);
+                    const missing = files.map((f) => f.name).filter((n) => !posted.filesAttached.includes(n));
+                    if (missing.length) {
+                      const fix = await monday
+                        .postJettaComment(item.id, `Correction: ${missing.join(", ")} failed to upload here. ${missing.length === 1 ? "It is" : "They are"} on the ticket: ${interactionUrl(ticketId!)}`, { parentUpdateId: posted.id })
+                        .catch(() => null);
+                      if (fix) await rememberJettaPost(fix.id);
+                    }
                     await relayLog(`update_dev_item:${kind}`, item.id);
                     return `Posted on dev item "${item.name}"${to}.${filesNote(posted.filesAttached)} INTERNAL — do not mention the tracker or the developer to the customer.`;
                   },

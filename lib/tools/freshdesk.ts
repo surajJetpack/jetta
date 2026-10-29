@@ -274,10 +274,16 @@ const MAX_INLINE_ASPECT = 5;
  * requests — the same thresholds the download path applies to real pixels are
  * applied here to the declared ones. A tag without dimensions is counted:
  * over-reporting an image is better than staying silent about one.
+ *
+ * Except inside a link: a pasted screenshot is never wrapped in <a>, while
+ * signature and social icons always are. Outlook's often carry no
+ * dimensions, so without this a 20×20 "Book with me" icon was announced as
+ * a screenshot, and relayed to a developer as one (#14652).
  */
-function countInlineImages(html: string): number {
+export function countInlineImages(html: string): number {
   let n = 0;
-  for (const [tag] of html.matchAll(/<img[^>]*>/gi)) {
+  const unlinked = html.replace(/<a\b[^>]*>[\s\S]*?<\/a>/gi, "");
+  for (const [tag] of unlinked.matchAll(/<img[^>]*>/gi)) {
     if (!tag.includes(`https://${INLINE_HOST}/`)) continue;
     const w = Number(/\bwidth="(\d+)"/.exec(tag)?.[1] ?? 0);
     const h = Number(/\bheight="(\d+)"/.exec(tag)?.[1] ?? 0);
@@ -304,7 +310,7 @@ function withImageNote(text: string, html: string | undefined): string {
   // Prepended, not appended: the reply cap here and buildMessages' opening cap
   // both truncate the tail, which would silently eat a note placed at the end.
   const it = n === 1 ? "it" : "them";
-  return `[system] The customer pasted ${n} image${n === 1 ? "" : "s"} into this message. You cannot view ${it} — never claim you have, and do not ask them to resend ${it}; ${n === 1 ? "it is" : "they are"} forwarded to the Dev board automatically if you escalate.\n\n${text}`;
+  return `[system] The customer pasted ${n} image${n === 1 ? "" : "s"} into this message. You cannot view ${it} — never claim you have, and do not ask them to resend ${it}. Files that are real evidence go to the Dev board with an escalation or a dev-item update, and the tool result says which did; never say a file was forwarded unless it does.\n\n${text}`;
 }
 
 export async function getTicketDetails(ticketId: string): Promise<Ticket> {

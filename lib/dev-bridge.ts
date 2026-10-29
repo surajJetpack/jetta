@@ -230,7 +230,7 @@ export async function handleDevBoardEvent(e: MondayWebhookEvent): Promise<void> 
       shadow ? { dryRun: true } : draftMode ? { holdCustomerWrites: true } : {},
     );
     await recordRun("devboard", ctx, result, Date.now() - started);
-    const draft = !shadow && draftMode ? await createDraftFromRun(ctx, result) : null;
+    const draft = !shadow && draftMode ? await createDraftFromRun(ctx, result, { replyToolOnly: true }) : null;
 
     // A developer answered a Question item and the answer went (or, held, will
     // go) to the customer: that answer is KB material.

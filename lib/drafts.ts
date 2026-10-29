@@ -33,6 +33,13 @@ export async function createDraftFromRun(
      * an eligible first response was held, or what shadow mode would have done.
      */
     banner?: string;
+    /**
+     * Only an actual reply_to_ticket call becomes a draft; the final-text
+     * fallback is off. For developer runs, where "do nothing" is the common
+     * outcome and the final text is the model explaining why — which the
+     * fallback turned into "suggested reply" notes on the ticket (#14652).
+     */
+    replyToolOnly?: boolean;
   } = {},
 ): Promise<ReplyDraft | null> {
   const lastReply = [...result.trace].reverse().find((t) => t.tool === "reply_to_ticket");
@@ -45,7 +52,7 @@ export async function createDraftFromRun(
   // hold, not a lost reply — so it must not become a junk draft.
   const handledInternally =
     result.toolsUsed.includes("add_private_note") || result.toolsUsed.includes("send_escalation");
-  if (!body && !handledInternally && result.text.trim().length >= 40) {
+  if (!body && !opts.replyToolOnly && !handledInternally && result.text.trim().length >= 40) {
     body = result.text.trim();
     log.warn("draft.from_final_text", { ticketId: ctx.ticket?.id });
   }
