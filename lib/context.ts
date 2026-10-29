@@ -21,6 +21,7 @@ import * as freshchat from "./tools/freshchat";
 import * as jettachat from "./tools/jettachat";
 import * as chatStore from "./chat-store";
 import { getChatSettings, publicSettings } from "./chat-settings";
+import { accountTicketsForChat } from "./account-tickets";
 import { chatBrandKey } from "./profiles";
 import * as fastspring from "./tools/fastspring";
 import * as monday from "./tools/monday";
@@ -395,6 +396,8 @@ export async function buildContext(
           // existing thread", never "open a second one". Both the tool list
           // and the prompt branch on this one field.
           ticketId: chatConv.ticketId,
+          // Best-effort: a Freshdesk or monday blip must not stop a chat reply.
+          accountTickets: await accountTicketsForChat(chatConv).catch(() => null),
           };
         })()
       : undefined,

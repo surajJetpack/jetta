@@ -1006,6 +1006,21 @@ function contextBlock(ctx: ConversationContext, profile: Profile): string {
     }
   }
 
+  if (ctx.chat?.accountTickets?.length) {
+    const fmtDay = (iso: string) => new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
+    lines.push(
+      `EARLIER TICKETS ON THIS monday ACCOUNT (opened from chat in this app; INTERNAL brief):`,
+      ...ctx.chat.accountTickets.map((t) =>
+        [
+          `  - #${t.id} "${t.subject}" — ${t.status}, opened by ${t.openedByVisitor ? "THIS visitor" : `a colleague on the same account (${t.requesterName ?? "name unknown"})`}`,
+          t.lastReply ? `    Our last reply (${fmtDay(t.lastReply.at)}): "${t.lastReply.text}"` : `    No reply from us yet.`,
+          ...t.devItems.map((i) => `    Engineering: "${i.title}" — Dev Status: ${i.status} → ${i.inFlight ? "still in progress" : "finished"}`),
+        ].join("\n"),
+      ),
+      `  If the visitor asks about an earlier problem ("did my X get fixed?", "any update?"), match it to these first and answer from them: what the team found, whether it is fixed, and what to do next, in your own words. Do NOT ask them to describe it again when one fits. It may be a colleague's ticket: you may say a colleague (first name only) raised it, but never share their email or anything else about them, our private notes, or engineering's internal comments. Engineering items are internal: never name or link them. If nothing here fits, carry on as normal.`,
+    );
+  }
+
   if (ctx.account) {
     lines.push(
       ctx.account.found

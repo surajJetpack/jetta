@@ -4,6 +4,9 @@ Newest first. One entry per change people would notice: what Jetta does differen
 
 Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain words.
 
+## 2026-10-29: Chat knows the tickets its monday account already has (#PR)
+In the GetSign or app view, Jetta now sees the newest tickets opened from chats on the same monday account, including a colleague's, with their status, our last reply and engineering's progress. "Did my template get fixed?" is answered from that ticket instead of asking what the problem was. Only accounts the in-app view vouches for; never another person's email, private notes or engineering comments. Live on merge.
+
 ## 2026-10-29: Dev bridge chases its own questions and stops double drafts (#169)
 When Jetta asks a developer something on a dev item and nobody answers in 3 working days, the daily follow-up chases it in the same thread, twice, then raises it in the escalation channel. This works even on Done or Waiting Customer items. Support's own "any update?" on an item now counts as one of the two asks, so the developer's silence keeps counting and reaches escalation. A developer run now sees a reply that is already drafted for the customer, so a status change and its comment no longer produce two drafts. Dev-item posts now list the files actually attached (or say none came through), so Jetta can no longer tell a developer a screenshot was forwarded when it wasn't; email-signature icons no longer count as pasted screenshots. A developer run that decides to do nothing no longer leaves a "suggested reply" note of its reasoning on the ticket. Live on merge under the existing `JETTA_DEV_BRIDGE` / `JETTA_DEV_FOLLOWUP` / `JETTA_DEV_RELAY` switches.
 

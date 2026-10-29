@@ -461,7 +461,10 @@ async function updateConversationLocked(
   if ("humanRequestedAt" in patch) conv.humanRequestedAt = patch.humanRequestedAt;
   if ("handoffPings" in patch) conv.handoffPings = patch.handoffPings;
   if ("humanAgent" in patch) conv.humanAgent = patch.humanAgent;
-  if (patch.ticketId) conv.ticketId = patch.ticketId;
+  if (patch.ticketId) {
+    conv.ticketId = patch.ticketId;
+    await indexAccountTicket(conv, patch.ticketId).catch(() => {});
+  }
   if (patch.ticketSubject) conv.ticketSubject = patch.ticketSubject;
   if (patch.previousTicketIds) conv.previousTicketIds = patch.previousTicketIds;
   if (patch.visitor) conv.visitor = { ...conv.visitor, ...patch.visitor };
@@ -539,6 +542,59 @@ export function isStale(conv: ChatConversation, idleHours: number): boolean {
  * Bounded so a pathological index cannot turn one page view into thousands of
  * reads: at most MAX_PAGES pages of `limit` ids.
  */
+// ── Tickets per monday account ──────────────────────────────────────
+// A colleague on the same account asking "did my X get fixed?" must find the
+// ticket someone else opened (#14652: one colleague opened it, another asked, and Jetta
+// asked HIM what the problem was). The conversation that became the ticket
+// knows the account; this index lets the next one find it with one read.
+// Only accounts a monday app view vouches for are indexed: an editable support
+// link could otherwise file a stranger's ticket under someone else's account.
+const accountTicketsKey = (slug: string) => `jetta:chat:account-tickets:${slug.toLowerCase()}`;
+/** Set once the index has been filled from the conversations that predate it. */
+const ACCOUNT_INDEX_BUILT = "jetta:chat:account-tickets:built:v1";
+const ACCOUNT_INDEX_TTL = 180 * 86400;
+const memAccountTickets = new Map<string, Set<string>>();
+
+export const trustedSlug = (conv: ChatConversation): string | null =>
+  conv.visitor.mondayAccountSlug && (conv.visitor.mondayAccountVerified || conv.surface === "monday")
+    ? conv.visitor.mondayAccountSlug
+    : null;
+
+async function indexAccountTicket(conv: ChatConversation, ticketId: string): Promise<void> {
+  const slug = trustedSlug(conv);
+  if (!slug) return;
+  const r = client();
+  if (r) {
+    await r.sadd(accountTicketsKey(slug), ticketId);
+    await r.expire(accountTicketsKey(slug), ACCOUNT_INDEX_TTL);
+    return;
+  }
+  const set = memAccountTickets.get(slug.toLowerCase()) ?? new Set<string>();
+  set.add(ticketId);
+  memAccountTickets.set(slug.toLowerCase(), set);
+}
+
+/**
+ * Tickets opened from chats on this monday account, newest first. The first
+ * call ever backfills the index from the stored conversations, once.
+ */
+export async function accountTicketIds(slug: string): Promise<string[]> {
+  const r = client();
+  if (r && !(await r.get(ACCOUNT_INDEX_BUILT))) {
+    if (await r.set(ACCOUNT_INDEX_BUILT, "1", { nx: true })) {
+      for (const conv of await listConversations(1000)) {
+        for (const id of [conv.ticketId, ...(conv.previousTicketIds ?? [])]) {
+          if (id) await indexAccountTicket(conv, id);
+        }
+      }
+    }
+  }
+  const ids = r
+    ? await r.smembers(accountTicketsKey(slug))
+    : [...(memAccountTickets.get(slug.toLowerCase()) ?? [])];
+  return ids.map(String).sort((a, b) => Number(b) - Number(a));
+}
+
 export async function listConversations(limit = 100): Promise<ChatConversation[]> {
   const r = client();
   if (r) {
