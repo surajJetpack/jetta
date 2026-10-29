@@ -4,6 +4,9 @@ Newest first. One entry per change people would notice: what Jetta does differen
 
 Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain words.
 
+## 2026-10-29: Dev-bridge runs can use their own model (#172)
+Runs a developer starts on a dev item (answering their comment, telling the customer a fix is out) can use a different model from tickets and chat. Replaying this week's real events, Kimi K3.1 Pro passed on only what developers wrote where glm-5.2 invented UI steps and product limits; it is about 3x slower and 10x the price, so it fits this background path and not live chat. Set by `OPENROUTER_MODEL_DEVBRIDGE` (e.g. `moonshotai/kimi-k3.1-pro`); unset, these runs use the standard model as before.
+
 ## 2026-10-29: Chat knows the tickets its monday account already has (#170)
 In the GetSign or app view, Jetta now sees the newest tickets opened from chats on the same monday account, including a colleague's, with their status, our last reply and engineering's progress. "Did my template get fixed?" is answered from that ticket instead of asking what the problem was. Only accounts the in-app view vouches for; never another person's email, private notes or engineering comments. Live on merge.
 

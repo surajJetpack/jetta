@@ -360,6 +360,16 @@ export function reasoningRows(): StatusRow[] {
       setting: "OPENROUTER_MODEL_LIGHT",
     },
     {
+      label: "Dev bridge model — replies to developers' comments",
+      tone: "on",
+      state: modelLabel("devbridge"),
+      meaning:
+        modelLabel("devbridge") === modelLabel("standard")
+          ? "Same as the standard tier."
+          : "A separate model for runs a developer starts on a dev item: it answers them and tells the customer about a fix. Background work, so a slower, more careful model is affordable here.",
+      setting: "OPENROUTER_MODEL_DEVBRIDGE",
+    },
+    {
       label: "Complexity routing",
       tone: config.llm.tieredAgent ? "on" : "off",
       state: config.llm.tieredAgent ? "ON" : "OFF",

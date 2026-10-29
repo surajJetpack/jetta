@@ -61,10 +61,11 @@ export type LlmProvider = "google" | "anthropic" | "openrouter";
 /**
  * Model tiers: "standard" is the quality anchor for customer-facing agent
  * runs; "light" is the cheap+fast tier for classification, reranking, and
- * other quality-insensitive calls. Defined here (not llm.ts) so config never
+ * other quality-insensitive calls; "devbridge" answers developers' comments
+ * on dev items (lib/dev-bridge.ts). Defined here (not llm.ts) so config never
  * imports llm.
  */
-export type ModelTier = "light" | "standard";
+export type ModelTier = "light" | "standard" | "devbridge";
 const explicitProvider = env("LLM_PROVIDER") as LlmProvider | undefined;
 export const LLM_PROVIDER: LlmProvider =
   explicitProvider ??
@@ -234,6 +235,20 @@ export const config = {
         google: "gemini-2.5-flash-lite",
         anthropic: "claude-haiku-4-5",
         openrouter: env("OPENROUTER_MODEL_LIGHT") ?? "anthropic/claude-haiku-4.5",
+      },
+      /**
+       * Developer-started runs: a dev comment or Dev Status change on an
+       * item. They run in the background, about ten a day, and their failure
+       * is passing on more than the developer said. On real events from
+       * 2026-10-25..28, glm-5.2 invented UI steps or product limits in 4 of 4
+       * "it's fixed" replays where Kimi K3.1 Pro stuck to the comment in 4 of
+       * 4 — at ~3x the latency and ~10x the price, which is why it is this
+       * path's model and not the chat's. Unset = the standard model.
+       */
+      devbridge: {
+        google: "gemini-2.5-pro",
+        anthropic: "claude-sonnet-5",
+        openrouter: env("OPENROUTER_MODEL_DEVBRIDGE") ?? env("OPENROUTER_MODEL") ?? "anthropic/claude-sonnet-5",
       },
     } as Record<ModelTier, Record<LlmProvider, string>>,
     /**
