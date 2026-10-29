@@ -25,7 +25,8 @@
  */
 import { config } from "./config";
 import { logOpsEvent } from "./events";
-import { clearDevQuestion, kvGet, kvSet, listDevQuestions, rememberJettaPost, type DevQuestion } from "./kv";
+import { clearDevQuestion, kvGet, kvSet, listDevQuestions, recordDevQuestion, rememberJettaPost, type DevQuestion } from "./kv";
+import { getOpsEvents } from "./events";
 import * as monday from "./tools/monday";
 import * as freshdesk from "./tools/freshdesk";
 import * as slack from "./tools/slack";
@@ -43,6 +44,31 @@ const INTERNAL_GROUP = /internal/i;
  * someone is still waiting.
  */
 const ABANDONED_WORKDAYS = 60;
+/** Set once the questions asked before they were recorded have been backfilled. */
+const QUESTIONS_BACKFILLED = "jetta:devbridge:questions:backfilled:v1";
+
+/**
+ * Questions Jetta asked before reply_on_dev_item started recording them
+ * (#169), read back from the event log's devbridge.run actions. Once only,
+ * and never over a question recorded since: those are newer. The cron then
+ * treats them like any other — an answer since clears them.
+ */
+async function backfillDevQuestions(known: Map<string, DevQuestion>): Promise<void> {
+  if (await kvGet(QUESTIONS_BACKFILLED)) return;
+  type Action = { tool: string; input: { message?: string; mention_developer?: boolean } };
+  const runs = await getOpsEvents({ event: "devbridge.run", limit: 1000 });
+  // Oldest first, so an item's latest question is the one that stays.
+  for (const e of [...runs].sort((a, b) => a.at - b.at)) {
+    const data = e.data as { itemId?: string; actions?: Action[] } | undefined;
+    const asked = data?.actions?.some((a) => a.tool === "reply_on_dev_item" && a.input.message?.includes("?"));
+    if (!asked || !data?.itemId || !e.ticketId || known.has(data.itemId)) continue;
+    // Who was @mentioned isn't in the log: empty sends the chase to the item's Developer.
+    const q: DevQuestion = { itemId: data.itemId, ticketId: e.ticketId, at: new Date(e.at).toISOString(), to: [], threadUpdateId: "" };
+    await recordDevQuestion(q);
+  }
+  await kvSet(QUESTIONS_BACKFILLED, "1", 365 * 24 * 3600);
+}
+
 /** Snapshots fetched at once: fast enough for ~200 items, gentle on monday's limits. */
 const CONCURRENCY = 5;
 
@@ -268,6 +294,9 @@ export interface PlanRow {
  */
 export async function planDevFollowUp(now: Date, opts: { unlinked: boolean }): Promise<PlanRow[]> {
   const rules = config.devFollowUpRules;
+  await backfillDevQuestions(new Map((await listDevQuestions()).map((q) => [q.itemId, q]))).catch((err) =>
+    console.warn("dev question backfill failed:", err),
+  );
   const questions = new Map((await listDevQuestions()).map((q) => [q.itemId, q]));
   const candidates = (await monday.liveItemIds()).filter(
     (c) => c.ticketIds.length || (opts.unlinked && !INTERNAL_GROUP.test(c.group)),
