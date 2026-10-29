@@ -461,6 +461,12 @@ export interface ConversationContext {
      * prompt, and a saved email means no block.
      */
     needsIdentity: boolean;
+    /**
+     * Earlier tickets opened from chats on the same monday account — the
+     * visitor's own or a colleague's (lib/account-tickets.ts). Null when the
+     * account isn't vouched for by a monday app view.
+     */
+    accountTickets?: import("./account-tickets").AccountTicket[] | null;
   };
   /**
    * Set when a DEVELOPER started this run, not the customer: a comment or a
