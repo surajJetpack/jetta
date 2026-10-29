@@ -227,7 +227,7 @@ export async function handleDevBoardEvent(e: MondayWebhookEvent): Promise<void> 
       await buildSystemPrompt(ctx),
       messages,
       ctx,
-      shadow ? { dryRun: true } : draftMode ? { holdCustomerWrites: true } : {},
+      { tier: "devbridge", ...(shadow ? { dryRun: true } : draftMode ? { holdCustomerWrites: true } : {}) },
     );
     await recordRun("devboard", ctx, result, Date.now() - started);
     const draft = !shadow && draftMode ? await createDraftFromRun(ctx, result, { replyToolOnly: true }) : null;
