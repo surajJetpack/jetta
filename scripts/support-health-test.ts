@@ -12,6 +12,7 @@ import {
   drillRows,
   healthPeriod,
   healthRows,
+  isNoise,
   hitWithin,
   owesReply,
   percentile,
@@ -214,6 +215,16 @@ check("percentile of nothing", percentile([null], 0.9), null);
     hoursAgo(0),
   );
   check("chat window: 2 real, 1 alone", w, { real: 2, alone: 1 });
+}
+
+// ── Noise: flagged by intake AND never answered AND never drafted ──
+{
+  const adInvite = rec({ intake: "triage:marketing", agentReplies: 0, firstReplyH: null, status: 2, topic: null });
+  check("noise: unanswered ad invite", isNoise(adInvite), true);
+  check("noise: someone replied, so it was real", isNoise({ ...adInvite, agentReplies: 1 }), false);
+  check("noise: Jetta labelled it, so she read a real query", isNoise({ ...adInvite, topic: "pdf template" }), false);
+  check("noise: no intake verdict", isNoise({ ...adInvite, intake: null }), false);
+  check("noise: checked and found real", isNoise({ ...adInvite, intake: "customer_query" }), false);
 }
 
 check("tone: share above target", [toneAbove(0.95, { good: 0.9, warn: 0.75 }), toneAbove(0.8, { good: 0.9, warn: 0.75 }), toneAbove(0.5, { good: 0.9, warn: 0.75 })], ["good", "warn", "bad"]);

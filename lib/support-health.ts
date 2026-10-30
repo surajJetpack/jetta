@@ -32,7 +32,25 @@ export type HealthTicket = PerfTicket & {
   app: string;
   topic: string | null;
   status: number | null;
+  /**
+   * The intake filter's verdict: why it skipped the ticket as not a customer
+   * query, "customer_query" when it checked and found a real one, or null.
+   */
+  intake?: string | null;
 };
+
+/**
+ * Not support work: the intake filter called it marketing, spam or an
+ * auto-reply, and nobody ever answered it or had Jetta draft on it. Dropped
+ * from the whole page, not just the headline: an ad-platform invite nobody
+ * bothered to close is not a customer waiting on us.
+ *
+ * All three conditions, because triage is sometimes wrong about a later
+ * message on a real thread (14641's follow-ups were read as auto-replies); a
+ * ticket someone replied to, or Jetta labelled, was a real conversation.
+ */
+export const isNoise = (t: Pick<HealthTicket, "intake" | "agentReplies" | "topic">) =>
+  !!t.intake && t.intake !== "customer_query" && t.agentReplies === 0 && !t.topic;
 
 /**
  * What "healthy" means, in one place. Calendar hours. These are opinions, not
