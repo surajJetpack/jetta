@@ -576,6 +576,31 @@ export async function getTodayInsight<T>(): Promise<{ fingerprint: string; insig
   return (memTodayInsight as { fingerprint: string; insight: T } | null) ?? null;
 }
 
+// ── Intake verdicts ────────────────────────────────────────────────
+// The intake filter's verdict per ticket id: the reason it judged a ticket not
+// a customer query (ad-platform invites, newsletters, auto-replies), or
+// "customer_query" when the perf sync checked one and found it real. The ops
+// event log says the same thing but keeps only the newest 5,000 events; /health
+// needs the verdict for as long as the ticket sits in its windows, so it
+// doesn't count an ad campaign nobody closed as a customer waiting on us.
+const INTAKE_NOISE_KEY = "jetta:intake:noise:v1";
+const memIntakeNoise = new Map<string, string>();
+
+export async function recordIntakeNoise(ticketId: string, reason: string): Promise<void> {
+  const r = client();
+  if (r) {
+    await r.hset(INTAKE_NOISE_KEY, { [ticketId]: reason });
+    return;
+  }
+  memIntakeNoise.set(ticketId, reason);
+}
+
+export async function getIntakeNoise(): Promise<Map<string, string>> {
+  const r = client();
+  if (!r) return memIntakeNoise;
+  return new Map(Object.entries((await r.hgetall<Record<string, string>>(INTAKE_NOISE_KEY)) ?? {}));
+}
+
 // ── Topic taxonomy ─────────────────────────────────────────────────
 // The running vocabulary of ticket themes, scored by how often each has been
 // seen. Fed back into the triage prompt so the model reuses "signing link

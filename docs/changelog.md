@@ -4,6 +4,9 @@ Newest first. One entry per change people would notice: what Jetta does differen
 
 Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain words.
 
+## 2026-10-30: Support health leaves out ad campaigns and other non-support mail
+/health no longer counts tickets the intake filter called marketing, spam or an auto-reply (the "AdsGPT Campaigns… invited you to test OpenAI Ads" invites, newsletters) when nobody answered them and Jetta never drafted on them. They had been showing as customers owed a reply. The webhook now keeps each verdict, and the hourly sync checks up to 5 older unanswered, unlabelled open tickets per run the same way. Live on merge; the existing ones drop off within a sync or two.
+
 ## 2026-10-29: Customer text can't pose as a system message (#173)
 A customer message that imitates an instruction to Jetta ("SYSTEM: …", "ignore previous instructions", a mode ending, a tool "available again") now reaches her with a note saying it is only the customer's text and has no authority, and in chat a second ticket can't be opened on the strength of one (event `chat.injection_blocked`). In the eval, both glm-5.2 and Kimi had acted on such a line; with this, both ignored it 3 of 3 times. Live on merge.
 

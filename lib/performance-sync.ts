@@ -19,16 +19,17 @@
 import { Redis } from "@upstash/redis";
 import { config } from "./config";
 import { bumpDataVersion } from "./data-version";
-import { getOutcomes, markEventSeen, unmarkEventSeen } from "./kv";
+import { getIntakeNoise, getOutcomes, markEventSeen, recordIntakeNoise, unmarkEventSeen } from "./kv";
+import { obviousNonQuery } from "./intake";
 import { listConversations } from "./chat-store";
 import { fd, freshdeskTicketUrl } from "./tools/freshdesk";
 import { devItemsByTicket } from "./tools/monday";
 import { activitiesFromThread, type Activity } from "./activity";
 import { recordActivities } from "./activity-store";
 import { judgeHandoff } from "./handoff-judge";
-import { appProductFromHint, inferAppProduct } from "./context";
+import { appProductFromHint, inferAppProduct, triageTicket } from "./context";
 import { ticketRecords } from "./topics";
-import { buildHealth, healthRows, type HealthRow, type HealthTicket, type SupportHealth } from "./support-health";
+import { buildHealth, healthRows, isNoise, type HealthRow, type HealthTicket, type SupportHealth } from "./support-health";
 import {
   perfRows,
   BASELINE_START,
@@ -85,6 +86,8 @@ export const MAX_PER_RUN = 50;
  * the end so they don't hold the Freshdesk pacing up.
  */
 const JUDGE_PER_RUN = 6;
+/** Unanswered, unlabelled tickets given an intake check per run (one Freshdesk read + one light call each). */
+const INTAKE_PER_RUN = 5;
 /** Stop starting new Freshdesk reads past this point, leaving room for the judge + rebuild. */
 const READ_DEADLINE_MS = 170_000;
 /** Gap between Freshdesk reads: ~24/min, leaving live Jetta most of the 40/min budget. */
@@ -416,6 +419,7 @@ export async function syncPerformance(budget = MAX_PER_RUN): Promise<SyncResult>
       return 0;
     });
     await saveState(state);
+    if (!state.lastError) await checkIntake(INTAKE_PER_RUN).catch(() => 0);
     const tickets = await rebuildSummary();
     return {
       status: state.lastError ? "error" : "ok",
@@ -479,6 +483,40 @@ async function judgeSettledHandoffs(limit: number, state: PerfSyncState): Promis
   return ok.length;
 }
 
+/**
+ * Run the webhook's intake check on open tickets nobody has answered and Jetta
+ * never labelled, so /health can tell an ad-platform invite from a customer
+ * waiting on us. The webhook records its verdicts as it skips; this covers the
+ * tickets that arrived before it did (or while the filter was off). Each
+ * ticket is checked once: a real one is stored as "customer_query".
+ */
+async function checkIntake(limit: number): Promise<number> {
+  const [records, meta, labels, verdicts] = await Promise.all([allTickets(), allMeta(), refreshLabels(), getIntakeNoise()]);
+  const settledBefore = new Date(Date.now() - 3600_000).toISOString();
+  const due = records
+    .map((t) => healthTicket(t, meta, labels))
+    .filter((t) => t.agentReplies === 0 && !t.topic && !verdicts.has(String(t.id)))
+    .filter((t) => t.status != null && t.status !== 4 && t.status !== 5 && t.createdAt < settledBefore)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    .slice(0, limit);
+  let checked = 0;
+  for (const t of due) {
+    await sleep(PACE_MS);
+    const d = await fd<{ subject?: string; description_text?: string; requester?: { email?: string } }>(
+      `/tickets/${t.id}?include=requester`,
+    ).catch(() => null);
+    if (!d) continue;
+    const subject = d.subject ?? "";
+    const description = d.description_text ?? "";
+    const reason =
+      obviousNonQuery({ subject, description, requesterEmail: d.requester?.email ?? null }) ??
+      (await triageTicket(subject, description).then((x) => (x.intake === "customer_query" ? null : `triage:${x.intake}`)));
+    await recordIntakeNoise(String(t.id), reason ?? "customer_query");
+    checked++;
+  }
+  return checked;
+}
+
 /** Recompute the page payload from every stored record. Returns the record count. */
 export async function rebuildSummary(): Promise<number> {
   const now = Date.now();
@@ -505,15 +543,16 @@ export async function rebuildSummary(): Promise<number> {
   const { boardHandoffs } = await getSyncState();
   const records = withBoardHandoffs(kept, boardHandoffs ?? {});
   const outcomes = await allOutcomes();
-  const [meta, labels] = await Promise.all([allMeta(), refreshLabels()]);
+  const [meta, labels, noise] = await Promise.all([allMeta(), refreshLabels(), getIntakeNoise()]);
   const summary = {
     ...buildSummary(records, now, chat, outcomes),
     ticketUrlBase: freshdeskTicketUrl("").replace(/\/$/, "/"),
   };
-  const healthTickets = records.map((t) => healthTicket(t, meta, labels));
+  const joined = records.map((t) => ({ ...healthTicket(t, meta, labels), intake: noise.get(String(t.id)) ?? null }));
+  const healthTickets = joined.filter((t) => !isNoise(t));
   const health = buildHealth(healthTickets, outcomes, chatForHealth(chat), now);
   const rows = healthRows(healthTickets, outcomes, now);
-  const pRows = perfRows(healthTickets, outcomes, now);
+  const pRows = perfRows(joined, outcomes, now);
   const r = client();
   if (r) {
     await Promise.all([

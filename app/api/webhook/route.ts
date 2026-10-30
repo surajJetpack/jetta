@@ -24,7 +24,7 @@ import { obviousNonQuery } from "@/lib/intake";
 import * as freshdesk from "@/lib/tools/freshdesk";
 import { buildSystemPrompt } from "@/lib/system-prompt";
 import { runAgentLoop } from "@/lib/agent";
-import { markEventSeen, unmarkEventSeen, scheduleFollowUp, recordOutcome } from "@/lib/kv";
+import { markEventSeen, unmarkEventSeen, scheduleFollowUp, recordOutcome, recordIntakeNoise } from "@/lib/kv";
 import { logOpsEvent } from "@/lib/events";
 import { recordRun } from "@/lib/runlog";
 import { createDraftFromRun } from "@/lib/drafts";
@@ -162,6 +162,7 @@ async function processTicket(ticketId: string, channel: "freshdesk" | "freshchat
           ticketId,
           data: { reason, subject: ctx.ticket.subject },
         });
+        await recordIntakeNoise(ticketId, reason).catch(() => {});
         return;
       }
     }

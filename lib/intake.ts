@@ -35,7 +35,7 @@ const NON_HUMAN_SENDER =
  * query, else null. Conservative on purpose — false positives drop real
  * customers, so only clear-cut signals fire here.
  */
-export function obviousNonQuery(ticket: Ticket): string | null {
+export function obviousNonQuery(ticket: Pick<Ticket, "subject" | "description" | "requesterEmail">): string | null {
   const subject = ticket.subject ?? "";
   const body = ticket.description ?? "";
   const email = (ticket.requesterEmail ?? "").trim();
