@@ -29,7 +29,16 @@ import { recordRun } from "./runlog";
 import { createDraftFromRun } from "./drafts";
 import { logOpsEvent } from "./events";
 import { getActivityState, getMondayUsers } from "./activity-store";
-import { getPendingReplyDraftForTicket, isRememberedJettaPost, markEventSeen, rateCount } from "./kv";
+import {
+  getPendingReplyDraftForTicket,
+  isRememberedJettaPost,
+  kvDel,
+  kvGet,
+  kvSet,
+  kvSetNx,
+  markEventSeen,
+  rateCount,
+} from "./kv";
 import * as monday from "./tools/monday";
 import { askForKb, draftFromItem, handleKbAnswer, pendingKbAsk, shouldAskForKb } from "./dev-kb";
 import type { MondayWebhookEvent } from "./activity";
@@ -93,6 +102,62 @@ export function classifyDevEvent(
 }
 
 /**
+ * Who a comment @mentions, by monday name, leaving out Jetta's own account
+ * (her token is Suraj's: "@Suraj Malla" is someone talking to her) and the
+ * author. Pure. Longest names first, so "@Shreya Shrestha" is never read as
+ * a shorter "@Shreya".
+ */
+export function addressedNames(
+  text: string,
+  users: Map<string, string>,
+  selfId: string | null,
+  authorId?: string,
+): string[] {
+  const lower = text.toLowerCase();
+  const found: string[] = [];
+  const taken: [number, number][] = [];
+  const people = [...users.entries()].filter(([, n]) => n.trim().length > 1).sort((a, b) => b[1].length - a[1].length);
+  for (const [id, name] of people) {
+    const needle = `@${name.toLowerCase()}`;
+    let at = lower.indexOf(needle);
+    while (at !== -1) {
+      const end = at + needle.length;
+      const boundary = end >= lower.length || !/[\p{L}\p{N}]/u.test(lower[end]);
+      const overlaps = taken.some(([s, e]) => at < e && end > s);
+      if (boundary && !overlaps) {
+        taken.push([at, end]);
+        if (id !== selfId && id !== authorId && !found.includes(name)) found.push(name);
+      }
+      at = lower.indexOf(needle, at + 1);
+    }
+  }
+  return found;
+}
+
+/**
+ * The same comment posted again — deleted and re-posted, or pasted twice —
+ * gets a new update id, so the per-event dedupe lets it through and a second
+ * full run answers the same words (#14591). Word-set overlap, @mentions
+ * ignored. Pure.
+ */
+export function isRepost(previous: string, next: string): boolean {
+  const words = (s: string) =>
+    new Set(
+      s
+        .toLowerCase()
+        .replace(/@\S+(\s+\S+)?/g, " ")
+        .split(/[^\p{L}\p{N}]+/u)
+        .filter((w) => w.length > 1),
+    );
+  const a = words(previous);
+  const b = words(next);
+  if (a.size < 5 || b.size < 5) return false;
+  let shared = 0;
+  for (const w of a) if (b.has(w)) shared++;
+  return shared / (a.size + b.size - shared) >= 0.9;
+}
+
+/**
  * A held reply the run must know about. A status change and the comment
  * explaining it usually land a minute apart, and each starts a run: without
  * this, the second drafted the same news to the customer again (#14542).
@@ -106,7 +171,10 @@ function pendingReplyNote(ev: DevEvent): string {
 export function devEventMessage(ev: DevEvent): string {
   const head = `[Dev board] Item "${ev.itemName}" — Dev Status: ${ev.devStatus ?? "unknown"}`;
   if (ev.kind === "comment") {
-    return `${head}\n${ev.author} commented on the item:\n"""\n${ev.text}\n"""${pendingReplyNote(ev)}\n\nDecide, by the developer-run rules, what (if anything) to do.`;
+    const handoff = ev.addressedTo?.length
+      ? `\n\nThis comment is addressed to ${ev.addressedTo.join(", ")}, not to you. It is colleagues talking to each other, so you cannot post on the dev item in this run. If it carries an answer or workaround for the customer, you may still draft the customer reply (a colleague sends it) and leave a private note. Do not ask the developer for anything.`
+      : "";
+    return `${head}\n${ev.author} commented on the item:\n"""\n${ev.text}\n"""${handoff}${pendingReplyNote(ev)}\n\nDecide, by the developer-run rules, what (if anything) to do.`;
   }
   const recent = ev.recent.length
     ? `Latest comments on the item, newest first:\n${ev.recent.map((r) => `- ${r.author} (${r.at}): ${r.text}`).join("\n")}`
@@ -126,9 +194,10 @@ function devBoardIds(): string[] {
  * Entry point from the monday webhook. Never throws: the webhook has already
  * been acknowledged, and a failure here must only cost this one run.
  */
-export async function handleDevBoardEvent(e: MondayWebhookEvent): Promise<void> {
+export async function handleDevBoardEvent(e: MondayWebhookEvent, opts: { requeued?: boolean } = {}): Promise<void> {
   if (config.devBridge === "off" && config.devKb === "off") return;
   const itemId = e.pulseId != null ? String(e.pulseId) : "";
+  let lockToken: string | null = null;
   try {
     const state = await getActivityState();
     const selfId = state.mondaySelf?.id ?? null;
@@ -149,10 +218,19 @@ export async function handleDevBoardEvent(e: MondayWebhookEvent): Promise<void> 
     }
     if ("skip" in trigger) return;
 
-    // monday redelivers; one event, one run.
+    // monday redelivers; one event, one run. A requeued event was marked
+    // the first time it arrived.
     const eventKey = e.triggerUuid ?? `${itemId}:${trigger.kind === "comment" ? trigger.postId : trigger.status}`;
-    if (!(await markEventSeen(`devbridge:${eventKey}`, 24 * 3600))) return;
+    if (!opts.requeued && !(await markEventSeen(`devbridge:${eventKey}`, 24 * 3600))) return;
     if (trigger.kind === "comment" && trigger.postId && (await isRememberedJettaPost(trigger.postId))) return;
+    if (trigger.kind === "comment" && config.devBridge !== "off") {
+      const previous = await kvGet(lastCommentKey(itemId));
+      // String(): Upstash parses a stored value that looks like JSON.
+      if (previous != null && isRepost(String(previous), trigger.text)) {
+        await logOpsEvent({ level: "info", event: "devbridge.skipped_repost", source: "webhook", data: { itemId } });
+        return;
+      }
+    }
 
     const item = await monday.getDevItemSnapshot(itemId);
     const ticketId = item?.ticketIds[0];
@@ -172,6 +250,34 @@ export async function handleDevBoardEvent(e: MondayWebhookEvent): Promise<void> 
     }
     if (config.devBridge === "off") return;
 
+    // One run per item at a time. Two runs that overlap each miss what the
+    // other is doing: the second can't see the first's comment or draft, and
+    // asks the developer the same thing two minutes later (#14591). The later
+    // event waits in a one-slot queue — newest wins, the run reads the whole
+    // item anyway — and starts fresh when this run ends.
+    lockToken = `${Date.now()}:${Math.random()}`;
+    if (!(await kvSetNx(lockKey(itemId), lockToken, LOCK_SECONDS))) {
+      await kvSet(queuedKey(itemId), JSON.stringify(e), QUEUE_SECONDS);
+      // The running one may have finished between those two calls and found
+      // the queue empty: take the item now rather than leave this stranded.
+      if (await kvSetNx(lockKey(itemId), lockToken, LOCK_SECONDS)) {
+        await kvDel(queuedKey(itemId));
+      } else {
+        lockToken = null;
+      }
+    }
+    if (!lockToken) {
+      await logOpsEvent({
+        level: "info",
+        event: "devbridge.deferred",
+        source: "webhook",
+        ticketId,
+        data: { itemId, kind: trigger.kind },
+      });
+      return;
+    }
+    if (trigger.kind === "comment") await kvSet(lastCommentKey(itemId), trigger.text.slice(0, 4000), REPOST_SECONDS);
+
     if ((await rateCount(`devbridge:item:${itemId}`, 24 * 3600)) > MAX_RUNS_PER_ITEM_PER_DAY) {
       await logOpsEvent({
         level: "warn",
@@ -187,6 +293,9 @@ export async function handleDevBoardEvent(e: MondayWebhookEvent): Promise<void> 
     if (!ctx.ticket) return;
 
     const users = await getMondayUsers();
+    const authorKey = e.userId != null ? String(e.userId) : "";
+    const authorId = trigger.kind === "comment" && authorKey && authorKey !== selfId ? authorKey : undefined;
+    const addressedTo = trigger.kind === "comment" ? addressedNames(trigger.text, users, selfId, authorKey) : [];
     const pending = await getPendingReplyDraftForTicket(ticketId).catch(() => null);
     const recent =
       trigger.kind === "comment"
@@ -203,6 +312,8 @@ export async function handleDevBoardEvent(e: MondayWebhookEvent): Promise<void> 
       itemUrl: item.url,
       devStatus: trigger.kind === "comment" ? item.devStatus : trigger.status,
       author: users.get(String(e.userId)) ?? "A developer",
+      authorId,
+      addressedTo: addressedTo.length ? addressedTo : undefined,
       text: trigger.kind === "comment" ? trigger.text.slice(0, 3000) : undefined,
       threadUpdateId: trigger.kind === "comment" ? trigger.threadUpdateId : undefined,
       developers: item.developers,
@@ -253,6 +364,7 @@ export async function handleDevBoardEvent(e: MondayWebhookEvent): Promise<void> 
         kind: ev.kind,
         devStatus: ev.devStatus,
         author: ev.author,
+        ...(ev.addressedTo ? { addressedTo: ev.addressedTo } : {}),
         toolsUsed: result.toolsUsed,
         drafted: !!draft,
         // What she did (or, in shadow, would have done) outward — the part
@@ -270,5 +382,37 @@ export async function handleDevBoardEvent(e: MondayWebhookEvent): Promise<void> 
       source: "webhook",
       data: { itemId, type: e.type, error: err instanceof Error ? err.message : String(err) },
     });
+  } finally {
+    if (lockToken) await releaseAndDrain(itemId, lockToken).catch((err) => console.warn(`dev bridge unlock ${itemId}:`, err));
   }
+}
+
+const LOCK_SECONDS = 300; // the webhook function's maxDuration: a crashed run can't hold the item longer
+const QUEUE_SECONDS = 1800;
+const REPOST_SECONDS = 1800;
+const lockKey = (itemId: string) => `jetta:devbridge:running:${itemId}`;
+const queuedKey = (itemId: string) => `jetta:devbridge:queued:${itemId}`;
+const lastCommentKey = (itemId: string) => `jetta:devbridge:lastcomment:${itemId}`;
+
+/**
+ * Free the item and start the event that waited for it. The waiting run goes
+ * to a fresh invocation of the webhook route: this one has spent most of its
+ * 300 s already, and a second ticket run would not fit.
+ */
+async function releaseAndDrain(itemId: string, token: string): Promise<void> {
+  if ((await kvGet(lockKey(itemId))) === token) await kvDel(lockKey(itemId));
+  const queued = await kvGet(queuedKey(itemId));
+  if (!queued) return;
+  await kvDel(queuedKey(itemId));
+  if (!config.appUrl || !config.webhook.secret) {
+    console.warn(`dev bridge: queued event on ${itemId} dropped, no JETTA_APP_URL to requeue to`);
+    return;
+  }
+  const event = typeof queued === "string" ? JSON.parse(queued) : queued;
+  const res = await fetch(`${config.appUrl}/api/webhook/monday-activity?k=${encodeURIComponent(config.webhook.secret)}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ event, requeued: true }),
+  });
+  if (!res.ok) console.warn(`dev bridge: requeue of ${itemId} answered ${res.status}`);
 }

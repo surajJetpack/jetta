@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
   if (!config.webhook.secret || !safeEqual(key, config.webhook.secret)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
-  let body: { challenge?: string; event?: MondayWebhookEvent };
+  let body: { challenge?: string; event?: MondayWebhookEvent; requeued?: boolean };
   try {
     body = (await req.json()) as typeof body;
   } catch {
@@ -34,6 +34,12 @@ export async function POST(req: NextRequest) {
   // Acknowledge whatever happens: monday retries a failed delivery for 30
   // minutes, and a row we can't parse will not parse better on retry.
   const event = body.event;
+  // A dev-bridge event that waited for a run on the same item to finish
+  // (lib/dev-bridge.ts). /activity recorded it when monday first sent it.
+  if (event && body.requeued) {
+    if (config.devBridge !== "off") after(() => handleDevBoardEvent(event, { requeued: true }));
+    return NextResponse.json({ ok: true });
+  }
   if (event) {
     await handleMondayWebhook(event).catch((e) => console.warn("monday activity webhook:", e));
     // After the ACK: a ticket run takes a minute, monday's delivery does not wait.

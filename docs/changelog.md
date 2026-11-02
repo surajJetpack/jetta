@@ -4,6 +4,9 @@ Newest first. One entry per change people would notice: what Jetta does differen
 
 Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain words.
 
+## 2026-11-02: Dev bridge tags whoever wrote, stays out of hand-offs, runs once per item (#PR)
+When Jetta answers a comment on a dev item she now @mentions the person who wrote it, not the Developer column (on #14591 she pinged Shreya three times while Swejal was answering). A comment that @mentions a colleague ("@Sujata you can reply these to the client") is a hand-off: she may draft for the customer but no longer posts on the item. Only one run per item at a time, so a comment that arrives mid-run waits and then starts its own, and the same comment posted twice is answered once (events `devbridge.deferred`, `devbridge.skipped_repost`). Live on merge.
+
 ## 2026-10-30: Support health leaves out ad campaigns and other non-support mail (#174)
 /health no longer counts tickets the intake filter called marketing, spam or an auto-reply (the "AdsGPT Campaigns… invited you to test OpenAI Ads" invites, newsletters) when nobody answered them and Jetta never drafted on them. They had been showing as customers owed a reply. The webhook now keeps each verdict, and the hourly sync checks up to 5 older unanswered, unlabelled open tickets per run the same way. Live on merge; the existing ones drop off within a sync or two.
 

@@ -240,7 +240,7 @@ export function devBridgeRows(): StatusRow[] {
       "Developers → customer",
       config.devBridge,
       "JETTA_DEV_BRIDGE",
-      'A developer\'s comment or Dev Status change on a ticket\'s dev item starts a ticket run: Jetta answers the developer on the item ("🤖 Jetta:", @Developer), asks the customer for what the developer needs, or tells the customer a fix is out. Developer chatter gets no action. Customer replies still follow the reply mode (drafts).',
+      'A developer\'s comment or Dev Status change on a ticket\'s dev item starts a ticket run: Jetta answers the developer on the item ("🤖 Jetta:", @mentioning whoever wrote; a comment that @mentions a colleague is a hand-off she does not answer on the item), asks the customer for what the developer needs, or tells the customer a fix is out. Developer chatter gets no action. Customer replies still follow the reply mode (drafts).',
     ),
     row(
       "Customer → developers",

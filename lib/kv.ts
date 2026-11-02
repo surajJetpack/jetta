@@ -278,6 +278,15 @@ export async function kvDel(key: string): Promise<void> {
   memKv.delete(key);
 }
 
+/** Set only if absent. True when this call set it — a lock taken. */
+export async function kvSetNx(key: string, value: string, ttlSeconds: number): Promise<boolean> {
+  const r = client();
+  if (r) return (await r.set(key, value, { nx: true, ex: ttlSeconds })) === "OK";
+  if ((await kvGet(key)) !== null) return false;
+  memKv.set(key, { value, expiry: Math.floor(Date.now() / 1000) + ttlSeconds });
+  return true;
+}
+
 // ── Dev bridge: the monday updates Jetta posted herself ──────────────
 // Her token is a person's, so the webhook echo of her own comment looks like
 // that person typing. The "🤖 Jetta:" prefix catches it; this catches it even

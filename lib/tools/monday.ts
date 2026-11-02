@@ -7,7 +7,7 @@
  * token can't provide, so it's a separate client.
  */
 import { config } from "../config";
-import { APP_NAMES, type AppProduct, type AttachmentFile, type ComplianceItem, type DevBoardItem, type Product } from "../types";
+import { APP_NAMES, type AppProduct, type AttachmentFile, type ComplianceItem, type DevBoardItem, type DevEvent, type Product } from "../types";
 
 const GRAPHQL = "https://api.monday.com/v2";
 /** File uploads go to a separate multipart endpoint, not the GraphQL one. */
@@ -1392,6 +1392,18 @@ export async function createComplianceItem(input: CreateComplianceItemInput): Pr
  * that it must not answer itself. lib/dev-bridge.ts also remembers the ids it
  * posted, so a prefix mangled by an editor still can't start a loop.
  */
+/**
+ * Who reply_on_dev_item notifies: the person whose comment she is answering;
+ * for a status change (nobody wrote anything), the item's Developers. Pure.
+ */
+export function devMentionTargets(ev: Pick<DevEvent, "kind" | "author" | "authorId" | "developers">): {
+  id: string;
+  name: string;
+}[] {
+  if (ev.kind === "comment" && ev.authorId) return [{ id: ev.authorId, name: ev.author }];
+  return ev.developers;
+}
+
 export const JETTA_POST_PREFIX = "🤖 Jetta:";
 
 export function isJettaPost(text: string | null | undefined): boolean {
