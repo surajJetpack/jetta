@@ -134,6 +134,9 @@ export async function openTicketForConversation(
       ? `Earlier still: ${conv.previousTicketIds.map((t) => `#${t}`).join(", ")}`
       : "",
     conv.visitor.mondayAccountSlug ? `monday account: ${conv.visitor.mondayAccountSlug}` : "",
+    conv.visitor.mondayAccountId || conv.visitor.mondayUserId
+      ? `monday ids: account ${conv.visitor.mondayAccountId ?? "?"}, user ${conv.visitor.mondayUserId ?? "?"}${conv.visitor.mondayAccountVerified ? " (verified by monday)" : " (from the page, unverified)"}`
+      : "",
     files.length ? `Files attached: ${files.map((f) => f.name).join(", ")}` : "",
   ].filter(Boolean);
 

@@ -375,6 +375,11 @@ export async function logEvidence(input: {
   email: string | null | undefined;
   /** What the customer wrote (opening message and their replies). */
   text?: string;
+  /**
+   * monday ids already known for this customer, e.g. from the in-app chat
+   * widget that opened the ticket (monday's session token vouches for them).
+   */
+  known?: { accountIds?: string[]; userIds?: string[]; slugs?: string[]; verified?: boolean };
   hours?: number;
   /** End of the window; default now. */
   at?: Date;
@@ -390,7 +395,16 @@ export async function logEvidence(input: {
     }
   })();
   const refs = mondayRefsIn(input.text ?? "", ownHost);
-  if (!email && !refs.boards.length && !refs.items.length && !refs.slugs.length) return null;
+  const digits = (xs?: string[]) => (xs ?? []).filter((x) => /^\d{5,12}$/.test(x));
+  const known = {
+    accounts: digits(input.known?.accountIds),
+    users: digits(input.known?.userIds),
+    slugs: (input.known?.slugs ?? []).map((x) => x.toLowerCase()).filter((x) => /^[a-z0-9][a-z0-9-]{1,62}$/.test(x)),
+  };
+  refs.slugs = [...new Set([...known.slugs, ...refs.slugs])].slice(0, 3);
+  if (!email && !refs.boards.length && !refs.items.length && !refs.slugs.length && !known.accounts.length && !known.users.length) {
+    return null;
+  }
   const hours = input.hours ?? 72;
   const t = { hours, timeoutMs: 15_000, endAt: input.at };
   const none = Promise.resolve(null);
@@ -405,6 +419,9 @@ export async function logEvidence(input: {
       refs.slugs.length ? searchLogs({ app, anySlug: refs.slugs, limit: 20, ...t }) : none,
     ]);
     const found = idsIn([...(byEmail?.lines ?? []), ...(byEmailIds?.lines ?? []), ...(bySlug?.lines ?? [])]);
+    // Known ids lead: they are the customer's for certain, the rest is inferred.
+    found.accounts.unshift(...known.accounts);
+    found.users = [...new Set([...known.users, ...found.users])];
     const boardSet = new Set([...refs.boards, ...found.boards]);
     if (found.users.length) {
       const byUser = await searchLogs({ app, anyId: found.users.slice(0, 3), withIds: true, limit: 50, ...t });
@@ -430,21 +447,35 @@ export async function logEvidence(input: {
     const mentioned = (byEmail?.lines.length ?? 0) + (bySlug?.lines.length ?? 0);
     if (!mentioned && !failures.length) return null;
 
+    const fromChat = [
+      known.slugs.length ? `account ${known.slugs.join(", ")}` : "",
+      known.accounts.length ? `monday account ${known.accounts.join(", ")}` : "",
+      known.users.length ? `monday user ${known.users.join(", ")}` : "",
+    ].filter(Boolean);
     const fromTicket = [
-      refs.slugs.length ? `account ${refs.slugs.join(", ")}` : "",
+      refs.slugs.filter((x) => !known.slugs.includes(x)).length
+        ? `account ${refs.slugs.filter((x) => !known.slugs.includes(x)).join(", ")}`
+        : "",
       refs.boards.length ? `board${refs.boards.length > 1 ? "s" : ""} ${refs.boards.join(", ")}` : "",
       items.length ? `item${items.length > 1 ? "s" : ""} ${items.join(", ")}` : "",
     ].filter(Boolean);
     const logBoards = boards.filter((b) => !refs.boards.includes(b));
     const fromLogs = [
-      accounts.length ? `monday account ${accounts.join(", ")}` : "",
-      found.users.length ? `monday user ${found.users.slice(0, 3).join(", ")}` : "",
+      accounts.filter((a) => !known.accounts.includes(a)).length
+        ? `monday account ${accounts.filter((a) => !known.accounts.includes(a)).join(", ")}`
+        : "",
+      found.users.filter((u) => !known.users.includes(u)).length
+        ? `monday user ${found.users.filter((u) => !known.users.includes(u)).slice(0, 3).join(", ")}`
+        : "",
       logBoards.length ? `board${logBoards.length > 1 ? "s" : ""} ${logBoards.join(", ")}` : "",
     ].filter(Boolean);
-    const searchedFor = [email, ...fromTicket, ...fromLogs].filter(Boolean).join(" / ");
+    const searchedFor = [email, ...fromChat, ...fromTicket, ...fromLogs].filter(Boolean).join(" / ");
     const groups = (byEmail ?? bySlug ?? idFailures)?.groups ?? LOG_GROUPS[app].groups.filter((g) => !g.staging).map((g) => g.name);
     return [
       `${LOG_GROUPS[app].label} logs, ${input.at ? `${hours}h before ${input.at.toISOString()}` : `last ${hours}h`} (searched ${groups.join(", ")}).`,
+      ...(fromChat.length
+        ? [`From the in-app chat: ${fromChat.join("; ")}${input.known?.verified ? " (verified by monday)" : " (unverified)"}.`]
+        : []),
       ...(fromTicket.length ? [`From the ticket: ${fromTicket.join("; ")}.`] : []),
       email
         ? byEmail?.lines.length
