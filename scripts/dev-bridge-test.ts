@@ -10,9 +10,10 @@
  * the webhook looking like that person typing; answering it would be a loop
  * that posts on a real board until the rate limit stops it.
  */
-import { classifyDevEvent, devEventMessage } from "../lib/dev-bridge";
+import { addressedNames, classifyDevEvent, devEventMessage, isRepost } from "../lib/dev-bridge";
 import {
   CHASE_PHRASE,
+  devMentionTargets,
   chaseAllowed,
   isJettaContextPost,
   isJettaPost,
@@ -200,6 +201,62 @@ console.log("The run sees a reply already drafted");
   check("no pending draft → no note", !devEventMessage(ev).includes("ALREADY DRAFTED"));
   const withDraft = devEventMessage({ ...ev, pendingReply: { at: "2026-10-28T08:44:00Z", body: "Hi Sneha, a fix has gone out." } });
   check("pending draft is shown to the run", withDraft.includes("ALREADY DRAFTED") && withDraft.includes("a fix has gone out"));
+}
+
+console.log("#14591: who she tags, hand-offs, reposts");
+{
+  // The item: Developer = Shreya. Swejal answered, addressed to Sujata (support).
+  const users = new Map([
+    ["82879261", "Suraj Malla"], // Jetta's own token
+    ["76203847", "Shreya Shrestha"],
+    ["78345437", "Swejal Shrestha"],
+    ["53608181", "Sujata Shrestha"],
+    ["64260832", "Gabriel Villegas"],
+    ["99", "Shreya"], // a shorter name must not match inside a longer one
+  ]);
+  const answer =
+    "1. Workflow Owner\nCurrently, we don't display the workflow owner alongside each workflow. However, we can retrieve this information from the database if needed.\n\n2. Workflow Ownership and Repair\nWorkflows are reassigned to the person clicking Repair only if they are a monday.com account admin.\n\n3. Once a workflow is deleted, its existing signing links will no longer work.\n\n@Sujata Shrestha You can reply these to the client. Please work closely with them so all their confusions are cleared . Let me know if I can help in any other way . Thanks";
+
+  const to = addressedNames(answer, users, SELF, "78345437");
+  check("a developer handing off to support is addressed to that person", to.length === 1 && to[0] === "Sujata Shrestha", to.join(","));
+  check(
+    "the file hand-off is too",
+    addressedNames("@Sujata Shrestha \nanaliza-college-group-getsign-workflows.xlsx\nList of all the workflows with their owner", users, SELF, "78345437")[0] === "Sujata Shrestha",
+  );
+  check("@-ing Jetta's own account is talking to her, not a hand-off", addressedNames("@Suraj Malla which account is this?", users, SELF, "78345437").length === 0);
+  check("no @ → addressed to nobody", addressedNames("Which account is this on?", users, SELF, "78345437").length === 0);
+  check("a name without @ is not a mention", addressedNames("Sujata Shrestha asked about this", users, SELF, "78345437").length === 0);
+  check("the longer name wins over a shorter user's name", addressedNames("@Shreya Shrestha can you check", users, SELF).join() === "Shreya Shrestha");
+  check("an email is not a mention", addressedNames("mail nadav@analiza-college.co.il", users, SELF).length === 0);
+
+  const ev = {
+    kind: "comment" as const,
+    itemId: "13414927936",
+    itemName: "Question: GetSign workflow ownership",
+    itemUrl: "u",
+    devStatus: "Ready to start",
+    author: "Swejal Shrestha",
+    authorId: "78345437",
+    text: answer,
+    developers: [{ id: "76203847", name: "Shreya Shrestha" }],
+    recent: [],
+  };
+  const t = devMentionTargets(ev);
+  check("she tags the developer who wrote, not the Developer column", t.length === 1 && t[0].id === "78345437", JSON.stringify(t));
+  check(
+    "a status change (nobody wrote) still tags the Developer column",
+    devMentionTargets({ ...ev, kind: "needs_info", authorId: undefined })[0].id === "76203847",
+  );
+  check("Suraj typing by hand (no authorId) falls back to the Developer column", devMentionTargets({ ...ev, authorId: undefined })[0].id === "76203847");
+
+  const handoff = devEventMessage({ ...ev, addressedTo: ["Sujata Shrestha"] });
+  check("a hand-off tells the run it is not hers to answer", handoff.includes("addressed to Sujata Shrestha") && handoff.includes("cannot post on the dev item"));
+  check("a plain comment carries no hand-off note", !devEventMessage(ev).includes("addressed to"));
+
+  check("the same answer posted again is a repost", isRepost(answer, answer.replace("Thanks", "Thanks!")));
+  check("…even with the @mention added or changed", isRepost(answer.replace("@Sujata Shrestha ", ""), answer));
+  check("a different comment on the same item is not", !isRepost(answer, "@Sujata Shrestha \nanaliza-college-group-getsign-workflows.xlsx\nList of all the workflows with their owner"));
+  check("short comments never count as reposts (\"ok\" twice is two answers)", !isRepost("ok thanks", "ok thanks"));
 }
 
 console.log(failures ? `\n${failures} FAILED` : "\nall passed");

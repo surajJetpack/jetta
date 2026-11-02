@@ -486,11 +486,24 @@ export interface DevEvent {
   devStatus: string | null;
   /** Who acted, by monday name. INTERNAL — never reaches a customer. */
   author: string;
+  /**
+   * The commenter's monday id, when it is a person other than Jetta's own
+   * account. reply_on_dev_item @mentions THEM: the Developer column can name
+   * someone else entirely (#14591: Shreya assigned, Swejal answered).
+   */
+  authorId?: string;
+  /**
+   * People the comment @mentions by name, other than Jetta and the author. A
+   * comment addressed to someone (a developer telling support "you can reply
+   * these to the client") is a hand-off between colleagues, not a question for
+   * Jetta: the run may draft for the customer but may not post on the item.
+   */
+  addressedTo?: string[];
   /** The comment itself (kind "comment"). */
   text?: string;
   /** The thread a reply should go into: the comment's root update. */
   threadUpdateId?: string;
-  /** The item's Developer column — who reply_on_dev_item @mentions. */
+  /** The item's Developer column — who reply_on_dev_item @mentions when no person commented (a status change). */
   developers: { id: string; name: string }[];
   /** The item's latest thread, newest first, for status-only events. */
   recent: { at: string; author: string; text: string }[];

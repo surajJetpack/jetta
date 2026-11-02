@@ -844,8 +844,10 @@ export function buildTools(
      * Talking back to the developer — only in a run a developer started
      * (ctx.devEvent, lib/dev-bridge.ts). The item and thread come from the
      * event, never from the model, so she can only answer where she was asked.
+     * Not offered when the comment is addressed to a colleague: a hand-off
+     * ("@Sujata you can reply these to the client") is not hers to answer.
      */
-    ...(ctx.devEvent
+    ...(ctx.devEvent && !ctx.devEvent.addressedTo?.length
       ? {
           reply_on_dev_item: tool({
             description:
@@ -854,12 +856,13 @@ export function buildTools(
               message: z.string().describe("The comment, plain text. No greeting fluff, no sign-off — developers want the facts."),
               mention_developer: z
                 .boolean()
-                .describe("@mention the item's Developer so they are notified. True when you are answering them or need something from them."),
+                .describe("@mention the person whose comment you are answering (for a status change, the item's Developer) so they are notified. True when you are answering them or need something from them."),
             }),
             execute: async ({ message, mention_developer }) => {
               const ev = ctx.devEvent!;
-              const mentionIds = mention_developer ? ev.developers.map((d) => d.id) : [];
-              const to = mentionIds.length ? ` (@${ev.developers.map((d) => d.name).join(", @")})` : "";
+              const targets = mention_developer ? monday.devMentionTargets(ev) : [];
+              const mentionIds = targets.map((d) => d.id);
+              const to = targets.length ? ` (@${targets.map((d) => d.name).join(", @")})` : "";
               if (dry) return `[dry-run] would comment on dev item "${ev.itemName}"${to}: ${message}`;
               const posted = await monday.postJettaComment(ev.itemId, message, {
                 mentionUserIds: mentionIds,
