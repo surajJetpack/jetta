@@ -921,7 +921,12 @@ export function buildTools(
         if (dry) return `[dry-run] would create Dev board item: "${title}".`;
         // Straight onto the item: the result below never carries it, so nothing
         // a log says can reach the customer through this agent.
-        const evidence = await logEvidence({ app: ctx.app ?? ctx.appProduct, email: requesterEmail });
+        // Only the customer's own words: our notes link to Jetpack's dev boards.
+        const customerText = [
+          ctx.ticket?.description ?? "",
+          ...(ctx.ticket?.replies ?? []).filter((r) => r.author === "customer" && !r.isPrivate).map((r) => r.body),
+        ].join("\n");
+        const evidence = await logEvidence({ app: ctx.app ?? ctx.appProduct, email: requesterEmail, text: customerText });
         if (evidence) {
           void events.logOpsEvent({ level: "info", event: "applogs.evidence", source: "app", ticketId, data: { app: ctx.app ?? ctx.appProduct } });
         }
