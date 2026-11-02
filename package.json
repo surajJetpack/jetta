@@ -13,6 +13,7 @@
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.85",
     "@ai-sdk/google": "^3.0.83",
+    "@aws-sdk/client-cloudwatch-logs": "^3.1161.0",
     "@base-ui/react": "^1.6.0",
     "@google/genai": "^2.24.0",
     "@openrouter/ai-sdk-provider": "^2.10.0",
