@@ -498,3 +498,58 @@ export async function logEvidence(input: {
     return null;
   }
 }
+
+export interface CustomerLogSearch extends LogSearch {
+  /** Also search the boards this customer's lines name. Default true. */
+  followBoards?: boolean;
+}
+
+export interface CustomerLogResult extends LogSearchResult {
+  /** Boards found for the customer and searched as well. */
+  boardsFollowed: string[];
+  /** Lines from the followed boards, kept apart so the reader knows how they were found. */
+  viaBoards: LogLine[];
+}
+
+/**
+ * A search for a customer (email, account id, user id or slug) that also
+ * covers their boards. Many failures are logged against a board, not an
+ * account: asked about account 26342721, the assistant reported two error
+ * types and missed 6× "Cannot change column value for inactive items", which
+ * name only board 5106468624. So the customer's id-carrying lines are read for
+ * board ids (via the user id when that is all GetSign logged), and those
+ * boards are searched with the same filters. Board lines come back separately.
+ */
+export async function followCustomer(q: CustomerLogSearch): Promise<CustomerLogResult> {
+  const main = await searchLogs(q);
+  const term = q.contains ? cleanTerm(q.contains) : "";
+  // A customer reference, not an error word or a board/item id (10+ digits):
+  // email, account/user id (5-10 digits) or slug.
+  const isCustomer = /@/.test(term) || /^\d{5,10}$/.test(term) || (/^[a-z0-9][a-z0-9-]{2,62}$/.test(term) && /-/.test(term));
+  if (q.followBoards === false || !isCustomer) return { ...main, boardsFollowed: [], viaBoards: [] };
+
+  const t = { app: q.app, hours: q.hours, endAt: q.endAt, includeStaging: q.includeStaging, timeoutMs: 12_000 };
+  const withIds = await searchLogs({ ...t, contains: term, withIds: true, limit: 50 }).catch(() => null);
+  const found = idsIn(withIds?.lines ?? []);
+  const boards = new Set(found.boards);
+  if (found.users.length && boards.size < 3) {
+    const byUser = await searchLogs({ ...t, anyId: found.users.slice(0, 3), withIds: true, limit: 50 }).catch(() => null);
+    idsIn(byUser?.lines ?? []).boards.forEach((b) => boards.add(b));
+  }
+  const followed = [...boards].filter((b) => b !== term).slice(0, 5);
+  if (!followed.length) return { ...main, boardsFollowed: [], viaBoards: [] };
+
+  const viaBoardsRes = await searchLogs({
+    ...t,
+    anyId: followed,
+    errorsOnly: q.errorsOnly,
+    limit: q.limit,
+  }).catch(() => null);
+  const seen = new Set(main.lines.map((l) => l.at + l.message));
+  return {
+    ...main,
+    complete: main.complete && (viaBoardsRes?.complete ?? true),
+    boardsFollowed: followed,
+    viaBoards: (viaBoardsRes?.lines ?? []).filter((l) => !seen.has(l.at + l.message)),
+  };
+}

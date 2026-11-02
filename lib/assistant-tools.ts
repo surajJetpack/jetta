@@ -22,7 +22,7 @@ import { appName } from "./types";
 import * as freshdesk from "./tools/freshdesk";
 import * as fastspring from "./tools/fastspring";
 import * as monday from "./tools/monday";
-import { LOG_APPS, cleanTerm, logsEnabled, searchLogs } from "./tools/cloudwatch";
+import { LOG_APPS, cleanTerm, followCustomer, groupLines, logsEnabled } from "./tools/cloudwatch";
 
 /** Keep tool results small: the whole transcript is re-sent on every step. */
 const BODY_CHARS = 1200;
@@ -237,7 +237,7 @@ export function readOnlyTools(): ToolSet {
       ? {
           search_app_logs: tool({
             description:
-              "Search an app's own server logs (AWS CloudWatch) — what actually happened on the backend, as opposed to what a customer reported. Use for 'is GetSign throwing errors', 'what do the logs say for this customer', 'did account 26408309 hit an error yesterday'. Match on an email, a monday account / board / item id, an account slug, or a word from the error. Logs are internal: quote them to colleagues, never to customers. Results are the newest lines first and may be partial; say so when `complete` is false.",
+              "Search an app's own server logs (AWS CloudWatch) — what actually happened on the backend, as opposed to what a customer reported. Use for 'is GetSign throwing errors', 'what do the logs say for this customer', 'did account 26408309 hit an error yesterday'. Match on an email, a monday account / board / item id, an account slug, or a word from the error. Asked about a customer (email, account id, user id, slug), it also searches the boards that customer's lines name, because many failures are logged against a board rather than the account; those come back in `via_boards`, and belong in your answer. Repeats are grouped with a count. Logs are internal: quote them to colleagues, never to customers. Results are the newest lines first and may be partial; say so when `complete` is false.",
             inputSchema: z.object({
               app: z.enum(LOG_APPS).describe("Which app's logs. hashtask has its own logs but no Freshdesk product."),
               contains: z
@@ -248,17 +248,37 @@ export function readOnlyTools(): ToolSet {
               hours: z.number().optional().describe("How far back, 1-336. Default 24."),
               limit: z.number().optional().describe("Lines to return, 1-50. Default 20."),
               include_staging: z.boolean().optional().describe("GetSign only: also search the staging environment. Default false."),
+              follow_boards: z
+                .boolean()
+                .optional()
+                .describe("For a customer search: also search the boards their lines name. Default true; set false to see only lines that name the customer."),
             }),
-            execute: async ({ app, contains, errors_only, hours, limit, include_staging }) => {
+            execute: async ({ app, contains, errors_only, hours, limit, include_staging, follow_boards }) => {
               try {
-                const r = await searchLogs({ app, contains, errorsOnly: errors_only, hours, limit, includeStaging: include_staging });
+                const r = await followCustomer({
+                  app,
+                  contains,
+                  errorsOnly: errors_only,
+                  hours,
+                  limit,
+                  includeStaging: include_staging,
+                  followBoards: follow_boards,
+                });
+                const rows = (lines: typeof r.lines) =>
+                  groupLines(lines).map((g) => ({ ...(g.count > 1 ? { count: g.count, newest: g.at } : { at: g.at }), group: g.group, message: g.message }));
                 return JSON.stringify({
                   app: r.app,
                   window: r.window,
                   searched: r.groups,
                   ...(r.complete ? {} : { complete: false, note: "The search did not finish in time; these are the lines found so far." }),
-                  ...(r.lines.length ? { lines: r.lines } : { lines: [], note: "No matching lines in that window. That is the answer; do not assume an error happened." }),
+                  ...(r.skipped?.length ? { skipped: r.skipped, skipped_note: "These groups do not keep logs that far back." } : {}),
                   ...(contains ? { matched_on: cleanTerm(contains) } : {}),
+                  ...(r.lines.length || r.viaBoards.length
+                    ? { lines: rows(r.lines) }
+                    : { lines: [], note: "No matching lines in that window, on the customer or their boards. That is the answer; do not assume an error happened." }),
+                  ...(r.boardsFollowed.length
+                    ? { boards_followed: r.boardsFollowed, via_boards: rows(r.viaBoards) }
+                    : {}),
                 });
               } catch (e) {
                 return `Log search failed: ${e instanceof Error ? e.message : String(e)}`;
