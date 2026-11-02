@@ -112,6 +112,23 @@ export function redact(s: string): string {
     );
 }
 
+/**
+ * Many failure lines open with the query that failed and only end with why
+ * ("…items_page_by_column_values(…) : {"errors":[{"message":"Concurrency limit
+ * exceeded for the field"…"). Clipped, the reason is the part lost. So any
+ * error/message values are pulled to the front, ahead of the line itself.
+ */
+export function errorFirst(message: string): string {
+  const found: string[] = [];
+  for (const m of message.matchAll(/\\*"(?:message|error|errorMessage|reason)\\*"\s*:\s*\\*"([^"\\]{3,200})/g)) {
+    const v = m[1].trim();
+    if (!found.includes(v) && !/^\[redacted\]$/.test(v)) found.push(v);
+    if (found.length === 3) break;
+  }
+  if (!found.length || message.indexOf(found[0]) < 120) return message;
+  return `${found.join(" | ")} :: ${message}`;
+}
+
 export interface LogLine {
   at: string;
   group: string;
@@ -124,12 +141,16 @@ export interface LogSearch {
   contains?: string;
   /** Numeric ids, any of which may match (monday account/board ids). Internal use. */
   anyId?: string[];
+  /** Only lines that carry a monday account or board id. Internal use. */
+  withIds?: boolean;
   errorsOnly?: boolean;
   hours?: number;
   limit?: number;
   includeStaging?: boolean;
   /** Give up after this long and return what has arrived. */
   timeoutMs?: number;
+  /** End of the window. Default now; set it to look at the hours before a past event. */
+  endAt?: Date;
 }
 
 export interface LogSearchResult {
@@ -163,12 +184,13 @@ export async function searchLogs(q: LogSearch): Promise<LogSearchResult> {
     "fields @timestamp, @log, @message",
     ...(term ? [`filter @message like "${term}"`] : []),
     ...(ids.length ? [`filter @message like /(${ids.join("|")})/`] : []),
+    ...(q.withIds ? ['filter @message like /"(account|board)(Id|_id)?"\\s*:/'] : []),
     ...(q.errorsOnly ? ERROR_FILTERS : []),
     "sort @timestamp desc",
     `limit ${limit}`,
   ].join(" | ");
 
-  const end = Math.floor(Date.now() / 1000);
+  const end = Math.floor((q.endAt?.getTime() ?? Date.now()) / 1000);
   const start = end - hours * 3600;
   const { queryId } = await cw().send(
     new StartQueryCommand({ logGroupNames: groups, startTime: start, endTime: end, queryString: query }),
@@ -191,7 +213,7 @@ export async function searchLogs(q: LogSearch): Promise<LogSearchResult> {
 
   const lines: LogLine[] = (res.results ?? []).map((row) => {
     const f = Object.fromEntries(row.map((c) => [c.field, c.value ?? ""]));
-    const message = redact((f["@message"] ?? "").replace(/\s+/g, " ").trim());
+    const message = errorFirst(redact((f["@message"] ?? "").replace(/\s+/g, " ").trim()));
     return {
       at: f["@timestamp"] ? new Date(`${f["@timestamp"].replace(" ", "T")}Z`).toISOString() : "",
       // @log is "<account>:<group>"; the account id is noise.
@@ -217,7 +239,9 @@ export function idsIn(lines: LogLine[]): { accounts: string[]; users: string[]; 
   const boards = new Set<string>();
   for (const { message } of lines) {
     // "accountId": "26408309" · "accountId": 18443935 · "account":"22879975"
-    for (const m of message.matchAll(/"account(?:Id|_id)?"\s*:\s*"?(\d{5,})/gi)) accounts.add(m[1]);
+    // At most 10 digits: AWS's own events (getsign-email-monitoring) carry a
+    // 12-digit "account", the AWS account, which is nobody's monday account.
+    for (const m of message.matchAll(/"account(?:Id|_id)?"\s*:\s*"?(\d{5,10})(?!\d)/gi)) accounts.add(m[1]);
     // GetSign logs an email only inside monday's `me` answer, next to the user id.
     for (const m of message.matchAll(/"me"\s*:\s*\{\s*"id"\s*:\s*"?(\d{5,})/g)) users.add(m[1]);
     for (const m of message.matchAll(/"board(?:Id|_id)?"\s*:\s*"?(\d{6,})/gi)) boards.add(m[1]);
@@ -225,7 +249,19 @@ export function idsIn(lines: LogLine[]): { accounts: string[]; users: string[]; 
   return { accounts: [...accounts], users: [...users], boards: [...boards] };
 }
 
-const EVIDENCE_LINES = 15;
+const EVIDENCE_LINES = 40;
+
+/** Repeats of one failure (same text bar ids and times) collapse to one row with a count. */
+export function groupLines(lines: LogLine[]): (LogLine & { count: number })[] {
+  const groups = new Map<string, LogLine & { count: number }>();
+  for (const l of lines) {
+    const key = l.group + l.message.slice(0, 160).replace(/\d+/g, "#").replace(/"[^"]{24,}"/g, '"…"');
+    const g = groups.get(key);
+    if (g) g.count++;
+    else groups.set(key, { ...l, count: 1 });
+  }
+  return [...groups.values()].slice(0, 10);
+}
 
 /**
  * What the logs say about one customer, for a dev item.
@@ -241,25 +277,32 @@ export async function logEvidence(input: {
   app: string | null | undefined;
   email: string | null | undefined;
   hours?: number;
+  /** End of the window; default now. */
+  at?: Date;
 }): Promise<string | null> {
   if (!logsEnabled() || !input.email || !input.app || !(input.app in LOG_GROUPS)) return null;
   const app = input.app as LogApp;
   const email = input.email;
   const hours = input.hours ?? 72;
-  const t = { hours, timeoutMs: 15_000 };
+  const t = { hours, timeoutMs: 15_000, endAt: input.at };
   try {
-    const [byEmail, emailFailures] = await Promise.all([
+    // The newest lines naming the email are often all the same kind (GetSign's
+    // `me` answers), so the id-carrying ones are fetched on their own: taking
+    // ids from "the newest 30" made the result depend on which 30 came back.
+    const [byEmail, byEmailIds, emailFailures] = await Promise.all([
       searchLogs({ app, contains: email, limit: 30, ...t }),
+      searchLogs({ app, contains: email, withIds: true, limit: 50, ...t }),
       searchLogs({ app, contains: email, errorsOnly: true, limit: EVIDENCE_LINES, ...t }),
     ]);
-    const found = idsIn(byEmail.lines);
-    let boards: string[] = [];
-    if (!found.accounts.length && found.users.length) {
-      const byUser = await searchLogs({ app, anyId: found.users.slice(0, 3), limit: 50, ...t });
+    const found = idsIn([...byEmail.lines, ...byEmailIds.lines]);
+    const boardSet = new Set(found.boards);
+    if (found.users.length) {
+      const byUser = await searchLogs({ app, anyId: found.users.slice(0, 3), withIds: true, limit: 50, ...t });
       const more = idsIn(byUser.lines);
       found.accounts.push(...more.accounts);
-      boards = more.boards.slice(0, 5);
+      more.boards.forEach((b) => boardSet.add(b));
     }
+    const boards = [...boardSet].slice(0, 5);
     const accounts = [...new Set(found.accounts)].slice(0, 3);
     const idFailures =
       accounts.length || boards.length
@@ -279,14 +322,16 @@ export async function logEvidence(input: {
       boards.length ? `board${boards.length > 1 ? "s" : ""} ${boards.join(", ")}` : "",
     ].filter(Boolean);
     return [
-      `${LOG_GROUPS[app].label} logs, last ${hours}h (searched ${byEmail.groups.join(", ")}).`,
+      `${LOG_GROUPS[app].label} logs, ${input.at ? `${hours}h before ${input.at.toISOString()}` : `last ${hours}h`} (searched ${byEmail.groups.join(", ")}).`,
       byEmail.lines.length
         ? `${byEmail.lines.length}${byEmail.lines.length === 30 ? "+" : ""} line(s) mention ${email}${ids.length ? `; tied to ${ids.join("; ")}` : ""}.`
         : `No line mentions ${email}.`,
       ...(failures.length
         ? [
             `Newest error/failure lines for ${[email, ...ids].join(" / ")}:`,
-            ...failures.map((l) => `- ${l.at} [${l.group}] ${l.message.slice(0, 300)}`),
+            ...groupLines(failures).map(
+              (g) => `- ${g.count > 1 ? `${g.count}× (newest ${g.at})` : g.at} [${g.group}] ${g.message.slice(0, 300)}`,
+            ),
           ]
         : ["No error or failure lines for this customer in that window."]),
     ].join("\n");
