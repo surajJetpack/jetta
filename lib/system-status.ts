@@ -418,7 +418,25 @@ export function reasoningRows(): StatusRow[] {
       meaning:
         "Images a visitor uploads in chat get a light-tier vision pass — errors transcribed verbatim — and the description stays in the prompt for the rest of the conversation. PDFs are skipped. Freshdesk attachments get none of this: the model is never told a file is there, and answers the ticket without it. Slack DMs likewise see only a filename.",
     },
+    appLogsRow(),
   ];
+}
+
+function appLogsRow(): StatusRow {
+  const c = config.cloudwatch;
+  const keys = !!(c.accessKeyId && c.secretAccessKey);
+  const on = keys && c.enabled;
+  return {
+    label: "App logs (AWS CloudWatch)",
+    tone: on ? "on" : "off",
+    state: !keys ? "NO KEYS" : c.enabled ? "READ-ONLY" : "OFF",
+    meaning: on
+      ? `The Slack and console assistants can search the apps' server logs (search_app_logs), and a dev item filed from a ticket carries that customer's recent log failures, found by their email. Read-only by IAM policy; the ticket agent never sees log lines, so they cannot reach a customer. Region ${c.region}.`
+      : !keys
+        ? "No AWS credentials (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY), so nothing reads the logs."
+        : "Switched off: no log search for the assistants, no log evidence on dev items.",
+    setting: "JETTA_APP_LOGS",
+  };
 }
 
 /**

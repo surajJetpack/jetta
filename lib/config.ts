@@ -668,6 +668,20 @@ export const config = {
     timeoutMs: 3500,
   },
 
+  /**
+   * The apps' logs in AWS CloudWatch, read-only (IAM user jetta-logs-reader,
+   * which can only describe, filter and run Logs Insights queries). With
+   * credentials set, colleagues' assistants get search_app_logs and dev items
+   * filed from tickets carry the customer's recent log failures.
+   * JETTA_APP_LOGS=off turns both off without removing the keys.
+   */
+  cloudwatch: {
+    accessKeyId: env("AWS_ACCESS_KEY_ID"),
+    secretAccessKey: env("AWS_SECRET_ACCESS_KEY"),
+    region: env("AWS_REGION") ?? "us-east-1",
+    enabled: env("JETTA_APP_LOGS") !== "off",
+  },
+
   liveSessionBookingUrl:
     env("LIVE_SESSION_BOOKING_URL") ?? "https://jetpackapps.io/book-a-session",
 } as const;

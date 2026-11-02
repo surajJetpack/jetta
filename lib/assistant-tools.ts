@@ -22,6 +22,7 @@ import { appName } from "./types";
 import * as freshdesk from "./tools/freshdesk";
 import * as fastspring from "./tools/fastspring";
 import * as monday from "./tools/monday";
+import { LOG_APPS, cleanTerm, logsEnabled, searchLogs } from "./tools/cloudwatch";
 
 /** Keep tool results small: the whole transcript is re-sent on every step. */
 const BODY_CHARS = 1200;
@@ -231,6 +232,41 @@ export function readOnlyTools(): ToolSet {
         });
       },
     }),
+
+    ...(logsEnabled()
+      ? {
+          search_app_logs: tool({
+            description:
+              "Search an app's own server logs (AWS CloudWatch) — what actually happened on the backend, as opposed to what a customer reported. Use for 'is GetSign throwing errors', 'what do the logs say for this customer', 'did account 26408309 hit an error yesterday'. Match on an email, a monday account / board / item id, an account slug, or a word from the error. Logs are internal: quote them to colleagues, never to customers. Results are the newest lines first and may be partial; say so when `complete` is false.",
+            inputSchema: z.object({
+              app: z.enum(LOG_APPS).describe("Which app's logs. hashtask has its own logs but no Freshdesk product."),
+              contains: z
+                .string()
+                .optional()
+                .describe("Text the line must contain: an email, a monday account/board/item id, a slug, or an error word. Omit to read the app's newest lines."),
+              errors_only: z.boolean().optional().describe("Only lines that read as failures (error, exception, timeout, denied, 5xx)."),
+              hours: z.number().optional().describe("How far back, 1-336. Default 24."),
+              limit: z.number().optional().describe("Lines to return, 1-50. Default 20."),
+              include_staging: z.boolean().optional().describe("GetSign only: also search the staging environment. Default false."),
+            }),
+            execute: async ({ app, contains, errors_only, hours, limit, include_staging }) => {
+              try {
+                const r = await searchLogs({ app, contains, errorsOnly: errors_only, hours, limit, includeStaging: include_staging });
+                return JSON.stringify({
+                  app: r.app,
+                  window: r.window,
+                  searched: r.groups,
+                  ...(r.complete ? {} : { complete: false, note: "The search did not finish in time; these are the lines found so far." }),
+                  ...(r.lines.length ? { lines: r.lines } : { lines: [], note: "No matching lines in that window. That is the answer; do not assume an error happened." }),
+                  ...(contains ? { matched_on: cleanTerm(contains) } : {}),
+                });
+              } catch (e) {
+                return `Log search failed: ${e instanceof Error ? e.message : String(e)}`;
+              }
+            },
+          }),
+        }
+      : {}),
 
     my_history_on_ticket: tool({
       description:

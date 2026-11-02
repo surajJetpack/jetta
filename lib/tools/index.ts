@@ -29,6 +29,7 @@ import * as fastspring from "./fastspring";
 import * as monday from "./monday";
 import * as mondayMonetization from "./monday-monetization";
 import * as slack from "./slack";
+import { logEvidence } from "./cloudwatch";
 import * as events from "../events";
 import { searchPublishedKb } from "../knowledge/dynamic-kb";
 import { vectorEnabled, queryVector, type VectorHit } from "../vector";
@@ -918,6 +919,12 @@ export function buildTools(
       }),
       execute: async ({ title, error_description, repro_steps }) => {
         if (dry) return `[dry-run] would create Dev board item: "${title}".`;
+        // Straight onto the item: the result below never carries it, so nothing
+        // a log says can reach the customer through this agent.
+        const evidence = await logEvidence({ app: ctx.app ?? ctx.appProduct, email: requesterEmail });
+        if (evidence) {
+          void events.logOpsEvent({ level: "info", event: "applogs.evidence", source: "app", ticketId, data: { app: ctx.app ?? ctx.appProduct } });
+        }
         const item = await monday.createDevItem({
           title,
           product: ctx.product,
@@ -926,6 +933,7 @@ export function buildTools(
           reproSteps: repro_steps,
           freshdeskTicketUrl: ticketId ? interactionUrl(ticketId) : "(no ticket)",
           attachments: await customerAttachments(),
+          logEvidence: evidence,
         });
         mondayItemUrl = item.url;
         return item.deduped

@@ -690,6 +690,11 @@ export interface CreateDevItemInput {
    * question rather than an error report. Default "bug".
    */
   kind?: "bug" | "question";
+  /**
+   * What the app logs say about this customer (lib/tools/cloudwatch.ts
+   * logEvidence). Goes on the item only; never shown to the ticket agent.
+   */
+  logEvidence?: string | null;
 }
 
 /** A created item, plus the names of the files that actually attached. */
@@ -720,6 +725,9 @@ function contextBody(input: CreateDevItemInput, followUp: boolean): string {
     ...(input.kind === "question"
       ? [`Question from support (not a bug report): ${input.errorDescription}`, "", `Context:\n${input.reproSteps}`]
       : [`Error: ${input.errorDescription}`, "", `Reproduction steps:\n${input.reproSteps}`]),
+    ...(input.logEvidence
+      ? ["", "From the app logs (CloudWatch, added automatically by Jetta; the customer has not seen this):", input.logEvidence]
+      : []),
   ].join("\n");
 }
 
