@@ -128,6 +128,10 @@ async function coveringGroups(names: string[], endSec: number): Promise<{ usable
 const ERROR_FILTERS = [
   'filter @message like /(?i)(error|exception|fail|timeout|timed out|denied|unauthori[sz]ed|not authenticated|forbidden|"status(code)?"\\s*:\\s*[45]\\d\\d)/',
   'filter @message not like /"level"\\s*:\\s*"(debug|info|verbose)"/',
+  // GetSign logs every monday query it sends, and the query text itself names
+  // fields like "error": 6,904 of 7,086 such lines in 14 days had no error in
+  // them at all. A query line counts only when it carries an error.
+  'filter @message not like /"query"\\s*:\\s*"/ or @message like /"errors?"\\s*:|"level"\\s*:\\s*"(error|warn)"/',
 ];
 
 /**
@@ -321,7 +325,16 @@ const EVIDENCE_NOISE = /BackofficeFunnelSync/;
 export function groupLines(lines: LogLine[]): (LogLine & { count: number })[] {
   const groups = new Map<string, LogLine & { count: number }>();
   for (const l of lines) {
-    const key = l.group + l.message.slice(0, 160).replace(/\d+/g, "#").replace(/"[^"]{24,}"/g, '"…"');
+    // Ids first, then digits: digits first shortens a uuid below the length
+    // test and leaves its letters to split one error into many rows.
+    const key =
+      l.group +
+      l.message
+        .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, "<uuid>")
+        .replace(/\b[0-9a-f]{24}\b/gi, "<id>")
+        .replace(/"[^"]{24,}"/g, '"…"')
+        .replace(/\d+/g, "#")
+        .slice(0, 160);
     const g = groups.get(key);
     if (g) g.count++;
     else groups.set(key, { ...l, count: 1 });
