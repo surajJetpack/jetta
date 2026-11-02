@@ -74,6 +74,31 @@ export function buildTools(
   const requesterEmail = ctx.ticket?.requesterEmail ?? undefined;
   const dry = opts.dryRun === true;
   const held = opts.holdCustomerWrites === true;
+
+  /**
+   * The in-app chat a ticket was opened from, if any: the widget knows the
+   * customer's monday account and user ids (vouched for by monday's session
+   * token in the GetSign app view), which the ticket itself only has as a
+   * slug in a note. Found through the note openTicketForConversation writes
+   * ("Conversation: …/chats/<id>"). Used to aim the log search, nothing else.
+   */
+  async function chatIdentityForTicket() {
+    const note = (ctx.ticket?.replies ?? []).find((r) => r.isPrivate && /\/chats\/[0-9a-f-]{36}/i.test(r.body));
+    const id = note?.body.match(/\/chats\/([0-9a-f-]{36})/i)?.[1];
+    if (!id) return null;
+    const conv = await chatStoreForTools.getConversation(id).catch(() => null);
+    if (!conv) return null;
+    const v = conv.visitor;
+    return {
+      pageUrl: conv.pageUrl,
+      known: {
+        accountIds: v.mondayAccountId ? [v.mondayAccountId] : [],
+        userIds: v.mondayUserId ? [v.mondayUserId] : [],
+        slugs: v.mondayAccountSlug ? [v.mondayAccountSlug] : [],
+        verified: v.mondayAccountVerified === true,
+      },
+    };
+  }
   // Two chat channels now: Freshchat (vendor-hosted, Jetta as backline) and
   // JettaChat (first-party widget, Jetta as front line). They differ in where
   // the conversation lives, not in how Jetta should behave — so `isChat` gates
@@ -921,7 +946,18 @@ export function buildTools(
         if (dry) return `[dry-run] would create Dev board item: "${title}".`;
         // Straight onto the item: the result below never carries it, so nothing
         // a log says can reach the customer through this agent.
-        const evidence = await logEvidence({ app: ctx.app ?? ctx.appProduct, email: requesterEmail });
+        // Only the customer's own words: our notes link to Jetpack's dev boards.
+        const customerText = [
+          ctx.ticket?.description ?? "",
+          ...(ctx.ticket?.replies ?? []).filter((r) => r.author === "customer" && !r.isPrivate).map((r) => r.body),
+        ].join("\n");
+        const chat = await chatIdentityForTicket();
+        const evidence = await logEvidence({
+          app: ctx.app ?? ctx.appProduct,
+          email: requesterEmail,
+          text: [customerText, chat?.pageUrl ?? ""].join("\n"),
+          known: chat?.known,
+        });
         if (evidence) {
           void events.logOpsEvent({ level: "info", event: "applogs.evidence", source: "app", ticketId, data: { app: ctx.app ?? ctx.appProduct } });
         }
