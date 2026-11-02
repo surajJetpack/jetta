@@ -79,12 +79,20 @@ export function buildTools(
    * The in-app chat a ticket was opened from, if any: the widget knows the
    * customer's monday account and user ids (vouched for by monday's session
    * token in the GetSign app view), which the ticket itself only has as a
-   * slug in a note. Found through the note openTicketForConversation writes
-   * ("Conversation: …/chats/<id>"). Used to aim the log search, nothing else.
+   * slug in a note. Found through the ticket → chat index (lib/chat-store.ts),
+   * falling back to the note openTicketForConversation writes. Used to aim the
+   * log search, nothing else.
    */
   async function chatIdentityForTicket() {
-    const note = (ctx.ticket?.replies ?? []).find((r) => r.isPrivate && /\/chats\/[0-9a-f-]{36}/i.test(r.body));
-    const id = note?.body.match(/\/chats\/([0-9a-f-]{36})/i)?.[1];
+    if (!ticketId) return null;
+    let id = await chatStoreForTools.conversationIdForTicket(ticketId).catch(() => null);
+    if (!id) {
+      // Tickets older than the index: the note, while it is still among the
+      // newest messages. A hit is written back so the next run reads the key.
+      const note = (ctx.ticket?.replies ?? []).find((r) => r.isPrivate && /\/chats\/[0-9a-f-]{36}/i.test(r.body));
+      id = note?.body.match(/\/chats\/([0-9a-f-]{36})/i)?.[1] ?? null;
+      if (id) await chatStoreForTools.rememberTicketConversation(ticketId, id).catch(() => {});
+    }
     if (!id) return null;
     const conv = await chatStoreForTools.getConversation(id).catch(() => null);
     if (!conv) return null;

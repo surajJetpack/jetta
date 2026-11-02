@@ -464,6 +464,7 @@ async function updateConversationLocked(
   if (patch.ticketId) {
     conv.ticketId = patch.ticketId;
     await indexAccountTicket(conv, patch.ticketId).catch(() => {});
+    await indexTicketConversation(conv.id, patch.ticketId).catch(() => {});
   }
   if (patch.ticketSubject) conv.ticketSubject = patch.ticketSubject;
   if (patch.previousTicketIds) conv.previousTicketIds = patch.previousTicketIds;
@@ -593,6 +594,59 @@ export async function accountTicketIds(slug: string): Promise<string[]> {
     ? await r.smembers(accountTicketsKey(slug))
     : [...(memAccountTickets.get(slug.toLowerCase()) ?? [])];
   return ids.map(String).sort((a, b) => Number(b) - Number(a));
+}
+
+// ── Ticket → the chat it came from ──────────────────────────────────
+// A Freshdesk ticket opened from a chat knows its conversation only through a
+// private note ("Conversation: …/chats/<id>"), and a run on that ticket sees
+// its newest 20 messages: on a long ticket the note has scrolled out of reach,
+// and with it the widget's monday account and user ids. One key per ticket
+// answers it in a read, however long the ticket grows. Every chat is indexed,
+// trusted account or not: what the conversation's ids are worth is carried by
+// its own `mondayAccountVerified`, which the reader checks.
+const ticketConvKey = (ticketId: string) => `jetta:chat:ticket:${ticketId}`;
+/** Set once the index has been filled from the conversations that predate it. */
+const TICKET_INDEX_BUILT = "jetta:chat:ticket-index:built:v1";
+const TICKET_INDEX_TTL = 180 * 86400;
+const memTicketConv = new Map<string, string>();
+
+async function indexTicketConversation(conversationId: string, ticketId: string): Promise<void> {
+  const r = client();
+  if (r) {
+    await r.set(ticketConvKey(ticketId), conversationId, { ex: TICKET_INDEX_TTL });
+    return;
+  }
+  memTicketConv.set(ticketId, conversationId);
+}
+
+/**
+ * The conversation a ticket was opened from, or null when it did not come
+ * from a chat (or the record has expired). The first call ever backfills the
+ * index from the stored conversations, once.
+ */
+export async function conversationIdForTicket(ticketId: string): Promise<string | null> {
+  const r = client();
+  if (!r) return memTicketConv.get(ticketId) ?? null;
+  const hit = await r.get<string>(ticketConvKey(ticketId));
+  if (hit) return String(hit);
+  if (!(await r.get(TICKET_INDEX_BUILT)) && (await r.set(TICKET_INDEX_BUILT, "1", { nx: true }))) {
+    for (const conv of await listConversations(1000)) {
+      for (const id of [conv.ticketId, ...(conv.previousTicketIds ?? [])]) {
+        if (id) await indexTicketConversation(conv.id, id);
+      }
+    }
+    const filled = await r.get<string>(ticketConvKey(ticketId));
+    if (filled) return String(filled);
+  }
+  return null;
+}
+
+/**
+ * Record a link found the slow way (the ticket's own note), so the next run on
+ * that ticket finds it in one read. For tickets older than the index.
+ */
+export async function rememberTicketConversation(ticketId: string, conversationId: string): Promise<void> {
+  await indexTicketConversation(conversationId, ticketId);
 }
 
 export async function listConversations(limit = 100): Promise<ChatConversation[]> {
