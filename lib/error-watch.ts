@@ -38,6 +38,7 @@ import {
   EVIDENCE_NOISE,
   LOG_GROUPS,
   errorCountsByHour,
+  cloudwatchLineUrl,
   groupLines,
   logsEnabled,
   searchLogs,
@@ -101,7 +102,7 @@ export interface LogsApp {
   /** Failure lines per UTC day, oldest first (14 days; the last is today so far). */
   daily: number[];
   /** The last 24h's failures, grouped (newest first), noise left out. */
-  top: { count: number; at: string; group: string; message: string }[];
+  top: { count: number; at: string; group: string; message: string; link?: string }[];
   spike: boolean;
   error?: string;
 }
@@ -124,6 +125,8 @@ export interface WatchAlert {
   app: string;
   title: string;
   kind: WatchFlag | "logs_spike";
+  /** The error itself: the Sentry issue, or the newest log line of a logs spike. */
+  link?: string;
   /** Slack message ts; absent when alerts are off. */
   ts?: string;
 }
@@ -135,6 +138,8 @@ export interface WatchDevItem {
   app: string;
   title: string;
   mode: "shadow" | "on";
+  /** The Sentry issue. */
+  link?: string;
   /** Filed item (mode on), or why it was not filed. */
   item?: { id: string; url: string };
   skipped?: string;
@@ -352,7 +357,10 @@ async function readLogs(days: string[]): Promise<LogsApp[]> {
           errors24h,
           priorDailyAvg,
           daily,
-          top: groupLines((recent?.lines ?? []).filter((l) => !EVIDENCE_NOISE.test(l.message))).slice(0, 6),
+          // Each group keeps its newest line, so the link opens that line.
+          top: groupLines((recent?.lines ?? []).filter((l) => !EVIDENCE_NOISE.test(l.message)))
+            .slice(0, 6)
+            .map((g) => ({ count: g.count, at: g.at, group: g.group, message: g.message, link: cloudwatchLineUrl(g) })),
           spike: priorDailyAvg != null && errors24h >= 50 && errors24h >= 3 * Math.max(priorDailyAvg, 1),
         });
       } catch (e) {
@@ -448,7 +456,7 @@ export async function maybeFileDevItem(i: WatchIssue): Promise<WatchDevItem | nu
   if (mode === "off" || i.devItem) return null;
   // Worth a developer's time: more than one account, or a customer already wrote in.
   if ((i.accountsDistinct ?? 0) < 2 && !(i.tickets ?? []).length && !(i.frontend && i.users >= 10)) return null;
-  const base = { at: Date.now(), issueId: i.id, shortId: i.shortId, app: i.app, title: i.title, mode } as const;
+  const base = { at: Date.now(), issueId: i.id, shortId: i.shortId, app: i.app, title: i.title, link: i.link, mode } as const;
   // Once per issue per mode: a "would file" in shadow does not stop the real
   // filing once the switch is turned on.
   if (!(await markEventSeen(`errorwatch:devitem:${mode}:${i.id}`, 30 * 86_400))) return null;
@@ -658,7 +666,7 @@ export async function runErrorWatch(opts: { notify?: boolean } = {}): Promise<Er
       for (const i of attention.slice(0, 5)) {
         const kind = i.flags[0];
         if (!(await markEventSeen(`errorwatch:alert:${i.id}:${kind}`, 3 * 86_400))) continue;
-        const a: WatchAlert = { at: Date.now(), issueId: i.id, shortId: i.shortId, app: i.app, title: i.title, kind };
+        const a: WatchAlert = { at: Date.now(), issueId: i.id, shortId: i.shortId, app: i.app, title: i.title, link: i.link, kind };
         if (config.errorWatch.alerts) {
           const { headline, details } = alertText(i);
           a.ts = await slack.notifyErrorWatch(headline, details).catch(() => undefined);
@@ -669,7 +677,7 @@ export async function runErrorWatch(opts: { notify?: boolean } = {}): Promise<Er
       // second account or gets a ticket later qualifies then. Deduped inside.
       for (const i of attention.slice(0, 5)) {
         const d = await maybeFileDevItem(i).catch((e) => ({
-          at: Date.now(), issueId: i.id, shortId: i.shortId, app: i.app, title: i.title,
+          at: Date.now(), issueId: i.id, shortId: i.shortId, app: i.app, title: i.title, link: i.link,
           mode: config.errorWatch.devItems === "on" ? ("on" as const) : ("shadow" as const),
           skipped: `failed: ${e instanceof Error ? e.message : String(e)}`,
         }));
@@ -677,11 +685,11 @@ export async function runErrorWatch(opts: { notify?: boolean } = {}): Promise<Er
       }
       for (const a of logs.filter((x) => x.spike)) {
         if (!(await markEventSeen(`errorwatch:logspike:${a.app}`, 86_400))) continue;
-        const al: WatchAlert = { at: Date.now(), issueId: `logs:${a.app}`, shortId: "logs", app: a.app, title: a.top[0]?.message.slice(0, 160) ?? "", kind: "logs_spike" };
+        const al: WatchAlert = { at: Date.now(), issueId: `logs:${a.app}`, shortId: "logs", app: a.app, title: a.top[0]?.message.slice(0, 160) ?? "", link: a.top[0]?.link, kind: "logs_spike" };
         if (config.errorWatch.alerts) {
           al.ts = await slack
             .notifyErrorWatch(`:chart_with_upwards_trend: *${a.label}* server logs: ${a.errors24h} failure lines in 24h against a usual ${a.priorDailyAvg}/day.`, [
-              ...a.top.slice(0, 4).map((t) => `• ${t.count}× \`${t.message.slice(0, 200)}\``),
+              ...a.top.slice(0, 4).map((t) => `• ${t.count}× \`${t.message.slice(0, 200)}\`${t.link ? ` <${t.link}|open>` : ""}`),
               "More on the console's Logs page.",
             ])
             .catch(() => undefined);

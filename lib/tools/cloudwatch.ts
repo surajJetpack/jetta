@@ -181,6 +181,30 @@ export interface LogLine {
   at: string;
   group: string;
   message: string;
+  /** The log stream, for a link to this exact line in the AWS console. */
+  stream?: string;
+}
+
+/**
+ * The AWS console's own escaping for paths inside its #fragment:
+ * percent-encode, then write each "%" as "$25" ("/" becomes "$252F").
+ */
+const awsFrag = (s: string) => encodeURIComponent(s).replace(/%/g, "$25");
+
+/**
+ * A link that opens one log line in the CloudWatch console: its stream,
+ * narrowed to ten seconds around it (several apps log everything to one
+ * "Prod" stream). Needs an AWS console login to the account; without the
+ * stream it opens the log group instead.
+ */
+export function cloudwatchLineUrl(l: Pick<LogLine, "group" | "stream" | "at">): string {
+  const region = config.cloudwatch.region;
+  const base = `https://${region}.console.aws.amazon.com/cloudwatch/home?region=${region}#logsV2:log-groups/log-group/${awsFrag(l.group)}`;
+  const t = Date.parse(l.at);
+  if (!l.stream || !Number.isFinite(t)) return base;
+  // Names inside the path are double-escaped ($252F); the query after them is
+  // escaped once ("?" is $3F, "=" $3D, "&" $26), as the console writes it.
+  return `${base}/log-events/${awsFrag(l.stream)}$3Fstart$3D${t - 5_000}$26end$3D${t + 5_000}`;
 }
 
 export interface LogSearch {
@@ -235,7 +259,7 @@ export async function searchLogs(q: LogSearch): Promise<LogSearchResult> {
   const slugs = (q.anySlug ?? []).filter((x) => /^[a-z0-9][a-z0-9-]{1,62}$/.test(x));
 
   const query = [
-    "fields @timestamp, @log, @message",
+    "fields @timestamp, @log, @logStream, @message",
     ...(term ? [`filter @message like "${term}"`] : []),
     ...(ids.length ? [`filter @message like /(${ids.join("|")})/`] : []),
     ...(slugs.length ? [`filter @message like /(?i)"(account_?slug|slug)"\\s*:\\s*"(${slugs.join("|")})"/`] : []),
@@ -282,6 +306,7 @@ export async function searchLogs(q: LogSearch): Promise<LogSearchResult> {
       // @log is "<account>:<group>"; the account id is noise.
       group: (f["@log"] ?? "").replace(/^\d+:/, ""),
       message: message.length > MESSAGE_CHARS ? `${message.slice(0, MESSAGE_CHARS)}…` : message,
+      ...(f["@logStream"] ? { stream: f["@logStream"] } : {}),
     };
   });
 

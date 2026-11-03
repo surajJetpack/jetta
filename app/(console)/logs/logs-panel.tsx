@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Bug, RotateCw, TriangleAlert } from "lucide-react";
+import { Bug, ExternalLink, RotateCw, TriangleAlert } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertTitle } from "@/components/ui/alert";
@@ -305,6 +305,21 @@ function ByApp({ s, open }: { s: ErrorWatchSummary; open: OpenLogs }) {
   );
 }
 
+/** The error itself, outside Jetta: the Sentry issue or the CloudWatch log line. */
+function ErrorLink({ href, logs }: { href?: string; logs?: boolean }) {
+  if (!href) return null;
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground underline underline-offset-4 hover:text-foreground"
+    >
+      {logs ? "CloudWatch" : "Sentry"} <ExternalLink className="size-3" aria-hidden />
+    </a>
+  );
+}
+
 const ALERT_KIND: Record<WatchAlert["kind"], { label: string; tone: "in_review" | "stale" }> = {
   new: { label: "new", tone: "in_review" },
   spike: { label: "spike", tone: "stale" },
@@ -337,6 +352,8 @@ function Activity({ s, open }: { s: ErrorWatchSummary; open: OpenLogs }) {
     if (i) open(issueRequest(i));
     else open({ title: `${a.shortId}: ${a.title}`, description: label(a.app), drill: { kind: "issue", id: a.issueId } });
   };
+  // Alerts and dev items saved before they carried a link: find it on the issue.
+  const linkOf = (issueId: string) => (s.attention.find((x) => x.id === issueId) ?? s.issues.find((x) => x.id === issueId))?.link;
   const alerts = [...s.alerts].sort((a, b) => b.at - a.at);
   const devItems = [...s.devItems].sort((a, b) => b.at - a.at);
   return (
@@ -358,6 +375,7 @@ function Activity({ s, open }: { s: ErrorWatchSummary; open: OpenLogs }) {
                     <span>{label(a.app)}</span>
                     <StatusChip tone={ALERT_KIND[a.kind].tone}>{ALERT_KIND[a.kind].label}</StatusChip>
                     <span>{a.ts ? "posted to Slack" : "not posted"}</span>
+                    <ErrorLink href={a.link ?? linkOf(a.issueId)} logs={a.kind === "logs_spike"} />
                   </div>
                   <button
                     type="button"
@@ -397,6 +415,7 @@ function Activity({ s, open }: { s: ErrorWatchSummary; open: OpenLogs }) {
                     <RelativeTime at={Math.floor(d.at / 1000)} className="text-muted-foreground" />
                     <span className="text-muted-foreground">{label(d.app)}</span>
                     {devItemState(d)}
+                    <ErrorLink href={d.link ?? linkOf(d.issueId)} />
                   </div>
                   <button
                     type="button"
