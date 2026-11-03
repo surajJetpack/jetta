@@ -94,9 +94,20 @@ const WORDS: Record<string, string> = {
  * "a/an/single" are left alone — "a customer" is not a claim of exactly 1.
  */
 export function numbers(s: string): string[] {
-  const digits = s.match(/\d+(?:\.\d+)?/g) ?? [];
+  // "17,277" is one number. Read as 17 and 277 it failed the check, and glm-5.2
+  // writes separators: 12 of 13 dropped points on /logs (2026-11-03) were this.
+  const plain = s.replace(/(\d),(?=\d{3}(?!\d))/g, "$1");
+  const digits = plain.match(/\d+(?:\.\d+)?/g) ?? [];
   const words = (s.toLowerCase().match(/\b[a-z]+\b/g) ?? []).filter((w) => w in WORDS).map((w) => WORDS[w]);
   return [...digits, ...words];
+}
+
+/** Drop "[E2]" / "(E4, E5)" citation markers a model writes into the prose. */
+export function stripCitations(s: string): string {
+  return s
+    .replace(/\s*[[(]\s*E\d+(?:\s*[,/&]\s*E\d+)*\s*[\])]/g, "")
+    .replace(/\s+([.,;:])/g, "$1")
+    .trim();
 }
 
 /**
@@ -116,7 +127,9 @@ export function reconcileInsight<D>(
   const fix = (points: { text: string; evidence: string }[], mayStandAlone: boolean, good = false) => {
     const out: InsightPoint<D>[] = [];
     for (const p of points) {
-      const text = p.text?.trim();
+      // The citation belongs in `evidence`, not the sentence: a model that also
+      // writes "[E2]" into the text leaves it on the page.
+      const text = stripCitations(p.text ?? "");
       const id = (p.evidence ?? "").trim().replace(/^\[|\]$/g, "").toUpperCase();
       const e = id ? byId.get(id) : undefined;
       const inventedNumber = numbers(text ?? "").some((n) => !known.has(n));
@@ -132,7 +145,7 @@ export function reconcileInsight<D>(
     dropped += Math.max(0, out.length - 3);
     return out.slice(0, 3);
   };
-  const headline = raw.headline?.trim() ?? "";
+  const headline = stripCitations(raw.headline ?? "");
   // A headline with an invented number is replaced, not shown.
   const badHeadline = numbers(headline).some((n) => !known.has(n));
   return {
