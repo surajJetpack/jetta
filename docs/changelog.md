@@ -4,6 +4,9 @@ Newest first. One entry per change people would notice: what Jetta does differen
 
 Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain words.
 
+## 2026-11-03: Cleaner AI reads (Logs, Health, Performance)
+Numbers written with thousands separators ("17,277") no longer get a correct point thrown away as "invented": on the production model that was most of what the Logs read dropped. Citation markers like "[E2]" no longer show in the text. On Logs, points are one short sentence and "Worth watching" no longer lists apps having a normal day. Live on merge.
+
 ## 2026-11-03: Logs & errors page, with an hourly error watch
 New admin-only console page `/logs`: errors per app from Sentry and the CloudWatch server logs, side by side with 14-day trends; what is new or spiking and hits customers (the monday accounts Sentry tagged, chat tickets from those accounts, any dev item that names the error); and an AI read that cites the numbers. An hourly cron (`/api/cron/error-watch`) does the work, so the page and the read are ready before anyone looks. Proactive: each newly flagged customer-hitting error is posted once to Slack (the ops channel, or `JETTA_ERROR_WATCH_CHANNEL`), and a dev item is drafted for one with no item: `JETTA_ERROR_WATCH_DEV_ITEMS=shadow` (the default) only lists what it would file; `on` files them, at most 2 a day. Days Sentry stored nothing (the quota gap) are skipped, so they never fake a spike. Switches: `JETTA_ERROR_WATCH` (off stops the cron), `JETTA_ERROR_WATCH_ALERTS` (off keeps the page, no Slack). Live on merge, dev items in shadow.
 ## 2026-11-03: GetSign triage note (shadow)

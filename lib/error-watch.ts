@@ -495,7 +495,9 @@ Rules:
 6. Plain language, no drama, no praise. A quiet day is a fine answer. Empty sections beat padded ones.
 7. Actions are concrete: "file a dev item for GETSIGN-BE-X", "check account acme-co's ticket", "raise the Sentry quota".
 8. Call something a spike, new, rising, an increase or up ONLY when its evidence line says so (flagged "new"/"spike", or "SPIKE" for logs). A number higher than its usual day without that mark is normal variation: do not call it a spike.
-9. Log volume differs hugely between apps by how they log (TrackMy writes about a million failure lines a day, every day). Compare an app only with its own usual day, never with another app.`;
+9. Log volume differs hugely between apps by how they log (TrackMy writes about a million failure lines a day, every day). Compare an app only with its own usual day, never with another app.
+10. Each point is ONE short sentence, at most 30 words. The headline is one sentence, at most 30 words. No lists of figures inside a point.
+11. "Worth watching" is only for something that is flagged, getting worse, or hitting customers. An app having its usual day goes nowhere (or under "going well" if it is worth saying at all).`;
 
 export const ErrorWatchInsightSchema = insightSchema(
   "One plain sentence: are the apps healthy right now, and the single biggest reason why or why not.",
@@ -551,7 +553,8 @@ function fingerprint(s: ErrorWatchSummary): string {
   ]);
 }
 
-export async function generateErrorWatchInsight(s: ErrorWatchSummary): Promise<ErrorWatchInsight & { fingerprint: string }> {
+/** The evidence and prompt a read is written from. Exported for the eval script. */
+export function errorWatchPrompt(s: ErrorWatchSummary): { evidence: Evidence<WatchDrill>[]; prompt: string; system: string } {
   const evidence = buildEvidence(s);
   const prompt = [
     s.sentry.notStoringSince
@@ -565,6 +568,11 @@ export async function generateErrorWatchInsight(s: ErrorWatchSummary): Promise<E
     "EVIDENCE (cite by id):",
     ...evidence.map((e) => `[${e.id}] ${e.label}`),
   ].join("\n");
+  return { evidence, prompt, system: SYSTEM };
+}
+
+export async function generateErrorWatchInsight(s: ErrorWatchSummary): Promise<ErrorWatchInsight & { fingerprint: string }> {
+  const { evidence, prompt } = errorWatchPrompt(s);
   const { object } = await generateObject({
     model: getModel("standard"),
     schema: ErrorWatchInsightSchema,
@@ -577,17 +585,22 @@ export async function generateErrorWatchInsight(s: ErrorWatchSummary): Promise<E
   // rest on evidence the watch itself flagged; otherwise it is dropped.
   const flagged = new Set(evidence.filter((e) => e.worse).map((e) => JSON.stringify(e.drill)));
   const RISE = /\b(spik\w*|increas\w*|ris(e|es|ing|en)|surg\w*|jump\w*|climb\w*|grow\w*|doubl\w*|tripl\w*|up from)\b/i;
+  // "Worth watching" padded with apps having a normal day ("Steady, no
+  // action") on glm-5.2: a watch point that says so about unflagged evidence
+  // is not worth watching.
+  const NORMAL = /\b(normal|steady|stable|in line with|as expected|expected|no action|routine|flat|unchanged|nothing (?:new|unusual))\b/i;
   let dropped = read.dropped;
-  const keep = (pts: typeof read.watch) =>
+  const isFlagged = (p: (typeof read.watch)[number]) => !!p.evidence && flagged.has(JSON.stringify(p.evidence.drill));
+  const keep = (pts: typeof read.watch, watch = false) =>
     pts.filter((p) => {
-      const ok = !RISE.test(p.text) || (!!p.evidence && flagged.has(JSON.stringify(p.evidence.drill)));
+      const ok = (!RISE.test(p.text) || isFlagged(p)) && !(watch && NORMAL.test(p.text) && !isFlagged(p));
       if (!ok) dropped++;
       return ok;
     });
   return {
     ...read,
     goingWell: keep(read.goingWell),
-    watch: keep(read.watch),
+    watch: keep(read.watch, true),
     actions: keep(read.actions),
     dropped,
     basedOn: s.computedAt,
