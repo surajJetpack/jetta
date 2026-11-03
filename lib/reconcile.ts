@@ -25,6 +25,7 @@ import { normalizeReplyText, replySimilarity, classifyReplySimilarity } from "./
 import { config } from "./config";
 import { recordEvaluation, EVAL_TAGS, type EvalTag } from "./evals";
 import * as freshdesk from "./tools/freshdesk";
+import { mirrorAgentNames, mirrorAgentReplyAfter } from "./ticket-mirror/read";
 
 /** A follow-up only makes sense for a reply that just went out. */
 const FOLLOW_UP_MAX_REPLY_AGE_HOURS = 48;
@@ -130,7 +131,7 @@ export async function reconcileTicketDraft(
     const reply =
       !config.freshdesk.live && opts.stubReply
         ? { ...opts.stubReply, createdAt: new Date().toISOString() }
-        : await freshdesk.getAgentReplyAfter(ticketId, draftAtIso);
+        : await agentReplyAfter(ticketId, draftAtIso);
     if (!reply) return await note("no_agent_reply", { draftId: draft.id });
 
     // Loop prevention: console-approved sends are authored by Jetta's own FD
@@ -155,7 +156,10 @@ export async function reconcileTicketDraft(
       return { ticketId, status: "reconciled", draftId: draft.id, rating, score, usage };
     }
 
-    const agentName = (await freshdesk.getAgentName(reply.userId)) ?? `agent-${reply.userId}`;
+    const agentName =
+      (await mirrorAgentNames([reply.userId]))?.get(reply.userId) ??
+      (await freshdesk.getAgentName(reply.userId)) ??
+      `agent-${reply.userId}`;
     const decidedBy = `${agentName} via freshdesk`;
     const now = Math.floor(Date.now() / 1000);
 
@@ -264,4 +268,14 @@ export async function reconcileTicketDraft(
     }
     return { ticketId, status: "failed", error };
   }
+}
+
+/**
+ * The reply a human sent after the draft: Jetta's ticket copy when it is
+ * current (undefined means it can't say), else Freshdesk. The hourly cron
+ * checks up to 40 drafts, so this is most of its Freshdesk calls.
+ */
+async function agentReplyAfter(ticketId: string, sinceIso: string) {
+  const fromMirror = await mirrorAgentReplyAfter(ticketId, sinceIso);
+  return fromMirror !== undefined ? fromMirror : freshdesk.getAgentReplyAfter(ticketId, sinceIso);
 }

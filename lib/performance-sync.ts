@@ -23,6 +23,7 @@ import { getIntakeNoise, getOutcomes, markEventSeen, recordIntakeNoise, unmarkEv
 import { obviousNonQuery } from "./intake";
 import { listConversations } from "./chat-store";
 import { fd, freshdeskTicketUrl } from "./tools/freshdesk";
+import { mirrorAgentNames, mirrorConversations } from "./ticket-mirror/read";
 import { devItemsByTicket } from "./tools/monday";
 import { activitiesFromThread, type Activity } from "./activity";
 import { recordActivities } from "./activity-store";
@@ -80,6 +81,8 @@ const LOCK_ID = "perf-sync-lock";
 
 /** Thread reads per run. At PACE_MS apart this is ~2 minutes of a 5-minute function. */
 export const MAX_PER_RUN = 50;
+/** Mirror reads cost no Freshdesk calls; this only bounds one run's work. */
+const MIRROR_PER_RUN = 400;
 /**
  * Handoffs judged per run. Each costs two Freshdesk reads (thread + opening
  * message), one monday query and one LLM call; the LLM calls run together at
@@ -276,6 +279,8 @@ async function fetchThread(ticketId: number): Promise<PerfConversation[]> {
 }
 
 async function fetchAgents(): Promise<Map<number, string>> {
+  const mirrored = await mirrorAgentNames();
+  if (mirrored) return mirrored;
   const agents = await fd<{ id: number; contact?: { name?: string } }[]>("/agents?per_page=100");
   return new Map(agents.map((a) => [a.id, a.contact?.name ?? `Agent ${a.id}`]));
 }
@@ -322,6 +327,8 @@ export interface SyncResult {
   tickets: number;
   /** Handoffs given a verdict this run. */
   judged: number;
+  /** Threads served from Jetta's ticket copy instead of Freshdesk (not counted in `read`). */
+  fromMirror?: number;
   error?: string;
 }
 
@@ -344,6 +351,7 @@ export async function syncPerformance(budget = MAX_PER_RUN): Promise<SyncResult>
   }
   let listed = 0;
   let read = 0;
+  let fromMirror = 0;
   const done: PerfTicket[] = [];
   const activity: Activity[] = [];
   try {
@@ -383,11 +391,21 @@ export async function syncPerformance(budget = MAX_PER_RUN): Promise<SyncResult>
     const ticketBase = freshdeskTicketUrl("").replace(/\/$/, "/");
     // Newest change first: during a backfill the last-28-days headline is what
     // the team reads, so it fills in within hours instead of after the baseline.
-    while (state.queue.length && read < budget && Date.now() - started < READ_DEADLINE_MS) {
+    while (
+      state.queue.length &&
+      read < budget &&
+      fromMirror < MIRROR_PER_RUN &&
+      Date.now() - started < READ_DEADLINE_MS
+    ) {
       const t = state.queue[state.queue.length - 1];
-      await sleep(PACE_MS);
+      let servedFromMirror = false;
       try {
-        const thread = await fetchThread(t.id);
+        // Jetta's ticket copy, when it holds at least this version: no
+        // Freshdesk call, no pacing, and it doesn't use up the read budget.
+        const mirrored = await mirrorConversations(t.id, { requireUpdatedAt: t.updated_at });
+        servedFromMirror = !!mirrored;
+        if (!mirrored) await sleep(PACE_MS);
+        const thread = mirrored?.conversations ?? (await fetchThread(t.id));
         done.push(summarizeTicket(t, thread, agents, jettaId));
         // The same thread, read once, is also every agent's reply and note on
         // it for /activity — no extra Freshdesk call.
@@ -399,7 +417,8 @@ export async function syncPerformance(budget = MAX_PER_RUN): Promise<SyncResult>
         if (!/failed: 404/.test(String(e))) throw e;
       }
       state.queue.pop();
-      read++;
+      if (servedFromMirror) fromMirror++;
+      else read++;
     }
     state.lastError = null;
   } catch (e) {
@@ -425,6 +444,7 @@ export async function syncPerformance(budget = MAX_PER_RUN): Promise<SyncResult>
       status: state.lastError ? "error" : "ok",
       listed,
       read,
+      fromMirror,
       queued: state.queue.length,
       tickets,
       judged,
@@ -467,6 +487,11 @@ async function judgeSettledHandoffs(limit: number, state: PerfSyncState): Promis
   // Freshdesk reads stay paced and in sequence; only the LLM calls overlap.
   const inputs: { ticket: PerfTicket; thread: PerfConversation[]; description: string | null }[] = [];
   for (const t of due) {
+    const mirrored = await mirrorConversations(t.id, { requireUpdatedAt: t.updatedAt });
+    if (mirrored) {
+      inputs.push({ ticket: t, thread: mirrored.conversations, description: mirrored.description });
+      continue;
+    }
     await sleep(PACE_MS);
     const thread = await fetchThread(t.id).catch(() => null);
     await sleep(PACE_MS);
