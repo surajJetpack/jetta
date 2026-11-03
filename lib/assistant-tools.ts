@@ -23,6 +23,7 @@ import * as freshdesk from "./tools/freshdesk";
 import * as fastspring from "./tools/fastspring";
 import * as monday from "./tools/monday";
 import { LOG_APPS, cleanTerm, followCustomer, groupLines, logsEnabled } from "./tools/cloudwatch";
+import { SENTRY_APPS, searchIssues, sentryEnabled } from "./tools/sentry";
 
 /** Keep tool results small: the whole transcript is re-sent on every step. */
 const BODY_CHARS = 1200;
@@ -282,6 +283,81 @@ export function readOnlyTools(): ToolSet {
                 });
               } catch (e) {
                 return `Log search failed: ${e instanceof Error ? e.message : String(e)}`;
+              }
+            },
+          }),
+        }
+      : {}),
+
+    ...(sentryEnabled()
+      ? {
+          search_sentry: tool({
+            description:
+              "Search Sentry, the apps' error tracker: grouped errors (issues) with how often each fired, how many users, first/last seen and a link. Complements search_app_logs: Sentry groups crashes and also has the GetSign frontend (browser errors the server logs never see). Use for 'what is breaking in GetSign this week', 'is this error new', 'what errors did account 22669873 hit'. Filter by a monday account id or slug (GetSign backend and Extract AI tag every error with the account), a monday user or board id (JobFlows), or words from the error. Frontend projects carry no account, so a customer search covers backends only: say so. Status 'resolved' does NOT mean fixed: Sentry auto-resolves these, so a resolved issue with a recent last_seen is still firing. Internal: quote to colleagues, never to customers.",
+            inputSchema: z.object({
+              app: z.enum(SENTRY_APPS).describe("Which app's Sentry projects."),
+              account_id: z.string().optional().describe("monday account id, digits (GetSign, Extract AI)."),
+              account_slug: z.string().optional().describe("monday account slug, e.g. acme-co from acme-co.monday.com (GetSign, Extract AI)."),
+              user_id: z.string().optional().describe("monday user id (JobFlows)."),
+              board_id: z.string().optional().describe("monday board id (JobFlows)."),
+              text: z.string().optional().describe("Words from the error message, e.g. 'Write Conflict' or 'localStorage'."),
+              days: z.number().optional().describe("How far back, 1-30. Default 14."),
+              sort: z.enum(["freq", "date"]).optional().describe("freq = most events first (default); date = most recently seen first."),
+              limit: z.number().optional().describe("Issues to return, 1-25. Default 10."),
+            }),
+            execute: async ({ app, account_id, account_slug, user_id, board_id, text, days, sort, limit }) => {
+              try {
+                const r = await searchIssues({
+                  app,
+                  accountId: account_id,
+                  accountSlug: account_slug,
+                  userId: user_id,
+                  boardId: board_id,
+                  text,
+                  days,
+                  sort,
+                  limit,
+                  releasesFor: 3,
+                });
+                return JSON.stringify({
+                  app: r.app,
+                  window: r.window,
+                  searched: r.searched,
+                  ...(r.untagged.length
+                    ? { not_searched: r.untagged, not_searched_note: "These projects do not tag errors with the customer reference given (frontends carry no account)." }
+                    : {}),
+                  ...(r.failed.length ? { failed: r.failed } : {}),
+                  ...(r.notStoringSince
+                    ? {
+                        warning: `Sentry has stored NO errors since ${r.notStoringSince}: it is over its error quota and turns new errors away. Anything after that date is missing, so say so, and use search_app_logs for that period.`,
+                      }
+                    : {}),
+                  issues: r.issues.map((i) => ({
+                    id: i.shortId,
+                    project: i.project,
+                    title: i.title,
+                    ...(i.where ? { where: i.where } : {}),
+                    ...(i.customerEvents !== undefined
+                      ? { events_for_customer: i.customerEvents, customer_last_seen: i.customerLastSeen }
+                      : {}),
+                    events_all_customers: i.events,
+                    users: i.users,
+                    first_seen: i.firstSeen,
+                    last_seen: i.lastSeen,
+                    status: i.status,
+                    ...(i.release !== undefined ? { release: i.release } : {}),
+                    link: i.link,
+                  })),
+                  ...(r.issues.length
+                    ? {}
+                    : {
+                        note: r.notStoringSince
+                          ? "No Sentry issues match, but Sentry is not storing errors (see warning), so this does NOT show there were none."
+                          : "No Sentry issues match in that window. That is the answer; do not assume an error happened.",
+                      }),
+                });
+              } catch (e) {
+                return `Sentry search failed: ${e instanceof Error ? e.message : String(e)}`;
               }
             },
           }),
