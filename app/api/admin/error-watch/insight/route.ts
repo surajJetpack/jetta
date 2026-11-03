@@ -11,7 +11,9 @@ import { logOpsEvent } from "@/lib/events";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+// A read on glm-5.2 (prod's standard tier) takes 26-55 s to write; at 60 s the
+// Rewrite button hit FUNCTION_INVOCATION_TIMEOUT (2026-11-03). Same ceiling as the cron.
+export const maxDuration = 300;
 
 export async function GET(req: NextRequest) {
   const denied = requireAdmin(req);
