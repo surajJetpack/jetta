@@ -319,6 +319,10 @@ What customers got before and after Jetta went live: reply times, how much of th
 
 What each person did and where: Freshdesk replies, chats, Slack, monday dev items and console actions, as a scorecard and a timeline. It's kept current from Slack and monday as things happen, with an hourly catch-up sync.
 
+### Logs & errors (admin)
+
+What the apps' errors are doing and who they hit, from Sentry and the apps' server logs, checked hourly. **Needs attention** lists errors that are new or spiking and hit customers: the monday accounts, their chat tickets and any dev item that names the error. **By app** shows each app's Sentry errors and log failures with 14-day trends; compare an app with its own usual day. Below are the Slack alerts sent and the dev items filed (or, in shadow mode, the ones it would file). Every number opens what is behind it, and there is an AI read. Sentry "resolved" does not mean fixed, and days Sentry stored nothing (over its quota) are shown as missing, not quiet.
+
 ### Test Jetta
 
 The testing playbook: you play the customer, through a guided wizard, to learn how Jetta behaves. Test tickets and dev items are marked `[TEST]`, and the page offers to clean them up when you are done.

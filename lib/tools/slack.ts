@@ -643,6 +643,23 @@ export async function notifyKbSync(headline: string, details: string[]): Promise
   );
 }
 
+/**
+ * An error-watch alert (lib/error-watch.ts): a new or spiking error that hits
+ * customers. Its own channel when JETTA_ERROR_WATCH_CHANNEL is set, else the
+ * ops channel: a watch alert asks a person to look, it is not yet a dev bug,
+ * and the escalation channel stays for confirmed ones. No @channel.
+ */
+export async function notifyErrorWatch(headline: string, details: string[]): Promise<string> {
+  const channel = config.errorWatch.channel ?? opsChannel();
+  const ts = await postMessage(channel, clamp(headline, 400));
+  if (details.length) {
+    await postMessage(channel, details.join("\n"), ts).catch((e) =>
+      console.warn("error-watch detail reply failed:", e instanceof Error ? e.message : e),
+    );
+  }
+  return ts;
+}
+
 /** Notify #partnerships when a user mentions an external implementation partner. */
 export async function notifyPartnerManager(
   freshdeskTicketUrl: string,

@@ -26,12 +26,14 @@ export interface Evidence<D> {
    * kept listing a rising reopen rate as good because it beat pre-launch.
    */
   worse?: boolean;
+  /** What `count` counts, when it differs from the page's default unit (e.g. "lines" next to "events"). */
+  unit?: string;
 }
 
 export interface InsightPoint<D> {
   text: string;
   /** The drill this point opens. Null only for an action that stands on no single number. */
-  evidence: Pick<Evidence<D>, "title" | "description" | "drill" | "count"> | null;
+  evidence: Pick<Evidence<D>, "title" | "description" | "drill" | "count" | "unit"> | null;
 }
 
 export interface Insight<D> {
@@ -122,7 +124,10 @@ export function reconcileInsight<D>(
         dropped++;
         continue;
       }
-      out.push({ text, evidence: e ? { title: e.title, description: e.description, drill: e.drill, count: e.count } : null });
+      out.push({
+        text,
+        evidence: e ? { title: e.title, description: e.description, drill: e.drill, count: e.count, ...(e.unit ? { unit: e.unit } : {}) } : null,
+      });
     }
     dropped += Math.max(0, out.length - 3);
     return out.slice(0, 3);

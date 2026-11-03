@@ -96,9 +96,21 @@ async function projectIds(): Promise<Map<string, string>> {
  * all rate-limited or dropped by the SDKs. Org-wide, cached for an hour; null
  * when errors are being stored, or when the check itself fails.
  */
-let gapCache: { at: number; since: string | null } | null = null;
-export async function storageGap(): Promise<string | null> {
-  if (gapCache && Date.now() - gapCache.at < 3_600_000) return gapCache.since;
+let gapCache: { at: number; status: StorageStatus } | null = null;
+
+export interface StorageStatus {
+  /** Sentry is not storing errors right now, since this day. */
+  notStoringSince: string | null;
+  /**
+   * Full UTC days in the last 30 on which Sentry stored no error at all while
+   * errors were being turned away: their counts are missing, not zero. A
+   * trend must skip them, or the day storage resumes reads as a spike.
+   */
+  gapDays: string[];
+}
+
+export async function storageStatus(): Promise<StorageStatus> {
+  if (gapCache && Date.now() - gapCache.at < 3_600_000) return gapCache.status;
   try {
     const d = await get<{
       intervals: string[];
@@ -107,20 +119,32 @@ export async function storageGap(): Promise<string | null> {
     const series = (o: string) => d.groups.find((g) => g.by.outcome === o)?.series["sum(quantity)"] ?? [];
     const accepted = series("accepted");
     const dropped = d.intervals.map((_, i) => (series("rate_limited")[i] ?? 0) + (series("client_discard")[i] ?? 0));
+    const days = d.intervals.map((x) => x.slice(0, 10));
+    // Today is partial: only whole days count as a gap.
+    const gapDays = days.filter((_, i) => i < days.length - 1 && !(accepted[i] > 0) && dropped[i] > 0);
     let last = -1;
     accepted.forEach((n, i) => {
       if (n > 0) last = i;
     });
-    // Today is partial, so a gap counts only once a whole day stored nothing
-    // while errors were still arriving and being turned away.
     const after = last + 1;
-    const gap = after <= d.intervals.length - 2 && dropped.slice(after).some((n) => n > 0);
-    const since = gap ? d.intervals[after].slice(0, 10) : null;
-    gapCache = { at: Date.now(), since };
-    return since;
+    const stopped = after <= d.intervals.length - 2 && dropped.slice(after).some((n) => n > 0);
+    const status = { notStoringSince: stopped ? days[after] : null, gapDays };
+    gapCache = { at: Date.now(), status };
+    return status;
   } catch {
-    return null;
+    return { notStoringSince: null, gapDays: [] };
   }
+}
+
+/**
+ * When Sentry stopped STORING errors, if it has. Over its error quota, Sentry
+ * rate-limits every new error, so from that day nothing new is recorded and a
+ * search that finds nothing proves nothing. Seen 2026-11-03: zero errors
+ * accepted in any project from 2026-10-26 until the quota was raised that
+ * morning. Null when errors are being stored, or when the check itself fails.
+ */
+export async function storageGap(): Promise<string | null> {
+  return (await storageStatus()).notStoringSince;
 }
 
 interface RawIssue {
@@ -394,4 +418,118 @@ export async function sentryEvidence(input: {
     console.warn(`[sentry] evidence failed: ${e instanceof Error ? e.message : String(e)}`);
     return null;
   }
+}
+
+/** One issue as the error watch sees it: identity, daily counts and lifetime first-seen. */
+export interface WatchedIssueRaw {
+  id: string;
+  shortId: string;
+  project: string;
+  frontend: boolean;
+  title: string;
+  where?: string;
+  status?: string;
+  users: number;
+  /** Lifetime first seen (the real one, not clipped to the window). */
+  firstSeen: string;
+  lastSeen: string;
+  link: string;
+  /** Events per UTC day, oldest first, the last entry being today so far. */
+  daily: number[];
+}
+
+/**
+ * The most active error issues of one app over the last 14 days, with their
+ * daily counts, for the error watch (lib/error-watch.ts). Errors only; status
+ * ignored (see the header). `perProject` issues from each project.
+ */
+export async function watchIssues(app: SentryApp, perProject = 15): Promise<{ issues: WatchedIssueRaw[]; failed: string[] }> {
+  const entry = SENTRY_PROJECTS[app];
+  const ids = await projectIds();
+  const failed: string[] = [];
+  const lists = await Promise.all(
+    entry.projects.map(async (p) => {
+      const pid = ids.get(p.slug);
+      if (!pid) return (failed.push(p.slug), []);
+      const qs = [
+        `project=${pid}`,
+        "statsPeriod=14d",
+        "groupStatsPeriod=14d",
+        "sort=freq",
+        `limit=${perProject}`,
+        `query=${encodeURIComponent("issue.category:error")}`,
+      ].join("&");
+      try {
+        const raw = await get<(RawIssue & { stats?: Record<string, [number, number][]> })[]>(
+          `/organizations/${config.sentry.org}/issues/?${qs}`,
+          15_000,
+        );
+        return raw.map(
+          (i): WatchedIssueRaw => ({
+            id: i.id,
+            shortId: i.shortId,
+            project: i.project.slug,
+            frontend: !!p.frontend,
+            title: redact(i.title).slice(0, 300),
+            ...(i.culprit ? { where: redact(i.culprit).slice(0, 160) } : {}),
+            status: i.status,
+            users: i.userCount ?? 0,
+            firstSeen: i.lifetime?.firstSeen ?? i.firstSeen,
+            lastSeen: i.lastSeen,
+            link: i.permalink,
+            daily: (i.stats?.["14d"] ?? []).map((x) => Number(x[1]) || 0),
+          }),
+        );
+      } catch {
+        failed.push(p.slug);
+        return [];
+      }
+    }),
+  );
+  return { issues: lists.flat(), failed };
+}
+
+/** A monday account an issue hit, from the issue's own tags. */
+export interface IssueAccount {
+  id?: string;
+  slug?: string;
+  events: number;
+  lastSeen?: string;
+}
+
+type TagValues = { uniqueValues?: number; topValues?: { value: string; count: number; firstSeen?: string; lastSeen?: string }[] };
+
+/**
+ * The accounts one issue hit most (top 10 by events) and how many distinct
+ * accounts it hit, from the project's account tags. Empty for projects that
+ * tag no account (frontends, most small backends).
+ */
+export async function issueAccounts(issueId: string, project: string): Promise<{ top: IssueAccount[]; distinct: number }> {
+  const p = Object.values(SENTRY_PROJECTS)
+    .flatMap((e) => e.projects)
+    .find((x) => x.slug === project);
+  const idKey = p?.tags?.account;
+  const slugKey = p?.tags?.slug;
+  if (!idKey && !slugKey) return { top: [], distinct: 0 };
+  const read = (key?: string) =>
+    key ? get<TagValues>(`/organizations/${config.sentry.org}/issues/${issueId}/tags/${key}/`, 10_000).catch(() => null) : Promise.resolve(null);
+  const [ids, slugs] = await Promise.all([read(idKey), read(slugKey)]);
+  const idVals = (ids?.topValues ?? []).filter((v) => v.value);
+  const slugVals = (slugs?.topValues ?? []).filter((v) => v.value);
+  // The two tags are set on the same events, so an account's id and slug have
+  // the same count and the same first and last sighting: pair on all three.
+  const same = (a: { count: number; firstSeen?: string; lastSeen?: string }, b: typeof a) =>
+    a.count === b.count && a.firstSeen === b.firstSeen && a.lastSeen === b.lastSeen;
+  const used = new Set<number>();
+  const top: IssueAccount[] = (idVals.length ? idVals : slugVals).map((v) => {
+    if (!idVals.length) return { slug: v.value, events: v.count, lastSeen: v.lastSeen };
+    const j = slugVals.findIndex((x, k) => !used.has(k) && same(x, v));
+    if (j >= 0) used.add(j);
+    return { id: v.value, ...(j >= 0 ? { slug: slugVals[j].value } : {}), events: v.count, lastSeen: v.lastSeen };
+  });
+  // An empty value is "no account on this event"; it is not an account.
+  const src = idVals.length ? ids : slugs;
+  const hasBlank = (src?.topValues ?? []).some((v) => !v.value);
+  const distinct = Math.max(0, (src?.uniqueValues ?? top.length) - (hasBlank ? 1 : 0));
+  return { top: top.slice(0, 10), distinct };
 }

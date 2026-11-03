@@ -129,6 +129,28 @@ export async function saveMined(id: string, m: MinedItem): Promise<void> {
   await hashSet(MINED_KEY, { [id]: m });
 }
 
+/**
+ * Dev items whose name or comments contain any of `needles` (a Sentry short id
+ * or issue link), open ones first. One read of the stored items; used by the
+ * error watch to tell whether an error already has an item.
+ */
+export async function devItemsMentioning(needles: string[]): Promise<Map<string, DevItem>> {
+  const found = new Map<string, DevItem>();
+  const wanted = needles.filter((n) => n.length >= 6);
+  if (!wanted.length) return found;
+  const items = await hashAll<DevItem>(ITEMS_KEY);
+  for (const item of items.values()) {
+    const text = [item.name, ...item.posts.map((p) => p.text)].join("\n");
+    for (const n of wanted) {
+      if (!text.includes(n)) continue;
+      const prev = found.get(n);
+      const open = (i: DevItem) => !/^(done|deployed|archive)/i.test(i.group);
+      if (!prev || (open(item) && !open(prev)) || (open(item) === open(prev) && item.updatedAt > prev.updatedAt)) found.set(n, item);
+    }
+  }
+  return found;
+}
+
 export function rosterFor(self: string): Roster {
   return { support: parseSupport(config.devBoardSupport), self };
 }

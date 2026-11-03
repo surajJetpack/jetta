@@ -689,6 +689,23 @@ export const config = {
    * filed from tickets list the Sentry issues tagged with that customer's
    * monday account. JETTA_SENTRY=off turns both off without removing the token.
    */
+  /**
+   * The error watch behind /logs (lib/error-watch.ts): an hourly cron reads
+   * Sentry and the CloudWatch logs, flags new and spiking errors that hit
+   * customers, ties them to tickets and dev items, and writes the page's AI read.
+   *   JETTA_ERROR_WATCH=off          stops the cron's work (the page shows the last run).
+   *   JETTA_ERROR_WATCH_ALERTS=off   keeps the analysis, posts no Slack alerts.
+   *   JETTA_ERROR_WATCH_DEV_ITEMS    off | shadow (default) | on. shadow lists the
+   *                                  dev items it would file; on files them (cap 2/day).
+   *   JETTA_ERROR_WATCH_CHANNEL      Slack channel id for alerts; default the ops channel.
+   */
+  errorWatch: {
+    enabled: env("JETTA_ERROR_WATCH") !== "off",
+    alerts: env("JETTA_ERROR_WATCH_ALERTS") !== "off",
+    devItems: ((v) => (v === "on" || v === "off" ? v : "shadow"))(env("JETTA_ERROR_WATCH_DEV_ITEMS")) as "off" | "shadow" | "on",
+    channel: env("JETTA_ERROR_WATCH_CHANNEL"),
+  },
+
   sentry: {
     token: env("SENTRY_AUTH_TOKEN"),
     org: env("SENTRY_ORG") ?? "jetpackapps",
