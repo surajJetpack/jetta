@@ -355,6 +355,11 @@ function LogsAppBody({ app, summary }: { app: string; summary: ErrorWatchSummary
                     newest <RelativeTime at={isoSec(t.at)} />
                   </span>
                   <span className="font-mono break-all">{t.group}</span>
+                  {t.link && (
+                    <a href={t.link} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-medium text-foreground underline underline-offset-4">
+                      Open in CloudWatch <ExternalLink className="size-3" aria-hidden />
+                    </a>
+                  )}
                 </div>
                 <pre className="rounded bg-muted px-2 py-1.5 font-mono text-xs break-words whitespace-pre-wrap">{t.message}</pre>
               </li>
