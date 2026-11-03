@@ -396,6 +396,12 @@ export async function logEvidence(input: {
   hours?: number;
   /** End of the window; default now. */
   at?: Date;
+  /**
+   * Told the monday accounts and slugs the search settled on, so the Sentry
+   * evidence (./sentry.ts) can look up the same customer. Called once, before
+   * the failure search; not called when there was nothing to search by.
+   */
+  found?: (ids: { accounts: string[]; slugs: string[] }) => void;
 }): Promise<string | null> {
   if (!logsEnabled() || !input.app || !(input.app in LOG_GROUPS)) return null;
   const app = input.app as LogApp;
@@ -446,6 +452,7 @@ export async function logEvidence(input: {
     const boards = [...boardSet].slice(0, 6);
     const accounts = [...new Set(found.accounts)].slice(0, 3);
     const items = refs.items.slice(0, 4);
+    input.found?.({ accounts, slugs: refs.slugs });
     const anyId = [...accounts, ...boards, ...items];
     const idFailures = anyId.length
       ? await searchLogs({ app, anyId, errorsOnly: true, limit: EVIDENCE_LINES, ...t })

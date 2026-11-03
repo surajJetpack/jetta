@@ -29,7 +29,17 @@ import * as fastspring from "./fastspring";
 import * as monday from "./monday";
 import * as mondayMonetization from "./monday-monetization";
 import * as slack from "./slack";
-import { logEvidence } from "./cloudwatch";
+import { logEvidence, mondayRefsIn } from "./cloudwatch";
+import { sentryEvidence } from "./sentry";
+
+/** Jetpack's own monday host: its links in a ticket are ours, not the customer's account. */
+function ownMondayHost(): string | undefined {
+  try {
+    return config.monday.accountUrl ? new URL(config.monday.accountUrl).host : undefined;
+  } catch {
+    return undefined;
+  }
+}
 import * as events from "../events";
 import { searchPublishedKb } from "../knowledge/dynamic-kb";
 import { vectorEnabled, queryVector, type VectorHit } from "../vector";
@@ -960,14 +970,29 @@ export function buildTools(
           ...(ctx.ticket?.replies ?? []).filter((r) => r.author === "customer" && !r.isPrivate).map((r) => r.body),
         ].join("\n");
         const chat = await chatIdentityForTicket();
+        const evidenceText = [customerText, chat?.pageUrl ?? ""].join("\n");
+        let logIds: { accounts: string[]; slugs: string[] } = { accounts: [], slugs: [] };
         const evidence = await logEvidence({
           app: ctx.app ?? ctx.appProduct,
           email: requesterEmail,
-          text: [customerText, chat?.pageUrl ?? ""].join("\n"),
+          text: evidenceText,
           known: chat?.known,
+          found: (ids) => {
+            logIds = ids;
+          },
         });
         if (evidence) {
           void events.logOpsEvent({ level: "info", event: "applogs.evidence", source: "app", ticketId, data: { app: ctx.app ?? ctx.appProduct } });
+        }
+        // Same customer in Sentry: the ids the chat widget vouched for, then
+        // those the log search found, then slugs from links the customer pasted.
+        const sentry = await sentryEvidence({
+          app: ctx.app ?? ctx.appProduct,
+          accountIds: [...(chat?.known?.accountIds ?? []), ...logIds.accounts],
+          slugs: [...(chat?.known?.slugs ?? []), ...logIds.slugs, ...mondayRefsIn(evidenceText, ownMondayHost()).slugs],
+        });
+        if (sentry) {
+          void events.logOpsEvent({ level: "info", event: "sentry.evidence", source: "app", ticketId, data: { app: ctx.app ?? ctx.appProduct } });
         }
         const item = await monday.createDevItem({
           title,
@@ -978,6 +1003,7 @@ export function buildTools(
           freshdeskTicketUrl: ticketId ? interactionUrl(ticketId) : "(no ticket)",
           attachments: await customerAttachments(),
           logEvidence: evidence,
+          sentryEvidence: sentry,
         });
         mondayItemUrl = item.url;
         return item.deduped

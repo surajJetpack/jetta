@@ -430,6 +430,7 @@ export function reasoningRows(): StatusRow[] {
         "Images a visitor uploads in chat get a light-tier vision pass — errors transcribed verbatim — and the description stays in the prompt for the rest of the conversation. PDFs are skipped. Freshdesk attachments get none of this: the model is never told a file is there, and answers the ticket without it. Slack DMs likewise see only a filename.",
     },
     appLogsRow(),
+    sentryRow(),
   ];
 }
 
@@ -447,6 +448,22 @@ function appLogsRow(): StatusRow {
         ? "No AWS credentials (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY), so nothing reads the logs."
         : "Switched off: no log search for the assistants, no log evidence on dev items.",
     setting: "JETTA_APP_LOGS",
+  };
+}
+
+function sentryRow(): StatusRow {
+  const c = config.sentry;
+  const on = !!c.token && c.enabled;
+  return {
+    label: "Error tracker (Sentry)",
+    tone: on ? "on" : "off",
+    state: !c.token ? "NO TOKEN" : c.enabled ? "READ-ONLY" : "OFF",
+    meaning: on
+      ? `The Slack and console assistants can search Sentry (search_sentry): grouped errors per app with counts, users, first/last seen and links, including the GetSign frontend. A dev item filed from a ticket lists the Sentry issues tagged with that customer's monday account (GetSign backend, Extract AI). Read-only integration token; the ticket agent never sees Sentry results, so they cannot reach a customer. Org ${c.org}.`
+      : !c.token
+        ? "No SENTRY_AUTH_TOKEN, so nothing reads Sentry."
+        : "Switched off: no Sentry search for the assistants, no Sentry issues on dev items.",
+    setting: "JETTA_SENTRY",
   };
 }
 

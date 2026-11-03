@@ -695,6 +695,11 @@ export interface CreateDevItemInput {
    * logEvidence). Goes on the item only; never shown to the ticket agent.
    */
   logEvidence?: string | null;
+  /**
+   * The Sentry issues tagged with this customer's monday account
+   * (lib/tools/sentry.ts sentryEvidence). Item only, like logEvidence.
+   */
+  sentryEvidence?: string | null;
 }
 
 /** A created item, plus the names of the files that actually attached. */
@@ -727,6 +732,9 @@ function contextBody(input: CreateDevItemInput, followUp: boolean): string {
       : [`Error: ${input.errorDescription}`, "", `Reproduction steps:\n${input.reproSteps}`]),
     ...(input.logEvidence
       ? ["", "From the app logs (CloudWatch, added automatically by Jetta; the customer has not seen this):", input.logEvidence]
+      : []),
+    ...(input.sentryEvidence
+      ? ["", "From Sentry (added automatically by Jetta; the customer has not seen this):", input.sentryEvidence]
       : []),
   ].join("\n");
 }
