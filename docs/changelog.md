@@ -4,6 +4,9 @@ Newest first. One entry per change people would notice: what Jetta does differen
 
 Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain words.
 
+## 2026-11-03: Jetta can read Sentry
+The Slack and console assistants can search Sentry, the apps' error tracker (`search_sentry`): grouped errors per app with event and user counts, first/last seen, the release and a link, by monday account id or slug (GetSign backend and Extract AI tag every error with the account), by monday user or board id (JobFlows), or by words from the error, up to 30 days back. It also covers the GetSign frontend, browser errors the server logs never see (those carry no account). A dev item filed from a ticket now lists the Sentry issues tagged with that customer's monday account, found from the chat widget's ids, the log search and pasted monday links. In Sentry "resolved" does not mean fixed: issues auto-resolve while still firing. When Sentry is over its error quota it stores nothing new (seen 2026-10-26 onwards); both the search and the dev item say so rather than report "no errors". Read-only integration token `SENTRY_AUTH_TOKEN`; the ticket agent never sees Sentry results. Switch: `JETTA_SENTRY` (on when the token is set; `off` disables both). Live on merge once the token is in Vercel.
+
 ## 2026-11-03: Log search follows a customer's boards
 Asked about a customer (email, monday account or user id, slug), `search_app_logs` now also searches the boards that customer's log lines name, because many failures are logged against a board, not the account: asked about one customer's account in Slack, Jetta had missed a whole error type logged only against their board. Those lines come back as `via_boards`, and repeats are grouped with a count. Same `JETTA_APP_LOGS` switch. Live on merge.
 
