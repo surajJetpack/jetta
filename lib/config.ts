@@ -182,6 +182,15 @@ export const config = {
    * after the customer hit send reads as a bot; the window is also when a
    * teammate can step in.
    */
+  /**
+   * Where Jetta reads Freshdesk tickets from (lib/ticket-mirror, Postgres).
+   *  - "off": always the Freshdesk API, as before the mirror existed.
+   *  - "reports" (default): internal readers that never write to a customer —
+   *    /today, draft reconcile, performance sync — read the mirror when it is
+   *    current and fall back to Freshdesk when it is not.
+   * Has no effect while DATABASE_URL is unset.
+   */
+  ticketMirror: (env("JETTA_TICKET_MIRROR") === "off" ? "off" : "reports") as "off" | "reports",
   firstResponseDelayMinutes: parseRange(env("JETTA_FIRST_RESPONSE_DELAY"), [3, 7]),
   /**
    * A calendar link customers can book a call on. Unset: a first email asking
@@ -711,6 +720,14 @@ export const config = {
     org: env("SENTRY_ORG") ?? "jetpackapps",
     enabled: env("JETTA_SENTRY") !== "off",
   },
+
+  /**
+   * Shadow triage on GetSign tickets (lib/triage/shadow.ts): a private note
+   * with Jetta's call (setup problem, how-to, missing feature, bug, unsure).
+   * Nothing is sent or routed by it; the team's reply grades it. Off unless
+   * JETTA_TRIAGE_SHADOW=on.
+   */
+  triageShadow: env("JETTA_TRIAGE_SHADOW") === "on",
 
   liveSessionBookingUrl:
     env("LIVE_SESSION_BOOKING_URL") ?? "https://jetpackapps.io/book-a-session",

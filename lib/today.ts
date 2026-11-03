@@ -22,6 +22,7 @@ import { topicTrends, ticketRecords, type TopicTrend, type TicketRecord } from "
 import { yesterdayKey } from "./daily-overview";
 import { listConversations, getConversation } from "./chat-store";
 import { awaitsOurReply, getTicketDetails, isTerminalStatus } from "./tools/freshdesk";
+import { mirrorTicketState } from "./ticket-mirror/read";
 
 const HOUR_S = 3600;
 const WINDOW_HOURS = 24;
@@ -83,9 +84,12 @@ async function liveTicketState(ticketId: string): Promise<LiveTicketState> {
   // empty. Showing one resolved ticket is a smaller failure than hiding five
   // live ones because an API call timed out. awaitingReply fails CLOSED —
   // a timeout must not invent a reply that is owed.
-  const state = await getTicketDetails(ticketId)
-    .then((t) => ({ status: t.status, awaitingReply: awaitsOurReply(t) }))
-    .catch(() => ({ status: null, awaitingReply: false }));
+  // Jetta's own copy first (no Freshdesk call); Freshdesk when it isn't current.
+  const state =
+    (await mirrorTicketState(ticketId)) ??
+    (await getTicketDetails(ticketId)
+      .then((t) => ({ status: t.status, awaitingReply: awaitsOurReply(t) }))
+      .catch(() => ({ status: null, awaitingReply: false })));
   statusCache.set(ticketId, { at: Date.now(), state });
   return state;
 }

@@ -183,6 +183,17 @@ export function capabilityRows(): StatusRow[] {
       setting: "JETTA_FIRST_RESPONSE",
     },
     {
+      label: "Ticket mirror reads",
+      tone: !process.env.DATABASE_URL || config.ticketMirror === "off" ? "off" : "good",
+      state: !process.env.DATABASE_URL ? "NO DATABASE" : config.ticketMirror.toUpperCase(),
+      meaning: !process.env.DATABASE_URL
+        ? "No ticket database is connected; everything reads Freshdesk directly."
+        : config.ticketMirror === "off"
+          ? "Off. Everything reads Freshdesk directly; the copy keeps filling but nothing uses it."
+          : "Today, draft matching and the performance sync read Jetta's own copy of the tickets when it is up to date, saving Freshdesk API calls. Ticket replies still read Freshdesk.",
+      setting: "JETTA_TICKET_MIRROR",
+    },
+    {
       label: "Write to the monday dev boards",
       tone: config.monday.allowWrites ? "on" : "off",
       state: config.monday.allowWrites ? "ARMED" : "DRY RUN",
@@ -421,6 +432,7 @@ export function reasoningRows(): StatusRow[] {
     appLogsRow(),
     sentryRow(),
     errorWatchRow(),
+    triageShadowRow(),
   ];
 }
 
@@ -455,6 +467,19 @@ function errorWatchRow(): StatusRow {
         ? "No Sentry token or AWS keys, so there is nothing to watch."
         : "Switched off (JETTA_ERROR_WATCH=off): the Logs page shows the last run.",
     setting: "JETTA_ERROR_WATCH",
+  };
+}
+
+function triageShadowRow(): StatusRow {
+  const on = config.triageShadow;
+  return {
+    label: "GetSign triage (shadow)",
+    tone: on ? "on" : "off",
+    state: on ? "SHADOW" : "OFF",
+    meaning: on
+      ? "On a new GetSign ticket, Jetta adds one private note with her call: a setup problem the customer can fix (with what to check and the usual fix), a how-to question, a missing feature, a likely bug, or unsure. Nothing is sent to the customer or routed by it, and the reply agent never reads it; the team's own reply grades it. Playbook built from 90 days of resolved GetSign tickets."
+      : "Off: no triage note on GetSign tickets.",
+    setting: "JETTA_TRIAGE_SHADOW",
   };
 }
 
@@ -558,6 +583,7 @@ export const CRONS: readonly EndpointRow[] = [
   { path: "/api/cron/daily-overview", detail: "Yesterday's rollup and its written narrative", schedule: "daily 06:10" },
   { path: "/api/cron/performance-sync", detail: "Reads changed Freshdesk tickets into the Support health and Performance stores", schedule: "hourly at :40" },
   { path: "/api/cron/activity-sync", detail: "Reads Slack, monday and the KB audit into Team activity", schedule: "hourly at :25" },
+  { path: "/api/cron/ticket-sync", detail: "Copies changed Freshdesk tickets and messages into Jetta's own Postgres ticket store, then backfills 180 days of history with leftover API budget. Reads Freshdesk only; idle when DATABASE_URL is unset", schedule: "every 5 min" },
   { path: "/api/cron/dev-board-sync", detail: "Reads both monday dev boards (read-only) and analyses new item conversations for Dev board", schedule: "hourly at :50" },
   { path: "/api/cron/error-watch", detail: "Reads Sentry and the app logs for the Logs page: flags new and spiking errors hitting customers, alerts Slack, lists or files dev items (JETTA_ERROR_WATCH_DEV_ITEMS), writes the AI read. Off with JETTA_ERROR_WATCH=off", schedule: "hourly at :35" },
   { path: "/api/cron/dev-followup", detail: "Asks developers for an update on quiet dev items a customer is waiting on; escalates after two unanswered asks. Armed by JETTA_DEV_FOLLOWUP", schedule: "daily 04:30" },

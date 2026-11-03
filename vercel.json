@@ -48,6 +48,10 @@
     {
       "path": "/api/cron/error-watch",
       "schedule": "35 * * * *"
+    },
+    {
+      "path": "/api/cron/ticket-sync",
+      "schedule": "*/5 * * * *"
     }
   ]
 }
