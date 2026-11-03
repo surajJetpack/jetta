@@ -420,6 +420,7 @@ export function reasoningRows(): StatusRow[] {
     },
     appLogsRow(),
     sentryRow(),
+    triageShadowRow(),
   ];
 }
 
@@ -437,6 +438,19 @@ function appLogsRow(): StatusRow {
         ? "No AWS credentials (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY), so nothing reads the logs."
         : "Switched off: no log search for the assistants, no log evidence on dev items.",
     setting: "JETTA_APP_LOGS",
+  };
+}
+
+function triageShadowRow(): StatusRow {
+  const on = config.triageShadow;
+  return {
+    label: "GetSign triage (shadow)",
+    tone: on ? "on" : "off",
+    state: on ? "SHADOW" : "OFF",
+    meaning: on
+      ? "On a new GetSign ticket, Jetta adds one private note with her call: a setup problem the customer can fix (with what to check and the usual fix), a how-to question, a missing feature, a likely bug, or unsure. Nothing is sent to the customer or routed by it, and the reply agent never reads it; the team's own reply grades it. Playbook built from 90 days of resolved GetSign tickets."
+      : "Off: no triage note on GetSign tickets.",
+    setting: "JETTA_TRIAGE_SHADOW",
   };
 }
 

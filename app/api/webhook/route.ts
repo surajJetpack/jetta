@@ -21,6 +21,7 @@ import { after } from "next/server";
 import { config } from "@/lib/config";
 import { buildContext, buildMessages } from "@/lib/context";
 import { obviousNonQuery } from "@/lib/intake";
+import { runShadowTriage } from "@/lib/triage/shadow";
 import * as freshdesk from "@/lib/tools/freshdesk";
 import { buildSystemPrompt } from "@/lib/system-prompt";
 import { runAgentLoop } from "@/lib/agent";
@@ -128,6 +129,9 @@ export async function POST(req: NextRequest) {
 async function processTicket(ticketId: string, channel: "freshdesk" | "freshchat"): Promise<void> {
   // Set once the run marker is claimed, so the catch can release it on failure.
   let claimedMarker: string | null = null;
+  // Shadow triage runs beside the agent and is awaited before the function
+  // ends; it never throws and never changes what the run does.
+  let shadow: Promise<void> | null = null;
   try {
     const ctx = await buildContext(ticketId, channel);
     if (!ctx.ticket) {
@@ -222,6 +226,7 @@ async function processTicket(ticketId: string, channel: "freshdesk" | "freshchat
       return;
     }
     claimedMarker = marker;
+    shadow = runShadowTriage(ctx);
 
     const draftMode = config.replyMode === "draft";
     // First response: on a ticket that came in directly and nobody has
@@ -326,6 +331,8 @@ async function processTicket(ticketId: string, channel: "freshdesk" | "freshchat
     });
     // Release the customer-message marker so a retry can process this message.
     if (claimedMarker) await unmarkEventSeen(claimedMarker).catch(() => {});
+  } finally {
+    if (shadow) await shadow;
   }
 }
 

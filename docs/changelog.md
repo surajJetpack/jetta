@@ -4,6 +4,9 @@ Newest first. One entry per change people would notice: what Jetta does differen
 
 Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain words.
 
+## 2026-11-03: GetSign triage note (shadow)
+On a new GetSign ticket Jetta adds one private note with her call: a setup problem the customer can fix (what to check, the usual fix), a how-to question, a missing feature, a likely bug, or unsure (with the question that would decide it). Nothing is sent or routed by it and the reply agent never reads it; the team's reply on the same ticket grades it. The playbook behind it was built from 90 days of resolved GetSign tickets; on 29 held-back tickets it called none of the real bugs a setup problem. Switch: `JETTA_TRIAGE_SHADOW` (off unless `on`). Off on merge.
+
 ## 2026-11-03: Jetta can read Sentry
 The Slack and console assistants can search Sentry, the apps' error tracker (`search_sentry`): grouped errors per app with event and user counts, first/last seen, the release and a link, by monday account id or slug (GetSign backend and Extract AI tag every error with the account), by monday user or board id (JobFlows), or by words from the error, up to 30 days back. It also covers the GetSign frontend, browser errors the server logs never see (those carry no account). A dev item filed from a ticket now lists the Sentry issues tagged with that customer's monday account, found from the chat widget's ids, the log search and pasted monday links. In Sentry "resolved" does not mean fixed: issues auto-resolve while still firing. When Sentry is over its error quota it stores nothing new (seen 2026-10-26 onwards); both the search and the dev item say so rather than report "no errors". Read-only integration token `SENTRY_AUTH_TOKEN`; the ticket agent never sees Sentry results. Switch: `JETTA_SENTRY` (on when the token is set; `off` disables both). Live on merge once the token is in Vercel.
 
