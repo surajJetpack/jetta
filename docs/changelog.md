@@ -4,6 +4,9 @@ Newest first. One entry per change people would notice: what Jetta does differen
 
 Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain words.
 
+## 2026-11-03: Jetta keeps its own copy of every ticket
+First step towards a Jetta-native help desk: a Postgres database (Neon) now mirrors Freshdesk tickets, messages, attachment names and contacts. A new cron (`/api/cron/ticket-sync`, every 5 min) copies what changed, then fills in 180 days of history using only spare Freshdesk API budget, so customer-facing runs are never slowed. Nothing reads the copy yet, so Jetta behaves exactly as before; the console inbox and Jetta's switch-over come next. Idle until `DATABASE_URL` is set.
+
 ## 2026-11-03: Jetta can read Sentry
 The Slack and console assistants can search Sentry, the apps' error tracker (`search_sentry`): grouped errors per app with event and user counts, first/last seen, the release and a link, by monday account id or slug (GetSign backend and Extract AI tag every error with the account), by monday user or board id (JobFlows), or by words from the error, up to 30 days back. It also covers the GetSign frontend, browser errors the server logs never see (those carry no account). A dev item filed from a ticket now lists the Sentry issues tagged with that customer's monday account, found from the chat widget's ids, the log search and pasted monday links. In Sentry "resolved" does not mean fixed: issues auto-resolve while still firing. When Sentry is over its error quota it stores nothing new (seen 2026-10-26 onwards); both the search and the dev item say so rather than report "no errors". Read-only integration token `SENTRY_AUTH_TOKEN`; the ticket agent never sees Sentry results. Switch: `JETTA_SENTRY` (on when the token is set; `off` disables both). Live on merge once the token is in Vercel.
 
