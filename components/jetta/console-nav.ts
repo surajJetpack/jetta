@@ -16,6 +16,7 @@
 import {
   BarChart3,
   BookOpen,
+  Bug,
   ClipboardCheck,
   CreditCard,
   FlaskConical,
@@ -118,6 +119,14 @@ export const NAV: NavGroup[] = [
         label: "Dev board",
         icon: KanbanSquare,
         hint: "Client issues on the monday dev boards — pace, whose move, support's part, recurring problems, lessons for the KB",
+        adminOnly: true,
+      },
+      {
+        id: "logs",
+        href: "/logs",
+        label: "Logs & errors",
+        icon: Bug,
+        hint: "Errors per app from Sentry and the server logs, what's new or spiking, who it hits",
         adminOnly: true,
       },
       {
@@ -246,6 +255,13 @@ export const PAGE_SECTIONS: Record<string, Record<string, string>> = {
     support: "Support on the boards — per support person",
     patterns: "Patterns from the conversations — kinds, friction, recurring areas",
     knowledge: "Knowledge from the threads — lessons for the KB",
+  },
+  logs: {
+    status: "Status — is Sentry storing, are the logs, Slack alerts and dev items on",
+    "ai-read": "The AI read",
+    attention: "Needs attention — new or spiking errors that hit customers",
+    "by-app": "By app — Sentry errors and log failures, 14-day trends",
+    activity: "Recent alerts and dev items the watch filed or would file",
   },
   activity: {
     scorecard: "Who did what — the scorecard",

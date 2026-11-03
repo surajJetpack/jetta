@@ -49,8 +49,10 @@ function Points<D>({
                   onClick={() => open({ title: p.evidence!.title, description: p.evidence!.description, drill: p.evidence!.drill })}
                   className="ml-1.5 rounded-sm text-xs whitespace-nowrap text-muted-foreground underline decoration-dotted underline-offset-4 outline-none hover:text-foreground hover:decoration-solid focus-visible:ring-[3px] focus-visible:ring-ring/50"
                 >
-                  {p.evidence.count} {unit}
-                  {p.evidence.count === 1 ? "" : "s"}
+                  {/* A point's own unit is written out in full ("log lines in 24h"); only the default is pluralised. */}
+                  {p.evidence.unit
+                    ? `${p.evidence.count} ${p.evidence.unit}`
+                    : `${p.evidence.count} ${unit}${p.evidence.count === 1 ? "" : "s"}`}
                 </button>
               )}
             </span>

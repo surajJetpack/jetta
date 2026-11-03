@@ -46,6 +46,10 @@
       "schedule": "30 4 * * *"
     },
     {
+      "path": "/api/cron/error-watch",
+      "schedule": "35 * * * *"
+    },
+    {
       "path": "/api/cron/ticket-sync",
       "schedule": "*/5 * * * *"
     }

@@ -293,6 +293,50 @@ export async function searchLogs(q: LogSearch): Promise<LogSearchResult> {
   };
 }
 
+/**
+ * Failure lines per hour for one app (production groups only), newest hour
+ * last. For the error watch's trend: one Logs Insights `stats` query, so it
+ * costs a scan but returns 24-170 numbers, not lines. Hours with no failures
+ * are absent from CloudWatch's answer and come back as 0. Hour keys are ISO
+ * strings truncated to the hour ("2026-11-03T05").
+ */
+export async function errorCountsByHour(app: LogApp, hours: number, timeoutMs = 40_000): Promise<{ counts: Record<string, number>; complete: boolean; groups: string[] }> {
+  const entry = LOG_GROUPS[app];
+  if (!entry) throw new Error(`no log groups for app "${app}"`);
+  const end = Math.floor(Date.now() / 1000);
+  const start = end - Math.min(Math.max(hours, 1), MAX_HOURS) * 3600;
+  // Same rule as searchLogs: a group whose stored logs cannot reach the end
+  // fails the whole query, so it is left out.
+  const { usable } = await coveringGroups(entry.groups.filter((g) => !g.staging).map((g) => g.name), end);
+  if (!usable.length) return { counts: {}, complete: true, groups: [] };
+  const query = [...ERROR_FILTERS, "stats count() as n by bin(1h) as hour"].join(" | ");
+  const { queryId } = await cw().send(
+    new StartQueryCommand({ logGroupNames: usable, startTime: start, endTime: end, queryString: query }),
+  );
+  if (!queryId) throw new Error("CloudWatch did not start the query");
+  const deadline = Date.now() + timeoutMs;
+  let res = await cw().send(new GetQueryResultsCommand({ queryId }));
+  while ((res.status === "Scheduled" || res.status === "Running") && Date.now() < deadline) {
+    await wait(1500);
+    res = await cw().send(new GetQueryResultsCommand({ queryId }));
+  }
+  const complete = res.status === "Complete";
+  if (!complete && (res.status === "Scheduled" || res.status === "Running")) {
+    await cw().send(new StopQueryCommand({ queryId })).catch(() => {});
+  }
+  if (res.status === "Failed" || res.status === "Cancelled" || res.status === "Timeout") {
+    throw new Error(`CloudWatch query ${res.status.toLowerCase()}`);
+  }
+  const counts: Record<string, number> = {};
+  for (const row of res.results ?? []) {
+    const f = Object.fromEntries(row.map((c) => [c.field, c.value ?? ""]));
+    if (!f.hour) continue;
+    // "2026-11-03 05:00:00.000" (UTC)
+    counts[f.hour.replace(" ", "T").slice(0, 13)] = Number(f.n) || 0;
+  }
+  return { counts, complete, groups: usable };
+}
+
 /** The monday ids a set of log lines carries, as the apps write them. */
 export function idsIn(lines: LogLine[]): { accounts: string[]; users: string[]; boards: string[] } {
   const accounts = new Set<string>();
@@ -319,7 +363,7 @@ const EVIDENCE_LINES = 40;
  * BackofficeFunnelSyncProcessor job failed". Left out of dev items only;
  * search_app_logs still finds them.
  */
-const EVIDENCE_NOISE = /BackofficeFunnelSync/;
+export const EVIDENCE_NOISE = /BackofficeFunnelSync/;
 
 /** Repeats of one failure (same text bar ids and times) collapse to one row with a count. */
 export function groupLines(lines: LogLine[]): (LogLine & { count: number })[] {
