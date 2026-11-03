@@ -4,6 +4,9 @@ Newest first. One entry per change people would notice: what Jetta does differen
 
 Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain words.
 
+## 2026-11-03: Jetta keeps its own copy of every ticket
+First step towards a Jetta-native help desk: a Postgres database (Neon) now mirrors Freshdesk tickets, messages, attachment names and contacts. A new cron (`/api/cron/ticket-sync`, every 5 min) copies what changed, then fills in 180 days of history using only spare Freshdesk API budget, so customer-facing runs are never slowed. Nothing reads the copy yet, so Jetta behaves exactly as before; the console inbox and Jetta's switch-over come next. Idle until `DATABASE_URL` is set.
+
 ## 2026-11-03: Log search follows a customer's boards
 Asked about a customer (email, monday account or user id, slug), `search_app_logs` now also searches the boards that customer's log lines name, because many failures are logged against a board, not the account: asked about one customer's account in Slack, Jetta had missed a whole error type logged only against their board. Those lines come back as `via_boards`, and repeats are grouped with a count. Same `JETTA_APP_LOGS` switch. Live on merge.
 

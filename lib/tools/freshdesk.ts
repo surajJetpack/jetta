@@ -9,6 +9,7 @@ import { humanizeText } from "../human-text";
 import { imageDimensions } from "../image-dims";
 import { shiftDayKey, supportTimeZone, zonedDayKey, zonedWeekday } from "../tz";
 import type { Attachment, AttachmentFile, Ticket, TicketReply } from "../types";
+import { recordFdBudget } from "./fd-budget";
 
 const FRESHDESK_RESOLVED = 4;
 const FRESHDESK_CLOSED = 5;
@@ -139,6 +140,7 @@ const MAX_RETRY_WAIT_MS = 30_000;
 export async function fd<T>(path: string, init?: RequestInit): Promise<T> {
   for (let attempt = 0; ; attempt++) {
     const res = await fetch(fdUrl(path), { ...init, headers: fdHeaders() });
+    recordFdBudget(res.headers);
 
     // A 429 means Freshdesk REJECTED the request without processing it, so this
     // is safe to retry even for POST/PUT — there's no risk of a duplicate reply
