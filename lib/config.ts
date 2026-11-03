@@ -682,6 +682,19 @@ export const config = {
     enabled: env("JETTA_APP_LOGS") !== "off",
   },
 
+  /**
+   * The apps' error tracker, Sentry, read-only (internal integration "Jetta
+   * (read-only)": Project, Issue & Event and Organization Read, nothing else).
+   * With the token set, colleagues' assistants get search_sentry and dev items
+   * filed from tickets list the Sentry issues tagged with that customer's
+   * monday account. JETTA_SENTRY=off turns both off without removing the token.
+   */
+  sentry: {
+    token: env("SENTRY_AUTH_TOKEN"),
+    org: env("SENTRY_ORG") ?? "jetpackapps",
+    enabled: env("JETTA_SENTRY") !== "off",
+  },
+
   liveSessionBookingUrl:
     env("LIVE_SESSION_BOOKING_URL") ?? "https://jetpackapps.io/book-a-session",
 } as const;
