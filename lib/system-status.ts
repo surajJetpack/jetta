@@ -183,6 +183,17 @@ export function capabilityRows(): StatusRow[] {
       setting: "JETTA_FIRST_RESPONSE",
     },
     {
+      label: "Ticket mirror reads",
+      tone: !process.env.DATABASE_URL || config.ticketMirror === "off" ? "off" : "good",
+      state: !process.env.DATABASE_URL ? "NO DATABASE" : config.ticketMirror.toUpperCase(),
+      meaning: !process.env.DATABASE_URL
+        ? "No ticket database is connected; everything reads Freshdesk directly."
+        : config.ticketMirror === "off"
+          ? "Off. Everything reads Freshdesk directly; the copy keeps filling but nothing uses it."
+          : "Today, draft matching and the performance sync read Jetta's own copy of the tickets when it is up to date, saving Freshdesk API calls. Ticket replies still read Freshdesk.",
+      setting: "JETTA_TICKET_MIRROR",
+    },
+    {
       label: "Write to the monday dev boards",
       tone: config.monday.allowWrites ? "on" : "off",
       state: config.monday.allowWrites ? "ARMED" : "DRY RUN",

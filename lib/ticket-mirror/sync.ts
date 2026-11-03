@@ -403,8 +403,13 @@ export async function runTicketSync(budgetMs: number): Promise<SyncRunReport | n
   // First run: start the delta from now; history is the backfill's job.
   const deltaCursor =
     (await getState<string>(db, "delta_cursor")) ?? new Date(Date.now() - 5 * 60_000).toISOString();
+  const walkStarted = new Date(Date.now() - 60_000).toISOString();
   const delta = await walk(deltaCursor, deadline);
   await setState(db, "delta_cursor", delta.cursor);
+  // A finished walk means every ticket changed before it started is mirrored —
+  // the freshness readers rely on (lib/ticket-mirror/read.ts), even in a quiet
+  // hour when the cursor itself doesn't move.
+  if (delta.done) await setState(db, "delta_caught_up_at", walkStarted);
 
   const agentsSynced = await syncAgentsIfStale().catch(() => false);
 
