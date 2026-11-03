@@ -704,6 +704,14 @@ export const config = {
     enabled: env("JETTA_SENTRY") !== "off",
   },
 
+  /**
+   * Shadow triage on GetSign tickets (lib/triage/shadow.ts): a private note
+   * with Jetta's call (setup problem, how-to, missing feature, bug, unsure).
+   * Nothing is sent or routed by it; the team's reply grades it. Off unless
+   * JETTA_TRIAGE_SHADOW=on.
+   */
+  triageShadow: env("JETTA_TRIAGE_SHADOW") === "on",
+
   liveSessionBookingUrl:
     env("LIVE_SESSION_BOOKING_URL") ?? "https://jetpackapps.io/book-a-session",
 } as const;

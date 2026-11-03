@@ -1,0 +1,709 @@
+{
+ "source": "Built 2026-11-03 from 85 resolved GetSign tickets (90 days). Product details come from what agents said on those tickets; check them against the KB before telling a customer.",
+ "rules": [
+  {
+   "id": "wrong-automation-location",
+   "area": "triggers_automations",
+   "kind": "how_to",
+   "title": "Automation Triggers Are Configured in the GetSign View, Not Monday's Automation Builder",
+   "symptoms": [
+    "My automation runs and says it's successful, but the document is not sent.",
+    "The email is not being sent, but the automation log shows a successful run.",
+    "I can't find where to configure the GetSign sending automation."
+   ],
+   "check": "Check the board's main 'Automations' section for a native monday.com recipe trying to trigger GetSign. This is the incorrect location. The correct configuration is found inside the GetSign item view.",
+   "fix": "Delete any custom monday.com automation recipes you built to send GetSign documents. Instead, open an item on your board, navigate to the GetSign view, and configure the sending trigger (e.g., 'When status changes to...') directly within the GetSign template settings.",
+   "notABugBecause": "GetSign's primary sending automation is configured within its own item view, not through monday.com's general-purpose automation recipes."
+  },
+  {
+   "id": "incorrect-status-trigger",
+   "area": "triggers_automations",
+   "kind": "config",
+   "title": "Automation Not Triggering Due to Incorrect Status Label",
+   "symptoms": [
+    "The automation to generate a signing link when a status changes is not working.",
+    "Changing the status doesn't do anything.",
+    "My status trigger isn't firing the automation."
+   ],
+   "check": "In the GetSign item view settings, find the automation trigger section (e.g., 'When status changes to...'). Compare the status label selected there with the actual status label being used on the board item to trigger the process.",
+   "fix": "Open the GetSign item view, go to the template settings, find the trigger condition, and select the exact status label that you want to initiate the sending process. Save the template.",
+   "notABugBecause": "The automation was configured to listen for a different status change than the one being performed by the user."
+  },
+  {
+   "id": "stale-automation-connection",
+   "area": "triggers_automations",
+   "kind": "config",
+   "title": "Automation Fails Due to Stale Connection",
+   "symptoms": [
+    "Documents are not being sent and the status shows 'Failed'.",
+    "My automation was working previously but now it fails.",
+    "The GetSign integration needs to be repaired."
+   ],
+   "check": "In the board's 'Automations' section, go to the GetSign tab. A stale connection will often show an error or a prompt to 'Repair' the connection.",
+   "fix": "Navigate to the GetSign board settings or the integration tab in the main Automations center. Click the 'Save' button and then click the 'Repair' button to re-authenticate the connection.",
+   "notABugBecause": "The authentication token between monday.com and GetSign expired or became invalid and required a manual refresh."
+  },
+  {
+   "id": "missing-or-empty-mapped-columns",
+   "area": "triggers_automations",
+   "kind": "config",
+   "title": "Automation Fails with 'Column ID doesn't exist' or 'No Recipient' Errors",
+   "symptoms": [
+    "Batch AutoSend has some successes and some failures.",
+    "The automation failed with a 'This column ID doesn't exist for the board' error.",
+    "I'm getting a 'No Recipient found for this document' error."
+   ],
+   "check": "In the GetSign template settings, review all mapped columns (recipient email, output URL/Link column, etc.). Verify that these columns still exist on the board. For failed items, check if the mapped columns (especially the recipient email column) contain a value.",
+   "fix": "Go to the GetSign template settings. If a mapped column was deleted, re-map the field to an existing column on your board and save. For items that failed due to a missing recipient, ensure there is a valid email address in the mapped email column for that item and re-trigger the automation.",
+   "notABugBecause": "The automation failed because it was configured to use a board column that was either deleted or was empty for the specific item being processed."
+  },
+  {
+   "id": "how-to-use-status-column",
+   "area": "triggers_automations",
+   "kind": "how_to",
+   "title": "Using Status Changes for Automations (Sending vs. Canceling)",
+   "symptoms": [
+    "How do I automatically cancel a signature request using a status change?",
+    "Is there an API to check the document's status for other automations?",
+    "How can I trigger another automation when a document is signed?"
+   ],
+   "check": "Review the available GetSign automation recipes in monday.com to confirm there are triggers for sending documents, but not for canceling them. Check the GetSign status column on the board to see how it updates (e.g., Sent, Viewed, Signed).",
+   "fix": "GetSign automations can trigger sending a document based on a status change, but there is no feature to cancel a request via automation. To trigger other workflows, use the GetSign Status column itself. This column updates automatically and can be used as a trigger (e.g., 'When status changes to Signed...') in any standard monday.com automation recipe.",
+   "notABugBecause": "The user was asking for a feature that does not exist (cancel via automation) and was unaware of how to use an existing feature (the GetSign status column) for subsequent automations."
+  },
+  {
+   "id": "how-to-automate-generate-and-send",
+   "area": "triggers_automations",
+   "kind": "how_to",
+   "title": "How to Automate Both Generating a Document and Sending it for Signature",
+   "symptoms": [
+    "I want one automation to create a document from board data and send it.",
+    "How do I automate sending a generated document for signature?",
+    "Is there a way to combine document generation and sending into one step?"
+   ],
+   "check": "Verify the user wants to first generate a DOCX/PDF from item data and then send that new file for signature. This requires two linked automation recipes: one for generation and one for sending.",
+   "fix": "This requires a two-recipe workflow. First, set up a document generation recipe triggered by a status change, configured to save the output file to a Files column. Second, set up a GetSign 'Auto Sign Anywhere' recipe triggered by the same (or a subsequent) status change, configured to take the document from that same Files column and send it for signature.",
+   "notABugBecause": "The platform's design requires a two-step workflow (generate, then send) which can be chained together with automations to feel like a single process."
+  },
+  {
+   "id": "reminders-resetting-status",
+   "area": "triggers_automations",
+   "kind": "config",
+   "title": "Document Status Incorrectly Resets to 'No Status'",
+   "symptoms": [
+    "My document status changed from 'Sent' or 'Viewed' back to blank.",
+    "Tracking data was cleared and I had to resend the agreement.",
+    "The status is being reset on its own."
+   ],
+   "check": "In the GetSign template settings (inside the item view), expand the 'Send \u2013 Email Delivery' section and check if the 'Send automatic reminders' checkbox is enabled.",
+   "fix": "Navigate to the GetSign template settings for the document. In the 'Send \u2013 Email Delivery' section, uncheck the 'Send automatic reminders' option and save the template. This feature was causing a conflict that reset the document's status.",
+   "notABugBecause": "An unexpected interaction with the 'automatic reminders' feature was causing the document status to be reset."
+  },
+  {
+   "id": "dirty-status-label-conflict",
+   "area": "triggers_automations",
+   "kind": "config",
+   "title": "AutoSend Status Shows 'Failed' But Document Was Sent Successfully",
+   "symptoms": [
+    "The AutoSend status column says 'Failed', but the email was sent and the form was completed.",
+    "The status shows an error but I know the automation worked.",
+    "The status column is reporting a false failure."
+   ],
+   "check": "Review the status column and the specific label used to trigger the GetSign automation. Note if this label is used in other automations or has been recently modified. The issue is confirmed if using a brand new, unused status label resolves the problem.",
+   "fix": "The status label you are using might have a conflict or a retained error state. Create a new, unique status label in your status column (e.g., 'Send Document'). Then, update your GetSign AutoSend automation recipe to use this new label as the trigger. This ensures a clean state.",
+   "notABugBecause": "The status label used as a trigger retained a previous error state or was part of a conflicting automation, causing a false 'Failed' report."
+  },
+  {
+   "id": "data-storage-and-residency",
+   "area": "other",
+   "kind": "how_to",
+   "title": "Questions about Data Storage, Security, and Residency (GDPR)",
+   "symptoms": [
+    "Where are my documents and data stored?",
+    "Is your app GDPR compliant?",
+    "How do you handle data security and encryption?",
+    "What is your data retention policy for uploaded templates?"
+   ],
+   "check": "Confirm the user is asking about the app's architecture, data handling, and compliance, often in a pre-sales or security review context.",
+   "fix": "Explain that GetSign is a native monday.com app, so all data (templates, documents, signatures) is stored within the customer's own monday.com account storage. Data residency and compliance (like GDPR) are therefore inherited from their monday.com account's regional settings. Direct them to the app's Trust Center and monday.com's own compliance documentation for further details.",
+   "notABugBecause": "The app functions as designed by leveraging monday.com's native storage, and the user needs clarification on this architecture."
+  },
+  {
+   "id": "requesting-usage-reports",
+   "area": "other",
+   "kind": "how_to",
+   "title": "Requesting Document Usage Reports",
+   "symptoms": [
+    "Can I get a report of our document usage?",
+    "I need a month-by-month breakdown of how many documents we sent.",
+    "How do I see our account usage?"
+   ],
+   "check": "Confirm the user is asking for historical usage data that is not available in the app's UI or billing section.",
+   "fix": "Inform the user that self-service usage reporting is not currently a feature. Escalate the request to the internal team to manually pull the required data and provide it to the customer.",
+   "notABugBecause": "This is a request for a feature (self-service reporting) that does not exist; the current process requires manual intervention."
+  },
+  {
+   "id": "unreleased-feature-not-visible",
+   "area": "other",
+   "kind": "how_to",
+   "title": "Cannot Find a Feature Shown in a Demo",
+   "symptoms": [
+    "I saw a board view in a demo but I can't find it.",
+    "How do I add the new board view feature?",
+    "The feature I was promised isn't available in my account."
+   ],
+   "check": "Check internal release notes or the feature flag system to confirm if the feature the customer is asking about (e.g., Board View) has been fully released to all users.",
+   "fix": "Inform the user that the feature is in a phased rollout or has not yet been publicly released. Provide an estimated timeline if available and offer to notify them upon release. Once released, provide setup documentation.",
+   "notABugBecause": "The feature is working as intended for its current release stage, but it has not been made available to this user's account yet."
+  },
+  {
+   "id": "audit-trail-ip-address",
+   "area": "other",
+   "kind": "how_to",
+   "title": "Information Captured in the Audit Trail (e.g., IP Address)",
+   "symptoms": [
+    "Does GetSign capture the signer's IP address?",
+    "What information is included in the audit trail?",
+    "Can I see where someone signed a document from?"
+   ],
+   "check": "Review the audit trail of any completed document to confirm that 'viewed' and 'signed' events include the signer's IP address.",
+   "fix": "Confirm to the customer that the IP address is captured for both 'viewed' and 'signed' events and is visible in the document's audit trail, which provides a comprehensive record of the signing process.",
+   "notABugBecause": "The feature exists and works as expected; the user was asking for clarification on product capabilities documented in the audit trail."
+  },
+  {
+   "id": "controlling-board-view-visibility",
+   "area": "other",
+   "kind": "how_to",
+   "title": "Hiding or Restricting a GetSign Board View",
+   "symptoms": [
+    "How can I hide the GetSign Board View from other users?",
+    "Can I make a board view private to just me?",
+    "I need to control who can see the GetSign view on our board."
+   ],
+   "check": "Verify the user is asking about permissions for a monday.com board view, which is a platform-level feature, not a setting within the GetSign app itself.",
+   "fix": "Explain that GetSign board views are a standard monday.com feature, and their visibility is controlled by monday.com's native board view permissions. Advise the user to use the 'Restrict View' option in the board view's settings (three-dot menu) and direct them to monday.com's documentation or support for detailed instructions.",
+   "notABugBecause": "This functionality is controlled by the host platform (monday.com), not the app. The app correctly integrates with monday.com's standard view features."
+  },
+  {
+   "id": "template-feature-plan-mismatch",
+   "area": "plan_premium",
+   "kind": "config",
+   "title": "Documents are blank or workflows misfire due to plan incompatibility",
+   "symptoms": [
+    "The document is not showing or appears blank when a signer opens it.",
+    "My workflow keeps re-sending signature requests, even after the document is signed.",
+    "When I try to switch to a new template for an item, it seems to be stuck on the old one.",
+    "My fillable form fields are missing from the document."
+   ],
+   "check": "Check the user's current GetSign subscription plan. Then, inspect the GetSign template being used and look for enabled premium features (e.g., Signing Order, Fillable Form Fields, Merge Formulas) that are not included in their current plan.",
+   "fix": "Advise the user to either upgrade their plan to one that includes the features used in their template, or to edit the template and disable the premium features to align it with their current subscription.",
+   "notABugBecause": "The app functions as designed by restricting premium features to the corresponding plans. Using a template configured with premium features on a lower-tier plan where those features are unavailable will cause conflicts."
+  },
+  {
+   "id": "managing-marketplace-subscription",
+   "area": "plan_premium",
+   "kind": "how_to",
+   "title": "Customer wants to change, cancel, or get a refund for their subscription",
+   "symptoms": [
+    "How do I cancel my subscription?",
+    "I accidentally purchased an annual plan, how can I switch to monthly and get a refund?",
+    "I need to change my plan from Pro to Business."
+   ],
+   "check": "Confirm the subscription is billed via the monday.com Marketplace. You can verify this by checking if their email exists in legacy billing systems; if it doesn't, they are a Marketplace customer.",
+   "fix": "Explain that all billing, plan changes, and cancellations for Marketplace apps are handled directly by the user within their monday.com account. Guide them to the 'Admin' > 'Apps' section to manage their GetSign subscription. For refund requests, they must contact monday.com support directly.",
+   "notABugBecause": "Subscription management (billing changes, cancellations, refunds) for apps purchased through the monday.com Marketplace is controlled by monday.com and managed by the user in their account, not by the app developer."
+  },
+  {
+   "id": "starting-trial-or-plan",
+   "area": "plan_premium",
+   "kind": "how_to",
+   "title": "How to sign up for GetSign or start the free trial",
+   "symptoms": [
+    "How do I sign up for a GetSign plan?",
+    "How can I access the 14-day free trial?",
+    "Do I need to create an account before installing the app?"
+   ],
+   "check": "Check if the user has already installed the GetSign app from the monday.com Marketplace on their account.",
+   "fix": "Explain that the 14-day free trial starts automatically upon installing the GetSign app from the monday.com Marketplace. To subscribe to a paid plan, they can select a plan from within the app's 'Subscription' settings after installation.",
+   "notABugBecause": "The trial and subscription process is initiated by installing the app from the monday.com Marketplace, which is the standard procedure for all marketplace apps."
+  },
+  {
+   "id": "understanding-usage-limits",
+   "area": "plan_premium",
+   "kind": "how_to",
+   "title": "Questions about how plan limits are counted and reset",
+   "symptoms": [
+    "How are signatures counted for a document with multiple signers?",
+    "When do my monthly signature limits reset?",
+    "Does a document with two signers count as one or two signatures?",
+    "Do unused signatures roll over to the next month?"
+   ],
+   "check": "Review the pricing page to confirm the current counting and reset rules. For a specific customer complaint, check their usage stats in the GetSign dashboard to see how a multi-signer document impacted their count.",
+   "fix": "Explain that each individual signature action counts as one eSignature towards the monthly limit (e.g., 1 document sent to 2 signers consumes 2 eSignatures). Clarify that limits reset on their monthly billing anniversary and do not roll over, regardless of whether they are on a monthly or annual plan.",
+   "notABugBecause": "This is a question about how the product's pricing and usage limits are designed to work."
+  },
+  {
+   "id": "managing-plan-for-seasonal-needs",
+   "area": "plan_premium",
+   "kind": "how_to",
+   "title": "How to manage a plan for seasonal or fluctuating signature volume",
+   "symptoms": [
+    "My business is seasonal, how can I adjust my plan?",
+    "How do I manage my plan with fluctuating monthly signature volume?",
+    "Can I upgrade for a busy month and then downgrade for a quiet one?"
+   ],
+   "check": "Confirm the customer is on a monthly billing cycle, which allows for plan flexibility. If they are on an annual plan, they cannot easily downgrade month-to-month.",
+   "fix": "Advise the customer to use a monthly billing cycle for maximum flexibility. Explain they can upgrade or downgrade their plan at any time through their monday.com account's app subscription settings to match their business's fluctuating needs.",
+   "notABugBecause": "This is a how-to question about the best way to leverage the existing subscription management features for a specific business model."
+  },
+  {
+   "id": "signature-assigned-to-wrong-person",
+   "area": "template_fields_mapping",
+   "kind": "config",
+   "title": "Signature Goes to the Wrong Person or an Internal User",
+   "symptoms": [
+    "My document is being sent to an internal staff member instead of my external client.",
+    "The signature field defaults to the wrong email address.",
+    "The signature request is going to the wrong person."
+   ],
+   "check": "In the GetSign template editor, select the signature field and check the 'Assigned to' property. Verify if it is mapped to a 'Person' column, the wrong 'Email' column, or the wrong signer role.",
+   "fix": "Go to the GetSign template editor. Click on the signature field that's causing the issue. In the field properties on the right, change the 'Assigned to' setting to the correct 'Email' column from your board that contains the external signer's email address. Save the template.",
+   "notABugBecause": "The system sends the document to the person or email address specified in the signature field's 'Assigned to' property within the template. If this is mapped to an internal 'Person' column or an incorrect 'Email' column, the signature request will be sent there as configured."
+  },
+  {
+   "id": "feature-request-multi-select",
+   "area": "template_fields_mapping",
+   "kind": "how_to",
+   "title": "Request for Multi-Select Field Type",
+   "symptoms": [
+    "Is there a multi-select field type?",
+    "How can I let recipients choose more than one option for a single question?"
+   ],
+   "check": "In the GetSign template editor, review the list of available field types under the 'Add Fields' section. Confirm that there is no 'multi-select' option.",
+   "fix": "GetSign does not currently have a multi-select field type. As a workaround, you can add multiple individual 'Checkbox' fields, one for each option you want to offer, allowing the signer to check all that apply.",
+   "notABugBecause": "This is a request for a new feature that is not part of the current product offering. The app is functioning as designed."
+  },
+  {
+   "id": "how-to-create-quote-invoice-templates",
+   "area": "template_fields_mapping",
+   "kind": "how_to",
+   "title": "How to Create Templates for Quotes and Invoices",
+   "symptoms": [
+    "Do you have pre-built templates for quotes or invoices?",
+    "How do I create a quote template to pull in my board data?"
+   ],
+   "check": "This is a 'how-to' question about core functionality, not a configuration issue.",
+   "fix": "GetSign allows you to create your own dynamic templates. First, create a quote or invoice document in DOCX or use an existing PDF. Then, upload it to the GetSign item view on a monday.com item. From there, you can open the template editor to drag-and-drop fields and map them to your monday.com columns, including using the Line Items widget for subitems.",
+   "notABugBecause": "The application provides the tools to build custom templates rather than offering a library of pre-built ones. This is a question about how to use the existing functionality."
+  },
+  {
+   "id": "using-data-from-another-board",
+   "area": "template_fields_mapping",
+   "kind": "how_to",
+   "title": "How to Use Data from Another Board (e.g., a Product Catalog)",
+   "symptoms": [
+    "How can I add items from my product catalog on another board to my invoice?",
+    "I want to pull data from a separate board into my document."
+   ],
+   "check": "On the monday.com board where you generate documents, check if a 'Connect Boards' column is set up and linked to the other board. Then, check if 'Mirror' columns are added to pull the specific data fields needed (like price, name, etc.).",
+   "fix": "On your main board, use monday.com's native features: 1. Add a 'Connect Boards' column and link it to your other board (e.g., your product catalog). 2. Add 'Mirror' columns to pull in the specific data you need (e.g., product name, price). 3. In the GetSign template editor, you can now map these mirrored columns just like any other column on your board.",
+   "notABugBecause": "GetSign maps data from columns on the board where the item view is located. To include data from other boards, you must first bring that data onto the primary board using monday.com's 'Connect Boards' and 'Mirror' column features."
+  },
+  {
+   "id": "line-items-widget-not-detecting-subitems",
+   "area": "template_fields_mapping",
+   "kind": "config",
+   "title": "Line Items Widget Says 'Add sub-items...' But They Already Exist",
+   "symptoms": [
+    "The Line Items widget gives an error 'Add sub-items to your board to reflect them here' even though my board has subitems.",
+    "I can't map my subitems to the template table."
+   ],
+   "check": "Determine if the user is editing the GetSign template from a parent item's view or a subitem's view. The Line Items widget will only detect subitems when the template is edited from the parent item's GetSign view.",
+   "fix": "The Line Items widget only works when you edit the template from a parent item. Please close the template editor, go to a parent item on your board, open the GetSign view from there, and then edit your template. The widget will now detect and allow you to map your subitem columns.",
+   "notABugBecause": "The Line Items widget is designed to pull data from the subitems *of the current item*. When editing the template from a subitem's view, there are no further subitems to pull, so the widget correctly reports that none are found."
+  },
+  {
+   "id": "one-time-template-edit",
+   "area": "template_fields_mapping",
+   "kind": "how_to",
+   "title": "Making a One-Time Change to a Template for a Single Item",
+   "symptoms": [
+    "I need to remove one document from a template for a single recipient.",
+    "How do I change a template for just one person without changing it for everyone?"
+   ],
+   "check": "Ask the user where they are editing the template from. If they are editing from the main template gallery (accessible from the board view settings), it's a global change. If they are editing from within a specific monday.com item's GetSign view, it's an item-level change.",
+   "fix": "To make a change for a single item, go to that specific item on your monday board and open the GetSign item view. Edit the documents from there (e.g., remove the one you don't need). You will see a warning confirming the change only applies to this item. Proceed past the warning to save your one-time change.",
+   "notABugBecause": "The system has two distinct editing modes: global (in the template gallery) and item-level (in the item view). This is the intended design to allow for both master template updates and one-off customizations."
+  },
+  {
+   "id": "cannot-find-template-editor",
+   "area": "template_fields_mapping",
+   "kind": "how_to",
+   "title": "Cannot Find Button to Edit Template",
+   "symptoms": [
+    "The document editor isn't working or I can't find it.",
+    "I can't edit my template, I only see a 'send documents' button.",
+    "Where did the 'get e-signature' button go?"
+   ],
+   "check": "In the user's GetSign item view, check if a document has been uploaded under the 'Templates and Documents' section. The pencil icon for editing only appears after a document is present.",
+   "fix": "The template editor is now inside the GetSign item view. First, you must upload a document (DOCX or PDF) to the 'Templates and Documents' section. Once uploaded, a pencil icon will appear next to the document's name. Click that icon to open the editor and add your fields.",
+   "notABugBecause": "This is a question about the current user interface workflow. The editor is only available after a document has been uploaded to be edited, which is the designed process."
+  },
+  {
+   "id": "missing-status-file-column-mapping",
+   "area": "status_columns_writeback",
+   "kind": "config",
+   "title": "Status or File Column Not Updating After Sending/Signing",
+   "symptoms": [
+    "When a document is sent for signature, the status column is not updating to track its progress.",
+    "The final signed document is not being saved back to the file column.",
+    "My contract status and signed document columns were not updated after a document was signed."
+   ],
+   "check": "In the GetSign board view, navigate to the 'Signature Collection' settings. Verify that a 'Status Column' and a 'File Column' are selected from the dropdowns.",
+   "fix": "Go to the GetSign board view's 'Signature Collection' settings. Select the monday.com board 'Status Column' you want to use for tracking signature progress and the 'File Column' where you want the final signed document to be stored.",
+   "notABugBecause": "The app requires the user to explicitly map which status and file columns on the board should be used for tracking signature progress and storing the final signed document."
+  },
+  {
+   "id": "view-only-document-no-status-tracking",
+   "area": "status_columns_writeback",
+   "kind": "how_to",
+   "title": "Status Doesn't Update to 'Viewed' for View-Only Documents",
+   "symptoms": [
+    "The tracking status does not update from 'Sent' to 'Viewed' after the recipient opens a document.",
+    "I sent a document for viewing only, and the status didn't change when they opened it."
+   ],
+   "check": "Verify how the document was sent. If it was sent via the 'Share' option without any signature fields assigned to the recipient, this behavior is expected.",
+   "fix": "Inform the customer that status tracking for events like 'Viewed' is only available for documents sent as part of a signature request workflow. Documents shared for viewing only will not have their status updated upon being opened.",
+   "notABugBecause": "Status tracking for 'Viewed' is a feature of the signature collection workflow and does not apply to documents sent for viewing-only purposes."
+  },
+  {
+   "id": "how-to-configure-custom-domain",
+   "area": "email_delivery_branding",
+   "kind": "how_to",
+   "title": "How to configure a custom domain for sending emails",
+   "symptoms": [
+    "How do I set up my own domain for sending emails?",
+    "I need help with domain configuration.",
+    "Where do I add CNAME records for my custom domain?"
+   ],
+   "check": "Check the 'Sender & Branding' section in the user's GetSign account settings. See if a custom domain has been added but is not yet verified, or if no domain has been added at all.",
+   "fix": "Provide the user with the steps: 1. Navigate to 'Sender & Branding' in your GetSign account settings. 2. Add your custom domain. 3. Copy the CNAME records provided by GetSign. 4. Add these CNAME records to your domain's DNS settings (e.g., GoDaddy, Cloudflare). 5. Return to GetSign and click 'Verify' to confirm the setup is complete.",
+   "notABugBecause": "The application provides a self-service method for configuring a custom sending domain, which requires the user to add DNS records. This is a standard setup process, not a software defect."
+  },
+  {
+   "id": "dynamic-sender-info-not-supported",
+   "area": "email_delivery_branding",
+   "kind": "how_to",
+   "title": "Sender name and reply-to email cannot be set dynamically per document",
+   "symptoms": [
+    "Can I set the sender name dynamically from a monday.com column?",
+    "I want the reply-to email to change for each document.",
+    "Why isn't my sender name mapping from the board working?"
+   ],
+   "check": "Look in the 'Sender & Branding' section of the GetSign account settings. Confirm that the 'Sender Name' and 'Reply-to Email' fields are static text inputs, with no option for mapping from a monday.com board.",
+   "fix": "Explain that the sender name and reply-to email are global settings for the account and cannot be dynamically changed for each sending request. They are set once in the 'Sender & Branding' section of the account settings. Advise the user to set a generic sender name and reply-to address that works for all their use cases.",
+   "notABugBecause": "The application is functioning as designed. Dynamic mapping for the sender name and reply-to email is a feature that has not been implemented."
+  },
+  {
+   "id": "stale-authentication-token",
+   "area": "install_auth_permissions",
+   "kind": "config",
+   "title": "App asks for authentication and shows 'refused to connect'",
+   "symptoms": [
+    "The app is asking me to authenticate again but shows a 'refused to connect' error.",
+    "An automation was paused, and now I can't get into the GetSign app view.",
+    "GetSign won't load and is stuck on a blank screen or an error after asking to connect.",
+    "I'm being asked to authorize GetSign repeatedly but it fails."
+   ],
+   "check": "In the GetSign board view or dashboard widget, look for an authentication prompt that, when clicked, results in a 'refused to connect' error message inside the app's frame. This indicates the user's session token for the app has expired or become invalid.",
+   "fix": "First, perform a hard refresh of your browser (Ctrl+Shift+R on Windows/Linux, Cmd+Shift+R on Mac). If the issue persists, please uninstall the GetSign app from your monday.com account and then immediately reinstall it. This will re-establish a fresh, valid connection.",
+   "notABugBecause": "The connection token between GetSign and the user's monday.com account became invalid or expired. This can happen for various security reasons or after platform updates. Reinstalling the app generates a new, valid token, resolving the connection issue."
+  },
+  {
+   "id": "extra-signer-in-flow",
+   "area": "signing_flow_order",
+   "kind": "config",
+   "title": "An extra, unwanted signer appears in the signing order",
+   "symptoms": [
+    "An extra person is being asked to sign and I can't remove them",
+    "There's an unwanted signer in the signing order",
+    "GetSign is adding a second signer automatically"
+   ],
+   "check": "Open the GetSign template editor. For each signature/initials field on the document, check the 'Mapped to' property in the right-hand panel. Look for a field mapped to an unexpected email column.",
+   "fix": "In the GetSign template editor, select the unwanted signature or initials field on the document canvas. Click the trash can icon to delete it. Save the template. You must then generate a new document or re-run the automation for the change to take effect.",
+   "notABugBecause": "The list of signers is generated directly from the signature and initial fields placed on the document template. An extra field will create an extra signer."
+  },
+  {
+   "id": "signing-page-stuck-due-to-missing-email",
+   "area": "signing_flow_order",
+   "kind": "config",
+   "title": "Signing page freezes or gets stuck loading for the first signer",
+   "symptoms": [
+    "The signing page is stuck at 75% loading and won't finish",
+    "My customer can't finish signing, the page is frozen",
+    "The first person in the signing order can't complete the document"
+   ],
+   "check": "In the GetSign template, confirm that 'Enforce signing order' is enabled. Then, on the monday.com item for the failed request, check every email column that is mapped to a signer in the template. Verify that none of them are empty.",
+   "fix": "Before sending a document with an enforced signing order, ensure that every email column mapped to a signer contains a valid email address on that monday.com item. If a signing request has already failed, cancel it, populate the missing email address(es), and send a new request.",
+   "notABugBecause": "An enforced signing order requires a valid email address for every signer in the sequence to build the chain of notifications. The process cannot start if a future recipient is missing."
+  },
+  {
+   "id": "signing-order-ignored-when-sent-from-item-view",
+   "area": "signing_flow_order",
+   "kind": "how_to",
+   "title": "Signing order is enabled but document is sent to all signers at once",
+   "symptoms": [
+    "My signing order isn't working",
+    "Everyone gets the document at the same time, even with signing order on",
+    "The 'Signing Order Required' toggle has no effect"
+   ],
+   "check": "Ask the user to confirm where they are clicking 'Send'. Sequential signing is only triggered from the GetSign Board View, not the GetSign Item View. The 'Signing Order Required' toggle in the template applies to Board View sends.",
+   "fix": "To enforce a signing order, you must send the document request from the GetSign Board View. Select the item(s) on your board, open the GetSign view from the top of the board, and click 'Send'. Sending from the Item View sends to all signers simultaneously and is intended for cases where order does not matter.",
+   "notABugBecause": "The application has two distinct sending methods: the Board View for bulk and sequential sending, and the Item View for individual, simultaneous sending. The signing order feature is specific to the Board View workflow."
+  },
+  {
+   "id": "how-to-guide-signer",
+   "area": "signing_flow_order",
+   "kind": "how_to",
+   "title": "How signers can tell which fields they still need to complete",
+   "symptoms": [
+    "How do signers know where to sign?",
+    "My customer is confused about what to fill out",
+    "Is there a guide for the person signing the document?"
+   ],
+   "check": "This is a user experience question. Confirm the customer is asking about the signer's perspective after they have opened the signing link.",
+   "fix": "Explain that the signing page is designed to guide the signer. A 'Start' button will appear, which takes them to the first required field. After they complete a field, they can click 'Next' to be taken to the subsequent one. The final 'Finish' button at the top right will remain disabled until all required fields are completed.",
+   "notABugBecause": "The signing interface includes built-in navigation to guide signers through all required fields as a standard feature."
+  },
+  {
+   "id": "resend-to-next-signer-in-order",
+   "area": "signing_flow_order",
+   "kind": "how_to",
+   "title": "How to resend an invitation to the next signer in an ordered flow",
+   "symptoms": [
+    "The first person signed, but the second person's link expired",
+    "How do I remind the next person in the signing order?",
+    "I need to resend the link to the current signer without restarting"
+   ],
+   "check": "On the monday.com item, open the GetSign view. Check the 'GetSign Track' section to see the status and identify the current pending signer. This confirms a signing order is in progress.",
+   "fix": "On the monday.com item, open the GetSign view. Go to the 'Share' tab and click the 'Send' button. This will automatically send a new invitation to the current pending signer in the sequence. It will not restart the process or resend to those who have already signed.",
+   "notABugBecause": "The 'Share > Send' function is designed to intelligently send the request to the next pending signer in an ordered flow that is already in progress."
+  },
+  {
+   "id": "how-to-set-link-expiration",
+   "area": "signing_flow_order",
+   "kind": "how_to",
+   "title": "Signature request links are expiring too quickly",
+   "symptoms": [
+    "How do I change the link expiration time?",
+    "My signing links expire in less than a day",
+    "Can I make signing links last longer?"
+   ],
+   "check": "When the user is in the GetSign Item View 'Share' tab preparing to send a request, check if they are seeing and using the 'Expires on' date picker.",
+   "fix": "When you are in the GetSign Item View on the 'Share' tab, before you click 'Send', look for the 'Expires on' setting. Click the date to open a calendar and select a new expiration date further in the future. You can also click 'No expiration' if you do not want the link to expire.",
+   "notABugBecause": "The application provides a user-configurable setting to control the expiration date of signing links at the time of sending."
+  },
+  {
+   "id": "cannot-find-signed-document",
+   "area": "documents_files_pdf",
+   "kind": "how_to",
+   "title": "User Cannot Find the Signed Document",
+   "symptoms": [
+    "I signed the document but can't find it afterwards",
+    "Where is the completed PDF stored?",
+    "The status is 'Signed' but the file isn't attached to the item"
+   ],
+   "check": "In the GetSign template settings, identify the File column selected under 'Save signed document to'. Then, on the specific monday.com item, check that File column for the generated PDF.",
+   "fix": "Signed documents can be found in two places: 1) As a download link in the final confirmation email sent to all signers. 2) In the specific File column on the monday.com item that you configured in the GetSign template settings.",
+   "notABugBecause": "The system saves the signed document to the location configured by the user. The user needs to know where to look for the output file."
+  },
+  {
+   "id": "send-pdf-from-file-column",
+   "area": "documents_files_pdf",
+   "kind": "how_to",
+   "title": "How to Send an Existing PDF from a File Column for Signature",
+   "symptoms": [
+    "How do I send my own PDF for signature?",
+    "I want to send a document from a file column",
+    "Can't find the 'Use Stored Documents' feature"
+   ],
+   "check": "In the GetSign board view settings, check if the 'Use Stored Documents' toggle is enabled. If it is, verify that a source file column (with the PDF) and a destination file column (for the signed version) are correctly selected.",
+   "fix": "To send a PDF from a file column, go to your GetSign board view and click Settings. Enable the 'Use Stored Documents' toggle. Then, select the source file column containing the PDFs you want to send, and a destination file column where the signed versions will be saved. You can then configure 'Sign Anywhere' to place signature fields on the document.",
+   "notABugBecause": "This is a specific feature ('Use Stored Documents') that must be enabled and configured in the board view settings before it can be used."
+  },
+  {
+   "id": "missing-email-signature-field-unassigned",
+   "area": "signers_emails",
+   "kind": "config",
+   "title": "Missing email error because a signature field is not assigned to a signer",
+   "symptoms": [
+    "I get a 'Missing recipient email address' error when sending.",
+    "The app says the signer email is missing, but the email column on my board is filled.",
+    "Why can't GetSign find the email address for my signer?"
+   ],
+   "check": "In the GetSign template editor, click on each signature/initials field. Check the 'Assigned to' dropdown in the properties panel on the right. One or more fields will be unassigned.",
+   "fix": "Open your GetSign template. Click on each signature or initials field on the document. In the properties panel on the right, use the 'Assigned to' dropdown to select the correct signer role for that field. Save the template.",
+   "notABugBecause": "The system cannot determine which signer's email to use if the signature field itself is not linked to a specific signer role in the template."
+  },
+  {
+   "id": "missing-email-signer-role-unmapped",
+   "area": "signers_emails",
+   "kind": "config",
+   "title": "Missing email error because a signer role is not mapped to an email column",
+   "symptoms": [
+    "The app says 'Missing recipient email address' but the column is definitely filled out.",
+    "GetSign isn't pulling the email from the correct monday.com column.",
+    "I have an email column, but GetSign says the email is missing."
+   ],
+   "check": "On the monday.com item, open the GetSign view. In the 'Signers' section, check if each signer role is mapped to the correct Email column from the board. The dropdown will be empty or set to the wrong column.",
+   "fix": "Go to the monday.com item and open the GetSign view. Find the 'Signers' section. For each signer, ensure the dropdown menu is correctly set to the board column that contains their email address. Click 'Save' at the top right of the view.",
+   "notABugBecause": "The app needs to be explicitly told which column on the board contains the email address for each signer role defined in the template."
+  },
+  {
+   "id": "how-to-use-form-filler",
+   "area": "forms",
+   "kind": "how_to",
+   "title": "How to populate monday columns from a filled PDF form",
+   "symptoms": [
+    "How can I get the data from my PDF form into my monday board?",
+    "I want customers to fill out a form and have it update my columns.",
+    "Can your app map form fields to monday columns?"
+   ],
+   "check": "In the GetSign template editor, confirm the user has uploaded a PDF with form fields. Check if the 'Form Filler' toggle is enabled in the GetSign account settings. In the template, verify if fields are linked to monday.com columns (they will show a 'link' icon and the column name).",
+   "fix": "To map data from a PDF form to your monday board, use the Form Filler feature. First, ensure 'Form Filler' is enabled in your GetSign account settings. Then, upload your PDF form as a new template. In the editor, click on each PDF form field and link it to the desired monday.com column. Save the template. When you send a document from an item using this template, the recipient's entries will automatically update the linked columns on that item after they sign.",
+   "notABugBecause": "This is the standard 'how-to' for using the Form Filler feature, which is designed for this purpose."
+  },
+  {
+   "id": "form-creates-new-item",
+   "area": "forms",
+   "kind": "config",
+   "title": "Form submission creates a new item instead of updating an existing one",
+   "symptoms": [
+    "When a client fills out our form, it creates a new item instead of updating their item.",
+    "My form isn't updating the item it was sent from.",
+    "Why do I get a new item every time someone submits a form?"
+   ],
+   "check": "Check if the customer is generating the form link from the 'Web Form' board view. This feature is designed to create new items for each submission. The correct workflow for updating an existing item is to open the item, go to the GetSign view, and send the document from there.",
+   "fix": "To update an existing item's columns, you must send the form from that specific item. Open the item, go to the GetSign item view, and generate the document/link from there using a Form Filler template. The 'Web Form' board view is designed to capture new leads or requests and will always create a new item for each submission.",
+   "notABugBecause": "The 'Web Form' feature is working as designed by creating a new item for each submission. The 'Form Filler' feature, initiated from an item view, is the correct tool for updating an existing item."
+  }
+ ],
+ "bugTells": [
+  {
+   "area": "triggers_automations",
+   "tell": "The user cannot disable or delete the GetSign-created automations from the monday.com interface, and they are stuck in an infinite failure loop."
+  },
+  {
+   "area": "triggers_automations",
+   "tell": "The configuration is correct and was previously working, but now a core action (like clicking 'Send') results in indefinite loading with no error message."
+  },
+  {
+   "area": "triggers_automations",
+   "tell": "The monday.com automation log shows a successful run, but no action occurs in GetSign (no email, no status update), and the standard user fix of disabling and re-enabling the feature does not resolve it."
+  },
+  {
+   "area": "triggers_automations",
+   "tell": "The exact same automation configuration works perfectly for parent items but consistently fails for subitems, indicating a systemic issue with subitem integration."
+  },
+  {
+   "area": "triggers_automations",
+   "tell": "The issue is specific to a certain type of monday.com board (e.g., 'multi-level' boards) and is not reproducible on standard boards, pointing to a platform API issue."
+  },
+  {
+   "area": "triggers_automations",
+   "tell": "The automation is failing with a generic server error (like '400 Bad Request'), the error is intermittent, and multiple unrelated customers report the same issue simultaneously."
+  },
+  {
+   "area": "other",
+   "tell": "The problem occurs exclusively with subitems, while the same configuration works correctly on parent items."
+  },
+  {
+   "area": "other",
+   "tell": "The configuration fails to save without displaying any error message to the user, suggesting a silent failure rather than a user input error."
+  },
+  {
+   "area": "template_fields_mapping",
+   "tell": "The feature was working correctly before and stopped suddenly without any user changes. The issue is also reproducible by support on a clean setup."
+  },
+  {
+   "area": "template_fields_mapping",
+   "tell": "The application crashes, hangs, or shows an infinite loading spinner when processing a specific file or template, instead of showing a validation error."
+  },
+  {
+   "area": "template_fields_mapping",
+   "tell": "The system gives a generic, unhelpful error message (e.g., 'Failed to send') instead of a specific validation error for a common configuration mistake (e.g., 'Signature field is not assigned')."
+  },
+  {
+   "area": "template_fields_mapping",
+   "tell": "A core, non-configurable process fails, such as refreshing document data when a new signing link is generated. A destructive workaround like deleting and recreating the item is the only solution."
+  },
+  {
+   "area": "template_fields_mapping",
+   "tell": "A feature works for one type of data but fails for a specific, closely related type (e.g., data from mirror columns on parent items works, but fails for mirror columns on subitems)."
+  },
+  {
+   "area": "status_columns_writeback",
+   "tell": "The sync failed to write back the status and signed document even though all column mappings in the settings were confirmed to be correctly configured, ruling out common setup errors."
+  },
+  {
+   "area": "email_delivery_branding",
+   "tell": "Settings fields (like Sender Name, Sender Email, Subject, etc.) do not save or are cleared immediately after the user clicks 'Save', even when the configuration is valid."
+  },
+  {
+   "area": "email_delivery_branding",
+   "tell": "Saving a change in one area of the settings (e.g., reminders) unexpectedly clears or deletes unrelated settings (e.g., sender branding and email)."
+  },
+  {
+   "area": "signing_flow_order",
+   "tell": "The 'signing order' feature works correctly for documents based on a GetSign template but fails (sends to everyone at once) for documents sent from a File Column, even though the UI allows the setting to be enabled."
+  },
+  {
+   "area": "signing_flow_order",
+   "tell": "The monday.com status column updates correctly with signer activity (e.g., 'Viewed by...'), but the 'Track' tab within the GetSign item view is completely empty for the same multi-signer document."
+  },
+  {
+   "area": "signing_flow_order",
+   "tell": "The signing process hangs indefinitely at a specific loading percentage (e.g., 75%) instead of failing with a clear error message. This can be caused by a missing email for a later signer, but the lack of an error is the bug."
+  },
+  {
+   "area": "signing_flow_order",
+   "tell": "A signing link that was previously working suddenly shows an 'invitation expired' message. This happens if the source document (e.g., the file in the file column or the template itself) was modified or re-uploaded *after* the signing request was sent."
+  },
+  {
+   "area": "documents_files_pdf",
+   "tell": "The document preview for the sender is correct, but the final signing link produces a blank page for the recipient."
+  },
+  {
+   "area": "documents_files_pdf",
+   "tell": "The final PDF has visual defects (e.g., black boxes on fields, opaque signature backgrounds, incorrectly rotated images from mobile) that cannot be controlled by any user setting."
+  },
+  {
+   "area": "documents_files_pdf",
+   "tell": "Performing a standard action (e.g., viewing a template, generating a document, deleting an uploaded file) results in a generic server error like \"Oops!\", \"Error 400\", or \"404 Not Found\"."
+  },
+  {
+   "area": "documents_files_pdf",
+   "tell": "The signing process consistently gets stuck for all recipients at a specific percentage (e.g., 96%) just before completion, and the final document is never attached."
+  },
+  {
+   "area": "documents_files_pdf",
+   "tell": "An action on a single item (e.g., saving an in-progress document) incorrectly affects multiple other unrelated items using the same template, such as resetting their status."
+  },
+  {
+   "area": "documents_files_pdf",
+   "tell": "Document generation fails silently with no error message, even though the user's configuration has been verified as correct."
+  },
+  {
+   "area": "signers_emails",
+   "tell": "The monday.com board column shows the correct, updated email address, but the GetSign item view or 'Send' modal still shows the old email address, even after regenerating the document."
+  },
+  {
+   "area": "signers_emails",
+   "tell": "The customer confirms the exact same template, board structure, and mapping works correctly in a different monday.com account, but fails in their primary one."
+  },
+  {
+   "area": "signers_emails",
+   "tell": "The 'Missing recipient email address' error occurs specifically when the signer's email is mapped to a mirror column, even though the column clearly displays a valid email address."
+  }
+ ]
+}

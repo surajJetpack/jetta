@@ -4,6 +4,9 @@ Newest first. One entry per change people would notice: what Jetta does differen
 
 Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain words.
 
+## 2026-11-03: GetSign triage note (shadow)
+On a new GetSign ticket Jetta adds one private note with her call: a setup problem the customer can fix (what to check, the usual fix), a how-to question, a missing feature, a likely bug, or unsure (with the question that would decide it). Nothing is sent or routed by it and the reply agent never reads it; the team's reply on the same ticket grades it. The playbook behind it was built from 90 days of resolved GetSign tickets; on 29 held-back tickets it called none of the real bugs a setup problem. Switch: `JETTA_TRIAGE_SHADOW` (off unless `on`). Off on merge.
+
 ## 2026-11-03: Today, draft matching and performance sync read Jetta's ticket copy
 These three no longer download tickets from Freshdesk when Jetta's own copy is up to date (synced in the last 15 minutes, or at least as new as the version Freshdesk listed), which frees most of the 40 calls a minute they shared with customer replies. When the copy is behind or missing a ticket they read Freshdesk exactly as before. Checked side by side on 10 tickets: identical status, "reply owed", matched agent reply and performance record. Switch: `JETTA_TICKET_MIRROR` (`reports` by default; `off` reads Freshdesk only). Live on merge.
 
