@@ -40,6 +40,11 @@ const STATUS_LABELS: Record<number, string> = {
  * deliberately narrow — "waiting on customer" and "escalated to dev" are LIVE
  * threads where a customer reply is exactly what should trigger a run.
  */
+/** Freshdesk's numeric status as the label the rest of Jetta uses. */
+export function statusLabel(status: number): string {
+  return STATUS_LABELS[status] ?? String(status);
+}
+
 const TERMINAL_STATUSES = new Set(["resolved", "closed"]);
 
 /** True when the ticket is done and should not receive a new autonomous draft. */

@@ -4,6 +4,9 @@ Newest first. One entry per change people would notice: what Jetta does differen
 
 Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain words.
 
+## 2026-11-03: Today, draft matching and performance sync read Jetta's ticket copy
+These three no longer download tickets from Freshdesk when Jetta's own copy is up to date (synced in the last 15 minutes, or at least as new as the version Freshdesk listed), which frees most of the 40 calls a minute they shared with customer replies. When the copy is behind or missing a ticket they read Freshdesk exactly as before. Checked side by side on 10 tickets: identical status, "reply owed", matched agent reply and performance record. Switch: `JETTA_TICKET_MIRROR` (`reports` by default; `off` reads Freshdesk only). Live on merge.
+
 ## 2026-11-03: Jetta keeps its own copy of every ticket
 First step towards a Jetta-native help desk: a Postgres database (Neon) now mirrors Freshdesk tickets, messages, attachment names and contacts. A new cron (`/api/cron/ticket-sync`, every 5 min) copies what changed, then fills in 180 days of history using only spare Freshdesk API budget, so customer-facing runs are never slowed. Nothing reads the copy yet, so Jetta behaves exactly as before; the console inbox and Jetta's switch-over come next. Idle until `DATABASE_URL` is set.
 
