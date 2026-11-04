@@ -19,6 +19,7 @@ import {
   periodStats,
   suggestionBody,
   summarizeTicket,
+  PERF_SCHEMA,
   weekStart,
   withBoardHandoffs,
   type HandoffOutcome,
@@ -183,7 +184,24 @@ check("weekStart Sunday → previous Monday", weekStart("2026-09-27T23:59:00Z"),
   );
   check("'Escalated urgently to engineering' counts as Slack", detectHandoff([n("Escalated urgently to engineering via Slack.")])?.kinds, ["slack"]);
   const t = summarizeTicket(ticket({ id: 104 }), [n("Dev board item created: https://x.monday.com/boards/1/pulses/12345678")], AGENTS, JETTA);
-  check("summarizeTicket carries handoff + subject + schema", [t.handoff?.kinds, t.subject, t.v], [["dev_item"], "Signer email not resolving", 2]);
+  check("summarizeTicket carries handoff + subject + schema", [t.handoff?.kinds, t.subject, t.v], [["dev_item"], "Signer email not resolving", PERF_SCHEMA]);
+}
+
+// ── a customer's out-of-office does not make the ticket owed (#14675) ──
+{
+  const agentAsk = msg({ user_id: 2, created_at: "2026-09-02T00:41:00Z", body_text: "Did the test run work?" });
+  const ooo = msg({
+    incoming: true,
+    created_at: "2026-09-02T00:42:00Z",
+    body_text: "Thank you for your email. I am now away for the winter season. This inbox will be checked intermittently. For assistance, please reach out to info@example.com until my return.",
+  });
+  const human = msg({ incoming: true, created_at: "2026-09-02T09:00:00Z", body_text: "I was out of office last week, sorry. The test still fails with the same error, screenshot attached." });
+  const a = summarizeTicket(ticket({ id: 300 }), [agentAsk, ooo], AGENTS, JETTA);
+  check("out-of-office after our reply: we spoke last", [a.lastPublicFrom, a.lastPublicAt], ["agent", "2026-09-02T00:41:00Z"]);
+  const b = summarizeTicket(ticket({ id: 301 }), [agentAsk, ooo, human], AGENTS, JETTA);
+  check("a real reply after the out-of-office: owed again", b.lastPublicFrom, "customer");
+  const c = summarizeTicket(ticket({ id: 302 }), [agentAsk, msg({ incoming: true, created_at: "2026-09-02T01:00:00Z", body_text: "Out of office? No, I'm here. " + "The column still shows the wrong date and I need it fixed before Friday because our whole team relies on it. ".repeat(8) })], AGENTS, JETTA);
+  check("a long human message that mentions 'out of office' still counts", c.lastPublicFrom, "customer");
 }
 
 // ── board-recorded handoffs fill what her notes missed ──

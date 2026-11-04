@@ -4,6 +4,9 @@ Newest first. One entry per change people would notice: what Jetta does differen
 
 Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain words.
 
+## 2026-11-04: Today shows replies Jetta drafted that nobody sent; Health ignores out-of-office
+On /today, a ticket where Jetta's suggested reply has sat in a private note for 4 hours or more, and the customer is still the last to have written, now appears on the worklist with a "draft not sent" chip (#13894 sat 13 days like this). It leaves the list as soon as anyone replies or the ticket closes. Answered and closed tickets with old drafts never appear. On /health and /performance, a customer's out-of-office or bounce no longer counts as the customer writing, so a ticket whose last message is an away notice stops showing as "waiting on us" (#14675). The next performance sync re-reads every ticket once to apply this, mostly from Jetta's own ticket copy. No switch. Live on merge.
+
 ## 2026-11-03: Cleaner AI reads (Logs, Health, Performance)
 Numbers written with thousands separators ("17,277") no longer get a correct point thrown away as "invented": on the production model that was most of what the Logs read dropped. Citation markers like "[E2]" no longer show in the text. On Logs, points are one short sentence and "Worth watching" no longer lists apps having a normal day. Live on merge.
 
