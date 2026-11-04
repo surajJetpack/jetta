@@ -660,6 +660,28 @@ export async function notifyErrorWatch(headline: string, details: string[]): Pro
   return ts;
 }
 
+/**
+ * A self-review finding about Jetta herself (lib/self-review): a cron that
+ * stopped, runs failing, a chat answer judged bad, the daily scorecard. Ops
+ * channel, no @channel: it asks a person to look, nothing is broken for a
+ * customer until someone confirms it.
+ */
+export async function notifySelfReview(headline: string, details: string[]): Promise<string> {
+  const channel = opsChannel();
+  const ts = await postMessage(channel, clamp(headline, 400));
+  if (details.length) {
+    await postMessage(channel, details.join("\n"), ts).catch((e) =>
+      console.warn("self-review detail reply failed:", e instanceof Error ? e.message : e),
+    );
+  }
+  return ts;
+}
+
+/** The channel self-review posts to, for display. */
+export function selfReviewChannel(): string {
+  return config.slack.opsChannel ?? config.slack.escalationChannel ?? "";
+}
+
 /** Notify #partnerships when a user mentions an external implementation partner. */
 export async function notifyPartnerManager(
   freshdeskTicketUrl: string,

@@ -432,6 +432,7 @@ export function reasoningRows(): StatusRow[] {
     appLogsRow(),
     sentryRow(),
     errorWatchRow(),
+    selfReviewRow(),
     triageShadowRow(),
   ];
 }
@@ -467,6 +468,22 @@ function errorWatchRow(): StatusRow {
         ? "No Sentry token or AWS keys, so there is nothing to watch."
         : "Switched off (JETTA_ERROR_WATCH=off): the Logs page shows the last run.",
     setting: "JETTA_ERROR_WATCH",
+  };
+}
+
+function selfReviewRow(): StatusRow {
+  const r = config.selfReview;
+  const on = r.enabled && !!config.openrouter.apiKey;
+  return {
+    label: "Self-review (Self-review page)",
+    tone: on ? "on" : "off",
+    state: !on ? "OFF" : r.alerts ? "ALERTS" : "WATCHING",
+    meaning: on
+      ? `Hourly, Jetta checks her own work for the admin-only Self-review page. Reliability: every cron's heartbeat (late or failing), failed runs, runs that ended with no reply, slow runs and new or spiking error events, against her own recent normal. Quality: an independent model (${r.model}, JETTA_SELF_REVIEW_MODEL; never the model that writes replies) grades a few of her recent chat answers, email drafts and dev-bridge replies against what the customer asked and the evidence her run gathered, plus rule checks (internal links, ticket numbers, dead links, links found nowhere in the evidence). At most ${r.dailyCap} a day (JETTA_SELF_REVIEW_DAILY). ${r.alerts ? "New reliability problems, any chat answer judged bad and a daily scorecard (from 09:00) go to the ops channel." : "Slack posts are off (JETTA_SELF_REVIEW_ALERTS=off)."} Read-only: it changes nothing Jetta does.`
+      : !config.openrouter.apiKey
+        ? "No OPENROUTER_API_KEY, so there is no judge."
+        : "Switched off (JETTA_SELF_REVIEW=off): the Self-review page shows the last run.",
+    setting: "JETTA_SELF_REVIEW",
   };
 }
 
@@ -585,6 +602,7 @@ export const CRONS: readonly EndpointRow[] = [
   { path: "/api/cron/activity-sync", detail: "Reads Slack, monday and the KB audit into Team activity", schedule: "hourly at :25" },
   { path: "/api/cron/ticket-sync", detail: "Copies changed Freshdesk tickets and messages into Jetta's own Postgres ticket store, then backfills 180 days of history with leftover API budget. Reads Freshdesk only; idle when DATABASE_URL is unset", schedule: "every 5 min" },
   { path: "/api/cron/dev-board-sync", detail: "Reads both monday dev boards (read-only) and analyses new item conversations for Dev board", schedule: "hourly at :50" },
+  { path: "/api/cron/self-review", detail: "Jetta's self-review for the Self-review page: cron heartbeats, run failures and latency, error events, and an independent model grading a few recent replies; posts problems and a daily scorecard to the ops channel. Off with JETTA_SELF_REVIEW=off", schedule: "hourly at :45" },
   { path: "/api/cron/error-watch", detail: "Reads Sentry and the app logs for the Logs page: flags new and spiking errors hitting customers, alerts Slack, lists or files dev items (JETTA_ERROR_WATCH_DEV_ITEMS), writes the AI read. Off with JETTA_ERROR_WATCH=off", schedule: "hourly at :35" },
   { path: "/api/cron/dev-followup", detail: "Asks developers for an update on quiet dev items a customer is waiting on; escalates after two unanswered asks. Armed by JETTA_DEV_FOLLOWUP", schedule: "daily 04:30" },
 ] as const;

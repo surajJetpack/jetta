@@ -4,6 +4,9 @@ Newest first. One entry per change people would notice: what Jetta does differen
 
 Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain words.
 
+## 2026-11-04: Self-review: Jetta checks her own work every hour
+New admin-only console page `/self-review`, fed by an hourly cron (`/api/cron/self-review`). Reliability, no model: every cron now leaves a heartbeat, so a job that stopped or keeps failing shows as late or failing; also failed runs, runs that ended with no reply and no hand-off, slow runs, and new or spiking error events, each against Jetta's own recent normal. Quality: an independent model (Kimi K3.1 Pro by default, `JETTA_SELF_REVIEW_MODEL`; never the glm-5.2 that writes replies) grades a few of her recent chat answers, email drafts and dev-bridge replies against what the customer asked and the evidence her run gathered, plus rule checks (internal links, ticket numbers, dead links, links that appear nowhere in the evidence); at most 40 a day (`JETTA_SELF_REVIEW_DAILY`). The page shows the 7-day score, a 14-day trend, every judged reply with the judge's reasons, and suggested fixes grouped as KB gap, behaviour, tool or policy. New reliability problems, any chat answer judged bad, and a daily scorecard (from 09:00) go to the ops channel. Read-only: nothing it finds changes what Jetta does. Switches: `JETTA_SELF_REVIEW` (off stops the cron), `JETTA_SELF_REVIEW_ALERTS` (off keeps the page, no Slack). Live on merge.
+
 ## 2026-11-03: Cleaner AI reads (Logs, Health, Performance)
 Numbers written with thousands separators ("17,277") no longer get a correct point thrown away as "invented": on the production model that was most of what the Logs read dropped. Citation markers like "[E2]" no longer show in the text. On Logs, points are one short sentence and "Worth watching" no longer lists apps having a normal day. Live on merge.
 

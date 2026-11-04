@@ -10,6 +10,7 @@
  * quiet customer is app/api/cron/ticket-followup's job.
  */
 import { NextRequest, NextResponse } from "next/server";
+import { withCronBeat } from "@/lib/cron-beat";
 import { config } from "@/lib/config";
 import { getDueFollowUps, clearFollowUp, recordOutcome, markEventSeen, unmarkEventSeen } from "@/lib/kv";
 import { buildContext, buildMessages } from "@/lib/context";
@@ -30,7 +31,7 @@ function authorized(req: NextRequest): boolean {
   return req.headers.get("authorization") === `Bearer ${secret}`;
 }
 
-export async function GET(req: NextRequest) {
+async function handler(req: NextRequest) {
   if (!authorized(req)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
@@ -126,3 +127,5 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({ status: "ok", stubMode: config.stubMode, processed: handled });
 }
+
+export const GET = withCronBeat("followup", handler);

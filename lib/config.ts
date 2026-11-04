@@ -715,6 +715,25 @@ export const config = {
     channel: env("JETTA_ERROR_WATCH_CHANNEL"),
   },
 
+  /**
+   * Jetta's self-review (lib/self-review/, the /self-review page): an hourly
+   * cron checks her own reliability (late or failing crons, run errors and
+   * latency, error events) and has an independent model grade a few of her
+   * recent replies, so quality is measured continuously, not only on drafts a
+   * human happened to use.
+   *   JETTA_SELF_REVIEW=off          stops the cron's work (the page shows the last run).
+   *   JETTA_SELF_REVIEW_ALERTS=off   keeps the page, posts nothing to Slack.
+   *   JETTA_SELF_REVIEW_MODEL        the judge (OpenRouter id). Default Kimi K3.1 Pro:
+   *                                  never the model that wrote the replies.
+   *   JETTA_SELF_REVIEW_DAILY        most replies judged per day (default 40).
+   */
+  selfReview: {
+    enabled: env("JETTA_SELF_REVIEW") !== "off",
+    alerts: env("JETTA_SELF_REVIEW_ALERTS") !== "off",
+    model: env("JETTA_SELF_REVIEW_MODEL") ?? "moonshotai/kimi-k3.1-pro",
+    dailyCap: Number(env("JETTA_SELF_REVIEW_DAILY") ?? 40) || 40,
+  },
+
   sentry: {
     token: env("SENTRY_AUTH_TOKEN"),
     org: env("SENTRY_ORG") ?? "jetpackapps",

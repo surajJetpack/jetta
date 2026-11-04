@@ -6,6 +6,7 @@
  * Hourly (vercel.json). JETTA_ERROR_WATCH=off makes it a no-op.
  */
 import { NextRequest, NextResponse } from "next/server";
+import { withCronBeat } from "@/lib/cron-beat";
 import { runErrorWatch } from "@/lib/error-watch";
 import { logOpsEvent } from "@/lib/events";
 
@@ -20,7 +21,7 @@ function authorized(req: NextRequest): boolean {
   return req.headers.get("authorization") === `Bearer ${secret}`;
 }
 
-export async function GET(req: NextRequest) {
+async function handler(req: NextRequest) {
   if (!authorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const result = await runErrorWatch();
   await logOpsEvent({
@@ -31,3 +32,5 @@ export async function GET(req: NextRequest) {
   });
   return NextResponse.json(result, { status: result.status === "error" ? 500 : 200 });
 }
+
+export const GET = withCronBeat("error-watch", handler);

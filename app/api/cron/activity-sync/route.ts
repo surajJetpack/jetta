@@ -6,6 +6,7 @@
  * start together.
  */
 import { NextRequest, NextResponse } from "next/server";
+import { withCronBeat } from "@/lib/cron-beat";
 import { syncActivity } from "@/lib/activity-sync";
 import { logOpsEvent } from "@/lib/events";
 
@@ -20,7 +21,7 @@ function authorized(req: NextRequest): boolean {
   return req.headers.get("authorization") === `Bearer ${secret}`;
 }
 
-export async function GET(req: NextRequest) {
+async function handler(req: NextRequest) {
   if (!authorized(req)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
@@ -33,3 +34,5 @@ export async function GET(req: NextRequest) {
   });
   return NextResponse.json(result);
 }
+
+export const GET = withCronBeat("activity-sync", handler);
