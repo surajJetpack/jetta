@@ -5,6 +5,7 @@
  * Hourly (vercel.json). Read-only against monday.
  */
 import { NextRequest, NextResponse } from "next/server";
+import { withCronBeat } from "@/lib/cron-beat";
 import { syncDevBoard } from "@/lib/dev-board-sync";
 import { logOpsEvent } from "@/lib/events";
 
@@ -19,7 +20,7 @@ function authorized(req: NextRequest): boolean {
   return req.headers.get("authorization") === `Bearer ${secret}`;
 }
 
-export async function GET(req: NextRequest) {
+async function handler(req: NextRequest) {
   if (!authorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const result = await syncDevBoard();
   await logOpsEvent({
@@ -30,3 +31,5 @@ export async function GET(req: NextRequest) {
   });
   return NextResponse.json(result, { status: result.status === "error" ? 500 : 200 });
 }
+
+export const GET = withCronBeat("dev-board-sync", handler);

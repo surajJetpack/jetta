@@ -5,6 +5,7 @@
  * `?dry=1` reports the decisions without acting, whatever the mode.
  */
 import { NextRequest, NextResponse } from "next/server";
+import { withCronBeat } from "@/lib/cron-beat";
 import { config } from "@/lib/config";
 import { logOpsEvent } from "@/lib/events";
 import { planDevFollowUp, runDevFollowUp } from "@/lib/dev-followup";
@@ -19,7 +20,7 @@ function authorized(req: NextRequest): boolean {
   return req.headers.get("authorization") === `Bearer ${secret}`;
 }
 
-export async function GET(req: NextRequest) {
+async function handler(req: NextRequest) {
   if (!authorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   if (req.nextUrl.searchParams.get("dry") === "1") {
@@ -49,3 +50,5 @@ export async function GET(req: NextRequest) {
   });
   return NextResponse.json({ mode: config.devFollowUp, unlinkedMode: config.devFollowUpUnlinked, items: rows.length, acted });
 }
+
+export const GET = withCronBeat("dev-followup", handler);

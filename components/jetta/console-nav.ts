@@ -28,6 +28,7 @@ import {
   LifeBuoy,
   MessageSquare,
   Monitor,
+  Stethoscope,
   Sunrise,
   type LucideIcon,
 } from "lucide-react";
@@ -127,6 +128,14 @@ export const NAV: NavGroup[] = [
         label: "Logs & errors",
         icon: Bug,
         hint: "Errors per app from Sentry and the server logs, what's new or spiking, who it hits",
+        adminOnly: true,
+      },
+      {
+        id: "self-review",
+        href: "/self-review",
+        label: "Self-review",
+        icon: Stethoscope,
+        hint: "Jetta grading her own work: reliability of her jobs and runs, and an independent judge on her replies",
         adminOnly: true,
       },
       {

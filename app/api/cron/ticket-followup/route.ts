@@ -10,6 +10,7 @@
  * JETTA_TICKET_FOLLOWUP=on is the arm.
  */
 import { NextRequest, NextResponse } from "next/server";
+import { withCronBeat } from "@/lib/cron-beat";
 import { config } from "@/lib/config";
 import { READ_BUDGET, runTicketFollowUps } from "@/lib/ticket-followup-run";
 
@@ -24,7 +25,7 @@ function authorized(req: NextRequest): boolean {
   return req.headers.get("authorization") === `Bearer ${secret}`;
 }
 
-export async function GET(req: NextRequest) {
+async function handler(req: NextRequest) {
   if (!authorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const p = req.nextUrl.searchParams;
   const dry = p.get("dry") === "1";
@@ -42,3 +43,5 @@ export async function GET(req: NextRequest) {
   });
   return NextResponse.json({ armed, dry, ...result });
 }
+
+export const GET = withCronBeat("ticket-followup", handler);

@@ -5,6 +5,7 @@
  * with the CRON_SECRET bearer token.
  */
 import { NextRequest, NextResponse } from "next/server";
+import { withCronBeat } from "@/lib/cron-beat";
 import { refreshDailyRollup, yesterdayKey } from "@/lib/daily-overview";
 import { pruneTopics } from "@/lib/kv";
 import { pruneExpiredFiles } from "@/lib/chat-files";
@@ -22,7 +23,7 @@ function authorized(req: NextRequest): boolean {
   return req.headers.get("authorization") === `Bearer ${secret}`;
 }
 
-export async function GET(req: NextRequest) {
+async function handler(req: NextRequest) {
   if (!authorized(req)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
@@ -72,3 +73,5 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ status: "error", date, error }, { status: 500 });
   }
 }
+
+export const GET = withCronBeat("daily-overview", handler);

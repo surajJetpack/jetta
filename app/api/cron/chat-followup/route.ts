@@ -19,6 +19,7 @@
  * conversations before letting it speak to anyone.
  */
 import { NextRequest, NextResponse } from "next/server";
+import { withCronBeat } from "@/lib/cron-beat";
 import { config } from "@/lib/config";
 import { getChatSettings } from "@/lib/chat-settings";
 import * as store from "@/lib/chat-store";
@@ -62,7 +63,7 @@ function authorized(req: NextRequest): boolean {
 
 const hours = (ms: number) => Math.round((ms / 3_600_000) * 10) / 10;
 
-export async function GET(req: NextRequest) {
+async function handler(req: NextRequest) {
   if (!authorized(req)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
@@ -302,3 +303,5 @@ async function noteResolved(
     data: { reason, silentHours, freshdeskTicket: conv.ticketId, detail },
   });
 }
+
+export const GET = withCronBeat("chat-followup", handler);

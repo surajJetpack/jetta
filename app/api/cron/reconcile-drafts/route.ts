@@ -11,6 +11,7 @@
  * only the ones a human hasn't answered yet.
  */
 import { NextRequest, NextResponse } from "next/server";
+import { withCronBeat } from "@/lib/cron-beat";
 import { listReplyDrafts } from "@/lib/kv";
 import { logOpsEvent } from "@/lib/events";
 import {
@@ -49,7 +50,7 @@ function authorized(req: NextRequest): boolean {
   return req.headers.get("authorization") === `Bearer ${secret}`;
 }
 
-export async function GET(req: NextRequest) {
+async function handler(req: NextRequest) {
   if (!authorized(req)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
@@ -97,3 +98,5 @@ export async function GET(req: NextRequest) {
     ratings,
   });
 }
+
+export const GET = withCronBeat("reconcile-drafts", handler);

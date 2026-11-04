@@ -11,6 +11,7 @@
  * ones are cancelled with a note so the announced reply becomes a draft.
  */
 import { NextRequest, NextResponse } from "next/server";
+import { withCronBeat } from "@/lib/cron-beat";
 import { config } from "@/lib/config";
 import * as freshdesk from "@/lib/tools/freshdesk";
 import {
@@ -41,7 +42,7 @@ function authorized(req: NextRequest): boolean {
 
 type Handled = { ticketId: string; action: string; reason?: string };
 
-export async function GET(req: NextRequest) {
+async function handler(req: NextRequest) {
   if (!authorized(req)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
@@ -173,3 +174,5 @@ async function cancelled(job: ScheduledFirstResponse, reason: string): Promise<v
     data: { reason },
   });
 }
+
+export const GET = withCronBeat("first-response", handler);

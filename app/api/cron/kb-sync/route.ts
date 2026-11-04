@@ -8,6 +8,7 @@
  * CRON_SECRET bearer token.
  */
 import { NextRequest, NextResponse } from "next/server";
+import { withCronBeat } from "@/lib/cron-beat";
 import { SITES, syncSite, type SyncResult } from "@/lib/kb-sync";
 import { logOpsEvent } from "@/lib/events";
 
@@ -22,7 +23,7 @@ function authorized(req: NextRequest): boolean {
   return req.headers.get("authorization") === `Bearer ${secret}`;
 }
 
-export async function GET(req: NextRequest) {
+async function handler(req: NextRequest) {
   if (!authorized(req)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
@@ -83,3 +84,5 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({ results, errors });
 }
+
+export const GET = withCronBeat("kb-sync", handler);
