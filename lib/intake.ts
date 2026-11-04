@@ -61,13 +61,54 @@ const NON_HUMAN_SENDER =
   /^(no-?reply|do-?not-?reply|donotreply|mailer-daemon|postmaster|bounce[s]?|notifications?|newsletter|mailchimp|sendgrid|marketing)@/i;
 
 /**
+ * The newest public customer reply, when the thread has moved past the opening
+ * message, i.e. the message that just arrived on a customer_reply webhook.
+ * Null on a brand-new ticket (the description IS the new message) or when the
+ * newest public message is ours.
+ *
+ * The intake gate must judge THIS, not the description. It used to read only
+ * the opener, so one opener mislabelled as noise silenced every later reply on
+ * the ticket: #14641 (EBSCO) lost eight human replies to "triage:auto_reply"
+ * re-judging a "can you suggest a time?" opener. The reverse let a customer's
+ * out-of-office through whenever the opener was real.
+ */
+export function newestCustomerReply(ticket: { replies?: Ticket["replies"] }): string | null {
+  const latest = [...(ticket.replies ?? [])].reverse().find((r) => !r.isPrivate);
+  return latest?.author === "customer" && latest.body.trim() ? newestRelayEntry(latest.body) : null;
+}
+
+/** Zendesk's reply banner — monday.com Support writes to us through it on shared customers. */
+const RELAY_BANNER = /^\s*##- Please type your reply above this line -##\s*/i;
+const RELAY_SEPARATOR = /(?:^|\n)[ \t]*-{20,}[ \t]*(?=\n|$)/;
+
+/**
+ * A help-desk relay (monday.com Support via Zendesk) re-sends the whole thread
+ * under a "type your reply above this line" banner, newest entry first. Keep
+ * only that newest entry: the banner reads as machine mail to the triage model,
+ * which labelled #14583's "any update on Alison's refund?" an auto-reply.
+ */
+export function newestRelayEntry(body: string): string {
+  if (!RELAY_BANNER.test(body)) return body;
+  // Freshdesk keeps the email's CRLF line endings.
+  const entries = body.replace(/\r\n?/g, "\n").replace(RELAY_BANNER, "").split(RELAY_SEPARATOR).map((s) => s.trim()).filter(Boolean);
+  return entries[0] ?? body;
+}
+
+/**
  * Return a short reason string when the ticket is UNMISTAKABLY not a customer
  * query, else null. Conservative on purpose — false positives drop real
  * customers, so only clear-cut signals fire here.
+ *
+ * When `replies` are present and the newest public one is the customer's, it
+ * judges that reply alone. The subject belongs to the thread (set by the
+ * opener), so it only counts when the opener is what is being judged.
  */
-export function obviousNonQuery(ticket: Pick<Ticket, "subject" | "description" | "requesterEmail">): string | null {
-  const subject = ticket.subject ?? "";
-  const body = ticket.description ?? "";
+export function obviousNonQuery(
+  ticket: Pick<Ticket, "subject" | "description" | "requesterEmail"> & Partial<Pick<Ticket, "replies">>,
+): string | null {
+  const reply = newestCustomerReply(ticket);
+  const subject = reply ? "" : (ticket.subject ?? "");
+  const body = reply ?? ticket.description ?? "";
   const email = (ticket.requesterEmail ?? "").trim();
 
   if (JUNK.test(subject) || JUNK.test(body)) return "auto_reply";
