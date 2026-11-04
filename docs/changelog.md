@@ -4,6 +4,9 @@ Newest first. One entry per change people would notice: what Jetta does differen
 
 Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain words.
 
+## 2026-11-04: Customer replies are judged on what they say
+When a customer replies on an existing ticket, the filter that skips out-of-office, bounce and marketing mail now reads the reply itself. It used to re-read the ticket's first message every time, so a ticket whose opener was once tagged as noise had every later reply dropped: EBSCO's #14641 lost eight replies that way. It also lets a customer's out-of-office on a real ticket get skipped (it used to pass, because the opener was real). Mail that monday.com Support relays through its Zendesk desk counts as written by a person, and only its newest entry is read, so "any update on the refund?" (#14583) is no longer taken for an auto-reply. Same `JETTA_INTAKE_FILTER` switch. Live on merge.
+
 ## 2026-11-03: Cleaner AI reads (Logs, Health, Performance)
 Numbers written with thousands separators ("17,277") no longer get a correct point thrown away as "invented": on the production model that was most of what the Logs read dropped. Citation markers like "[E2]" no longer show in the text. On Logs, points are one short sentence and "Worth watching" no longer lists apps having a normal day. Live on merge.
 
