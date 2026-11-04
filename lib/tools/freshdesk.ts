@@ -4,6 +4,7 @@
  * Every function honours STUB_MODE: with no credentials it returns realistic
  * canned data so the Claude loop and webhook path can be exercised end-to-end.
  */
+import { createHash } from "node:crypto";
 import { config } from "../config";
 import { humanizeText } from "../human-text";
 import { imageDimensions } from "../image-dims";
@@ -288,18 +289,34 @@ const MAX_INLINE_ASPECT = 5;
  * a screenshot, and relayed to a developer as one (#14652).
  */
 export function countInlineImages(html: string): number {
-  let n = 0;
+  return evidenceImageTags(html).length;
+}
+
+/**
+ * The pasted-in `<img>` tags in this HTML that could be evidence, in order.
+ *
+ * One rule for both the count Jetta is told and the files a developer is sent,
+ * so the two can never disagree about what is a screenshot.
+ *
+ * The DECLARED size matters on its own, not only the real pixels: a signature
+ * logo is commonly a high-res file shown small. On #14677 the sender's logo was
+ * a 518 KB image rendered at width="83" height="83" — its pixels cleared every
+ * floor, so it was relayed to the dev board as a "screenshot", once per reply.
+ */
+function evidenceImageTags(html: string): { src: string; dataId?: string }[] {
+  const out: { src: string; dataId?: string }[] = [];
   const unlinked = html.replace(/<a\b[^>]*>[\s\S]*?<\/a>/gi, "");
   for (const [tag] of unlinked.matchAll(/<img[^>]*>/gi)) {
-    if (!tag.includes(`https://${INLINE_HOST}/`)) continue;
-    const w = Number(/\bwidth="(\d+)"/.exec(tag)?.[1] ?? 0);
-    const h = Number(/\bheight="(\d+)"/.exec(tag)?.[1] ?? 0);
+    const src = /\bsrc="([^"]+)"/i.exec(tag)?.[1]?.replace(/&amp;/g, "&");
+    if (!src?.startsWith(`https://${INLINE_HOST}/`)) continue;
+    const w = Number(/\bwidth="(\d+)"/i.exec(tag)?.[1] ?? 0);
+    const h = Number(/\bheight="(\d+)"/i.exec(tag)?.[1] ?? 0);
     if (w && h && (w < MIN_INLINE_WIDTH || h < MIN_INLINE_HEIGHT || w / h > MAX_INLINE_ASPECT)) {
       continue;
     }
-    n++;
+    out.push({ src, dataId: /\bdata-id="(\d+)"/i.exec(tag)?.[1] });
   }
-  return n;
+  return out;
 }
 
 /**
@@ -639,8 +656,8 @@ export async function listTicketAttachments(ticketId: string): Promise<Attachmen
   ];
 }
 
-/** Freshdesk-hosted inline image URLs from the customer's own messages. */
-async function inlineImageUrls(ticketId: string): Promise<string[]> {
+/** Pasted-in images from the customer's own messages that could be evidence. */
+async function inlineImageCandidates(ticketId: string): Promise<{ src: string; dataId?: string }[]> {
   const [ticket, conversations] = await Promise.all([
     fd<{ description?: string }>(`/tickets/${ticketId}`),
     fetchConversations(ticketId),
@@ -652,11 +669,20 @@ async function inlineImageUrls(ticketId: string): Promise<string[]> {
     ...conversations.filter((c) => c.incoming).map((c) => c.body ?? ""),
   ].join("\n");
 
-  const srcs = [...html.matchAll(/<img[^>]+src="([^"]+)"/gi)].map((m) => m[1]);
-  // Freshdesk-hosted URLs ONLY. Remote <img> srcs in inbound mail are signature
-  // assets and tracking pixels, and fetching an arbitrary URL out of an email
-  // would turn this into a request-forgery vector pointed wherever a sender likes.
-  return [...new Set(srcs.filter((u) => u.startsWith(`https://${INLINE_HOST}/`)))];
+  // Freshdesk-hosted URLs ONLY (evidenceImageTags enforces it). Remote <img>
+  // srcs in inbound mail are signature assets and tracking pixels, and fetching
+  // an arbitrary URL out of an email would turn this into a request-forgery
+  // vector pointed wherever a sender likes.
+  //
+  // Each reply quotes the thread below it, so one screenshot shows up once per
+  // later message, under the same data-id. Keep the first.
+  const seen = new Set<string>();
+  return evidenceImageTags(html).filter((t) => {
+    const key = t.dataId ?? t.src;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 /**
@@ -665,11 +691,13 @@ async function inlineImageUrls(ticketId: string): Promise<string[]> {
  * the URL token, so the same image keeps the same name across runs.
  */
 async function downloadInlineImages(ticketId: string, budgetBytes: number): Promise<AttachmentFile[]> {
-  const urls = await inlineImageUrls(ticketId);
-  const kept: AttachmentFile[] = [];
+  const candidates = await inlineImageCandidates(ticketId);
+  const kept: (AttachmentFile & { hash: string })[] = [];
+  /** Content hash → every data-id it arrived under. */
+  const idsByHash = new Map<string, Set<string>>();
   let spent = 0;
 
-  for (const url of urls) {
+  for (const { src: url, dataId } of candidates) {
     if (spent >= budgetBytes) break;
     try {
       const res = await fetch(url);
@@ -699,13 +727,26 @@ async function downloadInlineImages(ticketId: string, budgetBytes: number): Prom
       }
       const ext = contentType.split("/")[1]?.replace("jpeg", "jpg") ?? "jpg";
 
-      kept.push({ name: `inline-${id}.${ext}`, contentType, data });
+      const hash = createHash("sha256").update(Buffer.from(data)).digest("hex");
+      const ids = idsByHash.get(hash) ?? new Set<string>();
+      ids.add(dataId ?? id);
+      idsByHash.set(hash, ids);
+      // Same bytes already kept: never send one picture twice.
+      if (kept.some((k) => k.hash === hash)) continue;
+
+      kept.push({ name: `inline-${id}.${ext}`, contentType, data, hash });
       spent += data.byteLength;
     } catch (e) {
       console.warn(`Inline image (ticket ${ticketId}) download failed, skipping:`, e);
     }
   }
-  return kept;
+  // Identical bytes under DIFFERENT Freshdesk ids means the mail client
+  // re-embedded it with every message it sent: that is a signature graphic. A
+  // screenshot quoted further down a thread keeps its id (deduped above) — on
+  // #14677 the logo came back as four ids, the real screenshot as one.
+  return kept
+    .filter((k) => (idsByHash.get(k.hash)?.size ?? 1) < 2)
+    .map(({ name, contentType, data }) => ({ name, contentType, data }));
 }
 
 /**
