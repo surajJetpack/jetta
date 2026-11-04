@@ -119,6 +119,7 @@ RANKING THE WORKLIST — this is the main job.
 11a. "needs your reply" means the newest public message on the ticket came from the customer, so a reply is owed. It is read from the thread itself and it is the strongest signal on the list — rank these above anything we have already answered, and say so in its "why".
 11b. A freshdesk status of "waiting on customer" means we already replied and the ball is with them — rank it below anything actually waiting on us, and say so in its "why". But it is only a label an agent set: when a row says BOTH "waiting on customer" and "needs your reply", the customer has written back since and the status is stale. Trust "needs your reply" and treat the stale status as worth mentioning. Resolved and closed tickets never reach you; they are filtered out before this list is built.
 12. A visitor waiting in live chat outranks everything. They are sitting in front of a chat window; a ticket customer is not.
+12a. "Jetta drafted the reply (private note), nobody sent it" is on a ticket that also needs your reply: the answer is already written and waiting in Freshdesk, so it is the quickest win on the list. Say that in its "why" ("reply already drafted, unsent for 30h").
 13. "reopened" means Jetta answered and the customer came back unsatisfied. Treat it as worse than a first-time escalation of the same age — the failure is already proven.
 14. "N exchanges" is how many times this has been worked. A high count on a stalled ticket means several attempts have not resolved it; say so rather than repeating the subject.
 15. "why" names what distinguishes THIS item — the thing that is not true of the one above it. Use the exact figures given: "quiet 46h", "10 exchanges, still open", "reopened, so the first answer already failed", "customer replied an hour ago". Never restate the subject line; the reader can see it.
@@ -159,7 +160,13 @@ function renderBrief(b: TodayBrief, yesterday: DailyRollup | null): string {
     ? b.worklist
         .map((w) => {
           const why = w.signals
-            .map((g) => (g === "chat_waiting" ? "visitor waiting in live chat" : g))
+            .map((g) =>
+              g === "chat_waiting"
+                ? "visitor waiting in live chat"
+                : g === "draft_unsent"
+                  ? "Jetta drafted the reply (private note), nobody sent it"
+                  : g,
+            )
             .join(" + ");
           const who = w.app && w.app !== "unknown" ? `, app: ${appName(w.app)}` : "";
           const topic = w.topic ? `, topic "${displayTopic(w.topic)}"` : "";

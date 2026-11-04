@@ -14,7 +14,7 @@
  * brief means the narrative can never describe different numbers than the
  * ones on screen.
  */
-import { getOutcomes, listMonetApprovals, getDailyRollup } from "./kv";
+import { getOutcomes, listMonetApprovals, getDailyRollup, listReplyDrafts } from "./kv";
 import { freshdeskTicketUrl } from "./tools/freshdesk";
 import { listLearnings } from "./evals";
 import { listArticles, countByState, type ArticleState } from "./kb-store";
@@ -35,7 +35,14 @@ const REOPEN_LOOKBACK_H = 7 * 24;
  * reopened ticket that was then escalated is a different (worse) thing than
  * either alone, and collapsing it to one label throws that away.
  */
-export type WorklistSignal = "chat_waiting" | "reopened" | "escalated";
+export type WorklistSignal = "chat_waiting" | "reopened" | "escalated" | "draft_unsent";
+
+/**
+ * How long a Jetta suggestion may sit unsent before the ticket is put on the
+ * worklist. Long enough that an agent working the queue normally has had the
+ * chance; short enough that the customer has not noticed yet.
+ */
+const DRAFT_UNSENT_AFTER_H = 4;
 
 /**
  * Two ways a ticket needs a person, and they are opposite problems.
@@ -227,13 +234,10 @@ export async function buildTodayBrief() {
   const [outcomes, candidateLearnings, monet, kbCounts, published, yesterday, conversations] =
     await Promise.all([
       getOutcomes(1000),
-      // Reply drafts are deliberately absent. The console review queue is not the
-      // workflow: agents read Jetta's suggestion as a Freshdesk private note and
-      // send in their own words, and the learning comes from mining what they
-      // actually wrote (/evals → "Learn from human replies"). Counting drafts here
-      // put work on the board that nobody was ever going to do — 83 of 95 turned
-      // out to be unreviewable. What DOES need a human is a candidate learning:
-      // nothing changes Jetta's behaviour until someone approves one.
+      // Drafts are NOT a review queue here. Agents read Jetta's suggestion as a
+      // Freshdesk private note and send in their own words; counting every
+      // pending draft put work on the board nobody was ever going to do (83 of
+      // 95 were unreviewable). What does need a human is a candidate learning.
       listLearnings("candidate").catch(() => []),
       listMonetApprovals().catch(() => []),
       countByState().catch(
@@ -246,6 +250,11 @@ export async function buildTodayBrief() {
       // the whole brief down with it.
       listConversations(100).catch(() => []),
     ]);
+  // Pending drafts DO feed the worklist, but only through the "draft_unsent"
+  // signal below, which keeps a ticket only while its customer is still the
+  // last to have spoken. That is a reply owed with an answer already written,
+  // not a review chore: #13894 sat 13 days with Jetta's reply in a note.
+  const replyDrafts = await listReplyDrafts().catch(() => []);
 
   const waitingChats = conversations.filter((c) => c.status === "waiting_human");
 
@@ -371,6 +380,32 @@ export async function buildTodayBrief() {
   for (const r of reopened) add(row(r, "reopened"));
   for (const e of escalations) add(row(e, "escalated"));
 
+  // Jetta wrote the reply and nobody sent it. Chat drafts are excluded: a
+  // live chat that needs a person already shows as chat_waiting.
+  const recordById = new Map(tickets.map((t) => [t.ticketId, t]));
+  for (const d of replyDrafts) {
+    if (d.state !== "pending" || d.channel !== "freshdesk") continue;
+    if (nowS - d.createdAt < DRAFT_UNSENT_AFTER_H * HOUR_S) continue;
+    const rec = recordById.get(d.ticketId);
+    const lastAt = Math.max(rec?.lastAt ?? 0, d.createdAt);
+    const quietHours = age(lastAt);
+    add({
+      id: d.ticketId,
+      signals: ["draft_unsent"],
+      ...refFor(d.ticketId, "freshdesk"),
+      subject: d.subject ?? rec?.subject ?? "",
+      topic: d.topic ?? rec?.topic ?? null,
+      app: d.app ?? rec?.app ?? "unknown",
+      at: d.createdAt,
+      ageHours: age(d.createdAt),
+      state: quietHours < ACTIVE_WITHIN_H ? "active" : "stalled",
+      quietHours,
+      runs: rec?.runs ?? 1,
+      status: null,
+      awaitingReply: false,
+    });
+  }
+
   const chatRows: WorklistItem[] = waitingChats.map((c) => {
     const at = Math.floor((c.humanRequestedAt ?? Date.parse(c.lastActivityAt)) / 1000);
     return {
@@ -440,7 +475,12 @@ export async function buildTodayBrief() {
   );
   const DONE = new Set(["gone", "resolved", "ticketed"]);
   const live = withStatus.filter(
-    (i) => !(i.status && (isTerminalStatus(i.status) || DONE.has(i.status))),
+    (i) =>
+      !(i.status && (isTerminalStatus(i.status) || DONE.has(i.status))) &&
+      // An unsent draft only matters while the customer is still waiting:
+      // once anyone has replied, the draft is history, not work. Fails
+      // closed with awaitingReply, so a lookup timeout drops the row.
+      !(i.signals.length === 1 && i.signals[0] === "draft_unsent" && !i.awaitingReply),
   );
 
   const group = (i: WorklistItem) =>
