@@ -4,6 +4,9 @@ Newest first. One entry per change people would notice: what Jetta does differen
 
 Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain words.
 
+## 2026-11-04: Today shows replies Jetta drafted that nobody sent; Health ignores out-of-office
+On /today, a ticket where Jetta's suggested reply has sat in a private note for 4 hours or more, and the customer is still the last to have written, now appears on the worklist with a "draft not sent" chip (#13894 sat 13 days like this). It leaves the list as soon as anyone replies or the ticket closes. Answered and closed tickets with old drafts never appear. On /health and /performance, a customer's out-of-office or bounce no longer counts as the customer writing, so a ticket whose last message is an away notice stops showing as "waiting on us" (#14675). The next performance sync re-reads every ticket once to apply this, mostly from Jetta's own ticket copy. No switch. Live on merge.
+
 ## 2026-11-04: Customer replies are judged on what they say
 When a customer replies on an existing ticket, the filter that skips out-of-office, bounce and marketing mail now reads the reply itself. It used to re-read the ticket's first message every time, so a ticket whose opener was once tagged as noise had every later reply dropped: EBSCO's #14641 lost eight replies that way. It also lets a customer's out-of-office on a real ticket get skipped (it used to pass, because the opener was real). Mail that monday.com Support relays through its Zendesk desk counts as written by a person, and only its newest entry is read, so "any update on the refund?" (#14583) is no longer taken for an auto-reply. Same `JETTA_INTAKE_FILTER` switch. Live on merge.
 

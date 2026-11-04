@@ -20,7 +20,7 @@
  *    reconciler uses (lib/reply-similarity.ts), so "sent as-is" means the same
  *    thing here as on /evals.
  */
-import { JUNK } from "./intake";
+import { JUNK, looksAutomated } from "./intake";
 import { replySimilarity, SIMILARITY_GOOD, SIMILARITY_PARTIAL } from "./reply-similarity";
 
 /** Jetta's first Freshdesk draft went out on 2026-07-09; the first full day is the 10th. */
@@ -115,9 +115,11 @@ export interface PerfTicket {
 /**
  * Bumped when PerfTicket gains a field that old records can't have. The sync
  * re-reads every ticket once when it sees a store written under an older
- * version — v2 added `handoff`, which only a fresh thread read can fill.
+ * version — v2 added `handoff`, which only a fresh thread read can fill. v3:
+ * `lastPublicFrom` skips customer autoresponders, so open tickets whose last
+ * message is an out-of-office stop counting as owed a reply.
  */
-export const PERF_SCHEMA = 2;
+export const PERF_SCHEMA = 3;
 
 const STATUS_NAMES: Record<number, string> = {
   2: "Open",
@@ -228,7 +230,11 @@ export function summarizeTicket(
   const first = agentPublic[0];
   const firstText = first?.body_text ?? "";
   // The opening message (the ticket description) is the customer's, and is not in the thread.
-  const lastPublic = thread.filter((c) => !c.private).at(-1);
+  // A customer's out-of-office is not the customer talking: it must not flip
+  // "who spoke last" to them and put the ticket on /health as owed (#14675).
+  const lastPublic = thread
+    .filter((c) => !c.private && !(c.incoming && looksAutomated(c.body_text ?? "")))
+    .at(-1);
   const resolvedAt = ticket.stats?.resolved_at;
   return {
     v: PERF_SCHEMA,

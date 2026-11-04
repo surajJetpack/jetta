@@ -6,6 +6,7 @@ import {
   BookOpen,
   CheckCircle2,
   ExternalLink,
+  FilePen,
   Flame,
   MessageSquare,
   ArrowRight,
@@ -81,7 +82,7 @@ interface Insight {
 }
 interface WorklistItem {
   id: string;
-  signals: ("chat_waiting" | "reopened" | "escalated")[];
+  signals: ("chat_waiting" | "reopened" | "escalated" | "draft_unsent")[];
   label: string;
   url: string | null;
   external: boolean;
@@ -177,7 +178,14 @@ function TicketRef({ item }: { item: { label: string; url: string | null; extern
 function WorklistRow({ item, why }: { item: WorklistItem; why: string | null }) {
   const waiting = item.signals.includes("chat_waiting");
   const reopened = item.signals.includes("reopened");
-  const Icon = waiting ? MessageSquare : reopened ? Undo2 : Siren;
+  const drafted = item.signals.includes("draft_unsent");
+  const Icon = waiting
+    ? MessageSquare
+    : reopened
+      ? Undo2
+      : drafted && !item.signals.includes("escalated")
+        ? FilePen
+        : Siren;
   return (
     <DataRow
       href={item.url ?? undefined}
@@ -194,6 +202,9 @@ function WorklistRow({ item, why }: { item: WorklistItem; why: string | null }) 
           {waiting && <StatusChip tone="stale">waiting</StatusChip>}
           {reopened && <StatusChip tone="stale">reopened</StatusChip>}
           {item.awaitingReply && <StatusChip tone="stale">needs your reply</StatusChip>}
+          {/* Jetta's suggestion is sitting in a private note: open the
+              ticket, check it, send it. */}
+          {drafted && <StatusChip tone="in_review">draft not sent</StatusChip>}
           {!waiting && item.state === "active" && <StatusChip tone="in_review">active</StatusChip>}
         </span>
       }

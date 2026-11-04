@@ -20,6 +20,36 @@ import type { Ticket } from "./types";
 export const JUNK =
   /automatic reply|auto-?reply|out of office|automatisch antwoord|abwesenheit|undeliverable|delivery status notification|mail delivery (failed|subsystem)|returned mail|read receipt/i;
 
+/**
+ * One message is an autoresponder: an away notice or a bounce. Catches what
+ * JUNK misses in a body, like #14675's "Thank you for your email. I am now
+ * away for the winter season. This inbox will be checked intermittently."
+ */
+const AUTORESPONDER = new RegExp(
+  [
+    // How autoresponders open.
+    String.raw`^\s*(automatic reply|auto-?reply|out of (the )?office)\b`,
+    // Present tense only: "I am out of office" is a notice, "I was out of
+    // office last week, the test still fails" is a customer.
+    String.raw`\b(i am|i'm|i will be)( now| currently)? (out of (the )?office|away(?! from (my |the )?(desk|computer|keyboard|laptop|phone))|on (annual |parental |maternity )?leave)\b`,
+    String.raw`checked intermittently|until my return|limited access to (my )?e-?mail`,
+    // Bounces.
+    String.raw`undeliverable|delivery status notification|mail delivery (failed|subsystem)|returned mail`,
+  ].join("|"),
+  "i",
+);
+
+/**
+ * Is this one message an autoresponder? For READING a thread (who spoke
+ * last), not for the webhook gate. Stricter than JUNK, which is a subject-line
+ * test: in a body, "out of office" alone is as often a person explaining a
+ * slow reply. Short messages only, since an away notice is a few lines.
+ */
+export function looksAutomated(body: string): boolean {
+  const text = body.trim();
+  return text.length > 0 && text.length <= 800 && AUTORESPONDER.test(text);
+}
+
 /** Marketing / bulk-mail markers — only trusted when they appear in the body. */
 const MARKETING = /unsubscribe|view (this|in) (email )?in your browser|manage (your )?(email )?preferences|you (are )?receiving this (email|because)|no longer wish to receive/i;
 
