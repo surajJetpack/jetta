@@ -134,10 +134,49 @@ export interface QualityReport {
   fixes: { type: FixType; count: number; examples: { runId: string; ticketId: string; fix: string }[] }[];
 }
 
+export type ActionRule =
+  | "duplicate_dev_item"
+  | "repeated_dev_post"
+  | "closed_while_escalated"
+  | "thin_dev_item"
+  | "dev_write_failed"
+  | "cancelled_subscription";
+
+/** One time an action rule caught something Jetta did (lib/self-review/actions.ts). */
+export interface ActionFinding {
+  /** Stable id, used to post each finding to Slack once. */
+  key: string;
+  rule: ActionRule;
+  severity: "bad" | "warn";
+  ticketId: string;
+  /** Unix ms of the latest run involved. */
+  at: number;
+  title: string;
+  detail: string;
+  runIds: string[];
+}
+
+export interface ActionReport {
+  days: number;
+  counts: {
+    devItemsFiled: number;
+    devQuestions: number;
+    dedupedOntoExisting: number;
+    devPosts: number;
+    escalations: number;
+    compliance: number;
+    closes: number;
+    billing: number;
+  };
+  findings: ActionFinding[];
+}
+
 export interface SelfReviewSummary {
   computedAt: number;
   reliability: ReliabilityReport | null;
   quality: QualityReport;
+  /** Absent on summaries written before the action rules existed. */
+  actions?: ActionReport;
   /** What the latest run posted to Slack. */
   alerts: { at: number; text: string }[];
   settings: { enabled: boolean; alerts: boolean; judge: string; dailyCap: number; channel: string };

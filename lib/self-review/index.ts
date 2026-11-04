@@ -27,6 +27,7 @@ import { bumpDataVersion } from "../data-version";
 import { shiftDayKey, supportTimeZone, zonedDayKey } from "../tz";
 import * as slack from "../tools/slack";
 import { assessReliability } from "./reliability";
+import { assessActions } from "./actions";
 import { evidenceFromTrace, finalVerdict, judgeModelId, judgeReply, judgeable, kindOf, replyOf, ruleChecks } from "./quality";
 import { FIX_TYPES, ISSUE_CATEGORIES, type DayScore, type JudgedReply, type QualityReport, type SelfReviewSummary } from "./types";
 
@@ -173,6 +174,11 @@ export function pickRuns(logs: RunLog[], judged: JudgedReply[], now: number, lim
 
 // ── rollups ─────────────────────────────────────────────────────────
 
+/** Replies judged ON a day (by when the judge ran, not when the run was): the daily cap counts these. */
+export function judgedOn(judged: JudgedReply[], day: string): number {
+  return judged.filter((j) => zonedDayKey(new Date(j.judgedAt ?? j.at)) === day).length;
+}
+
 const avg = (xs: number[]) => (xs.length ? Math.round((xs.reduce((a, b) => a + b, 0) / xs.length) * 100) / 100 : 0);
 
 export function buildQuality(judged: JudgedReply[], now: number): QualityReport {
@@ -211,7 +217,7 @@ export function buildQuality(judged: JudgedReply[], now: number): QualityReport 
   return {
     judge: judgeModelId(),
     dailyCap: config.selfReview.dailyCap,
-    judgedToday: judged.filter((j) => j.day === today).length,
+    judgedToday: judgedOn(judged, today),
     days,
     recent: week.slice(0, 150),
     issues,
@@ -245,6 +251,7 @@ export interface SelfReviewRunResult {
   judged?: number;
   judgeFailures?: number;
   flags?: number;
+  actionFindings?: number;
   alerts?: number;
   ms?: number;
   error?: string;
@@ -264,13 +271,14 @@ export async function runSelfReview(opts: { notify?: boolean; judge?: boolean } 
       getSelfReviewSummary(),
     ]);
     const reliability = assessReliability({ beats, logs, events, now });
+    const actions = assessActions(logs, now);
 
     // Quality: a few unjudged replies, inside the day's budget.
     const fresh: JudgedReply[] = [];
     let judgeFailures = 0;
     if (opts.judge !== false && config.openrouter.apiKey) {
       const today = zonedDayKey(new Date(now));
-      const left = Math.max(0, config.selfReview.dailyCap - judgedBefore.filter((j) => j.day === today).length);
+      const left = Math.max(0, config.selfReview.dailyCap - judgedOn(judgedBefore, today));
       const queue = pickRuns(logs, judgedBefore, now, Math.min(PER_RUN, left));
       const worker = async () => {
         while (queue.length && Date.now() - started < JUDGE_BUDGET_MS) {
@@ -304,6 +312,21 @@ export async function runSelfReview(opts: { notify?: boolean; judge?: boolean } 
           fresh12h.map((f) => `• ${f.severity === "bad" ? ":red_circle:" : ":large_yellow_circle:"} *${f.title}*: ${f.detail}`),
         );
       }
+      // Action findings from the last day, each once. Older ones were either
+      // posted already or predate this check; the page still lists them.
+      const newActions = [];
+      for (const f of actions.findings.filter((x) => now - x.at < 86_400_000)) {
+        if (await markEventSeen(`selfreview:action:${f.key}`, 14 * 86_400)) newActions.push(f);
+      }
+      if (newActions.length) {
+        await post(
+          `:hammer_and_wrench: Jetta's actions: ${newActions.length === 1 ? newActions[0].title : `${newActions.length} things to check`}`,
+          [
+            ...newActions.slice(0, 8).map((f) => `• ${f.severity === "bad" ? ":red_circle:" : ":large_yellow_circle:"} *${f.title}*: ${f.detail}`),
+            "Details on the console's Self-review page.",
+          ],
+        );
+      }
       for (const j of fresh.filter((x) => x.kind === "chat" && x.verdict === "bad")) {
         if (!(await markEventSeen(`selfreview:bad:${j.runId}`, 7 * 86_400))) continue;
         await post(`:warning: A chat answer Jetta sent was judged bad (${j.score}/5)${j.app ? ` · ${j.app}` : ""}: ${j.summary}`, [
@@ -326,6 +349,7 @@ export async function runSelfReview(opts: { notify?: boolean; judge?: boolean } 
       computedAt: now,
       reliability,
       quality,
+      actions,
       alerts: [...alerts, ...(prev?.alerts ?? [])].slice(0, 30),
       settings: {
         enabled: config.selfReview.enabled,
@@ -337,7 +361,7 @@ export async function runSelfReview(opts: { notify?: boolean; judge?: boolean } 
     };
     await setJson(SUMMARY_KEY, summary);
     await bumpDataVersion("selfreview");
-    return { status: "ok", judged: fresh.length, judgeFailures, flags: reliability.flags.length, alerts: alerts.length, ms: Date.now() - started };
+    return { status: "ok", judged: fresh.length, judgeFailures, flags: reliability.flags.length, actionFindings: actions.findings.length, alerts: alerts.length, ms: Date.now() - started };
   } catch (e) {
     return { status: "error", error: e instanceof Error ? e.message : String(e), ms: Date.now() - started };
   } finally {

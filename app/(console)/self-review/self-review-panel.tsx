@@ -26,7 +26,7 @@ import { CHIP_BASE, TONE_SOFT, TONE_TEXT, type Tone } from "@/components/jetta/t
 import { useDataVersion } from "@/lib/use-data-version";
 import { fmtDayKey, fmtDuration } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import type { CronHealth, JudgedReply, ReplyKind, SelfReviewSummary, Verdict } from "@/lib/self-review/types";
+import type { ActionFinding, CronHealth, JudgedReply, ReplyKind, SelfReviewSummary, Verdict } from "@/lib/self-review/types";
 
 const DESCRIPTION = "Jetta checking her own work every hour: are her jobs and runs healthy, and how good were her replies, graded by an independent model.";
 
@@ -146,6 +146,79 @@ function Flags({ s }: { s: SelfReviewSummary }) {
           <p className="flex items-center gap-2 text-sm text-muted-foreground">
             <CircleCheck className={cn("size-4", TONE_TEXT.good)} aria-hidden />
             Nothing unusual: jobs on schedule, run errors and latency at their normal level.
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ── actions ─────────────────────────────────────────────────────────
+
+const RULE_LABEL: Record<ActionFinding["rule"], string> = {
+  duplicate_dev_item: "Duplicate dev item",
+  repeated_dev_post: "Repeated dev post",
+  closed_while_escalated: "Closed while escalated",
+  thin_dev_item: "No repro steps",
+  dev_write_failed: "Board write failed",
+  cancelled_subscription: "Subscription cancelled",
+};
+
+function Actions({ s }: { s: SelfReviewSummary }) {
+  const a = s.actions;
+  if (!a) return null;
+  const c = a.counts;
+  const tiles: [string, number][] = [
+    ["Dev items filed", c.devItemsFiled],
+    ["Questions to devs", c.devQuestions],
+    ["Added to an existing item", c.dedupedOntoExisting],
+    ["Posts to developers", c.devPosts],
+    ["Escalations", c.escalations],
+    ["Tickets closed", c.closes],
+    ["Compliance requests", c.compliance],
+    ["Billing actions", c.billing],
+  ];
+  return (
+    <Card id="actions" className="scroll-mt-16 gap-3 py-4">
+      <CardHeader className="px-4">
+        <CardTitle>What she did, last {a.days} days</CardTitle>
+        <CardDescription className="text-xs">
+          Her unsupervised writes, from the tool calls in every run: the dev board, escalations, closes and billing. Rule checks name each time a
+          guard was bypassed (a second item for one ticket, the same post to developers twice, a close after an escalation, an item with no repro
+          steps, a write that did not land, a cancellation). New ones go to Slack once.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-4 px-4">
+        <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-md border bg-border sm:grid-cols-4">
+          {tiles.map(([label, n]) => (
+            <div key={label} className="bg-card px-3 py-2">
+              <dt className="text-2xs text-muted-foreground">{label}</dt>
+              <dd className="text-lg font-semibold tabular-nums">{n}</dd>
+            </div>
+          ))}
+        </dl>
+        {a.findings.length ? (
+          <ul className="grid gap-2">
+            {a.findings.map((f) => (
+              <li key={f.key} className="flex items-start gap-2.5 rounded-md border bg-card px-3 py-2.5">
+                <TriangleAlert className={cn("mt-0.5 size-4 shrink-0", TONE_TEXT[f.severity === "bad" ? "bad" : "warn"])} aria-hidden />
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Chip tone={f.severity === "bad" ? "bad" : "warn"}>{RULE_LABEL[f.rule]}</Chip>
+                    <span className="text-sm font-medium">{f.title}</span>
+                    <span className="text-xs text-muted-foreground">
+                      <RelativeTime at={Math.floor(f.at / 1000)} />
+                    </span>
+                  </div>
+                  <p className="mt-0.5 text-xs text-pretty text-muted-foreground">{f.detail}</p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="flex items-center gap-2 text-sm text-muted-foreground">
+            <CircleCheck className={cn("size-4", TONE_TEXT.good)} aria-hidden />
+            No rule broken: no duplicate items, post bursts, closes after escalation, thin items, failed writes or cancellations.
           </p>
         )}
       </CardContent>
@@ -592,7 +665,9 @@ export default function SelfReviewPanel() {
       const r = await fetch("/api/admin/self-review", { method: "POST" });
       const d = await r.json();
       if (!r.ok) throw new Error(d.message ?? d.error ?? requestFailed(r));
-      toast.success(`Checked · ${d.judged ?? 0} repl${d.judged === 1 ? "y" : "ies"} judged · ${d.flags ?? 0} flag${d.flags === 1 ? "" : "s"}`);
+      toast.success(
+        `Checked · ${d.judged ?? 0} repl${d.judged === 1 ? "y" : "ies"} judged · ${d.flags ?? 0} flag${d.flags === 1 ? "" : "s"} · ${d.actionFindings ?? 0} action finding${d.actionFindings === 1 ? "" : "s"}`,
+      );
       if (d.summary !== undefined) setSummary(d.summary);
       else load();
     } catch (e) {
@@ -670,6 +745,7 @@ export default function SelfReviewPanel() {
         <StatusStrip s={summary} />
         <Headline s={summary} />
         <Flags s={summary} />
+        <Actions s={summary} />
         <div className="grid gap-5 lg:grid-cols-2 [&>*]:min-w-0">
           <Trend s={summary} />
           <Fixes s={summary} open={setOpenId} />
