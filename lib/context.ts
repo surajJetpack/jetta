@@ -28,6 +28,7 @@ import * as fastspring from "./tools/fastspring";
 import * as monday from "./tools/monday";
 import { getKnownTopics, recordTopicUse } from "./kv";
 import { normalizeTopic } from "./topics";
+import { newestCustomerReply } from "./intake";
 
 // Context-diet caps for the replayed conversation (lib/tools/freshdesk.ts has
 // the equivalent caps for the get_ticket_details tool result).
@@ -141,6 +142,7 @@ Intake type — is this a real customer who needs a reply, or noise?
 - "spam" — junk, phishing, or clearly irrelevant content.
 - "other" — none of the above and clearly not something to reply to.
 Only pick a non-"customer_query" type when you are confident. If in doubt, choose "customer_query".
+Mail relayed through another company's help desk (monday.com Support writing about a shared customer, often under a "Please type your reply above this line" banner, with a logo and a dated "Name, date" header) is written by a person. The banner and layout are that help desk's template, not an autoresponder: judge the words. A request for an update is a "customer_query".
 
 Products:
 - "getsign" — GetSign (getsign.io), the e-signature app for monday.com: signing documents, signature requests, templates, field mapping, signed-document sync.
@@ -231,6 +233,12 @@ export async function triageTicket(
   subject: string,
   description: string,
   usageSink?: TaskUsage[],
+  /**
+   * The customer message that just arrived, when it isn't the opener (see
+   * newestCustomerReply). Intake is judged on it alone; product, app,
+   * complexity and topic still describe the ticket as a whole.
+   */
+  newestReply?: string | null,
 ): Promise<TicketTriage> {
   try {
     const { object, usage } = await generateObject({
@@ -243,7 +251,12 @@ export async function triageTicket(
         topic: z.string().describe("2-4 lowercase words naming what the ticket is about"),
       }),
       system: triageSystem(await knownTopics()),
-      prompt: `Subject: ${subject}\n\n${description.slice(0, 2000)}`,
+      prompt: newestReply
+        ? `Subject: ${subject}\n\nOpening message:\n${description.slice(0, 2000)}\n\n` +
+          `--- NEWEST CUSTOMER MESSAGE (just arrived) ---\n${newestReply.slice(0, 2000)}\n\n` +
+          `Judge the intake type on the NEWEST CUSTOMER MESSAGE alone: the opening message was already handled. ` +
+          `Product, app, complexity and topic describe the whole ticket.`
+        : `Subject: ${subject}\n\n${description.slice(0, 2000)}`,
     });
     usageSink?.push({
       task: "triage",
@@ -320,7 +333,7 @@ export async function buildContext(
 
   const [triage, account, relatedDevItems, ticketDevItems, ticketComplianceItems] = await Promise.all([
     contentIsLive
-      ? triageTicket(ticket.subject, ticket.description, taskUsage)
+      ? triageTicket(ticket.subject, ticket.description, taskUsage, newestCustomerReply(ticket))
       : Promise.resolve<TicketTriage>({
           product: "unknown",
           app: "unknown",
