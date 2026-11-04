@@ -128,7 +128,7 @@ await t("pickRuns: chat first, skips judged, two per conversation a day", () => 
 
 await t("quality rollup", () => {
   const row = (score: number, verdict: JudgedReply["verdict"], fixType: JudgedReply["fixType"] = "none"): JudgedReply =>
-    ({ runId: crypto.randomUUID(), at: NOW, day: "2026-11-04", kind: "chat", ticketId: "c", score, verdict, issues: verdict === "good" ? [] : [{ category: "unsupported_claim", detail: "" }], fixType, fix: fixType === "none" ? "" : "Add X to KB" }) as JudgedReply;
+    ({ runId: crypto.randomUUID(), at: NOW, judgedAt: NOW, day: "2026-11-04", kind: "chat", ticketId: "c", score, verdict, issues: verdict === "good" ? [] : [{ category: "unsupported_claim", detail: "" }], fixType, fix: fixType === "none" ? "" : "Add X to KB" }) as JudgedReply;
   const q = buildQuality([row(5, "good"), row(2, "bad", "kb_gap"), row(3, "weak", "kb_gap")], NOW);
   const today = q.days.find((d) => d.day === "2026-11-04")!;
   assert.equal(today.judged, 3);
@@ -140,3 +140,54 @@ await t("quality rollup", () => {
 });
 
 console.log(`\n${passed} passed`);
+
+// ── action rules ────────────────────────────────────────────────────
+const { assessActions } = await import("../lib/self-review/actions");
+const { judgedOn } = await import("../lib/self-review");
+const tr = (tool: string, input: Record<string, unknown>, result: string) => ({ tool, input, result });
+const H = 3600;
+
+await t("actions: duplicate items, post burst, close after escalation, thin item, cancel", () => {
+  const base = Math.floor(NOW / 1000);
+  const logs = [
+    run({ ticketId: "14457", channel: "freshdesk", source: "webhook", at: base - 30 * H, trace: [tr("create_dev_item", { title: "Sync broken", repro_steps: "1. open board 2. click sync 3. nothing happens on large boards" }, "Created Dev board item \"Sync broken\".")] }),
+    run({ ticketId: "14457", channel: "freshdesk", source: "devboard", at: base - 2 * H, trace: [tr("create_dev_item", { title: "Sync broken again", repro_steps: "n/a" }, "Created Dev board item \"Sync broken again\".")] }),
+    run({ ticketId: "14591", channel: "freshdesk", source: "devboard", at: base - 5 * H, trace: [tr("reply_on_dev_item", { message: "a" }, "Posted on dev item \"X\" (@Shreya).")] }),
+    run({ ticketId: "14591", channel: "freshdesk", source: "devboard", at: base - 4 * H, trace: [tr("reply_on_dev_item", { message: "b" }, "Posted on dev item \"X\" (@Shreya).")] }),
+    run({ ticketId: "14591", channel: "freshdesk", source: "devboard", at: base - 3 * H, trace: [tr("reply_on_dev_item", { message: "The customer confirmed the template ID is 12345 and it fails on save." }, "Posted on dev item \"X\" (@Shreya).")] }),
+    run({ ticketId: "14591", channel: "freshdesk", source: "devboard", at: base - 2 * H, trace: [tr("reply_on_dev_item", { message: "The customer confirmed the template ID is 12345 and it fails on save!" }, "Posted on dev item \"X\" (@Shreya).")] }),
+    run({ ticketId: "14453", channel: "freshdesk", source: "webhook", at: base - 20 * H, heldCustomerWrites: true, trace: [tr("send_escalation", {}, "Escalated.")] }),
+    run({ ticketId: "14453", channel: "freshdesk", source: "cron", at: base - 1 * H, trace: [tr("close_ticket", {}, "Ticket marked resolved.")] }),
+    // A held close (draft mode) and a chat close are not real closes.
+    run({ ticketId: "200", channel: "freshdesk", source: "webhook", heldCustomerWrites: true, trace: [tr("send_escalation", {}, "x"), tr("close_ticket", {}, "Ticket marked resolved.")] }),
+    run({ ticketId: "300", channel: "freshdesk", source: "webhook", trace: [tr("cancel_subscription", {}, "Subscription cancelled. Access ends 2026-12-01.")] }),
+    run({ ticketId: "301", channel: "freshdesk", source: "webhook", trace: [tr("cancel_subscription", {}, "Billing system is NOT connected — nothing was cancelled.")] }),
+    // Deduped onto an existing item: not a second filing.
+    run({ ticketId: "400", channel: "freshdesk", source: "webhook", trace: [tr("create_dev_item", { title: "A", repro_steps: "long enough repro steps for a developer to start" }, "Created Dev board item \"A\".")] }),
+    run({ ticketId: "400", channel: "freshdesk", source: "webhook", trace: [tr("create_dev_item", { title: "A", repro_steps: "x" }, "This ticket ALREADY has Dev board item \"A\" — added as a comment.")] }),
+  ];
+  const a = assessActions(logs, NOW);
+  const rules = a.findings.map((f) => `${f.rule}:${f.ticketId}`).sort();
+  assert.deepEqual(rules, [
+    "cancelled_subscription:300",
+    "closed_while_escalated:14453",
+    "duplicate_dev_item:14457",
+    "repeated_dev_post:14591",
+    "thin_dev_item:14457",
+  ]);
+  assert.equal(a.counts.devItemsFiled, 3);
+  assert.equal(a.counts.dedupedOntoExisting, 1);
+  assert.equal(a.counts.devPosts, 4);
+  assert.equal(a.counts.closes, 1);
+  assert.equal(a.findings[0].severity, "bad");
+});
+
+await t("daily cap counts by when the judge ran", () => {
+  const rows = [
+    { judgedAt: NOW, day: "2026-11-03" },
+    { judgedAt: NOW - 3 * 86400_000, day: "2026-11-01" },
+  ] as JudgedReply[];
+  assert.equal(judgedOn(rows, "2026-11-04"), 1);
+});
+
+console.log(`\n${passed} passed (with action rules)`);

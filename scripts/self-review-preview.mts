@@ -14,6 +14,7 @@ import type { RunLog } from "../lib/kv";
 import type { OpsEvent } from "../lib/events";
 import type { ChatConversation } from "../lib/types";
 import { assessReliability } from "../lib/self-review/reliability";
+import { assessActions } from "../lib/self-review/actions";
 import { judgeable, judgeModelId } from "../lib/self-review/quality";
 import { INCOMPLETE, buildQuality, judgeRun, pickRuns, storeSelfReviewSummary } from "../lib/self-review";
 import type { JudgedReply } from "../lib/self-review/types";
@@ -74,6 +75,7 @@ await storeSelfReviewSummary({
   computedAt: now,
   reliability,
   quality: buildQuality(judged, now),
+  actions: assessActions(logs, now),
   alerts: [],
   settings: { enabled: true, alerts: false, judge: judgeModelId(), dailyCap: 40, channel: "" },
 });
