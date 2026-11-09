@@ -53,32 +53,70 @@ function clip(text: string, max: number): string {
  * original patterns matched only the closed-up spelling, so those tickets
  * attributed to nothing — measured at 71% unresolved across 190 real tickets.
  */
-const APP_PATTERNS = {
+const APP_NAMES_RE = {
+  getsign: /get\s*-?\s*sign/,
+  trackmy: /track\s*-?\s*my/,
+  vlookup: /v\s*-?\s*lookup/,
+  extract: /extract\s*-?\s*ai/,
+  jobflows: /job\s*-?\s*flows?/,
+  smartcolumns: /smart\s*-?\s*columns?/,
+  jetscan: /jet\s*-?\s*scan/,
+  pivotreports: /pivot\s*-?\s*reports?/,
+  triggerly: /triggerly/,
+} as const satisfies Record<Exclude<AppProduct, "unknown">, RegExp>;
+
+/**
+ * Words that suggest an app without naming it. Weaker than any name: a ticket
+ * titled "Vlookup board issue" is a VLOOKUP ticket even if its footer says
+ * "signature" somewhere (#14733 was filed on the GetSign board for exactly
+ * that). Apps whose name is the only signal have no entry.
+ */
+const APP_HINTS_RE: Partial<Record<Exclude<AppProduct, "unknown">, RegExp>> = {
   // "e-sign" needs a leading word boundary: without it the pattern matches the
   // "e" + "sign" inside DESIGN, redesign, designer and resign, quietly filing
   // any ticket about design work under GetSign. Bare "mapping" is gone for the
   // same reason — column and field mapping are VLOOKUP and Extract concepts at
   // least as often as they are GetSign ones, so it goes to triage to decide.
-  getsign: /get\s*-?\s*sign|\be-?\s?sign|signature|signatory|\bsigner/,
-  trackmy: /track\s*-?\s*my|courier|parcel|shipment tracking|tracking number/,
-  vlookup: /v\s*-?\s*lookup/,
-  extract: /extract\s*-?\s*ai|\bextract\b/,
-  jobflows: /job\s*-?\s*flows?/,
-  smartcolumns: /smart\s*-?\s*columns?/,
-  jetscan: /jet\s*-?\s*scan/,
-  pivotreports: /pivot\s*-?\s*reports?/,
-  triggerly: /triggerly|qr code/,
-} as const satisfies Record<Exclude<AppProduct, "unknown">, RegExp>;
+  getsign: /\be-?\s?sign|signature|signatory|\bsigner/,
+  trackmy: /courier|parcel|shipment tracking|tracking number/,
+  extract: /\bextract\b/,
+  triggerly: /qr code/,
+};
 
-/** Cheap heuristic to attribute a ticket to a product. */
+/** Name order for the per-app check: getsign first, then by name specificity. */
+const APP_ORDER = [
+  "getsign", "trackmy", "vlookup", "jobflows", "smartcolumns", "jetscan", "pivotreports", "triggerly", "extract",
+] as const;
+
+/**
+ * The words a customer wrote, without the machinery their mail client wraps
+ * around them. Outlook's link tracking puts `&signature=…` in every footer link
+ * and labels inline images `[signature_954231893]`; both sent VLOOKUP and
+ * TrackMy tickets to the GetSign dev board (#14733, #14720). A link keeps its
+ * host and path (a getsign page URL in a chat ticket IS a clue) but loses its
+ * query string; inline image labels go entirely.
+ */
+export function attributionText(text: string): string {
+  return text
+    .replace(/(\b(?:https?:\/\/|www\.)[^\s?#>]*)[?#][^\s>]*/gi, "$1")
+    .replace(/\[(?:cid:|signature|image)[^\]]*\]/gi, " ")
+    .toLowerCase();
+}
+
+/**
+ * Cheap heuristic to attribute a ticket to a product. Picks the dev board, so
+ * a wrong answer here files an item on the wrong team's board.
+ *
+ * A named app wins over another app's vocabulary. Talk of "monday.com" or a
+ * "board" says nothing: every app lives on monday boards, and treating it as
+ * jetpackapps beat the LLM triage to a GetSign contract question (#14729).
+ * "unknown" lets triage decide.
+ */
 export function inferProduct(text: string): Product {
-  const t = text.toLowerCase();
-  if (APP_PATTERNS.getsign.test(t)) return "getsign";
-  if (/jetpack|marketplace|widget/.test(t)) return "jetpackapps";
-  for (const [app, re] of Object.entries(APP_PATTERNS)) {
-    if (app !== "getsign" && re.test(t)) return "jetpackapps";
-  }
-  if (/monday\.com|board/.test(t)) return "jetpackapps";
+  const app = inferAppProduct(text);
+  if (app === "getsign") return "getsign";
+  if (app !== "unknown") return "jetpackapps";
+  if (/jetpack|marketplace|widget/.test(attributionText(text))) return "jetpackapps";
   return "unknown";
 }
 
@@ -102,14 +140,10 @@ export function productFromHint(hint: string | null | undefined): Product | null
  * TrackMy are already two distinct stores, not one shared "jetpackapps" one).
  */
 export function inferAppProduct(text: string): AppProduct {
-  const t = text.toLowerCase();
-  // Order matters: getsign first (its "signature"/"mapping" terms are the most
-  // generic), then the rest by how specific their names are.
-  for (const app of [
-    "getsign", "trackmy", "vlookup", "jobflows", "smartcolumns", "jetscan", "pivotreports", "triggerly", "extract",
-  ] as const) {
-    if (APP_PATTERNS[app].test(t)) return app;
-  }
+  const t = attributionText(text);
+  // Any app named outright beats any app merely hinted at.
+  for (const app of APP_ORDER) if (APP_NAMES_RE[app].test(t)) return app;
+  for (const app of APP_ORDER) if (APP_HINTS_RE[app]?.test(t)) return app;
   return "unknown";
 }
 
