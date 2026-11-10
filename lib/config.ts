@@ -734,6 +734,17 @@ export const config = {
     dailyCap: Number(env("JETTA_SELF_REVIEW_DAILY") ?? 40) || 40,
   },
 
+  /**
+   * Cloudflare, read-only (lib/tools/cloudflare.ts): the error watch reads
+   * edge 5xx, Worker errors and firewall blocks per zone, and probes the
+   * busiest hosts. JETTA_CLOUDFLARE=off leaves it out of the watch.
+   */
+  cloudflare: {
+    token: env("CLOUDFLARE_API_TOKEN"),
+    accountId: env("CLOUDFLARE_ACCOUNT_ID"),
+    enabled: env("JETTA_CLOUDFLARE") !== "off",
+  },
+
   sentry: {
     token: env("SENTRY_AUTH_TOKEN"),
     org: env("SENTRY_ORG") ?? "jetpackapps",

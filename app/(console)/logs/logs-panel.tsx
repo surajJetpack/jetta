@@ -19,6 +19,7 @@ import { useDataVersion } from "@/lib/use-data-version";
 import { fmtDayKey } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { ErrorWatchSummary, LogsApp, SentryAppRow, WatchAlert, WatchDevItem } from "@/lib/error-watch";
+import { CloudflareCard } from "./cloudflare-section";
 import { DailySpark, DevItemLine, FlagChips, LogsDrillSheet, issueRequest, type LogsDrillRequest, type OpenLogs } from "./logs-drill";
 
 function requestFailed(r: Response): string {
@@ -28,7 +29,7 @@ function requestFailed(r: Response): string {
   return "The server couldn't load this. Try again in a moment.";
 }
 
-const DESCRIPTION = "What the apps' errors are doing and who they hit: Sentry and the server logs, checked hourly.";
+const DESCRIPTION = "What the apps' errors are doing and who they hit: Sentry, the server logs and Cloudflare, checked hourly.";
 
 /** A status chip with a dot, in any of the shared tones (Signal has no "bad"). */
 function StateChip({ tone, children }: { tone: Tone; children: React.ReactNode }) {
@@ -60,6 +61,12 @@ function StatusStrip({ s }: { s: ErrorWatchSummary }) {
           <span className="flex items-center gap-1.5">
             <span className="text-muted-foreground">CloudWatch logs</span>
             <StateChip tone={s.logs.enabled ? "info" : "neutral"}>{s.logs.enabled ? "on" : "off"}</StateChip>
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="text-muted-foreground">Cloudflare</span>
+            <StateChip tone={s.cloudflare?.enabled ? (s.cloudflare.error ? "warn" : "info") : "neutral"}>
+              {s.cloudflare?.enabled ? (s.cloudflare.error ? "partial" : "on") : "off"}
+            </StateChip>
           </span>
           <span className="flex items-center gap-1.5" title={s.settings.alerts && s.settings.channel ? `Channel ${s.settings.channel}` : undefined}>
             <span className="text-muted-foreground">Slack alerts</span>
@@ -306,7 +313,7 @@ function ByApp({ s, open }: { s: ErrorWatchSummary; open: OpenLogs }) {
 }
 
 /** The error itself, outside Jetta: the Sentry issue or the CloudWatch log line. */
-function ErrorLink({ href, logs }: { href?: string; logs?: boolean }) {
+function ErrorLink({ href, logs, cloudflare }: { href?: string; logs?: boolean; cloudflare?: boolean }) {
   if (!href) return null;
   return (
     <a
@@ -315,7 +322,7 @@ function ErrorLink({ href, logs }: { href?: string; logs?: boolean }) {
       rel="noreferrer"
       className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground underline underline-offset-4 hover:text-foreground"
     >
-      {logs ? "CloudWatch" : "Sentry"} <ExternalLink className="size-3" aria-hidden />
+      {cloudflare ? "Cloudflare" : logs ? "CloudWatch" : "Sentry"} <ExternalLink className="size-3" aria-hidden />
     </a>
   );
 }
@@ -324,7 +331,12 @@ const ALERT_KIND: Record<WatchAlert["kind"], { label: string; tone: "in_review" 
   new: { label: "new", tone: "in_review" },
   spike: { label: "spike", tone: "stale" },
   logs_spike: { label: "logs spike", tone: "stale" },
+  cf_edge: { label: "cloudflare 5xx", tone: "stale" },
+  cf_worker: { label: "worker errors", tone: "stale" },
+  cf_down: { label: "down", tone: "stale" },
 };
+
+const isCloudflare = (k: WatchAlert["kind"]) => k === "cf_edge" || k === "cf_worker" || k === "cf_down";
 
 function devItemState(d: WatchDevItem): React.ReactNode {
   if (d.item) {
@@ -344,6 +356,15 @@ function Activity({ s, open }: { s: ErrorWatchSummary; open: OpenLogs }) {
   const label = (app: string) =>
     s.sentry.apps.find((a) => a.app === app)?.label ?? s.logs.apps.find((a) => a.app === app)?.label ?? app;
   const openAlert = (a: WatchAlert) => {
+    if (isCloudflare(a.kind)) {
+      const worker = a.kind === "cf_worker" ? a.issueId.slice(4) : undefined;
+      open({
+        title: worker ? `${a.title.split(":")[0]} · Worker` : `${a.app} · Cloudflare`,
+        description: worker ? "The Worker's errors per day and how its invocations ended." : "Edge 5xx on production hosts, the hosts and paths behind them, and what the firewall blocked.",
+        drill: worker ? { kind: "cloudflare", worker } : { kind: "cloudflare", zone: a.app },
+      });
+      return;
+    }
     if (a.kind === "logs_spike") {
       open({ title: `${label(a.app)} · log failures`, description: "Failure lines from the app's server logs, last 24h, grouped.", drill: { kind: "app", app: a.app, source: "logs" } });
       return;
@@ -362,7 +383,7 @@ function Activity({ s, open }: { s: ErrorWatchSummary; open: OpenLogs }) {
         <CardHeader className="px-4">
           <CardTitle>Recent alerts</CardTitle>
           <CardDescription className="text-xs">
-            One per newly flagged error that hits customers, deduped for 3 days. {s.settings.alerts ? "Posted to Slack." : "Slack alerts are off, so these were only recorded."}
+            One per newly flagged error that hits customers (deduped for 3 days), Cloudflare site or Worker flagged (once a day), or host down for an hour. {s.settings.alerts ? "Posted to Slack." : "Slack alerts are off, so these were only recorded."}
           </CardDescription>
         </CardHeader>
         <CardContent className="px-4">
@@ -375,7 +396,7 @@ function Activity({ s, open }: { s: ErrorWatchSummary; open: OpenLogs }) {
                     <span>{label(a.app)}</span>
                     <StatusChip tone={ALERT_KIND[a.kind].tone}>{ALERT_KIND[a.kind].label}</StatusChip>
                     <span>{a.ts ? "posted to Slack" : "not posted"}</span>
-                    <ErrorLink href={a.link ?? linkOf(a.issueId)} logs={a.kind === "logs_spike"} />
+                    <ErrorLink href={a.link ?? linkOf(a.issueId)} logs={a.kind === "logs_spike"} cloudflare={isCloudflare(a.kind)} />
                   </div>
                   <button
                     type="button"
@@ -383,7 +404,7 @@ function Activity({ s, open }: { s: ErrorWatchSummary; open: OpenLogs }) {
                     className="min-w-0 truncate text-left text-sm underline decoration-dotted underline-offset-4 hover:decoration-solid"
                     title={a.title}
                   >
-                    {a.kind === "logs_spike" ? "" : `${a.shortId}: `}
+                    {a.kind === "logs_spike" || isCloudflare(a.kind) ? (isCloudflare(a.kind) && a.kind !== "cf_worker" ? `${a.app}: ` : "") : `${a.shortId}: `}
                     {a.title || "(no message)"}
                   </button>
                 </li>
@@ -483,7 +504,7 @@ export default function LogsPanel() {
   const runButton = (
     <Button variant="outline" size="sm" onClick={runNow} disabled={running}>
       <RotateCw className={running ? "animate-spin" : undefined} />
-      {running ? "Reading Sentry and the logs…" : "Run now"}
+      {running ? "Reading Sentry, the logs and Cloudflare…" : "Run now"}
     </Button>
   );
 
@@ -557,6 +578,7 @@ export default function LogsPanel() {
         </div>
         <Attention s={summary} open={open} />
         <ByApp s={summary} open={open} />
+        <CloudflareCard s={summary} open={open} />
         <Activity s={summary} open={open} />
       </div>
       <LogsDrillSheet request={drill} summary={summary} open={open} onClose={() => setDrill(null)} />

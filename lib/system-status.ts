@@ -456,16 +456,16 @@ function appLogsRow(): StatusRow {
 
 function errorWatchRow(): StatusRow {
   const w = config.errorWatch;
-  const sources = [config.sentry.token && config.sentry.enabled ? "Sentry" : "", config.cloudwatch.accessKeyId && config.cloudwatch.enabled ? "CloudWatch" : ""].filter(Boolean);
+  const sources = [config.sentry.token && config.sentry.enabled ? "Sentry" : "", config.cloudwatch.accessKeyId && config.cloudwatch.enabled ? "CloudWatch" : "", config.cloudflare.token && config.cloudflare.accountId && config.cloudflare.enabled ? "Cloudflare" : ""].filter(Boolean);
   const on = w.enabled && sources.length > 0;
   return {
     label: "Error watch (Logs page)",
     tone: !on ? "off" : w.devItems === "on" ? "warn" : "on",
     state: !on ? "OFF" : w.devItems === "on" ? "FILES DEV ITEMS" : w.alerts ? "ALERTS" : "WATCHING",
     meaning: on
-      ? `Hourly, Jetta reads ${sources.join(" and ")} for the admin-only Logs page: errors per app, new and spiking errors that hit customers (monday accounts from Sentry tags, their chat tickets, any dev item naming the error), and an AI read. ${w.alerts ? `Each newly flagged error is posted once to Slack (${w.channel ? "JETTA_ERROR_WATCH_CHANNEL" : "the ops channel"}).` : "Slack alerts are off (JETTA_ERROR_WATCH_ALERTS=off)."} Dev items for flagged errors with no item: ${w.devItems === "on" ? "FILED on the dev board, at most 2 a day" : w.devItems === "shadow" ? "shadow, listed on the page as \"would file\", nothing filed" : "off"} (JETTA_ERROR_WATCH_DEV_ITEMS).`
+      ? `Hourly, Jetta reads ${sources.join(" and ")} for the admin-only Logs page: errors per app, new and spiking errors that hit customers (monday accounts from Sentry tags, their chat tickets, any dev item naming the error), and an AI read. ${w.alerts ? `Each newly flagged error is posted once to Slack (${w.channel ? "JETTA_ERROR_WATCH_CHANNEL" : "the ops channel"}).` : "Slack alerts are off (JETTA_ERROR_WATCH_ALERTS=off)."} Dev items for flagged errors with no item: ${w.devItems === "on" ? "FILED on the dev board, at most 2 a day" : w.devItems === "shadow" ? "shadow, listed on the page as \"would file\", nothing filed" : "off"} (JETTA_ERROR_WATCH_DEV_ITEMS). Cloudflare (${config.cloudflare.token && config.cloudflare.enabled ? "on" : config.cloudflare.token ? "off, JETTA_CLOUDFLARE=off" : "no CLOUDFLARE_API_TOKEN"}): edge 5xx per site, Worker errors, firewall blocks and an hourly uptime probe of the busiest hosts; a flagged site or Worker alerts once a day, a host down for an hour every 6h (JETTA_CLOUDFLARE).`
       : !sources.length
-        ? "No Sentry token or AWS keys, so there is nothing to watch."
+        ? "No Sentry token, AWS keys or Cloudflare token, so there is nothing to watch."
         : "Switched off (JETTA_ERROR_WATCH=off): the Logs page shows the last run.",
     setting: "JETTA_ERROR_WATCH",
   };
@@ -603,6 +603,6 @@ export const CRONS: readonly EndpointRow[] = [
   { path: "/api/cron/ticket-sync", detail: "Copies changed Freshdesk tickets and messages into Jetta's own Postgres ticket store, then backfills 180 days of history with leftover API budget. Reads Freshdesk only; idle when DATABASE_URL is unset", schedule: "every 5 min" },
   { path: "/api/cron/dev-board-sync", detail: "Reads both monday dev boards (read-only) and analyses new item conversations for Dev board", schedule: "hourly at :50" },
   { path: "/api/cron/self-review", detail: "Jetta's self-review for the Self-review page: cron heartbeats, run failures and latency, error events, and an independent model grading a few recent replies; posts problems and a daily scorecard to the ops channel. Off with JETTA_SELF_REVIEW=off", schedule: "hourly at :45" },
-  { path: "/api/cron/error-watch", detail: "Reads Sentry and the app logs for the Logs page: flags new and spiking errors hitting customers, alerts Slack, lists or files dev items (JETTA_ERROR_WATCH_DEV_ITEMS), writes the AI read. Off with JETTA_ERROR_WATCH=off", schedule: "hourly at :35" },
+  { path: "/api/cron/error-watch", detail: "Reads Sentry, the app logs and Cloudflare for the Logs page: flags new and spiking errors hitting customers, alerts Slack, lists or files dev items (JETTA_ERROR_WATCH_DEV_ITEMS), writes the AI read. Off with JETTA_ERROR_WATCH=off", schedule: "hourly at :35" },
   { path: "/api/cron/dev-followup", detail: "Asks developers for an update on quiet dev items a customer is waiting on; escalates after two unanswered asks. Armed by JETTA_DEV_FOLLOWUP", schedule: "daily 04:30" },
 ] as const;

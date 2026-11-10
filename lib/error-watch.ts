@@ -16,6 +16,8 @@
  *      (deduped for 3 days), and a dev item for one that has none, through
  *      JETTA_ERROR_WATCH_DEV_ITEMS: shadow (default) only lists what it would
  *      file; on files it, at most 2 a day.
+ *   2b. Cloudflare (lib/error-watch-cloudflare.ts): edge 5xx per zone, Worker
+ *      errors, firewall blocks, and an uptime probe of the busiest hosts.
  *   6. The AI read: written when what is flagged changes, grounded like
  *      /health (every point cites a number on the page).
  *
@@ -24,6 +26,8 @@
 import { Redis } from "@upstash/redis";
 import { generateObject } from "ai";
 import { config } from "./config";
+import { probeConfirmedDown, readCloudflare, type CloudflareSummary } from "./error-watch-cloudflare";
+import { cloudflareEnabled } from "./tools/cloudflare";
 import { bumpDataVersion } from "./data-version";
 import { markEventSeen, rateCount, rateCountPeek, unmarkEventSeen } from "./kv";
 import { getModel, modelLabel } from "./llm";
@@ -124,8 +128,8 @@ export interface WatchAlert {
   shortId: string;
   app: string;
   title: string;
-  kind: WatchFlag | "logs_spike";
-  /** The error itself: the Sentry issue, or the newest log line of a logs spike. */
+  kind: WatchFlag | "logs_spike" | "cf_edge" | "cf_worker" | "cf_down";
+  /** The error itself: the Sentry issue, the newest log line of a logs spike, or the Cloudflare dashboard. */
   link?: string;
   /** Slack message ts; absent when alerts are off. */
   ts?: string;
@@ -157,6 +161,8 @@ export interface ErrorWatchSummary {
     apps: SentryAppRow[];
   };
   logs: { enabled: boolean; apps: LogsApp[] };
+  /** Absent on runs from before Cloudflare was added. */
+  cloudflare?: CloudflareSummary;
   /** Flagged issues, most serious first. */
   attention: WatchIssue[];
   /** Every watched issue (top per app), for the page's tables. */
@@ -166,7 +172,10 @@ export interface ErrorWatchSummary {
   settings: { alerts: boolean; devItems: "off" | "shadow" | "on"; channel: string };
 }
 
-export type WatchDrill = { kind: "issue"; id: string } | { kind: "app"; app: string; source: "sentry" | "logs" };
+export type WatchDrill =
+  | { kind: "issue"; id: string }
+  | { kind: "app"; app: string; source: "sentry" | "logs" }
+  | { kind: "cloudflare"; zone?: string; worker?: string };
 export type ErrorWatchInsight = Insight<WatchDrill>;
 
 // ── Storage ─────────────────────────────────────────────────────────
@@ -492,7 +501,7 @@ export async function maybeFileDevItem(i: WatchIssue): Promise<WatchDevItem | nu
 
 // ── 6. The AI read ──────────────────────────────────────────────────
 
-const SYSTEM = `You write a short read of what the apps' errors are doing, for the founder who runs a portfolio of monday.com apps (GetSign, Extract AI, JobFlows, VLOOKUP Auto-Link, TrackMy, Hashtask and others). Sources: Sentry (grouped errors) and the CloudWatch server logs (failure lines).
+const SYSTEM = `You write a short read of what the apps' errors are doing, for the founder who runs a portfolio of monday.com apps (GetSign, Extract AI, JobFlows, VLOOKUP Auto-Link, TrackMy, Hashtask and others). Sources: Sentry (grouped errors), the CloudWatch server logs (failure lines), and Cloudflare (edge 5xx per website zone, Worker errors, firewall blocks, an hourly uptime probe).
 
 Rules:
 1. Every point cites exactly one EVIDENCE entry by id (e.g. "E4"). The reader clicks it to open that issue or app.
@@ -505,7 +514,8 @@ Rules:
 8. Call something a spike, new, rising, an increase or up ONLY when its evidence line says so (flagged "new"/"spike", or "SPIKE" for logs). A number higher than its usual day without that mark is normal variation: do not call it a spike.
 9. Log volume differs hugely between apps by how they log (TrackMy writes about a million failure lines a day, every day). Compare an app only with its own usual day, never with another app.
 10. Each point is ONE short sentence, at most 30 words. The headline is one sentence, at most 30 words. No lists of figures inside a point.
-11. "Worth watching" is only for something that is flagged, getting worse, or hitting customers. An app having its usual day goes nowhere (or under "going well" if it is worth saying at all).`;
+11. "Worth watching" is only for something that is flagged, getting worse, or hitting customers. An app having its usual day goes nowhere (or under "going well" if it is worth saying at all).
+12. Cloudflare: a 522 means the origin server timed out, 521 that it refused the connection, 500/502/503/504 that it answered with an error or not in time. Bot scans of WordPress paths (wp-login.php, xmlrpc.php) are not real visitors. Firewall blocks are bots stopped at the edge; they matter only when flagged or when they look like real pages being blocked.`;
 
 export const ErrorWatchInsightSchema = insightSchema(
   "One plain sentence: are the apps healthy right now, and the single biggest reason why or why not.",
@@ -549,6 +559,55 @@ function buildEvidence(s: ErrorWatchSummary): Evidence<WatchDrill>[] {
       "log lines in 24h",
     );
   }
+  const cf = s.cloudflare;
+  if (cf?.enabled) {
+    for (const z of cf.zones.filter((x) => x.requests24h > 0 || x.errors24h > 0)) {
+      const top = z.topErrors.find((t) => !t.nonProd);
+      add(
+        `${z.zone} (Cloudflare edge, production hosts): ${z.errors24h} 5xx responses last 24h of ${z.requests24h} requests (${z.rate}%)${z.priorDailyAvg != null ? `, usual day ${z.priorDailyAvg}` : ", no usual day yet"}${z.flag === "spike" ? ", SPIKE" : z.flag === "high" ? ", HIGH ERROR RATE" : ""}; most common: ${top ? `${top.count}× ${top.status} on ${top.host}${top.path}${top.scan ? " (bot scan path)" : ""}` : "n/a"}`,
+        z.errors24h,
+        `${z.zone} · Cloudflare 5xx`,
+        "Edge 5xx per day, the hosts and paths behind them, and firewall blocks.",
+        { kind: "cloudflare", zone: z.zone },
+        !!z.flag,
+        "5xx in 24h",
+      );
+      if (z.firewall.blocked24h > 0) {
+        const r0 = z.firewall.rules[0];
+        add(
+          `${z.zone} Cloudflare firewall: ${z.firewall.blocked24h} requests blocked or challenged last 24h${z.firewall.priorDailyAvg != null ? ` (usual day ${z.firewall.priorDailyAvg})` : ""}${z.firewall.spike ? ", SPIKE" : ""}; top rule: ${r0 ? `${r0.count}× ${r0.rule} (${r0.action})` : "n/a"}`,
+          z.firewall.blocked24h,
+          `${z.zone} · firewall`,
+          "What the firewall blocked: rules and paths.",
+          { kind: "cloudflare", zone: z.zone },
+          z.firewall.spike,
+          "blocks in 24h",
+        );
+      }
+    }
+    for (const w of cf.workers.filter((x) => x.errors24h > 0)) {
+      add(
+        `Cloudflare Worker ${w.label}: ${w.errors24h} errors last 24h of ${w.requests24h} invocations${w.priorDailyAvg != null ? ` (usual day ${w.priorDailyAvg})` : ", no usual day yet"}${w.flag === "spike" ? ", SPIKE" : w.flag === "high" ? ", HIGH ERROR RATE" : ""}`,
+        w.errors24h,
+        `${w.label} · Worker errors`,
+        "The Worker's errors per day and outcomes.",
+        { kind: "cloudflare", worker: w.script },
+        !!w.flag,
+        "errors in 24h",
+      );
+    }
+    for (const p of cf.probes.filter((x) => x.down)) {
+      add(
+        `Uptime probe: ${p.url} is DOWN (${p.status ?? p.error ?? "no answer"})${probeConfirmedDown(p) ? ", down for over an hour" : ", first failure this run"}`,
+        p.status ?? 0,
+        `${p.url} · down`,
+        "The zone's edge errors and the probe results.",
+        { kind: "cloudflare", zone: p.zone },
+        true,
+        "status",
+      );
+    }
+  }
   return out;
 }
 
@@ -558,6 +617,9 @@ function fingerprint(s: ErrorWatchSummary): string {
     s.sentry.gapDays.length,
     s.attention.map((i) => [i.id, i.flags, !!i.devItem]),
     s.logs.apps.filter((a) => a.spike).map((a) => a.app),
+    s.cloudflare?.zones.filter((z) => z.flag || z.firewall.spike).map((z) => [z.zone, z.flag, z.firewall.spike]) ?? [],
+    s.cloudflare?.workers.filter((w) => w.flag).map((w) => w.script) ?? [],
+    s.cloudflare?.probes.filter((p) => p.down).map((p) => p.url) ?? [],
   ]);
 }
 
@@ -572,6 +634,9 @@ export function errorWatchPrompt(s: ErrorWatchSummary): { evidence: Evidence<Wat
       ? `Sentry stored NOTHING on ${s.sentry.gapDays.length} of the last 14 days (${s.sentry.gapDays[0]} to ${s.sentry.gapDays[s.sentry.gapDays.length - 1]}, quota). Those days are missing data, not quiet days: never compare against them, never call an error new or rising because of them, and say Sentry trends are unreliable until a week of storage has built up. Low Sentry counts are NOT good news while the gap is in the window: no "going well" point may rest on a Sentry count.${s.sentry.notStoringSince ? "" : " Storage is working again now, so do not suggest raising the quota."}`
       : "",
     `Dev items from the watch: ${s.settings.devItems} mode.`,
+    s.cloudflare?.enabled && s.cloudflare.baselineDays < 2
+      ? "Cloudflare history is still building (its Free plan gives only 3 days back): there is no usual day yet, so Cloudflare is flagged only on a high error rate, and nothing can be called rising."
+      : "",
     "",
     "EVIDENCE (cite by id):",
     ...evidence.map((e) => `[${e.id}] ${e.label}`),
@@ -627,6 +692,52 @@ export async function errorWatchInsight(s: ErrorWatchSummary, force = false): Pr
   return fresh;
 }
 
+// ── Cloudflare alerts ───────────────────────────────────────────────
+
+/**
+ * One Slack alert per flagged zone or Worker a day, and per host the probe
+ * found down in two runs in a row (every 6h while it stays down). Firewall
+ * blocks only show on the page: they are bots stopped at the edge.
+ */
+export async function cloudflareAlerts(cf: CloudflareSummary): Promise<WatchAlert[]> {
+  const out: WatchAlert[] = [];
+  const post = async (a: WatchAlert, headline: string, details: string[]) => {
+    if (config.errorWatch.alerts) a.ts = await slack.notifyErrorWatch(headline, [...details, "More on the console's Logs page."]).catch(() => undefined);
+    out.push(a);
+  };
+  const why = (flag: "spike" | "high" | undefined, prior: number | null) =>
+    flag === "spike" ? `against a usual ${prior}/day` : "with no usual day to compare yet";
+  for (const z of cf.zones.filter((x) => x.flag)) {
+    if (!(await markEventSeen(`errorwatch:cf:zone:${z.zone}`, 86_400))) continue;
+    const title = `${z.errors24h} 5xx in 24h (${z.rate}% of requests)`;
+    await post(
+      { at: Date.now(), issueId: `cf:${z.zone}`, shortId: "cloudflare", app: z.zone, title, link: z.link, kind: "cf_edge" },
+      `:cloud: *${z.zone}* Cloudflare: ${z.errors24h} server errors (5xx) in 24h, ${z.rate}% of requests, ${why(z.flag, z.priorDailyAvg)}. <${z.link}|Analytics>`,
+      z.topErrors
+        .filter((t) => !t.nonProd)
+        .slice(0, 5)
+        .map((t) => `• ${t.count}× ${t.status}${t.origin ? ` (origin ${t.origin})` : t.status >= 520 ? " (origin never answered)" : ""} \`${t.host}${t.path.slice(0, 120)}\`${t.scan ? " bot scan" : ""}`),
+    );
+  }
+  for (const w of cf.workers.filter((x) => x.flag)) {
+    if (!(await markEventSeen(`errorwatch:cf:worker:${w.script}`, 86_400))) continue;
+    await post(
+      { at: Date.now(), issueId: `cfw:${w.script}`, shortId: "worker", app: "cloudflare", title: `${w.label}: ${w.errors24h} errors in 24h`, link: w.link, kind: "cf_worker" },
+      `:cloud: Cloudflare Worker *${w.label}*: ${w.errors24h} errors in 24h of ${w.requests24h} invocations, ${why(w.flag, w.priorDailyAvg)}. <${w.link}|Open>`,
+      [`Outcomes: ${w.statuses.slice(0, 5).map((s) => `${s.status} ${s.requests}`).join(", ")}`],
+    );
+  }
+  for (const p of cf.probes.filter(probeConfirmedDown)) {
+    if (!(await markEventSeen(`errorwatch:cf:down:${p.url}`, 6 * 3_600))) continue;
+    await post(
+      { at: Date.now(), issueId: `cfp:${p.url}`, shortId: "uptime", app: p.zone, title: `${p.url} down: ${p.status ?? p.error ?? "no answer"}`, link: p.url, kind: "cf_down" },
+      `:red_circle: *${p.url}* is down: ${p.status ? `HTTP ${p.status}` : (p.error ?? "no answer")}, failing since ${new Date(p.failingSince!).toISOString().slice(11, 16)} UTC.`,
+      [],
+    );
+  }
+  return out;
+}
+
 // ── The run ─────────────────────────────────────────────────────────
 
 export interface ErrorWatchRunResult {
@@ -643,7 +754,7 @@ const rank = (i: WatchIssue) =>
 
 export async function runErrorWatch(opts: { notify?: boolean } = {}): Promise<ErrorWatchRunResult> {
   if (!config.errorWatch.enabled) return { status: "off" };
-  if (!sentryEnabled() && !logsEnabled()) return { status: "off", error: "neither Sentry nor CloudWatch is configured" };
+  if (!sentryEnabled() && !logsEnabled() && !cloudflareEnabled()) return { status: "off", error: "none of Sentry, CloudWatch or Cloudflare is configured" };
   if (!(await markEventSeen(LOCK_ID, 280))) return { status: "busy" };
   const started = Date.now();
   try {
@@ -651,9 +762,12 @@ export async function runErrorWatch(opts: { notify?: boolean } = {}): Promise<Er
     const storage = sentryEnabled() ? await storageStatus() : { notStoringSince: null, gapDays: [] };
     const notStoringSince = storage.notStoringSince;
     const gapDays = storage.gapDays.filter((d) => d >= days[0]);
-    const [sentry, logs] = await Promise.all([
+    const [sentry, logs, cloudflare] = await Promise.all([
       sentryEnabled() ? readSentry(notStoringSince, new Set(gapDays), days) : Promise.resolve({ rows: [], issues: [] }),
       logsEnabled() ? readLogs(days) : Promise.resolve([] as LogsApp[]),
+      readCloudflare(days).catch(
+        (e): CloudflareSummary => ({ enabled: true, zones: [], workers: [], probes: [], baselineDays: 0, error: e instanceof Error ? e.message : String(e) }),
+      ),
     ]);
     const flagged = sentry.issues.filter((i) => i.flags.length);
     await enrich(flagged.slice(0, 15));
@@ -696,6 +810,7 @@ export async function runErrorWatch(opts: { notify?: boolean } = {}): Promise<Er
         }
         alerts.push(al);
       }
+      for (const a of await cloudflareAlerts(cloudflare)) alerts.push(a);
     }
 
     const summary: ErrorWatchSummary = {
@@ -703,6 +818,7 @@ export async function runErrorWatch(opts: { notify?: boolean } = {}): Promise<Er
       days,
       sentry: { enabled: sentryEnabled(), notStoringSince, gapDays, apps: sentry.rows },
       logs: { enabled: logsEnabled(), apps: logs },
+      cloudflare,
       attention,
       issues: sentry.issues.filter((i) => i.events7d > 0).sort((a, b) => b.events7d - a.events7d),
       alerts: [...alerts, ...history.alerts].slice(0, 40),
@@ -720,7 +836,8 @@ export async function runErrorWatch(opts: { notify?: boolean } = {}): Promise<Er
     await errorWatchInsight(summary).catch((e) =>
       logOpsEvent({ level: "warn", event: "errorwatch.insight_failed", source: "cron", data: { message: e instanceof Error ? e.message : String(e) } }),
     );
-    return { status: "ok", flagged: attention.length, alerts: alerts.length, devItems: devItems.length, ms: Date.now() - started };
+    const cfFlagged = cloudflare.zones.filter((z) => z.flag).length + cloudflare.workers.filter((w) => w.flag).length + cloudflare.probes.filter(probeConfirmedDown).length;
+    return { status: "ok", flagged: attention.length + cfFlagged, alerts: alerts.length, devItems: devItems.length, ms: Date.now() - started };
   } catch (e) {
     return { status: "error", error: e instanceof Error ? e.message : String(e), ms: Date.now() - started };
   } finally {

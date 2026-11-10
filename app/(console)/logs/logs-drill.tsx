@@ -12,6 +12,7 @@ import { SectionHeader } from "@/components/jetta/page-header";
 import { fmtDayKey } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { ErrorWatchSummary, WatchDrill, WatchFlag, WatchIssue } from "@/lib/error-watch";
+import { CloudflareBody } from "./cloudflare-section";
 
 export interface LogsDrillRequest {
   title: string;
@@ -106,7 +107,7 @@ const dailyConfig = {
 } satisfies ChartConfig;
 
 /** A 14-day bar chart. Gap days get a faint full bar labelled "no data" instead of a zero. */
-function DailyChart({ daily, days, gapDays, unit, color }: { daily: number[]; days: string[]; gapDays: string[]; unit: string; color: string }) {
+export function DailyChart({ daily, days, gapDays, unit, color }: { daily: number[]; days: string[]; gapDays: string[]; unit: string; color: string }) {
   const gaps = new Set(gapDays);
   const max = Math.max(1, ...daily.filter((_, i) => !gaps.has(days[i])));
   const data = days.map((day, i) => ({
@@ -373,7 +374,7 @@ function LogsAppBody({ app, summary }: { app: string; summary: ErrorWatchSummary
   );
 }
 
-/** What a number on /logs is made of: one Sentry issue, or one app's Sentry issues or log failures. */
+/** What a number on /logs is made of: one Sentry issue, one app's Sentry issues or log failures, or a Cloudflare site or Worker. */
 export function LogsDrillSheet({
   request,
   summary,
@@ -404,6 +405,8 @@ export function LogsDrillSheet({
             ) : (
               <EmptyState title="This issue isn't in the latest run" hint="It dropped out of each app's most active issues. Open it in Sentry instead." />
             )
+          ) : d.kind === "cloudflare" ? (
+            <CloudflareBody cf={summary.cloudflare} zone={d.zone} worker={d.worker} days={summary.days} />
           ) : d.source === "sentry" ? (
             <SentryAppBody app={d.app} summary={summary} open={open} />
           ) : (
