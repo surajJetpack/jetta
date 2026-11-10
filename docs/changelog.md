@@ -5,6 +5,9 @@ Newest first. One entry per change people would notice: what Jetta does differen
 Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain words.
 
 
+## 2026-11-10: Logs watches Cloudflare
+The Logs page has a Cloudflare section: server errors (5xx) on each site's production hosts (getsign.io, jetpackapps.io, jobflows.co), what the firewall blocked, each Worker's errors, and an hourly check that each site's busiest hosts answer. Click a number for the hosts, paths and firewall rules behind it; the AI read cites Cloudflare too. A site or Worker far above its usual day (or, while history builds, with errors a high share of its traffic) alerts the ops channel once a day; a host down two runs in a row alerts every 6 hours. Firewall blocks are page-only. Dev and staging hosts are shown, never flagged. Read-only token. `JETTA_CLOUDFLARE` (off leaves Cloudflare out). Live on merge once `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are set in Vercel.
+
 ## 2026-11-04: Self-review checks what Jetta did on the dev board
 The Self-review page has a new "What she did" section: dev items filed, questions to developers, posts to developers, escalations, closes, compliance and billing actions over 7 days, read from every run's tool calls. Rule checks, no model, name each time a guard was bypassed: a second dev item for one ticket (as on 14457), the same post to developers twice in a day, a ticket closed after it was escalated (as on 14453), a dev item filed with no repro steps, a board write that did not land, and any subscription cancellation. New findings go to the ops channel once. Also fixed: the 40-a-day judging cap now counts replies judged that day, not replies written that day. Same `JETTA_SELF_REVIEW` switches. Live on merge.
 ## 2026-11-04: Self-review: Jetta checks her own work every hour (#191)
