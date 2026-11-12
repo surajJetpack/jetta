@@ -114,6 +114,7 @@ console.log("Unlinked items");
   check("feature request → nothing", d({ type: "Feature Enhancements" }).action === "none");
   check("on HOLD → nothing", d({ devStatus: "HOLD" }).action === "none");
   check("quiet 2 workdays → nothing", d({}, day(16)).action === "none");
+  check("no Reporter but quiet over 60 workdays → reads as abandoned", (() => { const r = d({ reporters: [], lastPersonActivityAt: "2026-06-01T09:00:00Z", createdAt: "2026-05-01T09:00:00Z" }); return r.action === "none" && r.reason.startsWith("abandoned"); })());
   check("quiet over 60 workdays → abandoned, nothing", (() => { const r = d({ lastPersonActivityAt: "2026-06-01T09:00:00Z", createdAt: "2026-05-01T09:00:00Z" }); return r.action === "none" && r.reason.startsWith("abandoned"); })());
   check("two asks unanswered → escalate", d({ askTimes: [day(19), day(22)] }, day(27)).action === "escalate");
 

@@ -231,7 +231,6 @@ export function decideUnlinkedFollowUp(
   rules: { quietWorkdays: number; weekend: number[] },
 ): UnlinkedDecision {
   if (INTERNAL_GROUP.test(item.group ?? "")) return { action: "none", reason: "internal group" };
-  if (!item.reporters.length) return { action: "none", reason: "no Reporter" };
   const skip = notChaseable(item);
   if (skip) return skip;
 
@@ -243,6 +242,10 @@ export function decideUnlinkedFollowUp(
   const s = silence(item, now, rules, about === "developer");
   if (!s) return { action: "none", reason: "no timestamps" };
   if (s.quietTotal > ABANDONED_WORKDAYS) return { action: "none", reason: `abandoned (${s.quietTotal}d)` };
+  // After the abandoned check, so a years-old item reads as abandoned rather
+  // than as a missing Reporter: the reason the report shows should be the
+  // one that would still hold if someone filled the field in.
+  if (!item.reporters.length) return { action: "none", reason: "no Reporter" };
   if (s.quiet < rules.quietWorkdays) return { action: "none", reason: `quiet ${s.quiet}d` };
   if (s.asks < MAX_ASKS) return { action: "ask", n: s.asks + 1, quietDays: s.quietTotal, about };
   return { action: "escalate", quietDays: s.quietTotal, since: s.activity, about };
