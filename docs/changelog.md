@@ -5,6 +5,9 @@ Newest first. One entry per change people would notice: what Jetta does differen
 Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain words.
 
 
+## 2026-11-16: Jetta reports what actually happened
+Four places where "nothing happened" used to read as success. With billing writes off (`FASTSPRING_ALLOW_WRITES`), cancel and discount now say nothing was changed, to the customer-facing run and in Slack, instead of "Subscription cancelled". With monday writes off (`MONDAY_ALLOW_WRITES`) or monday not connected, filing a dev item, a question or a compliance request says nothing was filed and hands off through Slack, instead of returning a made-up item. A FastSpring lookup that failed (their system down or rate-limited) is reported as failed, no longer as "no account", so a legacy customer is not told they are billed through monday. And a tool call that threw no longer counts as done: a failed escalation is not recorded as an escalation, and a failed ticket creation no longer has the chat say a ticket was opened. Live on merge.
+
 ## 2026-11-10: Logs watches Cloudflare
 The Logs page has a Cloudflare section: server errors (5xx) on each site's production hosts (getsign.io, jetpackapps.io, jobflows.co), what the firewall blocked, each Worker's errors, and an hourly check that each site's busiest hosts answer. Click a number for the hosts, paths and firewall rules behind it; the AI read cites Cloudflare too. A site or Worker far above its usual day (or, while history builds, with errors a high share of its traffic) alerts the ops channel once a day; a host down two runs in a row alerts every 6 hours. Firewall blocks are page-only. Dev and staging hosts are shown, never flagged. Read-only token. `JETTA_CLOUDFLARE` (off leaves Cloudflare out). Live on merge once `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are set in Vercel.
 

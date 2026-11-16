@@ -32,7 +32,9 @@ export interface AgentResult {
   /** True if a tool logged a resolution, signalling a 24h follow-up. */
   resolutionSent: boolean;
   /** Names of tools executed, in order. */
+  /** Tools that ran this turn. A call that threw is in `toolsFailed`, not here. */
   toolsUsed: string[];
+  toolsFailed: string[];
   /** Full per-call trace (tool, input, result). */
   trace: TraceEntry[];
   /** The dry-run mode actually used. */
@@ -75,6 +77,14 @@ function resolveTier(ctx: ConversationContext, opts: RunOptions): ModelTier {
   if (opts.tier) return opts.tier;
   if (opts.autoTier && config.llm.tieredAgent && ctx.complexity === "simple") return "light";
   return "standard";
+}
+
+/** Which tools ran, and which threw. Pure, for the test script. */
+export function toolLists(trace: Pick<TraceEntry, "tool" | "failed">[]): { toolsUsed: string[]; toolsFailed: string[] } {
+  return {
+    toolsUsed: trace.filter((t) => !t.failed).map((t) => t.tool),
+    toolsFailed: trace.filter((t) => t.failed).map((t) => t.tool),
+  };
 }
 
 export async function runAgentLoop(
@@ -169,7 +179,12 @@ export async function runAgentLoop(
   return {
     text: result.text.trim(),
     resolutionSent: signals.resolutionSent && !handedOff && !withEngineering,
-    toolsUsed: trace.map((t) => t.tool),
+    // Only calls that ran. A tool that threw did nothing, and every reader of
+    // this list treats a name on it as a thing that happened: a failed
+    // send_escalation was recorded as an escalation, and a failed
+    // create_support_ticket had the chat tell the visitor a ticket was opened.
+    // The trace keeps the failures, marked.
+    ...toolLists(trace),
     trace,
     dryRun,
     heldCustomerWrites: hold,

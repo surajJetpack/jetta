@@ -493,6 +493,7 @@ export async function maybeFileDevItem(i: WatchIssue): Promise<WatchDevItem | nu
       ...(i.tickets?.length ? [`Tickets from those accounts: ${i.tickets.map((t) => t.url).join(", ")}`] : []),
     ].join("\n"),
   });
+  if (item.notWritten) return { ...base, skipped: `not filed: ${monday.notWrittenReason(item.notWritten)}` };
   const filed = (await getJson<Record<string, { id: string; url: string }>>(FILED_KEY)) ?? {};
   filed[i.id] = { id: item.id, url: item.url };
   await setJson(FILED_KEY, filed);
