@@ -20,6 +20,7 @@ import {
   RECONCILE_MAX_AGE_DAYS,
   type ReconcileStatus,
 } from "@/lib/reconcile";
+import { cronAuthorized } from "@/lib/request-auth";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -42,16 +43,8 @@ const MIN_AGE_MINUTES = 15;
  */
 const MAX_AGE_DAYS = RECONCILE_MAX_AGE_DAYS;
 
-function authorized(req: NextRequest): boolean {
-  // Fails CLOSED, unlike the older cron routes: a missing secret must not make
-  // this publicly triggerable.
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return false;
-  return req.headers.get("authorization") === `Bearer ${secret}`;
-}
-
 async function handler(req: NextRequest) {
-  if (!authorized(req)) {
+  if (!cronAuthorized(req)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 

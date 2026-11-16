@@ -16,6 +16,7 @@
  * Note: Freshdesk's native webhooks do not HMAC-sign payloads — verification is
  * a shared-secret header you configure on the automation rule, checked here.
  */
+import { sharedSecretOk } from "@/lib/request-auth";
 import { NextRequest, NextResponse } from "next/server";
 import { after } from "next/server";
 import { config } from "@/lib/config";
@@ -64,10 +65,9 @@ function extractTicketId(payload: Record<string, unknown>): string | null {
 }
 
 function verifySecret(req: NextRequest): boolean {
-  // If no secret is configured, allow (useful for local stub testing).
-  if (!config.webhook.secret) return true;
-  const provided = req.headers.get("x-jetta-secret");
-  return provided === config.webhook.secret;
+  // No secret configured: accepted on a developer's machine (stub testing),
+  // refused on any deployment. See lib/request-auth.ts.
+  return sharedSecretOk(req.headers.get("x-jetta-secret"), config.webhook.secret);
 }
 
 export async function POST(req: NextRequest) {

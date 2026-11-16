@@ -36,6 +36,7 @@ import { recordOutcome } from "@/lib/kv";
 import { modelLabel } from "@/lib/llm";
 import { logOpsEvent } from "@/lib/events";
 import type { ChatConversation } from "@/lib/types";
+import { cronAuthorized } from "@/lib/request-auth";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -53,18 +54,10 @@ const CANDIDATE_LIMIT = 200;
 /** Spacing between conversations — each nudge is a model call. */
 const PACE_MS = 400;
 
-function authorized(req: NextRequest): boolean {
-  // Fails CLOSED, like /api/cron/reconcile-drafts: a route that writes to
-  // customers must not become publicly triggerable by an unset variable.
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return false;
-  return req.headers.get("authorization") === `Bearer ${secret}`;
-}
-
 const hours = (ms: number) => Math.round((ms / 3_600_000) * 10) / 10;
 
 async function handler(req: NextRequest) {
-  if (!authorized(req)) {
+  if (!cronAuthorized(req)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
   const dry = req.nextUrl.searchParams.get("dry") === "1";
