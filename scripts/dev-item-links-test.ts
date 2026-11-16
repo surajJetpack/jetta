@@ -74,6 +74,12 @@ async function main() {
   check("a later read, context gone, still finds the ticket", itemCarriesTicket(laterRead[0], "14600") && ticketIdsOnItem(laterRead[0]).join() === "14600");
   await links.rememberItemTicket("9003", "15001");
   check("a link stored at filing time works with no update read at all", itemCarriesTicket((await links.withStoredLinks([{ id: "9003", column_values: [], updates: [] }]))[0], "15001"));
+  links.setLinksReadOnly(true);
+  await links.withStoredLinks([{ id: "9010", column_values: [], updates: [context] }]);
+  await links.rememberItemTicket("9011", "15010");
+  check("read-only mode stores nothing", !(await links.itemTickets()).has("9010") && !(await links.itemTickets()).has("9011"));
+  check("…and reports what it withheld", links.withheldLinks().map((p) => p.join(":")).join() === "9010:14600,9011:15010", links.withheldLinks().join(" "));
+  links.setLinksReadOnly(false);
   await links.rememberItemTicket("9004", null);
   await links.rememberItemTicket("not-an-id", "15002");
   await links.rememberItemTicket("9005", "/tickets/15003");
