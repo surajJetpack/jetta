@@ -1030,7 +1030,9 @@ function contextBlock(ctx: ConversationContext, profile: Profile): string {
     lines.push(
       ctx.account.found
         ? `Billing: ${ctx.account.planName ?? "unknown plan"} (${ctx.account.planPrice ?? "price ?"}), ${ctx.account.billingCycle ?? "?"} cycle, next charge ${ctx.account.nextChargeDate ?? "?"}, payment ${ctx.account.paymentMethod ?? "unknown"}, active subscription: ${ctx.account.activeLast30Days}.`
-        : `Billing: no FastSpring account found for this email.`,
+        : ctx.account.lookupFailed
+          ? `Billing: the FastSpring lookup FAILED (their system did not answer). Whether this customer has a FastSpring account is UNKNOWN — do not say they have none, and do not treat them as monday-billed because of it.`
+          : `Billing: no FastSpring account found for this email.`,
     );
   }
 

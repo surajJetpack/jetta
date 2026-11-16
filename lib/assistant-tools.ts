@@ -190,7 +190,13 @@ export function readOnlyTools(): ToolSet {
         "Look up a customer's billing account by email across the FastSpring stores: plan, status, subscription id.",
       inputSchema: z.object({ email: z.string().describe("Customer email address.") }),
       execute: async ({ email }) => {
-        const found = await fastspring.findAccountAcrossStores(email).catch(() => null);
+        // A lookup that failed is not "no account": say which it was.
+        let found: Awaited<ReturnType<typeof fastspring.findAccountAcrossStores>>;
+        try {
+          found = await fastspring.findAccountAcrossStores(email);
+        } catch (e) {
+          return `Could not look up ${email}: ${e instanceof Error ? e.message : "FastSpring did not answer."} Whether they have a billing account is unknown.`;
+        }
         if (!found) return `No billing account found for ${email}. They may be billed through monday instead.`;
         return JSON.stringify({ app: appName(found.appProduct), account: found.account });
       },
@@ -377,7 +383,9 @@ export function readOnlyTools(): ToolSet {
             model: r.model,
             app: r.app,
             topic: r.topic,
-            toolsUsed: r.trace?.map((t) => t.tool) ?? [],
+            // Stored traces mark a thrown tool only in its result text.
+            toolsUsed: r.trace?.filter((t) => !t.result.startsWith("ERROR: ")).map((t) => t.tool) ?? [],
+            toolsFailed: r.trace?.filter((t) => t.result.startsWith("ERROR: ")).map((t) => t.tool) ?? [],
             replied: r.replied,
             escalated: r.escalated,
             reply: r.reply?.slice(0, BODY_CHARS),
