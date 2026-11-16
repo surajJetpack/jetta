@@ -19,6 +19,7 @@
  * boards also carry roadmap work filed by leads, whose cycle time means
  * something else entirely; mixing the two made every median meaningless.
  */
+import { isJettaAuthored } from "./jetta-posts";
 
 export type BoardKey = "getsign" | "jetpackapps";
 
@@ -146,8 +147,6 @@ export const CUSTOMER_STATUS = /^(waiting customer|need more info)$/i;
 export const HANDOFF_STATUS = /^(ready for review|ready for review qa|test(ing)? passed on (dev|qa))$/i;
 /** A fix that came back. */
 export const BOUNCE_STATUS = /^(testing failed|re-opened)$/i;
-/** Jetta's own posts on an item. Everything else from her token is a person. */
-const JETTA_POST = /^(Product:|Follow-up from the SAME Freshdesk ticket)/;
 /**
  * Support chasing engineering. Read off real threads: "are there any
  * updates?", "did you find anything?", "any news on this".
@@ -185,7 +184,8 @@ export function isSupport(name: string | null | undefined, roster: Roster): bool
 }
 
 export function postRole(p: Pick<DevPost, "who" | "text">, roster: Roster): Role {
-  if (p.who === roster.self && JETTA_POST.test(p.text)) return "jetta";
+  // Jetta's own posts (lib/jetta-posts.ts). Everything else from her token is a person.
+  if (p.who === roster.self && isJettaAuthored(p.text)) return "jetta";
   return isSupport(p.who, roster) ? "support" : "engineering";
 }
 

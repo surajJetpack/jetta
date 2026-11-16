@@ -26,6 +26,8 @@ import * as monday from "./tools/monday";
 import type { DevItemSnapshot, ItemFile } from "./tools/monday";
 
 const askKey = (itemId: string) => `devbridge:kbask:${itemId}`;
+/** Shadow mode's "would have asked" marker. Never read as a pending ask. */
+const shadowAskKey = (itemId: string) => `devbridge:kbask-shadow:${itemId}`;
 const doneKey = (itemId: string) => `devbridge:kbdone:${itemId}`;
 
 /** Finished statuses worth asking about. Not "Could not replicate" / "Archived": nothing to document. */
@@ -142,8 +144,13 @@ export async function askForKb(item: DevItemSnapshot): Promise<void> {
   if (mode === "off" || (await kvGet(doneKey(item.id))) || (await kvGet(askKey(item.id)))) return;
   const at = new Date().toISOString();
   if (mode === "shadow") {
+    // Shadow posts nothing, so nothing is pending: it keeps its own
+    // once-per-item marker. It used to set the real ask key, which made every
+    // later comment on the item look like an answer to a question nobody had
+    // been asked.
+    if (await kvGet(shadowAskKey(item.id))) return;
     await logOpsEvent({ level: "info", event: "devbridge.kb_shadow", source: "webhook", ticketId: item.ticketIds[0], data: { itemId: item.id, ask: true, to: item.developers.map((d) => d.name) } });
-    await kvSet(askKey(item.id), at, 30 * 24 * 3600);
+    await kvSet(shadowAskKey(item.id), at, 30 * 24 * 3600);
     return;
   }
   const posted = await monday.postJettaComment(item.id, KB_ASK_TEXT, { mentionUserIds: item.developers.map((d) => d.id) });
