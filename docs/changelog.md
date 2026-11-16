@@ -5,6 +5,9 @@ Newest first. One entry per change people would notice: what Jetta does differen
 Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain words.
 
 
+## 2026-11-16: A tool that declined no longer counts as done
+When one of Jetta's tools runs and refuses (a ticket not opened because it is the same issue as the existing one, a hand-off not made because the team was already asked and nobody came, a dev item not filed because writes are off), the run now records that nothing happened. Before, a refusal looked the same as a success to everything reading the run afterwards. In chat that meant a visitor could be told "I've passed this to our team" when no ticket had been opened, and outcomes could show an escalation or a ticket that never existed. Live on merge, no switch.
+
 ## 2026-11-16: A dev item stays attached to its ticket however long its thread gets
 The ticket a dev item was filed for is written in the item's first update, and every read of an item takes only its newest updates (5, 20 or 50). On a busy item that first update scrolled out, and the item stopped counting as its ticket's: a second item could be filed for the same ticket, `update_dev_item` disappeared from the run, the dev bridge found no ticket to act on, and the ticket follow-up could close a ticket whose item was still open. The link is now stored when Jetta files an item and learned from any item read while its filing update is still visible, and every lookup uses it. Items already past that point need a one-off run of `scripts/backfill-dev-item-links.ts` (dry run by default).
 
