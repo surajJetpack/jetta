@@ -7,11 +7,13 @@
  *   POST { id, action: "approve" | "reject" }
  *
  * Approve = transition draft → published on the SAME article (id is stable;
- * the store handles the vector upsert). Reject = delete + audit.
+ * the store handles the vector upsert). Reject = delete + audit, and only of
+ * something still in the queue: this route takes an id, and without that check
+ * "reject" deleted any article it was handed, published ones included.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { adminAuthorized, adminActor } from "@/lib/auth";
-import { listArticles, transitionState, deleteArticle } from "@/lib/kb-store";
+import { getArticle, listArticles, transitionState, deleteArticle } from "@/lib/kb-store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,6 +31,14 @@ export async function POST(req: NextRequest) {
   }
 
   if (action === "reject") {
+    const article = await getArticle(id);
+    if (!article) return NextResponse.json({ error: "draft not found" }, { status: 404 });
+    if (article.state !== "draft" && article.state !== "in_review") {
+      return NextResponse.json(
+        { error: `"${article.title}" is ${article.state}, not a draft — nothing was deleted.` },
+        { status: 409 },
+      );
+    }
     const ok = await deleteArticle(id, adminActor(req) ?? "console");
     if (!ok) return NextResponse.json({ error: "draft not found" }, { status: 404 });
     return NextResponse.json({ ok: true, action: "rejected" });

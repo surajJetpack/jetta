@@ -5,6 +5,9 @@ Newest first. One entry per change people would notice: what Jetta does differen
 Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain words.
 
 
+## 2026-11-16: Console: four things only an admin can now do
+Deleting a published or archived article (from the article page, the bulk bar, or "reject" in the review queue, which now only ever deletes a draft), archiving in bulk, wiping all chat conversations, and running Jetta live on a ticket from the System page now need an admin account; each was open to every login. General users can still draft, publish, reject drafts and run a dry-run preview. The ops event log is admin-only too, since it holds sign-in attempts and IP addresses. A live run is logged as `console.live_run` with who started it. `scripts/console-roles-test.ts` lists who may call every console API route.
+
 ## 2026-11-10: Logs watches Cloudflare
 The Logs page has a Cloudflare section: server errors (5xx) on each site's production hosts (getsign.io, jetpackapps.io, jobflows.co), what the firewall blocked, each Worker's errors, and an hourly check that each site's busiest hosts answer. Click a number for the hosts, paths and firewall rules behind it; the AI read cites Cloudflare too. A site or Worker far above its usual day (or, while history builds, with errors a high share of its traffic) alerts the ops channel once a day; a host down two runs in a row alerts every 6 hours. Firewall blocks are page-only. Dev and staging hosts are shown, never flagged. Read-only token. `JETTA_CLOUDFLARE` (off leaves Cloudflare out). Live on merge once `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are set in Vercel.
 

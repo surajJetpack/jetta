@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { toast } from "sonner";
 import { diffWords } from "diff";
 import { Check, ChevronDown, ChevronRight, FileText, Pencil, Trash2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -54,12 +55,13 @@ function DraftCard({ draft, onDecide }: { draft: Article; onDecide: () => void }
 
   async function decide(action: "approve" | "reject") {
     setBusy(true);
-    await fetch("/api/admin/kb/drafts", {
+    const r = await fetch("/api/admin/kb/drafts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id: draft.id, action }),
-    });
+    }).then((x) => x.json());
     setBusy(false);
+    if (r.error) toast.error(r.error);
     onDecide();
   }
 

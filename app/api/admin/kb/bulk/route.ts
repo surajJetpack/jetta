@@ -1,11 +1,15 @@
 /**
- * Bulk article actions (admin-gated).
+ * Bulk article actions. Any signed-in user may publish and re-ingest; archive
+ * is admin-only, and delete is admin-only for anything that is or was live —
+ * the same rules as the one-article routes (lib/roles.ts), so selecting rows
+ * is not a way around them.
  *   POST { ids: string[], action: "publish" | "archive" | "delete" | "reingest" }
  * Best-effort per id: illegal transitions are reported, not fatal.
  * "reingest" re-upserts published articles into the vector index.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { adminAuthorized, adminActor } from "@/lib/auth";
+import { denyArticleDelete, requireAdmin } from "@/lib/roles";
 import { getArticle, transitionState, deleteArticle, scopeOf } from "@/lib/kb-store";
 import { vectorEnabled, upsertDocs } from "@/lib/vector";
 
@@ -22,6 +26,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `ids[] and action (${ACTIONS.join("|")}) required` }, { status: 400 });
   }
   if (ids.length > 100) return NextResponse.json({ error: "max 100 ids per call" }, { status: 400 });
+  if (action === "archive") {
+    const denied = requireAdmin(req);
+    if (denied) return denied;
+  }
 
   let ok = 0;
   const failed: { id: string; error: string }[] = [];
@@ -34,9 +42,13 @@ export async function POST(req: NextRequest) {
         case "archive":
           await transitionState(id, "archived", adminActor(req) ?? "console");
           break;
-        case "delete":
+        case "delete": {
+          const a = await getArticle(id);
+          if (!a) throw new Error("not found");
+          if (denyArticleDelete(req, a.state)) throw new Error(`"${a.title}" is ${a.state}: deleting it needs an admin`);
           if (!(await deleteArticle(id, adminActor(req) ?? "console"))) throw new Error("not found");
           break;
+        }
         case "reingest": {
           const a = await getArticle(id);
           if (!a) throw new Error("not found");

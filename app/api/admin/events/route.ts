@@ -1,5 +1,8 @@
 /**
- * Unified ops event log (admin-gated).
+ * Unified ops event log. Admin only: it holds every colleague's sign-in
+ * attempts with their IP addresses (and whatever was typed into the username
+ * box, which is sometimes a password), and the arguments of every assistant
+ * tool call.
  *
  *   GET → { events }                        newest-first JSON for the console
  *   GET ?format=ndjson                      OLDEST-first NDJSON — the shape
@@ -9,17 +12,18 @@
  * ticketId, since (unix ms).
  */
 import { NextRequest, NextResponse } from "next/server";
-import { adminAuthorized } from "@/lib/auth";
+import { requireAdmin } from "@/lib/roles";
 import { getOpsEvents, type EventLevel, type OpsEvent } from "@/lib/events";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const LEVELS: EventLevel[] = ["info", "warn", "error"];
-const SOURCES: OpsEvent["source"][] = ["webhook", "freshchat", "console", "cron", "slack", "auth", "app"];
+const SOURCES: OpsEvent["source"][] = ["webhook", "freshchat", "jettachat", "console", "cron", "slack", "auth", "app"];
 
 export async function GET(req: NextRequest) {
-  if (!adminAuthorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const denied = requireAdmin(req);
+  if (denied) return denied;
   const p = req.nextUrl.searchParams;
 
   const level = p.get("level");

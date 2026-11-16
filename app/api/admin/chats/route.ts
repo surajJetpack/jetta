@@ -12,6 +12,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { adminActor, adminAuthorized } from "@/lib/auth";
+import { requireAdmin } from "@/lib/roles";
 import * as store from "@/lib/chat-store";
 import { deleteAllFiles } from "@/lib/chat-files";
 import { openTicketForConversation, suggestedSubject } from "@/lib/chat-ticket";
@@ -261,7 +262,11 @@ export async function POST(req: NextRequest) {
  * this is not a moderation tool. Channel settings are untouched.
  */
 export async function DELETE(req: NextRequest) {
-  if (!adminAuthorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  // Admin only. It was open to every login, and nothing on the console calls
+  // it — which made it a request any colleague could send by hand to erase
+  // every customer conversation on a live channel.
+  const denied = requireAdmin(req);
+  if (denied) return denied;
   if (req.nextUrl.searchParams.get("confirm") !== "everything") {
     return NextResponse.json(
       { error: "This deletes every conversation and attachment. Pass ?confirm=everything to mean it." },
