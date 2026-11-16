@@ -1486,6 +1486,8 @@ export interface DevItemSnapshot {
   askTimes: string[];
   /** Newest post of Jetta's of any kind (ISO), or null. */
   lastJettaPostAt: string | null;
+  /** The thread a customer's answer belongs in (see owedThreadId), or null. */
+  owedThreadId: string | null;
   /** The Type column — "Question", "Bugs and Field Issues", … */
   type: string | null;
   /** When the progress column last changed (ISO) — a developer moving the item is activity. */
@@ -1515,10 +1517,11 @@ export async function getDevItemSnapshot(itemId: string): Promise<DevItemSnapsho
         updated_at?: string | null;
       }[];
       updates: {
+        id: string;
         text_body: string | null;
         created_at: string;
         creator: { id: string | number } | null;
-        replies: { text_body: string | null; created_at: string; creator: { id: string | number } | null }[] | null;
+        replies: { id: string; text_body: string | null; created_at: string; creator: { id: string | number } | null }[] | null;
         assets: { name: string }[] | null;
       }[];
       assets: { name: string }[] | null;
@@ -1532,7 +1535,7 @@ export async function getDevItemSnapshot(itemId: string): Promise<DevItemSnapsho
           ... on PeopleValue { persons_and_teams { id kind } }
           ... on StatusValue { updated_at }
         }
-        updates(limit: 50) { text_body created_at creator { id } replies { text_body created_at creator { id } } assets { name } }
+        updates(limit: 50) { id text_body created_at creator { id } replies { id text_body created_at creator { id } } assets { name } }
         assets { name }
       }
     }`,
@@ -1577,6 +1580,7 @@ export async function getDevItemSnapshot(itemId: string): Promise<DevItemSnapsho
     // (every file Jetta forwards) hangs off its update.
     assetNames: [...(item.assets ?? []), ...item.updates.flatMap((u) => u.assets ?? [])].map((a) => a.name),
     ...itemActivity(item.updates, devIds),
+    owedThreadId: owedThreadId(item.updates),
     type: pickColumn(item.column_values, "status", ["type"]) ?? null,
     devStatusChangedAt:
       item.column_values.find(
@@ -1590,6 +1594,45 @@ export async function getDevItemSnapshot(itemId: string): Promise<DevItemSnapsho
 export const CHASE_PHRASE = "is asking for an update";
 /** Marks the follow-up cron's nudge (lib/dev-followup.ts). */
 export const NUDGE_PHRASE = "is still waiting";
+/** Opens update_dev_item's relay of what the customer said. */
+export const NEW_INFO_PHRASE = "New from the customer on ticket";
+
+type ThreadPost = { id: string; text_body: string | null; created_at: string };
+
+/**
+ * The thread Jetta still owes the customer's answer in, or null. Pure.
+ *
+ * When a developer asks for something inside a thread, reply_on_dev_item
+ * answers there ("I have asked him, I will post his response here"). The
+ * customer's answer must then land in that same thread: posted as a fresh
+ * comment, the developer watching the thread never sees it (#14600 — the
+ * test-board access sat unread for a day and a half).
+ *
+ * So: the thread holding her newest in-thread answer to a person, as long as
+ * she has not relayed anything from the customer since. Her chases, nudges and
+ * upload corrections are not answers and open no thread.
+ */
+export function owedThreadId(updates: (ThreadPost & { replies?: ThreadPost[] | null })[]): string | null {
+  const at = (p: { created_at: string }) => Date.parse(p.created_at);
+  let owed: { id: string; at: number } | null = null;
+  let relayed = 0;
+  for (const u of updates) {
+    const thread = [u, ...(u.replies ?? [])];
+    for (const p of thread) {
+      if (isJettaPost(p.text_body) && (p.text_body ?? "").includes(NEW_INFO_PHRASE)) relayed = Math.max(relayed, at(p));
+    }
+    for (const r of u.replies ?? []) {
+      const text = r.text_body ?? "";
+      if (!isJettaPost(text)) continue;
+      if ([CHASE_PHRASE, NUDGE_PHRASE, NEW_INFO_PHRASE, "Correction:"].some((m) => text.includes(m))) continue;
+      const asked = thread.some(
+        (p) => at(p) < at(r) && !isJettaPost(p.text_body) && !isJettaContextPost(p.text_body),
+      );
+      if (asked && (!owed || at(r) > owed.at)) owed = { id: u.id, at: at(r) };
+    }
+  }
+  return owed && owed.at > relayed ? owed.id : null;
+}
 
 type ItemPost = { text_body: string | null; created_at: string; creator?: { id: string | number } | null };
 

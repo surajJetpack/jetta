@@ -19,6 +19,8 @@ import {
   isJettaPost,
   isNeedsInfoDevStatus,
   itemActivity,
+  NEW_INFO_PHRASE,
+  owedThreadId,
   ticketIdsOnItem,
   JETTA_POST_PREFIX,
 } from "../lib/tools/monday";
@@ -257,6 +259,36 @@ console.log("#14591: who she tags, hand-offs, reposts");
   check("…even with the @mention added or changed", isRepost(answer.replace("@Sujata Shrestha ", ""), answer));
   check("a different comment on the same item is not", !isRepost(answer, "@Sujata Shrestha \nanaliza-college-group-getsign-workflows.xlsx\nList of all the workflows with their owner"));
   check("short comments never count as reposts (\"ok\" twice is two answers)", !isRepost("ok thanks", "ok thanks"));
+}
+
+{
+  // #14600: the developer asked for board access in a thread, Jetta said she
+  // would post the answer "here", then posted it as a fresh comment nobody read.
+  const J = JETTA_POST_PREFIX;
+  const t = (h: number) => new Date(Date.UTC(2026, 10, 11, h)).toISOString();
+  const info = { id: "100", text_body: `${J} ${NEW_INFO_PHRASE} #14600:\nthe formula`, created_at: t(9) };
+  const ask = { id: "101", text_body: "Lets get access to test board with the formula?", created_at: t(11) };
+  const promise = { id: "102", text_body: `${J} I have asked him. I will post his response here.`, created_at: t(12) };
+  const gabriel = { id: "103", text_body: "I have just requested access", created_at: t(20) };
+  const thread = { ...info, replies: [ask, promise, gabriel] };
+  check("an answer she promised in a thread goes to that thread", owedThreadId([thread]) === "100");
+  check(
+    "…and once relayed, the next customer message is a fresh comment again",
+    owedThreadId([{ ...info, replies: [ask, promise, gabriel, { id: "104", text_body: `${J} ${NEW_INFO_PHRASE} #14600:\naccess granted`, created_at: t(21) }] }]) === null,
+  );
+  check("a relay posted top-level after the promise also settles it", owedThreadId([thread, { id: "110", text_body: `${J} ${NEW_INFO_PHRASE} #14600:\naccess`, created_at: t(21) }]) === null);
+  check("no threads, no owed thread", owedThreadId([info, { id: "111", text_body: "I will release a fix today", created_at: t(13) }]) === null);
+  check(
+    "her chase inside a thread is not a promise",
+    owedThreadId([{ ...info, replies: [ask, { id: "105", text_body: `${J} The customer on ticket #14600 ${CHASE_PHRASE}.`, created_at: t(12) }] }]) === null,
+  );
+  check(
+    "her upload correction under her own post opens no thread",
+    owedThreadId([{ ...info, replies: [{ id: "106", text_body: `${J} Correction: a.png failed to upload here.`, created_at: t(10) }] }]) === null,
+  );
+  const older = { id: "200", text_body: "which formula?", created_at: t(1), replies: [{ id: "201", text_body: `${J} Asked the customer for it.`, created_at: t(2) }] };
+  check("two open threads: the newest promise wins", owedThreadId([older, thread]) === "100");
+  check("a developer's own top-level question she answered in-thread counts", owedThreadId([older]) === "200");
 }
 
 console.log(failures ? `\n${failures} FAILED` : "\nall passed");

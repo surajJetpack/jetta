@@ -1104,7 +1104,7 @@ export function buildTools(
                     const body =
                       kind === "chase"
                         ? `The customer on ticket #${ticketId} ${monday.CHASE_PHRASE}.${message.trim() ? `\n${message.trim()}` : ""}`
-                        : `New from the customer on ticket #${ticketId}:\n${message.trim()}`;
+                        : `${monday.NEW_INFO_PHRASE} #${ticketId}:\n${message.trim()}`;
                     const files =
                       kind === "new_info"
                         ? (await customerAttachments()).filter((f) => !item.assetNames.includes(f.name))
@@ -1125,9 +1125,13 @@ export function buildTools(
                       await relayShadow("update_dev_item", { kind, body: body + fileLine, files: files.map((f) => f.name), to });
                       return `Recorded (shadow mode — not posted on the board) ${kind} for "${item.name}"${to}.`;
                     }
+                    // An answer the developer asked for goes where they asked (#14600):
+                    // she said "I will post his response here", so it lands there.
+                    // A chase stays a fresh comment — it is meant to be seen.
                     const posted = await monday.postJettaComment(item.id, body + fileLine, {
                       mentionUserIds: item.developers.map((d) => d.id),
                       attachments: files,
+                      parentUpdateId: kind === "new_info" ? (item.owedThreadId ?? undefined) : undefined,
                     });
                     if (!posted) return `monday writes are off — nothing was posted on "${item.name}".`;
                     await rememberJettaPost(posted.id);
