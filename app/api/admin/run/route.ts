@@ -1,5 +1,6 @@
 /**
- * Admin "run a ticket through Jetta" endpoint, used by the ops dashboard.
+ * "Run a ticket through Jetta", used by the System page. A dry run is open to
+ * any signed-in user; a live run (`dryRun: false`) is admin only.
  *
  * Unlike /api/webhook this has no idempotency gate (so you can re-run the same
  * ticket) and supports `dryRun` to preview Jetta's actions without any external
@@ -10,7 +11,9 @@ import { config } from "@/lib/config";
 import { buildContext, buildMessages } from "@/lib/context";
 import { buildSystemPrompt } from "@/lib/system-prompt";
 import { runAgentLoop } from "@/lib/agent";
-import { adminAuthorized } from "@/lib/auth";
+import { adminActor, adminAuthorized } from "@/lib/auth";
+import { requireAdmin } from "@/lib/roles";
+import { logOpsEvent } from "@/lib/events";
 import { recordRun } from "@/lib/runlog";
 
 export const runtime = "nodejs";
@@ -39,6 +42,22 @@ export async function POST(req: NextRequest) {
   }
   const dryRun = body.dryRun !== false; // default to safe preview
   const channel = body.channel === "freshchat" ? "freshchat" : "freshdesk";
+
+  // A preview is anyone's. A live run posts on a real ticket, can file on the
+  // dev board and escalate in Slack, and has no idempotency gate, so it is an
+  // admin's — and it is written down who started it, which the run log alone
+  // ("console") never said.
+  if (!dryRun) {
+    const denied = requireAdmin(req);
+    if (denied) return denied;
+    await logOpsEvent({
+      level: "warn",
+      event: "console.live_run",
+      source: "console",
+      ticketId,
+      data: { actor: adminActor(req) ?? "console", channel, tier: body.tier },
+    });
+  }
 
   try {
     const ctx = await buildContext(ticketId, channel);

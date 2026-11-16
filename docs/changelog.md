@@ -5,6 +5,9 @@ Newest first. One entry per change people would notice: what Jetta does differen
 Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain words.
 
 
+## 2026-11-16: Console: four things only an admin can now do
+Deleting a published or archived article (from the article page, the bulk bar, or "reject" in the review queue, which now only ever deletes a draft), archiving in bulk, wiping all chat conversations, and running Jetta live on a ticket from the System page now need an admin account; each was open to every login. General users can still draft, publish, reject drafts and run a dry-run preview. The ops event log is admin-only too, since it holds sign-in attempts and IP addresses. A live run is logged as `console.live_run` with who started it. `scripts/console-roles-test.ts` lists who may call every console API route.
+
 ## 2026-11-16: First responses: fewer ways for an announced reply to vanish
 A message with a pasted screenshot is no longer handed to Jetta as a prompt-injection attempt (her own image note was tripping the detector). At send time, a Freshdesk error (rate limit, 5xx) is retried each minute for an hour and then handed to a person with a note, instead of being treated as "ticket not found" and dropped. A customer's out-of-office auto-reply no longer cancels the queued reply. When the customer really did write again, the cancel now leaves a note saying nothing was sent. If two replies are queued for one ticket, the one answering the newer message wins. And a run killed at the function time limit no longer leaves that customer message marked as handled for 30 days: the marker now lapses after 15 minutes unless the run finishes. Live on merge.
 
