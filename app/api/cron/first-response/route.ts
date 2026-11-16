@@ -4,7 +4,10 @@
  * Every minute: for each reply whose delay has run out, read the ticket FRESH
  * and send only if the thread is where Jetta left it — nobody has replied, no
  * `jetta-hold` tag, not closed, and the customer hasn't written again since.
- * Anything else cancels quietly: a teammate got there first, which is fine.
+ * A teammate getting there first cancels quietly, which is fine. A cancel
+ * that leaves the ticket with nothing (the customer wrote again, or Freshdesk
+ * could not be read for an hour) says so in a private note, because the note
+ * above it still reads "sending the first response at HH:MM".
  *
  * `?dry=1` reports what it would do and writes nothing. Switching
  * JETTA_FIRST_RESPONSE away from "on" stops sends at the next tick; pending
@@ -20,7 +23,7 @@ import {
   sendDecision,
   type ScheduledFirstResponse,
 } from "@/lib/first-response";
-import { markEventSeen, unmarkEventSeen, recordOutcome, scheduleFollowUp } from "@/lib/kv";
+import { keepEventSeen, markEventSeen, unmarkEventSeen, recordOutcome, scheduleFollowUp } from "@/lib/kv";
 import { logOpsEvent } from "@/lib/events";
 
 export const runtime = "nodejs";
@@ -31,6 +34,14 @@ export const dynamic = "force-dynamic";
 const MAX_PER_RUN = 10;
 /** A send still failing this long after it was due goes to a person instead. */
 const GIVE_UP_MS = 60 * 60_000;
+/**
+ * How long one tick may hold a job: well past this function's own limit, so a
+ * tick killed mid-job frees it for the next one. It used to be claimed for two
+ * days up front, which left a job whose tick died unsendable AND uncancellable
+ * until it expired. Kept for two days once the reply has actually gone out.
+ */
+const CLAIM_SECONDS = 10 * 60;
+const SENT_CLAIM_SECONDS = 2 * 86400;
 
 function authorized(req: NextRequest): boolean {
   // Fails CLOSED: a route that writes to customers must never be publicly
@@ -94,12 +105,43 @@ async function handle(job: ScheduledFirstResponse, armed: boolean, now: number):
 
   // One send per scheduled job, even if two ticks overlap.
   const claim = `firstresponse-send:${ticketId}:${job.createdAt}`;
-  if (!(await markEventSeen(claim, 2 * 86400))) return { ticketId, action: "skipped", reason: "claimed" };
+  if (!(await markEventSeen(claim, CLAIM_SECONDS))) return { ticketId, action: "skipped", reason: "claimed" };
 
-  const ticket = await freshdesk.getTicketDetails(ticketId).catch(() => null);
+  // Only a real 404 means the ticket is gone. A rate limit, a 5xx or a dropped
+  // connection is Freshdesk not answering: treating that as "not found" threw
+  // away a reply that had already been announced on the ticket. Retry it like
+  // a failed send, and hand it to a person if it is still failing in an hour.
+  let ticket: Awaited<ReturnType<typeof freshdesk.getTicketDetails>> | null;
+  try {
+    ticket = await freshdesk.getTicketDetails(ticketId);
+  } catch (e) {
+    if (freshdesk.isNotFound(e)) {
+      ticket = null;
+    } else {
+      const error = e instanceof Error ? e.message : String(e);
+      if (now - job.sendAt > GIVE_UP_MS) {
+        await clearScheduledFirstResponse(job);
+        await freshdesk
+          .addPrivateNote(ticketId, `Jetta did NOT send the first response announced above: Freshdesk could not be read for an hour (${error.slice(0, 200)}). Please reply to the customer — the text above is ready to use.`)
+          .catch(() => {});
+        await cancelled(job, "read_failed");
+        return { ticketId, action: "gave_up", reason: error };
+      }
+      await unmarkEventSeen(claim).catch(() => {}); // retried next tick
+      throw e;
+    }
+  }
   const decision = sendDecision(job, ticket, ticket ? freshdesk.isTerminalStatus(ticket.status) : false);
   if (decision.action === "cancel") {
     await clearScheduledFirstResponse(job);
+    // The customer wrote again, so the reply is stale — and the run for their
+    // new message may not have produced anything (held, skipped, failed). The
+    // ticket must not be left saying a reply is on its way.
+    if (decision.reason === "customer_wrote_again") {
+      await freshdesk
+        .addPrivateNote(ticketId, "Jetta did NOT send the first response announced above: the customer wrote again before it went out. Nothing has been sent to them. Use the text above as a draft if it still fits their latest message.")
+        .catch(() => {});
+    }
     await cancelled(job, decision.reason);
     return { ticketId, action: "cancelled", reason: decision.reason };
   }
@@ -120,6 +162,8 @@ async function handle(job: ScheduledFirstResponse, armed: boolean, now: number):
     throw e;
   }
 
+  // Sent: this job must never go out again, whatever happens below.
+  await keepEventSeen(claim, SENT_CLAIM_SECONDS).catch(() => {});
   await clearScheduledFirstResponse(job);
   if (job.resolutionSent) await scheduleFollowUp(ticketId, new Date().toISOString()).catch(() => {});
   await recordOutcome({
