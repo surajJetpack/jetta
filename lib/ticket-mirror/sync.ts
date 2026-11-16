@@ -19,6 +19,7 @@ import { cleanEmailText } from "../email-clean";
 import { countInlineImages, fd, stripHtml } from "../tools/freshdesk";
 import { waitForHeadroom } from "../tools/fd-budget";
 import { bumpDataVersion } from "../data-version";
+import { logOpsEvent } from "../events";
 
 const { tickets, messages, attachments, contacts, agents, syncState } = schema;
 
@@ -92,6 +93,12 @@ async function setState(db: Db, key: string, value: unknown): Promise<void> {
     .insert(syncState)
     .values({ key, value })
     .onConflictDoUpdate({ target: syncState.key, set: { value, updatedAt: sql`now()` } });
+}
+
+/** Store a value, or remove the row when there is none (`value` is NOT NULL). */
+async function setOrClearState(db: Db, key: string, value: unknown | null): Promise<void> {
+  if (value === null) await db.delete(syncState).where(eq(syncState.key, key));
+  else await setState(db, key, value);
 }
 
 // ── Upserts ─────────────────────────────────────────────────────────
@@ -372,8 +379,42 @@ export interface WalkReport {
   listed: number;
   synced: number;
   skipped: number;
-  stoppedFor?: "deadline" | "budget";
+  stoppedFor?: "deadline" | "budget" | "error";
   done: boolean;
+  /** The ticket the walk stopped at because syncing it threw. */
+  failed?: { id: number; error: string };
+  /** Tickets passed over because they kept failing (see `stuckAfter`). */
+  passedOver?: number[];
+}
+
+/** A ticket the walk keeps stopping at, and for how many runs in a row. */
+export interface Stuck {
+  id: number;
+  runs: number;
+}
+
+/** Runs in a row a ticket may stop the walk before the walk goes round it. */
+export const STUCK_RUNS = 3;
+
+/**
+ * What to remember after a walk. Pure.
+ *
+ * One ticket that cannot be stored (a body Postgres rejects, a thread
+ * Freshdesk will not serve) used to throw out of the walk every five minutes,
+ * at the same place, for ever: the cursor never passed it, so nothing newer
+ * was mirrored and the backfill never ran. Now the walk stops AT such a
+ * ticket, keeps what it did before it, and counts. On the STUCK_RUNS-th run
+ * in a row at the same ticket it is passed over. A blip (Freshdesk down for a
+ * minute) clears itself, because the next walk gets past and resets the count.
+ */
+export function stuckAfter(prev: Stuck | null, walk: Pick<WalkReport, "failed">): Stuck | null {
+  if (!walk.failed) return null;
+  return { id: walk.failed.id, runs: prev?.id === walk.failed.id ? prev.runs + 1 : 1 };
+}
+
+/** The ticket to go round on this run, if one has been stuck long enough. Pure. */
+export function passOver(prev: Stuck | null): number | null {
+  return prev && prev.runs >= STUCK_RUNS ? prev.id : null;
 }
 
 /**
@@ -381,7 +422,7 @@ export interface WalkReport {
  * time/budget. Returns the cursor to resume from: the updated_at of the last
  * ticket fully processed, so an interrupted page is simply walked again.
  */
-async function walk(cursor: string, deadline: number): Promise<WalkReport> {
+async function walk(cursor: string, deadline: number, skipId: number | null = null): Promise<WalkReport> {
   const report: WalkReport = { cursor, listed: 0, synced: 0, skipped: 0, done: false };
   for (let page = 1; page <= 300; page++) {
     if (Date.now() > deadline) return { ...report, stoppedFor: "deadline" };
@@ -393,7 +434,21 @@ async function walk(cursor: string, deadline: number): Promise<WalkReport> {
     report.listed += batch.length;
     for (const t of batch) {
       if (Date.now() > deadline) return { ...report, stoppedFor: "deadline" };
-      const r = await syncTicket(t.id, t, { deadline });
+      if (t.id === skipId) {
+        // Stuck for several runs: go round it. Its row keeps a stale stamp, so
+        // readers fall back to Freshdesk for it, and it is tried again the
+        // next time it changes.
+        (report.passedOver ??= []).push(t.id);
+        report.cursor = t.updated_at;
+        continue;
+      }
+      let r: SyncResult;
+      try {
+        r = await syncTicket(t.id, t, { deadline });
+      } catch (e) {
+        // Stop here with everything before it kept; the caller counts.
+        return { ...report, stoppedFor: "error", failed: { id: t.id, error: e instanceof Error ? e.message : String(e) } };
+      }
       if (r === "budget") return { ...report, stoppedFor: "budget" };
       if (r === "synced") report.synced++;
       else report.skipped++;
@@ -416,6 +471,16 @@ export interface SyncRunReport {
   agents: boolean;
 }
 
+/** A walk that stopped at, or went round, a ticket says so in the event log. */
+async function reportWalk(which: "delta" | "backfill", w: WalkReport): Promise<void> {
+  if (w.failed) {
+    await logOpsEvent({ level: "error", event: "ticket_sync.ticket_failed", source: "cron", ticketId: String(w.failed.id), data: { walk: which, error: w.failed.error.slice(0, 600) } }).catch(() => {});
+  }
+  for (const id of w.passedOver ?? []) {
+    await logOpsEvent({ level: "error", event: "ticket_sync.ticket_passed_over", source: "cron", ticketId: String(id), data: { walk: which, afterRuns: STUCK_RUNS } }).catch(() => {});
+  }
+}
+
 /** One cron tick: catch up on changes, then spend what's left on history. */
 export async function runTicketSync(budgetMs: number): Promise<SyncRunReport | null> {
   const db = getDb();
@@ -426,8 +491,11 @@ export async function runTicketSync(budgetMs: number): Promise<SyncRunReport | n
   const deltaCursor =
     (await getState<string>(db, "delta_cursor")) ?? new Date(Date.now() - 5 * 60_000).toISOString();
   const walkStarted = new Date(Date.now() - 60_000).toISOString();
-  const delta = await walk(deltaCursor, deadline);
+  const deltaStuck = await getState<Stuck>(db, "delta_stuck");
+  const delta = await walk(deltaCursor, deadline, passOver(deltaStuck));
   await setState(db, "delta_cursor", delta.cursor);
+  await setOrClearState(db, "delta_stuck", stuckAfter(deltaStuck, delta));
+  await reportWalk("delta", delta);
   // A finished walk means every ticket changed before it started is mirrored —
   // the freshness readers rely on (lib/ticket-mirror/read.ts), even in a quiet
   // hour when the cursor itself doesn't move.
@@ -444,7 +512,10 @@ export async function runTicketSync(budgetMs: number): Promise<SyncRunReport | n
       startedAt: new Date().toISOString(),
     } satisfies BackfillState);
   if (!bf.done && delta.done && Date.now() < deadline) {
-    backfill = await walk(bf.cursor, deadline);
+    const backfillStuck = await getState<Stuck>(db, "backfill_stuck");
+    backfill = await walk(bf.cursor, deadline, passOver(backfillStuck));
+    await setOrClearState(db, "backfill_stuck", stuckAfter(backfillStuck, backfill));
+    await reportWalk("backfill", backfill);
     // The backfill is finished once it has walked up to where the delta began.
     const caughtUp = backfill.done || Date.parse(backfill.cursor) >= Date.parse(deltaCursor);
     await setState(db, "backfill", { ...bf, cursor: backfill.cursor, done: caughtUp });

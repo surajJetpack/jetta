@@ -5,6 +5,9 @@ Newest first. One entry per change people would notice: what Jetta does differen
 Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain words.
 
 
+## 2026-11-16: Crons: five smaller ways to go quiet
+The ticket mirror (`ticket-sync`) no longer stalls on one ticket it cannot store: it stops at that ticket, keeps what it did, and after three runs in a row at the same one goes round it (`ticket_sync.ticket_failed`, then `ticket_sync.ticket_passed_over`, in the event log). The daily missed-reply check stops starting runs when it is nearly out of time, spaces its Freshdesk reads, and keeps a job that failed for the next day instead of dropping it. The ticket follow-up reads the `jetta-hold` tag fresh at send time, so a tag added a minute earlier is honoured. Self-review and Logs alerts are no longer silenced when the Slack post itself failed (`selfreview.alert_failed`, `errorwatch.alert_failed`); they are tried again on the next run. A ticket's run history now expires 180 days after its last run. No switch; live on merge.
+
 ## 2026-11-16: The manual catches up with today's changes
 The admin manual, the general handbook, the /system rows and the overview now describe what shipped today: who can archive and delete articles, what a chat visitor can and cannot get (billing, monday account, limits), how a first reply is retried or cancelled, the ticket follow-up as it really works (three touches, each announced an hour ahead), the dev-board thread replies and follow-up rules, and what happens when monday or billing writes are off. The general handbook's "what needs an admin" table was out of date on publishing and on trials and discounts, which have been open to the whole team since October and September. No behaviour change.
 

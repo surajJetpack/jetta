@@ -25,6 +25,13 @@ import { cronAuthorized } from "@/lib/request-auth";
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
+/** Stop starting jobs this far into the run (the limit is 300s; a run takes about a minute). */
+const START_BUDGET_MS = 200_000;
+/** Gap between jobs, so their Freshdesk reads do not all land in one second. */
+const PACE_MS = 1_500;
+/** A job that has failed every day for this long is dropped. */
+const GIVE_UP_SECONDS = 7 * 86_400;
+
 async function handler(req: NextRequest) {
   if (!cronAuthorized(req)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
@@ -32,10 +39,26 @@ async function handler(req: NextRequest) {
 
   const due = await getDueFollowUps();
   const handled: { ticketId: string; action: string }[] = [];
+  // Each job that needs a run is a full agent loop. Stop STARTING them well
+  // inside the function's limit: a run killed half-way leaves nothing behind
+  // but a claimed marker. What is not reached stays queued for tomorrow.
+  const deadline = Date.now() + START_BUDGET_MS;
+  const now = Math.floor(Date.now() / 1000);
 
-  for (const job of due) {
+  for (const [i, job] of due.entries()) {
+    if (Date.now() > deadline) {
+      handled.push({ ticketId: job.ticketId, action: "deferred: out of time, kept for the next run" });
+      continue;
+    }
+    // Every job reads its ticket from Freshdesk, and they all come due at
+    // once; unpaced, thirty of them spend the shared rate limit in seconds.
+    if (i > 0) await new Promise((r) => setTimeout(r, PACE_MS));
     // Released if the run fails, so the webhook can still answer the message.
     let claimedMarker: string | null = null;
+    // A job is finished when it was looked at and dealt with. One that threw
+    // (Freshdesk did not answer, the run failed) is kept and tried again
+    // tomorrow, until it is too old to matter.
+    let finished = false;
     try {
       const replied = await freshdesk.hasCustomerReplySince(job.ticketId, job.resolutionSentAt);
 
@@ -94,6 +117,7 @@ async function handler(req: NextRequest) {
         // every ticket we answered, not only the ones flagged as resolutions.
         handled.push({ ticketId: job.ticketId, action: "no reply → left to ticket-followup" });
       }
+      finished = true;
     } catch (err) {
       if (claimedMarker) await unmarkEventSeen(claimedMarker).catch(() => {});
       claimedMarker = null;
@@ -110,7 +134,7 @@ async function handler(req: NextRequest) {
       });
     } finally {
       if (claimedMarker) await keepEventSeen(claimedMarker, freshdesk.CUSTOMER_MSG_MARKER_TTL).catch(() => {});
-      await clearFollowUp(job.ticketId);
+      if (finished || now - job.dueAt > GIVE_UP_SECONDS) await clearFollowUp(job.ticketId);
     }
   }
 

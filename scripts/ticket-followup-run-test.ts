@@ -493,6 +493,22 @@ async function main() {
     assert.equal(f.sent.length, 1);
   });
 
+  await test("jetta-hold added after the run listed the ticket still stops the touch", async () => {
+    const t = ticket();
+    const id = String(t.listed.id);
+    const f = fake([t]);
+    await f.run("2026-10-16T10:00:00Z");
+    const s = (await getTicketFollowUp(id))!;
+    await f.run(new Date(s.dueAt + 60_000).toISOString()); // noted
+    const pending = (await getTicketFollowUp(id))!.pending!;
+    // The listing still shows no tags; the ticket itself, read a moment later, has the hold.
+    const realRead = f.deps.readThread;
+    f.deps.readThread = async (tid) => ({ ...(await realRead(tid)), tags: ["jetta-hold"] });
+    const r = await f.run(new Date(pending.sendAt + 60_000).toISOString());
+    assert.equal(r.handled.find((h) => h.ticketId === id)?.action, "skipped", JSON.stringify(r.handled));
+    assert.equal(f.sent.length, 0, "nothing was sent");
+  });
+
   console.log(failures ? `\n${failures} failed` : "\nticket-followup-run-test: all passed");
   if (failures) process.exit(1);
 }

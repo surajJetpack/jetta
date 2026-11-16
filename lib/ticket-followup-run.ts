@@ -74,6 +74,8 @@ export interface ThreadRead {
   /** "Name <email>". */
   requester: string;
   product?: string;
+  /** The ticket's tags as of this read, when the reader has them. */
+  tags?: string[];
   messages: (PublicMessage & { private: boolean })[];
 }
 
@@ -245,7 +247,11 @@ async function handle(t: Listed, prev: TicketFollowUp | undefined, opts: RunOpti
   const requesterEmail = /<([^>]+)>/.exec(thread.requester)?.[1] ?? null;
   const note = (text: string) => (write ? deps.addNote(ticketId, text) : Promise.resolve());
 
-  const skip = skipTicket({ source: t.source, subject: t.subject, tags: t.tags, requesterEmail });
+  // Tags from THIS read, not from the listing made at the start of the run:
+  // with a few seconds between tickets and a model call for each, the list can
+  // be minutes old, and `jetta-hold` is added exactly when someone has just
+  // seen the note saying a touch is about to go.
+  const skip = skipTicket({ source: t.source, subject: t.subject, tags: thread.tags ?? t.tags, requesterEmail });
   if (skip) {
     if (write) await markSeen(ticketId, stampOf(t));
     if (write && prev) {
