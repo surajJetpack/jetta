@@ -25,6 +25,7 @@ import {
 } from "@/lib/first-response";
 import { keepEventSeen, markEventSeen, unmarkEventSeen, recordOutcome, scheduleFollowUp } from "@/lib/kv";
 import { logOpsEvent } from "@/lib/events";
+import { cronAuthorized } from "@/lib/request-auth";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -43,18 +44,10 @@ const GIVE_UP_MS = 60 * 60_000;
 const CLAIM_SECONDS = 10 * 60;
 const SENT_CLAIM_SECONDS = 2 * 86400;
 
-function authorized(req: NextRequest): boolean {
-  // Fails CLOSED: a route that writes to customers must never be publicly
-  // triggerable because a variable is unset.
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return false;
-  return req.headers.get("authorization") === `Bearer ${secret}`;
-}
-
 type Handled = { ticketId: string; action: string; reason?: string };
 
 async function handler(req: NextRequest) {
-  if (!authorized(req)) {
+  if (!cronAuthorized(req)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
   const dry = req.nextUrl.searchParams.get("dry") === "1";

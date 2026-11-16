@@ -20,19 +20,13 @@ import { recordRun } from "@/lib/runlog";
 import { createDraftFromRun } from "@/lib/drafts";
 import * as freshdesk from "@/lib/tools/freshdesk";
 import { logOpsEvent } from "@/lib/events";
+import { cronAuthorized } from "@/lib/request-auth";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
-function authorized(req: NextRequest): boolean {
-  // Vercel Cron sends `Authorization: Bearer <CRON_SECRET>` when CRON_SECRET is set.
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return true;
-  return req.headers.get("authorization") === `Bearer ${secret}`;
-}
-
 async function handler(req: NextRequest) {
-  if (!authorized(req)) {
+  if (!cronAuthorized(req)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 

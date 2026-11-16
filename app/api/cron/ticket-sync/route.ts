@@ -12,6 +12,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { withCronBeat } from "@/lib/cron-beat";
 import { runTicketSync } from "@/lib/ticket-mirror/sync";
 import { logOpsEvent } from "@/lib/events";
+import { cronAuthorized } from "@/lib/request-auth";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -20,14 +21,8 @@ export const dynamic = "force-dynamic";
 /** Leave headroom under maxDuration for the final writes. */
 const RUN_BUDGET_MS = 240_000;
 
-function authorized(req: NextRequest): boolean {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return process.env.NODE_ENV !== "production";
-  return req.headers.get("authorization") === `Bearer ${secret}`;
-}
-
 async function handler(req: NextRequest) {
-  if (!authorized(req)) {
+  if (!cronAuthorized(req)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
   try {

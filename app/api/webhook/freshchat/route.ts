@@ -14,6 +14,7 @@
  * Ignored events return 200 — Freshchat retries non-2xx responses, and a
  * retried "ignored" is just noise.
  */
+import { allowUnconfigured } from "@/lib/request-auth";
 import { NextResponse } from "next/server";
 import crypto from "node:crypto";
 import { config } from "@/lib/config";
@@ -57,12 +58,15 @@ interface FcWebhookPayload {
 /**
  * Verify X-Freshchat-Signature: RSA-SHA256 over the raw body, base64, checked
  * against the public key from the Freshchat admin console. When no key is
- * configured we allow (local/stub testing), matching the Freshdesk route's
- * shared-secret behavior.
+ * configured the request is allowed only off a deployment (local/stub
+ * testing), matching the Freshdesk route's shared-secret behavior.
  */
 function verifySignature(raw: string, signature: string | null): boolean {
   const key = config.freshchat.webhookPublicKey;
-  if (!key) return true;
+  // No key: accepted on a developer's machine, refused on any deployment.
+  // This channel is retired, so in production the key is usually absent — and
+  // the route then ran a full agent loop for anyone who posted to it.
+  if (!key) return allowUnconfigured();
   if (!signature) return false;
   try {
     const pem = key.replace(/\\n/g, "\n"); // PEM stored in env with escaped newlines

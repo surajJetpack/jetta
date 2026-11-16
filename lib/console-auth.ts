@@ -2,12 +2,14 @@
  * Console session auth: username/password logins from CONSOLE_USERS, an
  * HMAC-signed session cookie (no external deps), and the page gate.
  *
- * Dev-open rule: with CONSOLE_USERS unset the console is open (user "dev"),
- * mirroring the old unset-ADMIN_SECRET behavior so local dev stays frictionless.
+ * Dev-open rule: with CONSOLE_USERS and ADMIN_SECRET both unset the console is
+ * open (user "dev") — on a developer's machine only, so local dev stays
+ * frictionless. On a deployment the same state is locked (lib/request-auth.ts).
  */
 import { cookies } from "next/headers";
 import crypto from "node:crypto";
 import { config } from "./config";
+import { isDeployed } from "./request-auth";
 import { roleOf, effectiveRole, canUseAssistant, VIEW_AS_COOKIE, type Role } from "./roles";
 
 export const SESSION_COOKIE = "jetta_session";
@@ -105,7 +107,9 @@ export async function gate(): Promise<{
       canUseAssistant: canUseAssistant(user, viewAs),
     };
   };
-  if (!config.consoleUsers && !config.adminSecret) return decide("dev", false);
+  // Dev-open is for a developer's machine. A deployment with nobody
+  // configured is locked, the same as lib/auth.ts answers for the API.
+  if (!config.consoleUsers && !config.adminSecret && !isDeployed()) return decide("dev", false);
   const user = verifySession(jar.get(SESSION_COOKIE)?.value);
   return user
     ? decide(user, false)

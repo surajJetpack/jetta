@@ -9,19 +9,13 @@ import { withCronBeat } from "@/lib/cron-beat";
 import { config } from "@/lib/config";
 import { logOpsEvent } from "@/lib/events";
 import { planDevFollowUp, runDevFollowUp } from "@/lib/dev-followup";
+import { cronAuthorized } from "@/lib/request-auth";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
-function authorized(req: NextRequest): boolean {
-  // Vercel Cron sends `Authorization: Bearer <CRON_SECRET>` when CRON_SECRET is set.
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return true;
-  return req.headers.get("authorization") === `Bearer ${secret}`;
-}
-
 async function handler(req: NextRequest) {
-  if (!authorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  if (!cronAuthorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   if (req.nextUrl.searchParams.get("dry") === "1") {
     // Unlinked items are planned whatever their switch says, so a dry run

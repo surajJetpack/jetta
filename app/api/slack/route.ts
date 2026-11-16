@@ -13,6 +13,7 @@
  * Admin-gated commands (extend / discount / cancel) require the Slack user to be
  * in ADMIN_SLACK_USER_IDS. Rejected attempts are logged.
  */
+import { allowUnconfigured } from "@/lib/request-auth";
 import { NextRequest, NextResponse, after } from "next/server";
 import crypto from "node:crypto";
 import { config } from "@/lib/config";
@@ -49,7 +50,10 @@ export const maxDuration = 300;
 
 function verifySlackSignature(raw: string, req: NextRequest): boolean {
   const secret = config.slack.signingSecret;
-  if (!secret) return true; // stub / local
+  // No signing secret: accepted on a developer's machine, refused on any
+  // deployment. A forged app_mention carrying an admin's user id would
+  // otherwise pass, and two of them satisfy the two-admin cancel.
+  if (!secret) return allowUnconfigured();
   const ts = req.headers.get("x-slack-request-timestamp");
   const sig = req.headers.get("x-slack-signature");
   if (!ts || !sig) return false;
