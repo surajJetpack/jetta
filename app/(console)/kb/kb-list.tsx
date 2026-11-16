@@ -211,7 +211,7 @@ export default function KbList() {
     }).then((x) => x.json());
     setBusy(false);
     if (r.error) {
-      toast.error(r.error);
+      toast.error(r.message ?? r.error);
     } else {
       toast.success(
         `${action}: ${r.ok ?? 0} ok${r.failed?.length ? `, ${r.failed.length} failed (${r.failed.map((e: { error: string }) => e.error).join("; ")})` : ""}`,

@@ -62,9 +62,12 @@ function readStorage(): RunState | null {
 export default function TicketTester({
   freshdeskLive,
   freshchatLive,
+  isAdmin,
 }: {
   freshdeskLive: boolean;
   freshchatLive: boolean;
+  /** A live run is admin-only (the API enforces it); others only get the preview. */
+  isAdmin: boolean;
 }) {
   // Initialise from defaults so the first client render matches the server (no
   // hydration mismatch); persisted state is loaded in the mount effect below.
@@ -109,7 +112,7 @@ export default function TicketTester({
       const r = await fetch("/api/admin/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ticketId: ticketId.trim(), dryRun, channel }),
+        body: JSON.stringify({ ticketId: ticketId.trim(), dryRun: dryRun || !isAdmin, channel }),
       });
       setRes((await r.json()) as RunResult);
     } catch (e) {
@@ -119,7 +122,7 @@ export default function TicketTester({
     }
   }
 
-  const willPost = !dryRun && (channel === "freshchat" ? freshchatLive : freshdeskLive);
+  const willPost = isAdmin && !dryRun && (channel === "freshchat" ? freshchatLive : freshdeskLive);
 
   return (
     <Card>
@@ -147,8 +150,8 @@ export default function TicketTester({
             onKeyDown={(e) => e.key === "Enter" && run()}
           />
           <Label className="flex cursor-pointer items-center gap-1.5 text-sm font-normal text-muted-foreground">
-            <Checkbox checked={dryRun} onCheckedChange={(v) => setDryRun(v === true)} />
-            Dry run (preview, no posting)
+            <Checkbox checked={dryRun || !isAdmin} disabled={!isAdmin} onCheckedChange={(v) => setDryRun(v === true)} />
+            Dry run (preview, no posting){!isAdmin && " — live runs need an admin"}
           </Label>
           <Button onClick={run} disabled={loading || !ticketId.trim()}>
             {loading && <Loader2 className="animate-spin" />}

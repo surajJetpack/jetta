@@ -103,7 +103,7 @@ export default async function SystemPage() {
           user's page load — they have no way to act on the answer anyway. */}
       {isAdmin && <SlackChannelHealth />}
 
-      <TicketTester freshdeskLive={config.freshdesk.live} freshchatLive={config.freshchat.live} />
+      <TicketTester freshdeskLive={config.freshdesk.live} freshchatLive={config.freshchat.live} isAdmin={isAdmin} />
 
       <Card>
         <CardHeader>

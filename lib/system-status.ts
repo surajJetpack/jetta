@@ -578,7 +578,7 @@ export const ENDPOINTS: readonly EndpointRow[] = [
   { path: "POST /api/webhook/freshchat", detail: "Freshchat hand-off — retired channel, handler still present" },
   { path: "POST /api/slack", detail: "Slack events: @Jetta commands, direct messages, the agent panel" },
   { path: "POST /api/chat/*", detail: "Public JettaChat API — session, message, stream, upload" },
-  { path: "POST /api/admin/run", detail: "This console's ticket runner (admin only)" },
+  { path: "POST /api/admin/run", detail: "This console's ticket runner (a preview for any login; a live run is admin only)" },
 ] as const;
 
 export const CRONS: readonly EndpointRow[] = [

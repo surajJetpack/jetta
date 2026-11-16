@@ -1,5 +1,6 @@
 "use client";
 
+import { toast } from "sonner";
 import { useCallback, useEffect, useState } from "react";
 import { ChevronDown, ChevronRight, Download, Info, OctagonX, RotateCw, TriangleAlert } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -45,6 +46,8 @@ export default function EventsLog() {
     if (source) params.set("source", source);
     if (prefix.trim()) params.set("event", prefix.trim());
     const r = await fetch(`/api/admin/events?${params}`, { cache: "no-store" }).then((x) => x.json());
+    // Admin-only: a refusal reads as a reason, not as an empty log.
+    if (r.error) toast.error(r.message ?? r.error);
     setEvents(r.events ?? []);
   }, [level, source, prefix]);
 

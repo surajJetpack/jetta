@@ -251,7 +251,12 @@ export default function KbArticle({ id }: { id?: string }) {
   }
 
   async function remove() {
-    await fetch(`/api/admin/kb?id=${encodeURIComponent(article!.id)}`, { method: "DELETE" });
+    // Deleting a live article is admin-only; a refusal must not look like success.
+    const r = await fetch(`/api/admin/kb?id=${encodeURIComponent(article!.id)}`, { method: "DELETE" }).then((x) => x.json());
+    if (r.error) {
+      toast.error(r.message ?? r.error);
+      return;
+    }
     router.push("/kb");
   }
 
