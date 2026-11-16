@@ -1193,7 +1193,16 @@ export function buildTools(
                           : /screenshot|attach|image|video|recording|file/i.test(message)
                             ? `\n\nNo file came through with this. Anything the customer sent is on the ticket: ${interactionUrl(ticketId!)}`
                             : "";
-                    const to = item.developers.length ? ` (@${item.developers.map((d) => d.name).join(", @")})` : "";
+                    // An answer goes back to whoever asked for it, as well as the
+                    // item's Developers: the two are often different people, and a
+                    // Developer column that is empty (or holds a team) used to mean
+                    // nobody was told at all while the result still said "Posted".
+                    const threadId = kind === "new_info" ? (item.owedThreadId ?? undefined) : undefined;
+                    const asker = threadId ? item.owedThreadAskerId : null;
+                    const mentionIds = [...new Set([...item.developers.map((d) => d.id), ...(asker ? [asker] : [])])];
+                    const askerIsDev = !!asker && item.developers.some((d) => d.id === asker);
+                    const names = [...item.developers.map((d) => `@${d.name}`), ...(asker && !askerIsDev ? ["the person who asked in the thread"] : [])];
+                    const to = names.length ? ` (${names.join(", ")})` : " — nobody was @mentioned: the item has no Developer, so it will only be seen by someone who opens it";
                     relayedThisTurn = true;
                     if (relay === "shadow") {
                       await relayShadow("update_dev_item", { kind, body: body + fileLine, files: files.map((f) => f.name), to });
@@ -1203,21 +1212,21 @@ export function buildTools(
                     // she said "I will post his response here", so it lands there.
                     // A chase stays a fresh comment — it is meant to be seen.
                     const posted = await monday.postJettaComment(item.id, body + fileLine, {
-                      mentionUserIds: item.developers.map((d) => d.id),
+                      mentionUserIds: mentionIds,
                       attachments: files,
-                      parentUpdateId: kind === "new_info" ? (item.owedThreadId ?? undefined) : undefined,
+                      parentUpdateId: threadId,
                     });
                     if (!posted) return `monday writes are off — nothing was posted on "${item.name}".`;
                     await rememberJettaPost(posted.id);
                     const missing = files.map((f) => f.name).filter((n) => !posted.filesAttached.includes(n));
                     if (missing.length) {
                       const fix = await monday
-                        .postJettaComment(item.id, `Correction: ${missing.join(", ")} failed to upload here. ${missing.length === 1 ? "It is" : "They are"} on the ticket: ${interactionUrl(ticketId!)}`, { parentUpdateId: posted.id })
+                        .postJettaComment(item.id, `Correction: ${missing.join(", ")} failed to upload here. ${missing.length === 1 ? "It is" : "They are"} on the ticket: ${interactionUrl(ticketId!)}`, { parentUpdateId: monday.correctionParent(posted, threadId) })
                         .catch(() => null);
                       if (fix) await rememberJettaPost(fix.id);
                     }
                     await relayLog(`update_dev_item:${kind}`, item.id);
-                    const wanted = kind === "new_info" && !!item.owedThreadId;
+                    const wanted = !!threadId;
                     if (wanted && !posted.threaded) {
                       await events.logOpsEvent({ level: "warn", event: "devbridge.thread_fallback", source: "webhook", ticketId, data: { itemId: item.id, thread: item.owedThreadId } });
                     }

@@ -5,6 +5,9 @@ Newest first. One entry per change people would notice: what Jetta does differen
 Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain words.
 
 
+## 2026-11-16: Thread answers: who is told, and for how long a thread counts
+Follow-up to #196. When Jetta posts a customer's answer into a developer's thread she now @mentions whoever asked there as well as the item's Developers, and says so plainly when nobody could be mentioned (no Developer on the item). The "file failed to upload" correction now stays in that thread instead of landing as a separate comment. A thread only counts as waiting for the customer's answer for 14 days after her reply in it, and context she adds through a second `create_dev_item` on the same ticket settles it like any other relay. Not yet confirmed against monday: whether a reply inside a thread can carry files at all; when it cannot, the correction says the files are on the ticket.
+
 ## 2026-11-16: Chat: an account or email is only trusted when it is proven
 On the chat widget, a monday account now counts as the visitor's only when the embed passes monday's signed session token (`visitor.mondaySessionToken`; the Install page snippets include it). An app view that sends no token is treated like a support link: Jetta confirms the account before a trial or discount request and does not look up the account's earlier tickets. FastSpring billing is no longer looked up or changed from chat, because a typed email proves nothing; Jetta opens a ticket and the team answers by email. On tickets the billing lookup is for the requester's own address only. New ceilings, live on merge, no switch: 40 new chats per network per hour, 3 chat tickets per email per day, 30 chat tickets and 20 "ask the team" pings per hour across the channel; hitting one logs `chat.ticket_capped` or `chat.handoff_capped`.
 
