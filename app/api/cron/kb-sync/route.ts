@@ -11,20 +11,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { withCronBeat } from "@/lib/cron-beat";
 import { SITES, syncSite, type SyncResult } from "@/lib/kb-sync";
 import { logOpsEvent } from "@/lib/events";
+import { cronAuthorized } from "@/lib/request-auth";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
 export const dynamic = "force-dynamic";
 
-function authorized(req: NextRequest): boolean {
-  // Vercel Cron sends `Authorization: Bearer <CRON_SECRET>` when CRON_SECRET is set.
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return true;
-  return req.headers.get("authorization") === `Bearer ${secret}`;
-}
-
 async function handler(req: NextRequest) {
-  if (!authorized(req)) {
+  if (!cronAuthorized(req)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 

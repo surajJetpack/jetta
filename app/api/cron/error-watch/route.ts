@@ -9,20 +9,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { withCronBeat } from "@/lib/cron-beat";
 import { runErrorWatch } from "@/lib/error-watch";
 import { logOpsEvent } from "@/lib/events";
+import { cronAuthorized } from "@/lib/request-auth";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
 export const dynamic = "force-dynamic";
 
-function authorized(req: NextRequest): boolean {
-  // Fails closed: it spends CloudWatch scans, Sentry calls and an LLM call.
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return false;
-  return req.headers.get("authorization") === `Bearer ${secret}`;
-}
-
 async function handler(req: NextRequest) {
-  if (!authorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  if (!cronAuthorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const result = await runErrorWatch();
   await logOpsEvent({
     level: result.status === "error" ? "error" : "info",
