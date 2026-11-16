@@ -48,7 +48,7 @@ import { searchPublishedKb } from "../knowledge/dynamic-kb";
 import { vectorEnabled, queryVector, type VectorHit } from "../vector";
 import { rerankHits } from "../rerank";
 import { profileFor } from "../profiles";
-import { recordKbHits, clearEscalation, rememberJettaPost, recordDevQuestion } from "../kv";
+import { recordKbHits, clearEscalation, rememberJettaPost, recordDevQuestion, clearDevQuestion } from "../kv";
 import { looksLikeInjection } from "../injection";
 import { submitMonetApproval } from "../monetization-approvals";
 
@@ -969,8 +969,11 @@ export function buildTools(
               mention_developer: z
                 .boolean()
                 .describe("@mention the person whose comment you are answering (for a status change, the item's Developer) so they are notified. True when you are answering them or need something from them."),
+              asks_developer: z
+                .boolean()
+                .describe("True ONLY when this comment asks the developer something you need THEM to answer. False when you are answering them, reporting what you asked the customer (even if you quote that question), or passing on the customer's reply. When true, an unanswered question is chased on your behalf after a few working days."),
             }),
-            execute: async ({ message, mention_developer }) => {
+            execute: async ({ message, mention_developer, asks_developer }) => {
               const ev = ctx.devEvent!;
               const targets = mention_developer ? monday.devMentionTargets(ev) : [];
               const mentionIds = targets.map((d) => d.id);
@@ -982,8 +985,12 @@ export function buildTools(
               });
               if (!posted) return `monday writes are off — nothing was posted on "${ev.itemName}".`;
               await rememberJettaPost(posted.id);
-              // A question is followed up by the dev follow-up cron if nobody answers it.
-              if (message.includes("?") && ticketId) {
+              // A question TO THE DEVELOPER is followed up by the dev follow-up
+              // cron if nobody answers it. The model says whether it is one: a
+              // "?" in the text is not the test, because "I asked him: which
+              // board is it?" has one too, and that got chased as if the
+              // developer owed the answer.
+              if (asks_developer && ticketId) {
                 await recordDevQuestion({
                   itemId: ev.itemId,
                   ticketId,
@@ -1225,6 +1232,10 @@ export function buildTools(
                         .catch(() => null);
                       if (fix) await rememberJettaPost(fix.id);
                     }
+                    // The customer's answer is what an open question of hers on
+                    // this item was waiting for: passing it on closes the question,
+                    // so the cron does not chase the developer for it.
+                    if (kind === "new_info") await clearDevQuestion(item.id).catch(() => {});
                     await relayLog(`update_dev_item:${kind}`, item.id);
                     const wanted = !!threadId;
                     if (wanted && !posted.threaded) {

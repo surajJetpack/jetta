@@ -9,7 +9,10 @@
  * through docText via data: URLs, so the extractors are exercised for real.
  */
 import { decideFollowUp, decideUnlinkedFollowUp, nudgeText, questionNudgeText, unlinkedNudgeText, workdaysBetween } from "../lib/dev-followup";
-import { declinesKb, docText, noAnswer, shouldAskForKb } from "../lib/dev-kb";
+import { askForKb, declinesKb, docText, noAnswer, pendingKbAsk, shouldAskForKb } from "../lib/dev-kb";
+import { postRole } from "../lib/dev-board";
+import { isJettaAuthored } from "../lib/jetta-posts";
+import { config } from "../lib/config";
 import { itemActivity, JETTA_POST_PREFIX, NUDGE_PHRASE } from "../lib/tools/monday";
 
 export {};
@@ -231,7 +234,71 @@ async function docs() {
   check("a 20MB file is skipped", (await docText({ name: "big.pdf", extension: "pdf", url: "data:,", size: 20 * 1024 * 1024 })) === null);
 }
 
-docs().then(() => {
+console.log("Who is chasing, and who is working on it");
+{
+  const rules = { quietWorkdays: 3, weekend: SAT };
+  const shreya = "111"; // in the Developer column
+  const swejal = "333"; // an engineer who is answering, but is not in the column
+  const cherryl = "222"; // support, and the item's Reporter
+  // #14591: the Developer is Shreya, Swejal is the one replying.
+  const posts = [
+    { text_body: "found it, the webhook is not registered for subitems", created_at: day(20), creator: { id: swejal, name: "Swejal K" } },
+    { text_body: "fix is on dev, testing tomorrow", created_at: day(21), creator: { id: swejal, name: "Swejal K" } },
+  ];
+  const before = itemActivity(posts, [shreya]);
+  check("without the roster, a colleague's answers read as two asks (the old behaviour)", before.otherPersonPostTimes.length === 2 && before.lastDevActivityAt === null);
+  const chaser = (p: { creator?: { id: string | number; name?: string | null } | null }) =>
+    String(p.creator?.id ?? "") === cherryl || ["cherryl", "sujata", "gabriel"].includes((p.creator?.name ?? "").split(" ")[0].toLowerCase());
+  const after = itemActivity(posts, [shreya], chaser);
+  check("with it, an engineer outside the Developer column is engineering at work", after.otherPersonPostTimes.length === 0 && after.lastDevActivityAt === day(21));
+  const item = { group: "Bugs", devStatus: "Working on it", devStatusChangedAt: null, createdAt: day(19), type: null };
+  check(
+    "…so three quiet days later it is a first ask, not an escalation",
+    (() => {
+      const old = decideFollowUp({ ...item, ...before }, "open", new Date(day(27)), rules);
+      const now = decideFollowUp({ ...item, ...after }, "open", new Date(day(27)), rules);
+      return old.action === "escalate" && now.action === "ask" && now.n === 1;
+    })(),
+  );
+  const pinged = itemActivity(
+    [...posts, { text_body: "any update on this?", created_at: day(23), creator: { id: cherryl, name: "Cherryl B" } }],
+    [shreya],
+    chaser,
+  );
+  check("the Reporter's ping is still a chase, not engineering activity", pinged.otherPersonPostTimes.length === 1 && pinged.lastDevActivityAt === day(21));
+  const byName = itemActivity([{ text_body: "whats the update?", created_at: day(23), creator: { id: "999", name: "Gabriel Villegas" } }], [shreya], chaser);
+  check("someone on the support roster is a chaser even when they are not the Reporter", byName.otherPersonPostTimes.length === 1 && byName.lastDevActivityAt === null);
+}
+
+console.log("Which posts are Jetta's");
+{
+  const roster = { support: new Set(["cherryl"]), self: "Suraj Malla" };
+  check("her \"🤖 Jetta:\" comments are hers", isJettaAuthored(`${JETTA_POST_PREFIX} The customer on ticket #1 is asking for an update.`));
+  check("her filing context is hers", isJettaAuthored("Product: getsign\nAccount: acme"));
+  check("…and so is a follow-up context post", isJettaAuthored("Follow-up from the SAME Freshdesk ticket — added here.\n\nProduct: getsign"));
+  check("a person's comment is not", !isJettaAuthored("I will release a fix today") && !isJettaAuthored("Jetta: did you see this?"));
+  check(
+    "/dev-board counts her chase as Jetta, not as an engineering reply",
+    postRole({ who: "Suraj Malla", text: `${JETTA_POST_PREFIX} The customer on ticket #1 is asking for an update.` }, roster) === "jetta",
+  );
+  check("…and the token's owner typing by hand is still a person", postRole({ who: "Suraj Malla", text: "checked with the dev" }, roster) === "engineering");
+}
+
+async function kbShadow() {
+  console.log("KB request in shadow mode");
+  if (config.kv.url && config.kv.token) {
+    console.log("  skip  (needs the in-memory store; run without KV credentials)");
+    return;
+  }
+  const mode = config.devKb;
+  (config as { devKb: string }).devKb = "shadow";
+  const item = { id: "777001", name: "Sync broken", ticketIds: ["14600"], developers: [{ id: "1", name: "Dev" }], product: "jetpackapps" } as never;
+  await askForKb(item);
+  check("a shadow \"would ask\" leaves no pending request to swallow comments", (await pendingKbAsk("777001")) === null);
+  (config as { devKb: string }).devKb = mode;
+}
+
+docs().then(kbShadow).then(() => {
   console.log(failures ? `\n${failures} FAILED` : "\nall passed");
   process.exit(failures ? 1 : 0);
 });

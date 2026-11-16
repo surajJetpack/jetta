@@ -360,7 +360,11 @@ export async function runDevFollowUp(now = new Date()): Promise<FollowUpRow[]> {
     const questionOpen = decision.action === "none" ? decision.reason.startsWith("question open") : chasingQuestion;
     if (question && !questionOpen && ticketStatus !== null) await clearDevQuestion(id);
     if (decision.action === "none" || actions >= MAX_ACTIONS_PER_RUN) continue;
-    actions++;
+    // One item's failure costs that item, not the run. Without this, a post
+    // monday refused or an escalation Slack rejected ended the loop — and the
+    // same item is first in line again tomorrow, so nothing after it was ever
+    // chased.
+    try {
     const about = "about" in decision ? decision.about : "developer";
     const named = (ids: string[]) =>
       ids.map((uid) => [...item.developers, ...item.reporters].find((p) => p.id === uid) ?? { id: uid, name: "developer" });
@@ -378,6 +382,9 @@ export async function runDevFollowUp(now = new Date()): Promise<FollowUpRow[]> {
         : ticketId
           ? nudgeText(ticketId, decision.quietDays, decision.n)
           : unlinkedNudgeText(item, about, decision.quietDays, decision.n);
+      // Counted here, not before: the cap is on things done (or, in shadow,
+      // logged), so items that turn out to need nothing do not use it up.
+      actions++;
       if (mode === "shadow") {
         row.done = "shadow";
         await logOpsEvent({ level: "info", event: "devbridge.followup_shadow", source: "cron", ticketId: ticketEvent, data: { itemId: id, ask: decision.n, about, question: chasingQuestion, text, to: to.map((d) => d.name) } });
@@ -397,9 +404,13 @@ export async function runDevFollowUp(now = new Date()): Promise<FollowUpRow[]> {
     // after a developer replies can escalate again, and this one can't twice.
     const key = `devbridge:followup-escalated:${id}:${decision.since}`;
     if (await kvGet(key)) {
+      // Not an action: an item escalated last week comes back as "escalate"
+      // every day until a developer speaks, and fifteen of those early in
+      // board order used to spend the whole day's allowance on nothing.
       row.done = "already escalated";
       continue;
     }
+    actions++;
     if (mode === "shadow") {
       row.done = "shadow";
       await logOpsEvent({ level: "info", event: "devbridge.followup_shadow", source: "cron", ticketId: ticketEvent, data: { itemId: id, escalate: true, about, question: chasingQuestion, quietDays: decision.quietDays } });
@@ -432,6 +443,11 @@ export async function runDevFollowUp(now = new Date()): Promise<FollowUpRow[]> {
     if (chasingQuestion) await clearDevQuestion(id);
     row.done = "escalated";
     await logOpsEvent({ level: "info", event: "devbridge.followup_escalated", source: "cron", ticketId: ticketEvent, data: { itemId: id, about, quietDays: decision.quietDays } });
+    } catch (e) {
+      const error = e instanceof Error ? e.message : String(e);
+      row.done = `failed: ${error.slice(0, 200)}`;
+      await logOpsEvent({ level: "error", event: "devbridge.followup_failed", source: "cron", ticketId: ticketId ?? undefined, data: { itemId: id, action: decision.action, error: error.slice(0, 600) } }).catch(() => {});
+    }
   }
   return rows;
 }

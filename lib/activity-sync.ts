@@ -17,6 +17,7 @@
  * Hourly (vercel.json), and from the page's "Sync now".
  */
 import { config } from "./config";
+import { isJettaAuthored } from "./jetta-posts";
 import { markEventSeen, unmarkEventSeen } from "./kv";
 import { getAuditFeed } from "./kb-store";
 import {
@@ -292,10 +293,10 @@ async function mondayGql<T>(query: string, variables: Record<string, unknown>): 
 /**
  * Jetta posts to monday with an API token that belongs to a person. That
  * person's own work still counts; what's dropped is what only Jetta does —
- * creating items and posting the "Product: / Account: / Freshdesk ticket:"
- * context block.
+ * creating items, posting the "Product: / Account: / Freshdesk ticket:"
+ * context block, and her "🤖 Jetta:" comments.
  */
-const isJettaPost = (text: string | null) => /^\s*Product:/.test(text ?? "");
+const isJettaPost = (text: string | null) => isJettaAuthored(text);
 
 async function readMonday(state: ActivitySyncState): Promise<{ acts: Activity[]; problem?: string }> {
   if (!config.monday.live || !config.monday.apiToken) {

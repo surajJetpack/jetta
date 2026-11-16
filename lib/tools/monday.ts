@@ -7,6 +7,7 @@
  * token can't provide, so it's a separate client.
  */
 import { config } from "../config";
+import { JETTA_POST_PREFIX, isJettaPost, isJettaContextPost, isJettaAuthored } from "../jetta-posts";
 import { APP_NAMES, type AppProduct, type AttachmentFile, type ComplianceItem, type DevBoardItem, type DevEvent, type Product } from "../types";
 
 const GRAPHQL = "https://api.monday.com/v2";
@@ -1461,16 +1462,8 @@ export function devMentionTargets(ev: Pick<DevEvent, "kind" | "author" | "author
   return ev.developers;
 }
 
-export const JETTA_POST_PREFIX = "🤖 Jetta:";
-
-export function isJettaPost(text: string | null | undefined): boolean {
-  return (text ?? "").trimStart().startsWith(JETTA_POST_PREFIX);
-}
-
-/** Context posts createDevItem makes ("Product: …\nAccount: …"). Also hers. */
-export function isJettaContextPost(text: string | null | undefined): boolean {
-  return /^\s*(Follow-up from the SAME Freshdesk ticket[^\n]*\s*)?Product:/.test(text ?? "");
-}
+// Defined in lib/jetta-posts.ts (no imports, so pure modules can share it).
+export { JETTA_POST_PREFIX, isJettaPost, isJettaContextPost, isJettaAuthored };
 
 /**
  * The Freshdesk tickets an item was filed for, read off its columns and
@@ -1563,8 +1556,8 @@ export async function getDevItemSnapshot(itemId: string): Promise<DevItemSnapsho
         id: string;
         text_body: string | null;
         created_at: string;
-        creator: { id: string | number } | null;
-        replies: { id: string; text_body: string | null; created_at: string; creator: { id: string | number } | null }[] | null;
+        creator: { id: string | number; name?: string | null } | null;
+        replies: { id: string; text_body: string | null; created_at: string; creator: { id: string | number; name?: string | null } | null }[] | null;
         assets: { name: string }[] | null;
       }[];
       assets: { name: string }[] | null;
@@ -1578,7 +1571,7 @@ export async function getDevItemSnapshot(itemId: string): Promise<DevItemSnapsho
           ... on PeopleValue { persons_and_teams { id kind } }
           ... on StatusValue { updated_at }
         }
-        updates(limit: 50) { id text_body created_at creator { id } replies { id text_body created_at creator { id } } assets { name } }
+        updates(limit: 50) { id text_body created_at creator { id name } replies { id text_body created_at creator { id name } } assets { name } }
         assets { name }
       }
     }`,
@@ -1609,6 +1602,17 @@ export async function getDevItemSnapshot(itemId: string): Promise<DevItemSnapsho
 
   const product: Product = item.board.id === config.monday.boardIds.getsign ? "getsign" : "jetpackapps";
   const owed = owedThread(item.updates);
+  // Who counts as "chasing" rather than "working on it": the item's Reporters
+  // and the support roster. Anyone else who writes is engineering.
+  const supportNames = new Set(
+    (config.devBoardSupport ?? "")
+      .split(",")
+      .map((n) => n.trim().split(/\s+/)[0]?.toLowerCase() ?? "")
+      .filter(Boolean),
+  );
+  const chaser = (post: ItemPost) =>
+    reporterIds.includes(String(post.creator?.id ?? "")) ||
+    supportNames.has((post.creator?.name ?? "").trim().split(/\s+/)[0]?.toLowerCase() ?? "");
   return {
     id: item.id,
     name: item.name,
@@ -1623,7 +1627,7 @@ export async function getDevItemSnapshot(itemId: string): Promise<DevItemSnapsho
     // Item-level assets are file COLUMNS only; what was posted on a comment
     // (every file Jetta forwards) hangs off its update.
     assetNames: [...(item.assets ?? []), ...item.updates.flatMap((u) => u.assets ?? [])].map((a) => a.name),
-    ...itemActivity(item.updates, devIds),
+    ...itemActivity(item.updates, devIds, chaser),
     owedThreadId: owed?.id ?? null,
     owedThreadAskerId: owed?.askedBy ?? null,
     type: pickColumn(item.column_values, "status", ["type"]) ?? null,
@@ -1706,20 +1710,29 @@ export function owedThreadId(updates: (ThreadPost & { replies?: ThreadPost[] | n
   return owedThread(updates, now)?.id ?? null;
 }
 
-type ItemPost = { text_body: string | null; created_at: string; creator?: { id: string | number } | null };
+type ItemPost = { text_body: string | null; created_at: string; creator?: { id: string | number; name?: string | null } | null };
 
 /**
  * When a person last spoke on an item, and when Jetta last chased it. Pure.
  * Replies count: a developer answering inside an old thread is activity.
  *
- * With `developerIds`, a comment is also sorted by who wrote it: the item's
- * Developers, or someone else. Support writing "any update?" on a quiet item
- * is a chase, not a sign the developer is on it — the follow-up cron needs
- * the difference, or every ping from support restarts the developer's clock.
+ * With `developerIds`, a comment is also sorted by who wrote it: engineering,
+ * or someone chasing engineering. Support writing "any update?" on a quiet
+ * item is a chase, not a sign the developer is on it — the follow-up cron
+ * needs the difference, or every ping from support restarts the developer's
+ * clock.
+ *
+ * `isChaser` says who is chasing. Without it, everyone outside the Developer
+ * column is — which counted an engineer who was answering, but was not the
+ * one in the column, as "support asking": on #14591 a colleague's two answers
+ * became two unanswered asks and pushed the item towards escalation. With it,
+ * only the people it names (the item's Reporters, the support roster) chase;
+ * anyone else who writes is engineering at work.
  */
 export function itemActivity(
   updates: (ItemPost & { replies?: ItemPost[] | null })[],
   developerIds: string[] = [],
+  isChaser?: (post: ItemPost) => boolean,
 ): {
   lastPersonActivityAt: string | null;
   lastDevActivityAt: string | null;
@@ -1744,7 +1757,9 @@ export function itemActivity(
     } else if (!isJettaContextPost(text)) {
       person = later(person, post.created_at);
       if (!developerIds.length) continue;
-      if (developerIds.includes(String(post.creator?.id ?? ""))) dev = later(dev, post.created_at);
+      const engineering =
+        developerIds.includes(String(post.creator?.id ?? "")) || (isChaser ? !isChaser(post) : false);
+      if (engineering) dev = later(dev, post.created_at);
       else others.push(post.created_at);
     }
   }

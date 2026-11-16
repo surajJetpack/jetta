@@ -203,25 +203,38 @@ export async function handleDevBoardEvent(e: MondayWebhookEvent, opts: { requeue
     const selfId = state.mondaySelf?.id ?? null;
     const trigger = classifyDevEvent(e, devBoardIds(), selfId);
 
-    // A person posting on an item with an open KB request is answering it —
-    // including an update that is only a file, which is otherwise skipped as
-    // an empty comment. That answer is for the KB, not the customer.
+    // A person posting on an item with an open KB request may be answering
+    // it — including an update that is only a file, which is otherwise skipped
+    // as an empty comment. So the KB path gets to read it.
+    //
+    // It does NOT get to keep it. This used to `return` here, which meant that
+    // for up to 30 days after an item was finished, every comment on it went
+    // to the KB drafter and nowhere else: a developer's "which browser is he
+    // on?" after the customer said it was still broken never started a ticket
+    // run, and neither did the comment explaining the fix. The comment now
+    // carries on to the ordinary bridge run below, which stays silent when
+    // there is nothing in it for the customer.
+    let seen = false;
     const personPost = "kind" in trigger ? trigger.kind === "comment" : trigger.skip === "empty comment";
-    if (personPost && config.devKb !== "off") {
+    if (personPost && config.devKb !== "off" && !opts.requeued) {
       const askedAt = await pendingKbAsk(itemId);
       if (askedAt) {
         if (!(await markEventSeen(`devbridge:${e.triggerUuid ?? `${itemId}:${e.replyId ?? e.updateId}`}`, 24 * 3600))) return;
+        seen = true;
         const item = await monday.getDevItemSnapshot(itemId);
-        if (item) await handleKbAnswer(item, (e.textBody ?? "").trim(), askedAt, selfId);
-        return;
+        if (item) {
+          await handleKbAnswer(item, (e.textBody ?? "").trim(), askedAt, selfId).catch((err) =>
+            console.warn(`KB answer on ${itemId} failed:`, err),
+          );
+        }
       }
     }
     if ("skip" in trigger) return;
 
     // monday redelivers; one event, one run. A requeued event was marked
-    // the first time it arrived.
+    // the first time it arrived, and so was one the KB path just read.
     const eventKey = e.triggerUuid ?? `${itemId}:${trigger.kind === "comment" ? trigger.postId : trigger.status}`;
-    if (!opts.requeued && !(await markEventSeen(`devbridge:${eventKey}`, 24 * 3600))) return;
+    if (!opts.requeued && !seen && !(await markEventSeen(`devbridge:${eventKey}`, 24 * 3600))) return;
     if (trigger.kind === "comment" && trigger.postId && (await isRememberedJettaPost(trigger.postId))) return;
     if (trigger.kind === "comment" && config.devBridge !== "off") {
       const previous = await kvGet(lastCommentKey(itemId));

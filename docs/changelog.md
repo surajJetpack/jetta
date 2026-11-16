@@ -5,6 +5,9 @@ Newest first. One entry per change people would notice: what Jetta does differen
 Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain words.
 
 
+## 2026-11-16: Dev bridge: comments get through, and the daily follow-up is fairer
+After an item is finished and Jetta has asked its developer for a KB note (`JETTA_DEV_KB`), later comments on that item used to go to the KB drafter and nowhere else for up to 30 days; they now also start the usual ticket run, so a developer's question or explanation reaches the ticket. In shadow mode the KB request no longer counts as asked. The daily developer follow-up (`JETTA_DEV_FOLLOWUP`) no longer stops at the first item that fails, and its 15-a-day allowance is only spent on things it actually does. An engineer who answers on an item without being in its Developer column now counts as engineering at work; only the item's Reporter and the support roster (`DEV_BOARD_SUPPORT`) count as chasing. Jetta's question to a developer is chased only when she marks it as one, and passing on the customer's answer closes it. /activity and /dev-board no longer count her own comments as a person's work.
+
 ## 2026-11-16: Thread answers: who is told, and for how long a thread counts
 Follow-up to #196. When Jetta posts a customer's answer into a developer's thread she now @mentions whoever asked there as well as the item's Developers, and says so plainly when nobody could be mentioned (no Developer on the item). The "file failed to upload" correction now stays in that thread instead of landing as a separate comment. A thread only counts as waiting for the customer's answer for 14 days after her reply in it, and context she adds through a second `create_dev_item` on the same ticket settles it like any other relay. Not yet confirmed against monday: whether a reply inside a thread can carry files at all; when it cannot, the correction says the files are on the ticket.
 
