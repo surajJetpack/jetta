@@ -192,6 +192,10 @@ async function main() {
   };
   const fine = await monday.createDevItem(input);
   check("a normal filing reports its context as posted", fine.id === "556" && fine.contextPosted === true, JSON.stringify(fine));
+  const { itemTickets } = await import("../lib/dev-item-links");
+  const remembered = await itemTickets();
+  check("filing remembers which ticket the item is for", remembered.get("556") === "14600", [...remembered.entries()].join(" "));
+  check("…even when the context post itself failed", remembered.get("555") === "14600");
 
   section("monday: a reply that could not go in the thread says so");
   handler = (_url, body) => {
