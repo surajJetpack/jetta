@@ -820,6 +820,8 @@ export interface RunLog {
   error?: string;
 }
 
+/** How long a ticket's own run history is kept after its last run. */
+export const RUNLOG_TICKET_DAYS = 180;
 const RUNLOGS_KEY = "jetta:runlogs";
 const runLogTicketKey = (ticketId: string) => `jetta:runlog:${ticketId}`;
 const memRunLogs: RunLog[] = [];
@@ -832,6 +834,10 @@ export async function recordRunLog(entry: RunLog): Promise<void> {
     await r.ltrim(RUNLOGS_KEY, 0, 499);
     await r.lpush(runLogTicketKey(entry.ticketId), entry);
     await r.ltrim(runLogTicketKey(entry.ticketId), 0, 49);
+    // One list per ticket or chat, each up to 50 full traces, and nothing ever
+    // removed them: the store grew with every customer who had ever written.
+    // Kept for RUNLOG_TICKET_DAYS after the LAST run on that ticket.
+    await r.expire(runLogTicketKey(entry.ticketId), RUNLOG_TICKET_DAYS * 86_400);
     return;
   }
   memRunLogs.unshift(entry);

@@ -299,8 +299,20 @@ export async function runSelfReview(opts: { notify?: boolean; judge?: boolean } 
 
     // Slack.
     const alerts: { at: number; text: string }[] = [];
-    const post = async (headline: string, details: string[]) => {
-      if (config.selfReview.alerts) await slack.notifySelfReview(headline, details).catch(() => undefined);
+    // `once` are the markers that say "already alerted". They are set before
+    // the post (so two runs cannot both send), and RELEASED if the post fails:
+    // a Slack outage used to leave the alert unsent and silenced for up to two
+    // weeks, while this list still showed it as raised.
+    const post = async (headline: string, details: string[], once: string[]) => {
+      if (config.selfReview.alerts) {
+        try {
+          await slack.notifySelfReview(headline, details);
+        } catch (e) {
+          for (const key of once) await unmarkEventSeen(key).catch(() => {});
+          await logOpsEvent({ level: "warn", event: "selfreview.alert_failed", source: "cron", data: { headline: headline.slice(0, 200), message: e instanceof Error ? e.message.slice(0, 300) : String(e) } }).catch(() => {});
+          return;
+        }
+      }
       alerts.push({ at: Date.now(), text: headline });
     };
     if (opts.notify !== false) {
@@ -310,6 +322,7 @@ export async function runSelfReview(opts: { notify?: boolean; judge?: boolean } 
         await post(
           `:stethoscope: Jetta self-check: ${fresh12h.length === 1 ? fresh12h[0].title : `${fresh12h.length} things need a look`}`,
           fresh12h.map((f) => `• ${f.severity === "bad" ? ":red_circle:" : ":large_yellow_circle:"} *${f.title}*: ${f.detail}`),
+          fresh12h.map((f) => `selfreview:flag:${f.key}`),
         );
       }
       // Action findings from the last day, each once. Older ones were either
@@ -325,6 +338,7 @@ export async function runSelfReview(opts: { notify?: boolean; judge?: boolean } 
             ...newActions.slice(0, 8).map((f) => `• ${f.severity === "bad" ? ":red_circle:" : ":large_yellow_circle:"} *${f.title}*: ${f.detail}`),
             "Details on the console's Self-review page.",
           ],
+          newActions.map((f) => `selfreview:action:${f.key}`),
         );
       }
       for (const j of fresh.filter((x) => x.kind === "chat" && x.verdict === "bad")) {
@@ -335,13 +349,13 @@ export async function runSelfReview(opts: { notify?: boolean; judge?: boolean } 
           ...j.issues.slice(0, 3).map((i) => `• ${i.category.replace(/_/g, " ")}: ${i.detail}`),
           j.fix ? `*Fix:* ${j.fix}` : "",
           `Conversation ${j.ticketId} on the console's Chats page.`,
-        ].filter(Boolean));
+        ].filter(Boolean), [`selfreview:bad:${j.runId}`]);
       }
       // Yesterday's scorecard, once, from 09:00 support time.
       const yesterday = quality.days[quality.days.length - 2];
       if (yesterday?.judged && localHour(now) >= 9 && (await markEventSeen(`selfreview:digest:${yesterday.day}`, 3 * 86_400))) {
         const { headline, details } = scorecardText(yesterday, quality);
-        await post(headline, details);
+        await post(headline, details, [`selfreview:digest:${yesterday.day}`]);
       }
     }
 

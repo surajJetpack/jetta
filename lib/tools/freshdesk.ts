@@ -465,6 +465,8 @@ export interface TicketThread {
   url: string;
   requester: string;
   product?: string;
+  /** The ticket's tags as of this read. Absent in stub mode. */
+  tags?: string[];
   /** Every message on the ticket, including the opening one — not just this page. */
   total: number;
   /** The slice returned, inclusive. */
@@ -537,6 +539,7 @@ export async function getTicketThread(
     status: number;
     created_at: string;
     requester_id: number;
+    tags?: string[];
     custom_fields?: Record<string, unknown>;
     attachments?: FDAttachment[];
   };
@@ -618,6 +621,7 @@ export async function getTicketThread(
     url: freshdeskTicketUrl(ticket.id),
     requester,
     product: (ticket.custom_fields?.cf_product as string | undefined) ?? undefined,
+    tags: ticket.tags ?? [],
     total,
     from: start,
     to: start + page.length - 1,

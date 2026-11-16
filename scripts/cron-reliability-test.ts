@@ -98,6 +98,23 @@ async function main() {
     /daily cap/.test(second?.skipped ?? ""),
     `second run returned ${JSON.stringify(second)}`,
   );
+
+  section("Ticket mirror: one ticket that keeps failing does not stall the walk");
+  const { stuckAfter, passOver, STUCK_RUNS } = await import("../lib/ticket-mirror/sync");
+  const fail = (id: number) => ({ failed: { id, error: "invalid byte sequence" } });
+  let stuck = stuckAfter(null, fail(7001));
+  check("the first failure is remembered, and nothing is passed over", stuck?.id === 7001 && stuck.runs === 1 && passOver(stuck) === null);
+  stuck = stuckAfter(stuck, fail(7001));
+  check("a second run at the same ticket is still not enough", stuck?.runs === 2 && passOver(stuck) === null);
+  stuck = stuckAfter(stuck, fail(7001));
+  check(`after ${STUCK_RUNS} runs in a row it is passed over`, stuck?.runs === STUCK_RUNS && passOver(stuck) === 7001);
+  check("a walk that gets through clears it", stuckAfter(stuck, {}) === null);
+  check("a blip clears itself: fail once, succeed, fail again starts from one", stuckAfter(stuckAfter(stuckAfter(null, fail(7001)), {}), fail(7001))?.runs === 1);
+  check("a different ticket failing starts its own count", stuckAfter({ id: 7001, runs: 2 }, fail(7002))?.runs === 1);
+
+  section("Run history is not kept for ever");
+  const kv = await import("../lib/kv");
+  check("a ticket's run history has a retention", kv.RUNLOG_TICKET_DAYS >= 90 && kv.RUNLOG_TICKET_DAYS <= 365, String(kv.RUNLOG_TICKET_DAYS));
 }
 
 main()

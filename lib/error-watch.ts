@@ -460,6 +460,22 @@ export function alertText(i: WatchIssue): { headline: string; details: string[] 
 
 const DEV_ITEMS_PER_DAY = 2;
 
+/**
+ * Send an alert whose "already alerted" marker (`once`) has just been set. If
+ * the send fails the marker is released, so the next run tries again: a Slack
+ * outage used to lose the alert AND silence it for up to three days, with the
+ * page still listing it as raised. Returns the message ts, or undefined.
+ */
+async function notifyOrRelease(once: string, send: () => Promise<string>): Promise<string | undefined> {
+  try {
+    return await send();
+  } catch (e) {
+    await unmarkEventSeen(once).catch(() => {});
+    await logOpsEvent({ level: "warn", event: "errorwatch.alert_failed", source: "cron", data: { key: once, message: e instanceof Error ? e.message.slice(0, 300) : String(e) } }).catch(() => {});
+    return undefined;
+  }
+}
+
 export async function maybeFileDevItem(i: WatchIssue): Promise<WatchDevItem | null> {
   const mode = config.errorWatch.devItems;
   if (mode === "off" || i.devItem) return null;
@@ -722,8 +738,11 @@ export async function errorWatchInsight(s: ErrorWatchSummary, force = false): Pr
  */
 export async function cloudflareAlerts(cf: CloudflareSummary): Promise<WatchAlert[]> {
   const out: WatchAlert[] = [];
-  const post = async (a: WatchAlert, headline: string, details: string[]) => {
-    if (config.errorWatch.alerts) a.ts = await slack.notifyErrorWatch(headline, [...details, "More on the console's Logs page."]).catch(() => undefined);
+  const post = async (a: WatchAlert, headline: string, details: string[], once: string) => {
+    if (config.errorWatch.alerts) {
+      a.ts = await notifyOrRelease(once, () => slack.notifyErrorWatch(headline, [...details, "More on the console's Logs page."]));
+      if (!a.ts) return; // not sent: not an alert, and not silenced
+    }
     out.push(a);
   };
   const why = (flag: "spike" | "high" | undefined, prior: number | null) =>
@@ -738,6 +757,7 @@ export async function cloudflareAlerts(cf: CloudflareSummary): Promise<WatchAler
         .filter((t) => !t.nonProd)
         .slice(0, 5)
         .map((t) => `• ${t.count}× ${t.status}${t.origin ? ` (origin ${t.origin})` : t.status >= 520 ? " (origin never answered)" : ""} \`${t.host}${t.path.slice(0, 120)}\`${t.scan ? " bot scan" : ""}`),
+      `errorwatch:cf:zone:${z.zone}`,
     );
   }
   for (const w of cf.workers.filter((x) => x.flag)) {
@@ -746,6 +766,7 @@ export async function cloudflareAlerts(cf: CloudflareSummary): Promise<WatchAler
       { at: Date.now(), issueId: `cfw:${w.script}`, shortId: "worker", app: "cloudflare", title: `${w.label}: ${w.errors24h} errors in 24h`, link: w.link, kind: "cf_worker" },
       `:cloud: Cloudflare Worker *${w.label}*: ${w.errors24h} errors in 24h of ${w.requests24h} invocations, ${why(w.flag, w.priorDailyAvg)}. <${w.link}|Open>`,
       [`Outcomes: ${w.statuses.slice(0, 5).map((s) => `${s.status} ${s.requests}`).join(", ")}`],
+      `errorwatch:cf:worker:${w.script}`,
     );
   }
   for (const p of cf.probes.filter(probeConfirmedDown)) {
@@ -754,6 +775,7 @@ export async function cloudflareAlerts(cf: CloudflareSummary): Promise<WatchAler
       { at: Date.now(), issueId: `cfp:${p.url}`, shortId: "uptime", app: p.zone, title: `${p.url} down: ${p.status ?? p.error ?? "no answer"}`, link: p.url, kind: "cf_down" },
       `:red_circle: *${p.url}* is down: ${p.status ? `HTTP ${p.status}` : (p.error ?? "no answer")}, failing since ${new Date(p.failingSince!).toISOString().slice(11, 16)} UTC.`,
       [],
+      `errorwatch:cf:down:${p.url}`,
     );
   }
   return out;
@@ -804,7 +826,8 @@ export async function runErrorWatch(opts: { notify?: boolean } = {}): Promise<Er
         const a: WatchAlert = { at: Date.now(), issueId: i.id, shortId: i.shortId, app: i.app, title: i.title, link: i.link, kind };
         if (config.errorWatch.alerts) {
           const { headline, details } = alertText(i);
-          a.ts = await slack.notifyErrorWatch(headline, details).catch(() => undefined);
+          a.ts = await notifyOrRelease(`errorwatch:alert:${i.id}:${kind}`, () => slack.notifyErrorWatch(headline, details));
+          if (!a.ts) continue; // not sent: not an alert, and not silenced
         }
         alerts.push(a);
       }
@@ -822,12 +845,13 @@ export async function runErrorWatch(opts: { notify?: boolean } = {}): Promise<Er
         if (!(await markEventSeen(`errorwatch:logspike:${a.app}`, 86_400))) continue;
         const al: WatchAlert = { at: Date.now(), issueId: `logs:${a.app}`, shortId: "logs", app: a.app, title: a.top[0]?.message.slice(0, 160) ?? "", link: a.top[0]?.link, kind: "logs_spike" };
         if (config.errorWatch.alerts) {
-          al.ts = await slack
+          al.ts = await notifyOrRelease(`errorwatch:logspike:${a.app}`, () => slack
             .notifyErrorWatch(`:chart_with_upwards_trend: *${a.label}* server logs: ${a.errors24h} failure lines in 24h against a usual ${a.priorDailyAvg}/day.`, [
               ...a.top.slice(0, 4).map((t) => `• ${t.count}× \`${t.message.slice(0, 200)}\`${t.link ? ` <${t.link}|open>` : ""}`),
               "More on the console's Logs page.",
             ])
-            .catch(() => undefined);
+          );
+          if (!al.ts) continue; // not sent: not an alert, and not silenced
         }
         alerts.push(al);
       }
