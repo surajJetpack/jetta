@@ -35,6 +35,8 @@ export interface AgentResult {
   /** Tools that ran this turn. A call that threw is in `toolsFailed`, not here. */
   toolsUsed: string[];
   toolsFailed: string[];
+  /** Tools that ran without error but declined to act, one name per such call. */
+  toolsDeclined: string[];
   /** Full per-call trace (tool, input, result). */
   trace: TraceEntry[];
   /** The dry-run mode actually used. */
@@ -79,11 +81,32 @@ function resolveTier(ctx: ConversationContext, opts: RunOptions): ModelTier {
   return "standard";
 }
 
-/** Which tools ran, and which threw. Pure, for the test script. */
-export function toolLists(trace: Pick<TraceEntry, "tool" | "failed">[]): { toolsUsed: string[]; toolsFailed: string[] } {
+/**
+ * Which tools did their job, which threw, and which ran but declined. Pure,
+ * for the test script.
+ *
+ * `toolsUsed` is what readers act on, so it holds only calls that happened:
+ * not ones that threw, and not ones the tool itself declined (`declined`, one
+ * name per declined call — see AgentSignals). A tool called twice, declined
+ * once and done once, is used once.
+ */
+export function toolLists(
+  trace: Pick<TraceEntry, "tool" | "failed">[],
+  declined: string[] = [],
+): { toolsUsed: string[]; toolsFailed: string[]; toolsDeclined: string[] } {
+  const left = new Map<string, number>();
+  for (const name of declined) left.set(name, (left.get(name) ?? 0) + 1);
+  const toolsUsed: string[] = [];
+  for (const t of trace) {
+    if (t.failed) continue;
+    const n = left.get(t.tool) ?? 0;
+    if (n > 0) left.set(t.tool, n - 1);
+    else toolsUsed.push(t.tool);
+  }
   return {
-    toolsUsed: trace.filter((t) => !t.failed).map((t) => t.tool),
+    toolsUsed,
     toolsFailed: trace.filter((t) => t.failed).map((t) => t.tool),
+    toolsDeclined: [...declined],
   };
 }
 
@@ -166,9 +189,11 @@ export async function runAgentLoop(
   // A turn that handed the problem to engineering is not a resolution, however
   // the model labelled its note — the customer is now waiting on US, and a
   // resolutionSent here schedules the "I'll assume this is resolved" close.
-  const handedOff = trace.some(
-    (t) => !t.failed && (t.tool === "send_escalation" || t.tool === "create_dev_item"),
-  );
+  const lists = toolLists(trace, signals.declined);
+  // "Handed off" means it happened: an escalation that posted, an item that
+  // was filed. A create_dev_item that came back "NOT filed" handed nothing to
+  // anyone.
+  const handedOff = lists.toolsUsed.some((t) => t === "send_escalation" || t === "create_dev_item");
   // Same rule for a handoff that happened on an EARLIER turn: while the dev
   // board still has an item for this ticket in flight, the issue is not
   // resolved, whatever this turn's note says. "Still with the team, I'll keep
@@ -184,7 +209,7 @@ export async function runAgentLoop(
     // send_escalation was recorded as an escalation, and a failed
     // create_support_ticket had the chat tell the visitor a ticket was opened.
     // The trace keeps the failures, marked.
-    ...toolLists(trace),
+    ...lists,
     trace,
     dryRun,
     heldCustomerWrites: hold,
