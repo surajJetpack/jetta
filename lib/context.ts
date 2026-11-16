@@ -374,7 +374,10 @@ export async function buildContext(
           complexity: "standard",
           intake: "customer_query",
         }),
-    ticket.requesterEmail
+    // Not on our own chat: there the "requester email" is whatever the visitor
+    // typed, and loading its billing account would put a stranger's plan,
+    // charge date and card digits into the prompt for whoever named them.
+    ticket.requesterEmail && !chatConv
       ? fastspring.getFastSpringAccount(ticket.requesterEmail, appProduct).catch(() => null)
       : Promise.resolve(null),
     monday

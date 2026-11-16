@@ -82,11 +82,19 @@ precedence treats as ground truth, so billing lookups and dev-board searches
 route correctly on the first turn; `mondayAccountSlug` means the trial and
 discount tools stop having to ask the customer for their monday URL.
 
+The account only counts as proven when the embed also passes monday's signed
+session token (`monday.get("sessionToken")`) as `visitor.mondaySessionToken`.
+Everything else in `visitor`, and `surface` itself, is a claim made by the
+request. Without the token Jetta confirms the account before raising a trial or
+discount against it and does not look up the account's earlier tickets. The
+Install page in the console has the full snippet.
+
 ```html
 <script>
   window.JettaChatConfig = {
     surface: "monday",
     visitor: {
+      mondaySessionToken: session.data, // from monday.get("sessionToken"); proves the account
       mondayAccountSlug: "acme",     // from the monday SDK context
       mondayAccountId: "12345",
       mondayUserId: "67890",

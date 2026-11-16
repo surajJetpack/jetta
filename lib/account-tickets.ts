@@ -42,8 +42,9 @@ export interface AccountTicket {
 const cacheKey = (conversationId: string) => `jetta:chat:account-context:${conversationId}`;
 
 /**
- * Null when the account isn't one a monday app view vouches for: an editable
- * support link must not show one customer another's tickets.
+ * Null unless monday signed for the account (a verified session token): a
+ * slug the page or the request merely claims must not show one customer
+ * another's tickets.
  */
 export async function accountTicketsForChat(conv: ChatConversation): Promise<AccountTicket[] | null> {
   const slug = trustedSlug(conv);

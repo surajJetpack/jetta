@@ -12,6 +12,7 @@
  */
 import { tool, type ToolSet } from "ai";
 import { z } from "zod";
+import { cleanName as cleanVisitorName } from "../chat-visitor";
 import type { ConversationContext } from "../types";
 import { config } from "../config";
 import * as freshdesk from "./freshdesk";
@@ -21,6 +22,8 @@ import * as chatStoreForTools from "../chat-store";
 import {
   judgeSecondTicket,
   openTicketForConversation,
+  takeChatHandoffBudget,
+  takeChatTicketBudget,
   routeTicketUpdate,
   suggestedSubject,
 } from "../chat-ticket";
@@ -124,6 +127,9 @@ export function buildTools(
   const isOwnChat = ctx.channel === "jettachat";
   const isChat = ctx.channel === "freshchat" || isOwnChat;
   const chatClient = isOwnChat ? jettachat : freshchat;
+  /** What every FastSpring tool says on our own chat. See get_fastspring_account. */
+  const UNVERIFIED_CHAT =
+    "Billing accounts cannot be looked up or changed from chat: nothing here proves who the visitor is, and an email typed into a chat is not proof. Do NOT state any plan, price, charge date, card or invoice detail, and do NOT say a discount was applied or a subscription cancelled. Open a ticket for this (create_support_ticket, or add_to_ticket if one exists) so the team handles it by email with the account's owner, and tell the customer that is what you have done.";
   // Escalations/dev items should deep-link to the actual interaction — the
   // relevant chat console for chats, the Freshdesk ticket otherwise.
   const interactionUrl = (id: string) =>
@@ -360,7 +366,9 @@ export function buildTools(
             }),
             execute: async ({ name, email }) => {
               if (!ticketId) return "No active conversation.";
-              const cleanName = name?.trim().slice(0, 120) || undefined;
+              // The same reduction as a name sent with the session: it is
+              // quoted to colleagues and in the prompt.
+              const cleanName = cleanVisitorName(name);
               const cleanEmail = email?.trim().slice(0, 200) || undefined;
               if (!cleanName && !cleanEmail) {
                 return "Nothing to save — pass the name and/or email the visitor gave.";
@@ -430,6 +438,14 @@ export function buildTools(
                 return conv.ticketId
                   ? "The team was already asked to join this chat and nobody was free. Do NOT ask again. Help the customer yourself; anything they still need a person for goes on their existing ticket with add_to_ticket, and the team replies by email — tell them so."
                   : "The team was already asked to join this chat and nobody was free. Do NOT ask again. Help the customer yourself, and if they still want a person, open a ticket with create_support_ticket so the team replies by email — tell them that is what you have done.";
+              }
+              // Every one of these pings a channel full of people. One chat
+              // can only ask once a day (above); this stops a crowd of them.
+              if (!(await takeChatHandoffBudget())) {
+                await events.logOpsEvent({ level: "error", event: "chat.handoff_capped", source: "jettachat", ticketId });
+                return conv.ticketId
+                  ? "Nobody on the team can join right now. Do NOT say someone is coming. Help the customer yourself; anything they still need a person for goes on their existing ticket with add_to_ticket, and the team replies by email — tell them so."
+                  : "Nobody on the team can join right now. Do NOT say someone is coming. Help the customer yourself, and if they still want a person, open a ticket with create_support_ticket so the team replies by email — tell them that is what you have done.";
               }
               await chatStoreForTools.updateConversation(ticketId, {
                 status: "waiting_human",
@@ -573,6 +589,19 @@ export function buildTools(
                     ? `Not created: "${subject}" names the same problem as the ticket this conversation already has (#${conv.ticketId}). Call add_to_ticket with what is new instead — the customer's latest messages and any files go with it. Do not tell the customer a new ticket was opened.`
                     : `Not created: since the ticket was opened the customer has sent a file with almost no new text. That is more detail on the issue already ticketed (#${conv.ticketId}), not a new problem. Call add_to_ticket with what is new — the file goes with it. Do not tell the customer a new ticket was opened.`;
                 }
+              }
+              const budget = await takeChatTicketBudget(email);
+              if (!budget.ok) {
+                await events.logOpsEvent({
+                  level: "error",
+                  event: "chat.ticket_capped",
+                  source: "jettachat",
+                  ticketId,
+                  data: { reason: budget.reason, requestedSubject: subject },
+                });
+                return budget.reason === "email"
+                  ? "Not created: several tickets were already opened for this email address today. Do NOT open another and do not say one was opened. Tell the customer the team already has their earlier requests and replies by email, and keep helping them here."
+                  : "Not created: an unusual number of tickets have been opened from chat in the last hour, so new ones are paused for now. Do NOT say a ticket was opened. Tell the customer honestly that you could not open one right now, keep helping them here, and ask them to try again a little later.";
               }
               // Shared with the console's convert button, so a ticket carries
               // the same transcript, files and back-link however it was made.
@@ -778,30 +807,44 @@ export function buildTools(
     // says so explicitly. Plausible stub data must never reach a customer
     // draft, and "no subscription on file" would read as a fact about the
     // customer rather than about our system.
+    //
+    // WHOSE account: the requester's, and nobody else's. The lookup used to
+    // take an email from the model, so "my billing email is cfo@other.com"
+    // returned that account's plan, next charge and card digits to whoever
+    // wrote it. On a ticket the requester's address is one Freshdesk received
+    // mail from. On our own chat there is no such thing — the address is typed
+    // into a public widget — so there the billing tools answer UNVERIFIED_CHAT
+    // and the request goes to a ticket, where the reply lands in the real
+    // owner's inbox.
     get_fastspring_account: tool({
       description:
-        "Look up the customer's FastSpring billing account by email. ALWAYS call before answering a billing question or handling a cancellation. Returns plan, billing cycle, next charge date, card last four, recent-activity flag, and invoices.",
-      inputSchema: z.object({
-        email: z.string().optional().describe("Defaults to the ticket requester's email if omitted."),
-      }),
-      execute: async ({ email }) => {
+        "Look up the FastSpring billing account of the person who opened this ticket, by the email they wrote from. ALWAYS call before answering a billing question or handling a cancellation. Returns plan, billing cycle, next charge date, card last four, recent-activity flag, and invoices. It cannot look up any other address: if the customer says their billing email is different, escalate to a human rather than discussing that account.",
+      inputSchema: z.object({}),
+      execute: async () => {
+        if (isOwnChat) return UNVERIFIED_CHAT;
         if (!config.fastspring.live) {
           return "Billing system is NOT connected in this environment — account data is unavailable. Do not state any plan, price, charge date, or card details. For billing questions, ask the customer for specifics from their receipt/invoice email, or escalate to a human.";
         }
-        const addr = email ?? requesterEmail;
-        if (!addr) return "No email available to look up the account.";
-        return JSON.stringify(await fastspring.getFastSpringAccount(addr, ctx.appProduct));
+        if (!requesterEmail) return "No email available to look up the account.";
+        return JSON.stringify(await fastspring.getFastSpringAccount(requesterEmail, ctx.appProduct));
       },
     }),
 
     get_invoice_url: tool({
-      description: "Get a signed download URL for a specific invoice.",
+      description:
+        "Get a signed download URL for one of this customer's invoices. The id must be one listed on their account by get_fastspring_account.",
       inputSchema: z.object({ invoice_id: z.string() }),
       execute: async ({ invoice_id }) => {
+        if (isOwnChat) return UNVERIFIED_CHAT;
         if (!config.fastspring.live) {
           return "Billing system is NOT connected — invoice links cannot be generated. Escalate billing document requests to a human.";
         }
-        return await fastspring.getInvoiceUrl(invoice_id, ctx.appProduct);
+        // Only an invoice on the account this ticket belongs to. An id quoted
+        // by the customer proves nothing about whose invoice it is.
+        if (!ctx.account?.invoices?.some((i) => i.id === invoice_id.trim())) {
+          return `Invoice ${invoice_id} is not on this customer's account — no link was generated. Use an id from get_fastspring_account, or escalate to a human.`;
+        }
+        return await fastspring.getInvoiceUrl(invoice_id.trim(), ctx.appProduct);
       },
     }),
 
@@ -810,6 +853,7 @@ export function buildTools(
         "Apply the one-time retention coupon to the customer's subscription. Only in the churn flow, only for accounts with recent activity, before discussing cancellation.",
       inputSchema: z.object({}),
       execute: async () => {
+        if (isOwnChat) return UNVERIFIED_CHAT;
         if (!config.fastspring.live) {
           return "Billing system is NOT connected — no discount was applied. Do not tell the customer a discount was applied; escalate to a human for billing actions.";
         }
@@ -826,6 +870,7 @@ export function buildTools(
         "Cancel the subscription at end of the current billing period. Only after the user EXPLICITLY confirms cancellation. Never cancel on silence.",
       inputSchema: z.object({}),
       execute: async () => {
+        if (isOwnChat) return UNVERIFIED_CHAT;
         if (!config.fastspring.live) {
           return "Billing system is NOT connected — nothing was cancelled. Do not confirm any cancellation; escalate to a human for billing actions.";
         }

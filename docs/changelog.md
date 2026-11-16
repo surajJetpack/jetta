@@ -5,6 +5,12 @@ Newest first. One entry per change people would notice: what Jetta does differen
 Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain words.
 
 
+## 2026-11-16: Chat: an account or email is only trusted when it is proven
+On the chat widget, a monday account now counts as the visitor's only when the embed passes monday's signed session token (`visitor.mondaySessionToken`; the Install page snippets include it). An app view that sends no token is treated like a support link: Jetta confirms the account before a trial or discount request and does not look up the account's earlier tickets. FastSpring billing is no longer looked up or changed from chat, because a typed email proves nothing; Jetta opens a ticket and the team answers by email. On tickets the billing lookup is for the requester's own address only. New ceilings, live on merge, no switch: 40 new chats per network per hour, 3 chat tickets per email per day, 30 chat tickets and 20 "ask the team" pings per hour across the channel; hitting one logs `chat.ticket_capped` or `chat.handoff_capped`.
+
+## 2026-11-16: A customer's answer goes in the developer's thread (#196)
+When a developer asks for something inside a thread on a dev item and Jetta replies there, the customer's answer is now posted as a reply in that same thread instead of as a new update. "The customer is asking for an update" posts stay top-level. Live.
+
 ## 2026-11-10: Logs watches Cloudflare
 The Logs page has a Cloudflare section: server errors (5xx) on each site's production hosts (getsign.io, jetpackapps.io, jobflows.co), what the firewall blocked, each Worker's errors, and an hourly check that each site's busiest hosts answer. Click a number for the hosts, paths and firewall rules behind it; the AI read cites Cloudflare too. A site or Worker far above its usual day (or, while history builds, with errors a high share of its traffic) alerts the ops channel once a day; a host down two runs in a row alerts every 6 hours. Firewall blocks are page-only. Dev and staging hosts are shown, never flagged. Read-only token. `JETTA_CLOUDFLARE` (off leaves Cloudflare out). Live on merge once `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are set in Vercel.
 

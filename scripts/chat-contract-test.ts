@@ -1100,17 +1100,28 @@ async function main() {
       chat,
     }) as never;
 
+  // The embed has to hand over monday's session token for this (the install
+  // guide's snippet does). `surface: "monday"` alone is a field in the request
+  // and earns nothing — see the unsigned case below.
   const mondayPrompt = await buildSystemPrompt(
-    promptCtx({ surface: "monday", mondayAccountSlug: "mallasrj01s-team", handoffEnabled: true }),
+    promptCtx({ surface: "monday", mondayAccountSlug: "mallasrj01s-team", mondayAccountVerified: true, handoffEnabled: true }),
   );
   check(
-    "the prompt says the widget is inside the customer's monday account",
-    /inside the customer's monday\.com account/i.test(mondayPrompt),
+    "the prompt says the chat is in a monday app view",
+    /Chat surface: a monday\.com app view/i.test(mondayPrompt),
   );
   check("the prompt carries the account slug", mondayPrompt.includes("mallasrj01s-team"));
   check(
     "the prompt forbids asking for a monday URL it already has",
     /do NOT ask the customer for their monday URL/i.test(mondayPrompt),
+  );
+  const unsignedAppPrompt = await buildSystemPrompt(
+    promptCtx({ surface: "monday", mondayAccountSlug: "someone-elses-team", handoffEnabled: true }),
+  );
+  check(
+    "an app view that sent no session token is a claim, not a licence",
+    /CLAIMED/.test(unsignedAppPrompt) && !/do NOT ask the customer for their monday URL/.test(unsignedAppPrompt),
+    "surface is whatever the request said; a raw POST can name any account",
   );
 
   // The negative half. Without it the two checks above pass on a prompt that
@@ -1120,7 +1131,7 @@ async function main() {
   const sitePrompt = await buildSystemPrompt(promptCtx({ surface: "wordpress", handoffEnabled: true }));
   check(
     "a site visitor gets no monday account line",
-    !/monday account:/i.test(sitePrompt) && !/inside the customer's monday\.com account/i.test(sitePrompt),
+    !/monday account:/i.test(sitePrompt) && !/monday\.com app view/i.test(sitePrompt),
   );
 
   /*
@@ -1128,8 +1139,8 @@ async function main() {
    * same. A support page opened from a monday button is a PUBLIC URL: its
    * parameters are typed by whoever holds the link, and the slug is the field
    * Jetta acts on — trial and discount requests go against it without asking.
-   * A verified session token, or the app view itself, earns that. A link does
-   * not.
+   * A verified session token earns that. A link does not, and neither does
+   * an app view that sent no token.
    */
   const linkPrompt = await buildSystemPrompt(
     promptCtx({ surface: "wordpress", mondayAccountSlug: "someone-elses-team", handoffEnabled: true }),
