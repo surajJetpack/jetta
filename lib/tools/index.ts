@@ -55,6 +55,14 @@ import { submitMonetApproval } from "../monetization-approvals";
 /** Standard trial extension length Jetta grants — fixed policy, not customer-chosen. */
 const TRIAL_EXTENSION_DAYS = 7;
 
+/**
+ * What Jetta is told when FastSpring did not answer. "Not found" would send
+ * her down the monday-billed path and have her tell a legacy customer they
+ * have no FastSpring billing.
+ */
+export const FASTSPRING_LOOKUP_FAILED =
+  "The FastSpring lookup FAILED — their system did not answer, so whether this customer has a FastSpring account is UNKNOWN. This is NOT the same as \"not found\": do not say they have no account, do not treat them as monday-billed because of it, and do not state any plan, price, charge date or card detail. Tell the customer you could not check their billing just now, and escalate billing questions to a human.";
+
 export interface AgentSignals {
   resolutionSent: boolean;
 }
@@ -168,6 +176,13 @@ export function buildTools(
           return [];
         })
       : [];
+
+  /** Nothing was filed on monday: the model must not say otherwise, and must still hand off. */
+  const notFiled = (what: string, reason: "not_connected" | "writes_off") =>
+    `NOT filed: ${monday.notWrittenReason(reason)}, so no ${what} exists. Do NOT tell the customer the team has this, and do not put an item link in the note. Hand it to a human with send_escalation instead, and say in the private note that nothing was filed on the board.`;
+  /** The item exists, but the update carrying the ticket link and details failed to post. */
+  const contextLost = (item: { title: string; url: string; deduped?: boolean }) =>
+    `${item.deduped ? `This ticket already has item "${item.title}", but your new context FAILED to post on it` : `Item "${item.title}" was created, but the update with the ticket link and details FAILED to post`} — the board does not have what you wrote. Do not say it was added. Put the details in the private note and say there that the board post failed, so a person can add it. INTERNAL URL — private note ONLY: ${item.url}`;
 
   /** Tell Jetta exactly what got attached, so her private note reflects reality. */
   const filesNote = (names: string[]) =>
@@ -826,7 +841,9 @@ export function buildTools(
           return "Billing system is NOT connected in this environment — account data is unavailable. Do not state any plan, price, charge date, or card details. For billing questions, ask the customer for specifics from their receipt/invoice email, or escalate to a human.";
         }
         if (!requesterEmail) return "No email available to look up the account.";
-        return JSON.stringify(await fastspring.getFastSpringAccount(requesterEmail, ctx.appProduct));
+        const account = await fastspring.getFastSpringAccount(requesterEmail, ctx.appProduct);
+        if (account.lookupFailed) return FASTSPRING_LOOKUP_FAILED;
+        return JSON.stringify(account);
       },
     }),
 
@@ -861,6 +878,9 @@ export function buildTools(
         if (!sub) return "No subscription on file to discount.";
         if (dry) return `[dry-run] would apply retention coupon ${config.fastspring.retentionCoupon}.`;
         const r = await fastspring.applyDiscount(sub, config.fastspring.retentionCoupon, ctx.appProduct);
+        if (!r.done) {
+          return `NO discount was applied: ${fastspring.writeSkippedReason(r.reason)}. Do not tell the customer a discount was applied. Escalate to a human for this billing action.`;
+        }
         return `Discount applied. New price ${r.newPrice}, effective ${r.effectiveDate}.`;
       },
     }),
@@ -878,6 +898,9 @@ export function buildTools(
         if (!sub) return "No subscription on file to cancel.";
         if (dry) return "[dry-run] would cancel the subscription at end of billing period.";
         const r = await fastspring.cancelSubscription(sub, ctx.appProduct);
+        if (!r.done) {
+          return `NOTHING was cancelled: ${fastspring.writeSkippedReason(r.reason)}. Do not confirm any cancellation to the customer. Escalate to a human for this billing action.`;
+        }
         return `Subscription cancelled. Access ends ${r.accessEndsDate}.`;
       },
     }),
@@ -1050,7 +1073,9 @@ export function buildTools(
           logEvidence: evidence,
           sentryEvidence: sentry,
         });
+        if (item.notWritten) return notFiled("Dev board item", item.notWritten);
         mondayItemUrl = item.url;
+        if (item.contextPosted === false) return contextLost(item);
         return item.deduped
           ? `This ticket ALREADY has Dev board item "${item.title}" — the context you just gave was added to that item as a comment, and no second item was filed.${filesNote(item.filesAttached)} Do not call create_dev_item again for this ticket. To the customer this is still "the team has it"; do not tell them a new report was raised, and do not mention the tracker. INTERNAL URL — private note ONLY: ${item.url}`
           : `Created Dev board item "${item.title}".${filesNote(item.filesAttached)} INTERNAL URL — put in the private note ONLY, never the customer reply: ${item.url}`;
@@ -1081,6 +1106,8 @@ export function buildTools(
           freshdeskTicketUrl: ticketId ? interactionUrl(ticketId) : "(no ticket)",
           attachments: await customerAttachments(),
         });
+        if (item.notWritten) return notFiled("compliance request", item.notWritten);
+        if (item.contextPosted === false) return contextLost(item);
         return item.deduped
           ? `This ticket ALREADY has a compliance request with Mark ("${item.title}", status ${item.status}) — your context was added to it, nothing new was filed.${filesNote(item.filesAttached)} Do not call send_to_compliance again. INTERNAL URL — private note ONLY: ${item.url}`
           : `Filed compliance request "${item.title}", assigned to Mark Shaw.${filesNote(item.filesAttached)} This replaces send_escalation for this request. INTERNAL URL — private note ONLY, never the customer reply: ${item.url}`;
@@ -1119,7 +1146,9 @@ export function buildTools(
                 freshdeskTicketUrl: ticketId ? interactionUrl(ticketId) : "(no ticket)",
                 attachments: await customerAttachments(),
               });
+              if (item.notWritten) return notFiled("question for the developers", item.notWritten);
               mondayItemUrl = item.url;
+              if (item.contextPosted === false) return contextLost(item);
               await relayLog("ask_devs", item.id);
               return item.deduped
                 ? `This ticket ALREADY has Dev board item "${item.title}" — your question was added to it as a comment; nothing new was filed.${filesNote(item.filesAttached)} Now send_escalation. INTERNAL URL — private note ONLY: ${item.url}`
@@ -1188,7 +1217,11 @@ export function buildTools(
                       if (fix) await rememberJettaPost(fix.id);
                     }
                     await relayLog(`update_dev_item:${kind}`, item.id);
-                    return `Posted on dev item "${item.name}"${to}.${filesNote(posted.filesAttached)} INTERNAL — do not mention the tracker or the developer to the customer.`;
+                    const wanted = kind === "new_info" && !!item.owedThreadId;
+                    if (wanted && !posted.threaded) {
+                      await events.logOpsEvent({ level: "warn", event: "devbridge.thread_fallback", source: "webhook", ticketId, data: { itemId: item.id, thread: item.owedThreadId } });
+                    }
+                    return `Posted on dev item "${item.name}"${to}${wanted && !posted.threaded ? ", as a NEW comment: the reply inside the developer's thread failed, so it is not where they asked" : ""}.${filesNote(posted.filesAttached)} INTERNAL — do not mention the tracker or the developer to the customer.`;
                   },
                 }),
               }

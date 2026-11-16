@@ -122,6 +122,11 @@ export interface FastSpringInvoice {
 
 export interface FastSpringAccount {
   found: boolean;
+  /**
+   * The lookup itself failed (FastSpring down, rate-limited, bad credentials),
+   * so `found: false` here means UNKNOWN, not "no account".
+   */
+  lookupFailed?: boolean;
   email: string;
   accountId: string | null;
   /** The subscription to act on (discount/cancel target). Active one preferred. */

@@ -712,7 +712,31 @@ export type CreatedDevItem = DevBoardItem & {
    * report to the team that nobody made.
    */
   deduped?: boolean;
-};
+} & FilingOutcome;
+
+/**
+ * What did not happen, for the caller to say out loud.
+ *
+ * `notWritten`: nothing was filed at all — monday is not connected here, or
+ * MONDAY_ALLOW_WRITES is off. This used to come back as a real-looking item
+ * (id 9900112233, a dead URL), and the tool told the model "Created Dev board
+ * item…", so the customer was told the team had it.
+ *
+ * `contextPosted: false`: the item exists but the update carrying the ticket
+ * link and the details did not post. On a board with no link column that
+ * update is the item's only tie to its ticket.
+ */
+export interface FilingOutcome {
+  notWritten?: "not_connected" | "writes_off";
+  contextPosted?: boolean;
+}
+
+/** One sentence saying why nothing was filed. */
+export function notWrittenReason(reason: "not_connected" | "writes_off"): string {
+  return reason === "writes_off"
+    ? "writes to monday are switched off in this environment (MONDAY_ALLOW_WRITES)"
+    : "monday is not connected in this environment";
+}
 
 /** The context block Jetta posts on an item, as an update. */
 function contextBody(input: CreateDevItemInput, followUp: boolean): string {
@@ -750,28 +774,41 @@ async function postContextUpdate(
   itemId: string,
   body: string,
   attachments: AttachmentFile[],
-): Promise<string[]> {
-  const update = await gql<{ create_update: { id: string } }>(
-    `mutation ($item: ID!, $body: String!) { create_update(item_id: $item, body: $body) { id } }`,
-    { item: itemId, body },
-  ).catch(() => null);
-  return attachFilesToUpdate(update?.create_update.id ?? null, attachments);
+): Promise<{ posted: boolean; filesAttached: string[] }> {
+  const post = () =>
+    gql<{ create_update: { id: string } }>(
+      `mutation ($item: ID!, $body: String!) { create_update(item_id: $item, body: $body) { id } }`,
+      { item: itemId, body },
+    );
+  // Once more before giving up: this update is what ties the item to its
+  // ticket. A failure is reported, not swallowed — the caller used to be told
+  // the context was added when nothing was.
+  const update = await post().catch(() => post().catch(() => null));
+  const id = update?.create_update.id ?? null;
+  return { posted: !!id, filesAttached: await attachFilesToUpdate(id, attachments) };
 }
 
 export async function createDevItem(input: CreateDevItemInput): Promise<CreatedDevItem> {
   const fileCount = input.attachments?.length ?? 0;
   const files = fileCount ? ` (+${fileCount} file${fileCount === 1 ? "" : "s"})` : "";
+  // Nothing filed: say so, with no id and no URL for anyone to pass on.
+  const unwritten = (notWritten: "not_connected" | "writes_off"): CreatedDevItem => ({
+    id: "",
+    title: input.title,
+    status: "not filed",
+    url: "",
+    filesAttached: [],
+    notWritten,
+  });
   if (!config.monday.live) {
-    const id = "9900112233";
-    console.log(`[stub] create_dev_item "${input.title}"${files}`);
-    return { id, title: input.title, status: "New", url: itemUrl(id, input.product), filesAttached: [] };
+    console.log(`[stub] create_dev_item "${input.title}"${files} — no write made.`);
+    return unwritten("not_connected");
   }
   if (!config.monday.allowWrites) {
-    const id = "9900112233";
     console.log(
       `[MONDAY_ALLOW_WRITES=false] would create_dev_item "${input.title}"${files} — no write made.`,
     );
-    return { id, title: input.title, status: "New", url: itemUrl(id, input.product), filesAttached: [] };
+    return unwritten("writes_off");
   }
 
   const board = boardIdFor(input.product);
@@ -804,15 +841,16 @@ export async function createDevItem(input: CreateDevItemInput): Promise<CreatedD
       const alreadyPosted = (existing.updates ?? []).some((u) =>
         (u.text_body ?? "").includes(input.errorDescription.trim()),
       );
-      const filesAttached = alreadyPosted
-        ? []
+      const context = alreadyPosted
+        ? { posted: true, filesAttached: [] }
         : await postContextUpdate(existing.id, contextBody(input, true), input.attachments ?? []);
       return {
         id: existing.id,
         title: existing.name,
         status: pickColumn(existing.column_values, "status", PROGRESS_COLUMN_TITLES) ?? "unknown",
         url: itemUrl(existing.id, input.product),
-        filesAttached,
+        filesAttached: context.filesAttached,
+        contextPosted: context.posted,
         deduped: true,
       };
     }
@@ -875,13 +913,16 @@ export async function createDevItem(input: CreateDevItemInput): Promise<CreatedD
   // Also post the full context as an update — keeps product/ticket visible,
   // covers boards that lack matching columns, and is what the duplicate guard
   // above reads on the next run.
-  const filesAttached = await postContextUpdate(
-    id,
-    contextBody(input, false),
-    input.attachments ?? [],
-  );
+  const context = await postContextUpdate(id, contextBody(input, false), input.attachments ?? []);
 
-  return { id, title: input.title, status: "New", url: itemUrl(id, input.product), filesAttached };
+  return {
+    id,
+    title: input.title,
+    status: "New",
+    url: itemUrl(id, input.product),
+    filesAttached: context.filesAttached,
+    contextPosted: context.posted,
+  };
 }
 
 /**
@@ -1300,18 +1341,18 @@ export interface CreateComplianceItemInput {
   attachments?: AttachmentFile[];
 }
 
-export type CreatedComplianceItem = ComplianceItem & { filesAttached: string[]; deduped?: boolean };
+export type CreatedComplianceItem = ComplianceItem & { filesAttached: string[]; deduped?: boolean } & FilingOutcome;
 
 export async function createComplianceItem(input: CreateComplianceItemInput): Promise<CreatedComplianceItem> {
   const fileCount = input.attachments?.length ?? 0;
   const files = fileCount ? ` (+${fileCount} file${fileCount === 1 ? "" : "s"})` : "";
-  const stub = (why: string): CreatedComplianceItem => {
-    console.log(`[${why}] would create compliance item "${input.title}"${files} — no write made.`);
-    const id = "9900445566";
-    return { id, title: input.title, status: "Pending", url: complianceItemUrl(id), filesAttached: [] };
+  // Nothing filed: say so, with no id and no URL for anyone to pass on.
+  const unwritten = (notWritten: "not_connected" | "writes_off"): CreatedComplianceItem => {
+    console.log(`[${notWritten}] would create compliance item "${input.title}"${files} — no write made.`);
+    return { id: "", title: input.title, status: "not filed", url: "", filesAttached: [], notWritten };
   };
-  if (!config.monday.live) return stub("stub");
-  if (!config.monday.allowWrites) return stub("MONDAY_ALLOW_WRITES=false");
+  if (!config.monday.live) return unwritten("not_connected");
+  if (!config.monday.allowWrites) return unwritten("writes_off");
   const board = config.monday.compliance.boardId;
 
   const body = [
@@ -1330,10 +1371,10 @@ export async function createComplianceItem(input: CreateComplianceItemInput): Pr
     const existing = (await complianceRows()).find((r) => itemCarriesTicket(r, ticketId));
     if (existing) {
       const alreadyPosted = (existing.updates ?? []).some((u) => (u.text_body ?? "").includes(input.summary.trim()));
-      const filesAttached = alreadyPosted
-        ? []
+      const context = alreadyPosted
+        ? { posted: true, filesAttached: [] }
         : await postContextUpdate(existing.id, `Follow-up from the SAME ticket.\n\n${body}`, input.attachments ?? []);
-      return { ...rowToComplianceItem(existing), filesAttached, deduped: true };
+      return { ...rowToComplianceItem(existing), filesAttached: context.filesAttached, contextPosted: context.posted, deduped: true };
     }
   }
 
@@ -1383,14 +1424,14 @@ export async function createComplianceItem(input: CreateComplianceItemInput): Pr
 
   // The documents go on the board's file column, where the team keeps them;
   // the context goes on an update, which is also what the ticket dedupe reads.
-  await postContextUpdate(id, body, []);
+  const context = await postContextUpdate(id, body, []);
   const fileCol = find("file", /./);
   const filesAttached =
     fileCol && input.attachments?.length
       ? await uploadFiles(`add_file_to_column(item_id: ${id}, column_id: "${fileCol}", file: $file) { id }`, input.attachments)
       : [];
 
-  return { id, title: input.title, status: "Pending", url: complianceItemUrl(id), filesAttached };
+  return { id, title: input.title, status: "Pending", url: complianceItemUrl(id), filesAttached, contextPosted: context.posted };
 }
 
 // Trial extension + discounts moved to lib/tools/monday-monetization.ts — they
@@ -1720,12 +1761,18 @@ function updateHtml(text: string): string {
  * just text); it only exists from API 2025-07, hence the version override.
  * Returns the new update's id and the files that attached, or null when
  * writes are off — the caller logs that as "would have posted".
+ *
+ * `threaded` is false when a reply was asked for and the comment went on the
+ * item as a fresh one instead. The fallback fires on ANY failure of the
+ * in-thread post, not only a deleted thread, so the caller is told: a relay
+ * that says "posted in the thread" when it was not is the same unread answer
+ * the threading was added to prevent (#14600).
  */
 export async function postJettaComment(
   itemId: string,
   text: string,
   opts: { mentionUserIds?: string[]; parentUpdateId?: string; attachments?: AttachmentFile[] } = {},
-): Promise<{ id: string; filesAttached: string[] } | null> {
+): Promise<{ id: string; filesAttached: string[]; threaded: boolean } | null> {
   const body = `${JETTA_POST_PREFIX} ${text.trim()}`;
   if (!config.monday.live || !config.monday.allowWrites) {
     console.log(`[monday writes off] would comment on ${itemId}: ${body.slice(0, 200)}`);
@@ -1743,9 +1790,16 @@ export async function postJettaComment(
     );
   // A thread that can't take a reply (deleted, or the id was a reply's own)
   // still gets the answer, as a fresh comment on the item.
-  const data = parent ? await post(parent).catch(() => post(undefined)) : await post(undefined);
+  let threaded = !!parent;
+  const data = parent
+    ? await post(parent).catch((e) => {
+        threaded = false;
+        console.warn(`monday: reply in thread ${parent} on item ${itemId} failed, posting top-level instead:`, e instanceof Error ? e.message : e);
+        return post(undefined);
+      })
+    : await post(undefined);
   const filesAttached = await attachFilesToUpdate(data.create_update.id, opts.attachments ?? []);
-  return { id: data.create_update.id, filesAttached };
+  return { id: data.create_update.id, filesAttached, threaded };
 }
 
 /**

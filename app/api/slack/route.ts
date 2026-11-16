@@ -71,6 +71,20 @@ function parseCommand(text: string): string {
   return text.replace(/<@[^>]+>/g, "").trim().replace(/\s+/g, " ");
 }
 
+/**
+ * Look an email up across the FastSpring stores for a Slack command. A lookup
+ * that FAILED says so in the thread and returns "failed" — "no subscription
+ * found" is only true when every store answered.
+ */
+async function findBillingAccount(email: string, reply: (text: string) => Promise<unknown>) {
+  try {
+    return await fastspring.findAccountAcrossStores(email);
+  } catch (e) {
+    await reply(`:warning: Could not look up ${email}: ${e instanceof Error ? e.message : "FastSpring did not answer"} Nothing was changed — try again in a minute.`);
+    return "failed" as const;
+  }
+}
+
 async function handleCommand(
   cmd: string,
   userId: string,
@@ -194,12 +208,18 @@ async function handleCommand(
       await reply(":no_entry: You're not authorised to run that command.");
       return;
     }
-    const found = await fastspring.findAccountAcrossStores(m[2]);
+    const found = await findBillingAccount(m[2], reply);
+    if (found === "failed") return;
     if (!found?.account.subscriptionId) {
       await reply(`No FastSpring subscription found for ${m[2]}.`);
       return;
     }
     const r = await fastspring.applyDiscount(found.account.subscriptionId, m[1], found.appProduct);
+    if (!r.done) {
+      await logSlackEvent("warn", "slack.privileged_action_skipped", userId, { action: "apply_discount", coupon: m[1], email: m[2], reason: r.reason });
+      await reply(`:warning: Discount ${m[1]} was *not* applied to ${m[2]}: ${fastspring.writeSkippedReason(r.reason)}. Nothing was changed.`);
+      return;
+    }
     await logSlackEvent("info", "slack.privileged_action", userId, { action: "apply_discount", coupon: m[1], email: m[2] });
     await reply(`:white_check_mark: Discount ${m[1]} applied to ${m[2]}. New price ${r.newPrice}, effective ${r.effectiveDate}.`);
     return;
@@ -241,7 +261,10 @@ async function handleCommand(
       await reply(":no_entry: The confirmation must come from a *different* admin than the requester.");
       return;
     }
-    const found = await fastspring.findAccountAcrossStores(m[1]);
+    // A lookup that failed leaves the request pending, so it can be confirmed
+    // again once FastSpring answers.
+    const found = await findBillingAccount(m[1], reply);
+    if (found === "failed") return;
     if (!found?.account.subscriptionId) {
       await reply(`No FastSpring subscription found for ${m[1]}.`);
       await kvDel(key);
@@ -249,6 +272,11 @@ async function handleCommand(
     }
     const r = await fastspring.cancelSubscription(found.account.subscriptionId, found.appProduct);
     await kvDel(key);
+    if (!r.done) {
+      await logSlackEvent("warn", "slack.privileged_action_skipped", userId, { action: "cancel_account_confirmed", email: m[1], requestedBy: requester, reason: r.reason });
+      await reply(`:warning: The subscription for ${m[1]} was *not* cancelled: ${fastspring.writeSkippedReason(r.reason)}. Nothing was changed.`);
+      return;
+    }
     await logSlackEvent("info", "slack.privileged_action", userId, { action: "cancel_account_confirmed", email: m[1], requestedBy: requester });
     await reply(`:white_check_mark: Subscription for ${m[1]} cancelled. Access ends ${r.accessEndsDate}.`);
     return;

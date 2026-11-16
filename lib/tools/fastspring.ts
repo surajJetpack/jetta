@@ -30,9 +30,48 @@ async function fs<T>(
   const res = await fetch(`${BASE}${path}`, { ...init, headers: fsHeaders(store) });
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`FastSpring ${init?.method ?? "GET"} ${path} failed: ${res.status} ${body}`);
+    throw new FastSpringError(`FastSpring ${init?.method ?? "GET"} ${path} failed: ${res.status} ${body}`, res.status);
   }
   return (await res.json()) as T;
+}
+
+/** A FastSpring call that came back with an HTTP error; `status` says which. */
+export class FastSpringError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
+}
+
+/**
+ * Did the lookup FAIL, as opposed to finding nothing?
+ *
+ * FastSpring answers "no such account" with a 4xx as readily as with an empty
+ * list, so a 400 or 404 is an answer. Bad credentials, a rate limit, a 5xx or
+ * no response at all are not: the account may well exist. The difference
+ * matters because "not found" tells Jetta the customer is billed through
+ * monday, and she says so.
+ */
+function lookupFailed(e: unknown): boolean {
+  if (!(e instanceof FastSpringError)) return true; // network error, timeout, bad JSON
+  return e.status === 401 || e.status === 403 || e.status === 429 || e.status >= 500;
+}
+
+/**
+ * The result of a FastSpring WRITE. `done: false` means nothing was changed —
+ * the store is not connected, or FASTSPRING_ALLOW_WRITES is off. These used to
+ * return a plausible success ("end of current billing period"), and the caller
+ * then told the customer, or Slack, that a subscription had been cancelled.
+ */
+export type FastSpringWrite<T> = ({ done: true } & T) | { done: false; reason: "not_connected" | "writes_off" };
+
+/** One sentence for whoever asked, saying why nothing happened. */
+export function writeSkippedReason(reason: "not_connected" | "writes_off"): string {
+  return reason === "writes_off"
+    ? "billing changes are switched off in this environment (FASTSPRING_ALLOW_WRITES)"
+    : "the billing system is not connected in this environment";
 }
 
 function configuredAppProducts(): AppProduct[] {
@@ -48,10 +87,14 @@ export async function findAccountAcrossStores(
   email: string,
 ): Promise<{ appProduct: AppProduct; account: FastSpringAccount } | null> {
   if (!config.fastspring.live) return null;
+  let failed = false;
   for (const appProduct of configuredAppProducts()) {
     const account = await getFastSpringAccount(email, appProduct);
     if (account.found) return { appProduct, account };
+    if (account.lookupFailed) failed = true;
   }
+  // "Not in any store" is only an answer if every store actually answered.
+  if (failed) throw new Error("FastSpring did not answer for at least one store, so the account could not be looked up.");
   return null;
 }
 
@@ -129,18 +172,25 @@ export async function getFastSpringAccount(
 
   // 1. Resolve the account id by email. The list endpoint returns id strings;
   //    a filtered query may return objects — normalize either shape.
+  //    A lookup that FAILED is reported as such, never as "not found".
+  let failed = false;
+  const orFail = (e: unknown) => {
+    if (lookupFailed(e)) failed = true;
+    return null;
+  };
   const search = await fs<{ accounts?: (string | { id: string })[] }>(
     `/accounts?email=${encodeURIComponent(email)}`,
     store,
-  ).catch(() => null);
+  ).catch(orFail);
+  if (failed) return { ...NOT_FOUND(email), lookupFailed: true };
   const first = search?.accounts?.[0];
   const accountId = typeof first === "string" ? first : first?.id;
   if (!accountId) return NOT_FOUND(email);
 
   // 2. The canonical account object carries the subscription + order id arrays
   //    (there is no working /accounts/{id}/subscriptions endpoint — it 404s).
-  const account = await fs<FSAccountObj>(`/accounts/${accountId}`, store).catch(() => null);
-  if (!account) return NOT_FOUND(email);
+  const account = await fs<FSAccountObj>(`/accounts/${accountId}`, store).catch(orFail);
+  if (!account) return failed ? { ...NOT_FOUND(email), lookupFailed: true } : NOT_FOUND(email);
 
   // 3. Fetch each subscription; prefer an active one, else the most recent.
   const subs = (
@@ -211,17 +261,17 @@ export async function applyDiscount(
   subscriptionId: string,
   coupon: string,
   appProduct: AppProduct,
-): Promise<{ newPrice: string; effectiveDate: string }> {
+): Promise<FastSpringWrite<{ newPrice: string; effectiveDate: string }>> {
   const store = storeFor(appProduct);
   if (!config.fastspring.live || !store) {
-    console.log(`[stub] apply_discount coupon=${coupon} sub=${subscriptionId}`);
-    return { newPrice: "$23.20", effectiveDate: "2026-06-19" };
+    console.log(`[stub] apply_discount coupon=${coupon} sub=${subscriptionId} — no write made.`);
+    return { done: false, reason: "not_connected" };
   }
   if (!config.fastspring.allowWrites) {
     console.log(
       `[FASTSPRING_ALLOW_WRITES=false] would apply_discount coupon=${coupon} sub=${subscriptionId} — no write made.`,
     );
-    return { newPrice: "(see account)", effectiveDate: "next billing cycle" };
+    return { done: false, reason: "writes_off" };
   }
   const res = await fs<{ subscriptions: { id: string }[] }>(
     `/subscriptions`,
@@ -234,6 +284,7 @@ export async function applyDiscount(
   // the date it takes effect, rather than a placeholder.
   const updated = await fs<FSSubscription>(`/subscriptions/${subscriptionId}`, store).catch(() => null);
   return {
+    done: true,
     newPrice: updated?.priceDisplay ?? "(see account)",
     effectiveDate: updated?.nextDisplayISO8601 ?? "next billing cycle",
   };
@@ -242,17 +293,17 @@ export async function applyDiscount(
 export async function cancelSubscription(
   subscriptionId: string,
   appProduct: AppProduct,
-): Promise<{ accessEndsDate: string }> {
+): Promise<FastSpringWrite<{ accessEndsDate: string }>> {
   const store = storeFor(appProduct);
   if (!config.fastspring.live || !store) {
-    console.log(`[stub] cancel_subscription sub=${subscriptionId}`);
-    return { accessEndsDate: "2026-06-19" };
+    console.log(`[stub] cancel_subscription sub=${subscriptionId} — no write made.`);
+    return { done: false, reason: "not_connected" };
   }
   if (!config.fastspring.allowWrites) {
     console.log(`[FASTSPRING_ALLOW_WRITES=false] would cancel_subscription sub=${subscriptionId} — no write made.`);
-    return { accessEndsDate: "end of current billing period" };
+    return { done: false, reason: "writes_off" };
   }
   // Cancel at end of current billing period (not immediate).
   await fs(`/subscriptions/${subscriptionId}`, store, { method: "DELETE" });
-  return { accessEndsDate: "end of current billing period" };
+  return { done: true, accessEndsDate: "end of current billing period" };
 }
