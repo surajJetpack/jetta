@@ -5,6 +5,9 @@ Newest first. One entry per change people would notice: what Jetta does differen
 Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain words.
 
 
+## 2026-11-16: A dev item stays attached to its ticket however long its thread gets
+The ticket a dev item was filed for is written in the item's first update, and every read of an item takes only its newest updates (5, 20 or 50). On a busy item that first update scrolled out, and the item stopped counting as its ticket's: a second item could be filed for the same ticket, `update_dev_item` disappeared from the run, the dev bridge found no ticket to act on, and the ticket follow-up could close a ticket whose item was still open. The link is now stored when Jetta files an item and learned from any item read while its filing update is still visible, and every lookup uses it. Items already past that point need a one-off run of `scripts/backfill-dev-item-links.ts` (dry run by default).
+
 ## 2026-11-16: Crons: four that could go quiet or double up
 Chat follow-up (`JETTACHAT_FOLLOWUP`) read the 200 oldest idle chats, and resolved chats stay in the index for 90 days, so on a store with more than 200 of them it stopped nudging, auto-resolving and picking up unanswered hand-offs while still reporting "ok". It now reads the most recently idle, within the last 14 days. Ticket follow-up (`JETTA_TICKET_FOLLOWUP`): two overlapping runs can no longer send the same follow-up twice, and when the closing email goes out but Freshdesk refuses the status change, the next run closes the ticket (`ticket_followup.resolved_late`) instead of leaving it open. The ticket mirror marks a ticket up to date only after its messages are stored, so a failed read no longer leaves a stale thread that looks current. The Freshdesk rate-limit reading is now really shared between instances. Error watch no longer silences an issue for 30 days when the daily cap or a failure stopped it being filed.
 

@@ -7,6 +7,7 @@
  * token can't provide, so it's a separate client.
  */
 import { config } from "../config";
+import { itemTickets, rememberItemTicket, withStoredLinks } from "../dev-item-links";
 import { JETTA_POST_PREFIX, isJettaPost, isJettaContextPost, isJettaAuthored } from "../jetta-posts";
 import { APP_NAMES, type AppProduct, type AttachmentFile, type ComplianceItem, type DevBoardItem, type DevEvent, type Product } from "../types";
 
@@ -290,6 +291,11 @@ export function matchDevItem(
  * connection, not the rows. A tight window would silently drop the ONE update
  * that matters: Jetta posts her context first, so on an item engineering has
  * since discussed, the oldest update is the one carrying the ticket link.
+ *
+ * "Six" was true when this was written. Her own chases, relays and KB notes
+ * are updates too, so busy items now pass twenty — which is why the ticket
+ * link is no longer read from this window alone: lib/dev-item-links.ts keeps
+ * it, and `withStoredLinks` puts it back on every row read here.
  */
 const UPDATES_PER_ITEM = 20;
 
@@ -346,7 +352,9 @@ async function fetchBoardItems(board: string | undefined): Promise<BoardItemRow[
     }`,
     { board: [board] },
   ).catch(() => null);
-  return data?.boards?.[0]?.items_page?.items ?? [];
+  // The filing update may have scrolled out of the window above; the stored
+  // link (lib/dev-item-links.ts) puts the ticket back on the row.
+  return withStoredLinks(data?.boards?.[0]?.items_page?.items ?? []);
 }
 
 /**
@@ -537,6 +545,9 @@ export async function devItemsForTicket(ticketId: string): Promise<DevBoardItem[
   ];
   const fields = `cursor items { id name group { title } column_values(types: [status, last_updated]) { text type column { title } } updates(limit: ${UPDATES_PER_ITEM}) { text_body } }`;
   type Page = { cursor: string | null; items: BoardItemRow[] };
+  // Read once for both boards: which ticket each item was filed for, however
+  // far its filing update has since scrolled out of the window.
+  const stored = await itemTickets();
   const perBoard = async ([product, board]: [Product, string | undefined]): Promise<DevBoardItem[]> => {
     const out: DevBoardItem[] = [];
     if (!board) return out;
@@ -553,7 +564,7 @@ export async function devItemsForTicket(ticketId: string): Promise<DevBoardItem[
       // A live group outgrowing one page is not what the boards look like
       // today, but it is not an error either — follow the cursor, bounded.
       for (let guard = 0; page && guard < 5; guard++) {
-        for (const row of page.items) {
+        for (const row of await withStoredLinks(page.items, stored)) {
           if (itemCarriesTicket(row, ticketId)) out.push(rowToItem(row, product));
         }
         if (!page.cursor) break;
@@ -845,6 +856,7 @@ export async function createDevItem(input: CreateDevItemInput): Promise<CreatedD
       const context = alreadyPosted
         ? { posted: true, filesAttached: [] }
         : await postContextUpdate(existing.id, contextBody(input, true), input.attachments ?? []);
+      await rememberItemTicket(existing.id, ticketId);
       return {
         id: existing.id,
         title: existing.name,
@@ -914,6 +926,10 @@ export async function createDevItem(input: CreateDevItemInput): Promise<CreatedD
   // Also post the full context as an update — keeps product/ticket visible,
   // covers boards that lack matching columns, and is what the duplicate guard
   // above reads on the next run.
+  // Before the context post: the stored link must exist even if that post
+  // fails, since on a board with no link column it is the item's only tie to
+  // its ticket.
+  await rememberItemTicket(id, ticketId);
   const context = await postContextUpdate(id, contextBody(input, false), input.attachments ?? []);
 
   return {
@@ -1137,6 +1153,9 @@ export async function devItemsByTicket(sinceIso: string): Promise<Map<string, Ti
   if (!config.monday.live) return out;
   type Page = { cursor: string | null; items: { id: string; created_at: string; column_values: { text: string | null }[]; updates: { text_body: string | null }[] }[] };
   const fields = `cursor items { id created_at column_values { text } updates(limit: 5) { text_body } }`;
+  // Five updates is rarely enough to still hold the filing context. The
+  // stored links are: an entry there was written from Jetta's own filing.
+  const stored = await itemTickets();
   for (const boardId of [config.monday.boardIds.jetpackapps, config.monday.boardIds.getsign]) {
     if (!boardId) continue;
     let page: Page | null = (
@@ -1152,8 +1171,13 @@ export async function devItemsByTicket(sinceIso: string): Promise<Map<string, Ti
           reachedOld = true;
           continue;
         }
-        const text = [...item.column_values.map((c) => c.text ?? ""), ...item.updates.map((u) => u.text_body ?? "")].join(" ");
-        const byJetta = item.updates.some((u) => JETTA_ITEM_HEADER.test(u.text_body ?? ""));
+        const remembered = stored.get(item.id);
+        const text = [
+          ...item.column_values.map((c) => c.text ?? ""),
+          ...item.updates.map((u) => u.text_body ?? ""),
+          remembered ? `/tickets/${remembered}` : "",
+        ].join(" ");
+        const byJetta = !!remembered || item.updates.some((u) => JETTA_ITEM_HEADER.test(u.text_body ?? ""));
         for (const m of text.matchAll(/\/tickets\/(\d+)(?![0-9])/g)) {
           const entry = out.get(m[1]) ?? { itemIds: [], jettaFiled: [], jettaFiledAt: null };
           if (!entry.itemIds.includes(item.id)) entry.itemIds.push(item.id);
@@ -1304,7 +1328,7 @@ async function complianceRows(): Promise<BoardItemRow[]> {
     }`,
     { board: [board], groups: live },
   );
-  return (data.boards?.[0]?.groups ?? []).flatMap((g) => g.items_page.items);
+  return withStoredLinks((data.boards?.[0]?.groups ?? []).flatMap((g) => g.items_page.items));
 }
 
 function rowToComplianceItem(row: BoardItemRow): ComplianceItem {
@@ -1425,6 +1449,7 @@ export async function createComplianceItem(input: CreateComplianceItemInput): Pr
 
   // The documents go on the board's file column, where the team keeps them;
   // the context goes on an update, which is also what the ticket dedupe reads.
+  await rememberItemTicket(id, ticketId);
   const context = await postContextUpdate(id, body, []);
   const fileCol = find("file", /./);
   const filesAttached =
@@ -1577,8 +1602,11 @@ export async function getDevItemSnapshot(itemId: string): Promise<DevItemSnapsho
     }`,
     { ids: [itemId] },
   );
-  const item = data.items?.[0];
-  if (!item?.board) return null;
+  const loaded = data.items?.[0];
+  if (!loaded?.board) return null;
+  // With the stored ticket link laid on, so an item whose filing update has
+  // left the 50-update window is still "this ticket's item" to the bridge.
+  const item = { ...(await withStoredLinks([loaded]))[0], board: loaded.board };
 
   const peopleIn = (title: RegExp) =>
     (
@@ -1871,6 +1899,7 @@ export async function liveItemIds(): Promise<{ id: string; group: string; ticket
   if (!config.monday.live) return [];
   const out: { id: string; group: string; ticketIds: string[] }[] = [];
   type Row = { id: string; group: { title: string } | null; column_values: { text: string | null }[]; updates: { text_body: string | null }[] };
+  const stored = await itemTickets();
   for (const board of [config.monday.boardIds.jetpackapps, config.monday.boardIds.getsign]) {
     if (!board) continue;
     const live = await liveGroupIds(board);
@@ -1885,12 +1914,39 @@ export async function liveItemIds(): Promise<{ id: string; group: string; ticket
     );
     for (const g of data.boards?.[0]?.groups ?? []) {
       if (FEATURE_GROUP.test(g.title.trim().toLowerCase())) continue;
-      for (const row of g.items_page.items) {
+      for (const row of await withStoredLinks(g.items_page.items, stored)) {
         out.push({ id: row.id, group: g.title, ticketIds: ticketIdsOnItem(row) });
       }
     }
   }
   return out;
+}
+
+/**
+ * The ticket an item was filed for, found by reading its updates all the way
+ * back — for the backfill (scripts/backfill-dev-item-links.ts) only. The live
+ * paths never page: they use the stored link. Null when no filing context
+ * exists (an item someone filed by hand).
+ */
+export async function filingTicketByPaging(itemId: string, maxPages = 10): Promise<string | null> {
+  if (!config.monday.live || !/^\d+$/.test(itemId)) return null;
+  let found: string | null = null;
+  for (let page = 1; page <= maxPages; page++) {
+    const data = await gql<{ items: { updates: { text_body: string | null }[] }[] }>(
+      `query ($ids: [ID!], $page: Int) { items(ids: $ids) { updates(limit: 100, page: $page) { text_body } } }`,
+      { ids: [itemId], page },
+    );
+    const updates = data.items?.[0]?.updates ?? [];
+    // Newest first within a page, and pages run newest to oldest, so the
+    // LAST context post seen is the original filing.
+    for (const u of updates) {
+      if (!isJettaContextPost(u.text_body)) continue;
+      const m = /\/tickets\/(\d+)(?![0-9])/.exec(u.text_body ?? "");
+      if (m) found = m[1];
+    }
+    if (updates.length < 100) break;
+  }
+  return found;
 }
 
 export interface ItemFile {
