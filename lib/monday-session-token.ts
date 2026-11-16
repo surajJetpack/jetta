@@ -27,7 +27,7 @@
  */
 import crypto from "node:crypto";
 import { config } from "./config";
-import { APP_NAMES, type AppProduct } from "./types";
+import type { AppProduct } from "./types";
 
 /** What monday tells us about the visitor, once the signature checks out. */
 export interface MondaySessionClaims {
@@ -111,11 +111,4 @@ export function verifyMondaySessionToken(token: string | undefined | null): Mond
     };
   }
   return null;
-}
-
-/** Apps a session token can currently be verified for — for /system and the docs. */
-export function appsWithSessionSecrets(): string[] {
-  return Object.entries(config.monday.appClientSecrets)
-    .filter(([, secret]) => !!secret)
-    .map(([app]) => APP_NAMES[app] ?? app);
 }

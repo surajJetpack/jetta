@@ -80,8 +80,6 @@ export function sniffType(data: ArrayBuffer): { type: string; ext: string } | nu
   return hit ? { type: hit.type, ext: hit.ext } : null;
 }
 
-export const ACCEPT_ATTRIBUTE = "image/png,image/jpeg,image/gif,image/webp,application/pdf";
-
 /** Most files one visitor message may carry. */
 export const MAX_FILES_PER_MESSAGE = 4;
 

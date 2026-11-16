@@ -27,12 +27,10 @@ import {
   trend,
   type Evidence,
   type Insight,
-  type InsightPoint,
 } from "./grounded-insight";
 
 export { numbers, reconcileInsight };
 export type HealthEvidence = Evidence<Drill>;
-export type HealthInsightPoint = InsightPoint<Drill>;
 export type HealthInsight = Insight<Drill>;
 
 export const HealthInsightSchema = insightSchema(

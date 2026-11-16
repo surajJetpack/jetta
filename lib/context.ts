@@ -311,11 +311,6 @@ export async function triageTicket(
   }
 }
 
-/** Back-compat wrapper: product-only triage (used by tests/scripts). */
-export async function classifyProduct(subject: string, description: string): Promise<Product> {
-  return (await triageTicket(subject, description)).product;
-}
-
 /**
  * Assemble full context for a Freshdesk/Freshchat ticket.
  * Account and dev-item lookups are best-effort — a failure there shouldn't block

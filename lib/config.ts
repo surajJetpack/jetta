@@ -27,13 +27,6 @@ function joinCsv(...parts: (string | undefined)[]): string | undefined {
   return v.length > 0 ? v : undefined;
 }
 
-/** Read a required var; throws at call time (not import time) if missing. */
-export function requireEnv(name: string): string {
-  const v = env(name);
-  if (!v) throw new Error(`Missing required environment variable: ${name}`);
-  return v;
-}
-
 /**
  * Stub mode is ON by default unless STUB_MODE is explicitly "false".
  * This keeps the deployment safe: without credentials it cannot accidentally

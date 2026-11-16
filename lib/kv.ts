@@ -188,18 +188,6 @@ export async function scheduleFollowUp(
   memJobs.set(ticketId, job);
 }
 
-/** Every scheduled follow-up job, due or not, soonest first. */
-export async function listFollowUps(): Promise<FollowUpJob[]> {
-  const r = client();
-  if (r) {
-    const ids = await r.smembers(FOLLOWUP_SET);
-    if (!ids.length) return [];
-    const raw = await Promise.all(ids.map((id) => r.get<FollowUpJob>(followupKey(id))));
-    return raw.filter((j): j is FollowUpJob => !!j).sort((a, b) => a.dueAt - b.dueAt);
-  }
-  return [...memJobs.values()].sort((a, b) => a.dueAt - b.dueAt);
-}
-
 /** Return all follow-up jobs that are due (dueAt in the past). */
 export async function getDueFollowUps(): Promise<FollowUpJob[]> {
   const now = Math.floor(Date.now() / 1000);
@@ -748,32 +736,6 @@ const MANAGED_IDS = "jetta:kb:managed:ids";
 const managedKey = (id: string) => `jetta:kb:managed:${id}`;
 const memManaged = new Map<string, ManagedArticle>();
 
-export async function upsertManagedArticle(a: ManagedArticle): Promise<void> {
-  const r = client();
-  if (r) {
-    await r.set(managedKey(a.id), a);
-    await r.sadd(MANAGED_IDS, a.id);
-    return;
-  }
-  memManaged.set(a.id, a);
-}
-
-export async function deleteManagedArticle(id: string): Promise<void> {
-  const r = client();
-  if (r) {
-    await r.del(managedKey(id));
-    await r.srem(MANAGED_IDS, id);
-    return;
-  }
-  memManaged.delete(id);
-}
-
-export async function getManagedArticle(id: string): Promise<ManagedArticle | null> {
-  const r = client();
-  if (r) return await r.get<ManagedArticle>(managedKey(id));
-  return memManaged.get(id) ?? null;
-}
-
 export async function listManagedArticles(): Promise<ManagedArticle[]> {
   const r = client();
   if (r) {
@@ -802,22 +764,6 @@ const DRAFT_IDS = "jetta:kbdrafts:ids";
 const draftKey = (id: string) => `jetta:kbdraft:${id}`;
 const memDrafts = new Map<string, PendingDraft>();
 
-export async function addDraft(d: PendingDraft): Promise<void> {
-  const r = client();
-  if (r) {
-    await r.set(draftKey(d.id), d, { ex: 7 * 86400 });
-    await r.sadd(DRAFT_IDS, d.id);
-    return;
-  }
-  memDrafts.set(d.id, d);
-}
-
-export async function getDraft(id: string): Promise<PendingDraft | null> {
-  const r = client();
-  if (r) return await r.get<PendingDraft>(draftKey(id));
-  return memDrafts.get(id) ?? null;
-}
-
 export async function listDrafts(): Promise<PendingDraft[]> {
   const r = client();
   if (r) {
@@ -833,16 +779,6 @@ export async function listDrafts(): Promise<PendingDraft[]> {
     return live.sort((a, b) => b.at - a.at);
   }
   return [...memDrafts.values()].sort((a, b) => b.at - a.at);
-}
-
-export async function deleteDraft(id: string): Promise<void> {
-  const r = client();
-  if (r) {
-    await r.del(draftKey(id));
-    await r.srem(DRAFT_IDS, id);
-    return;
-  }
-  memDrafts.delete(id);
 }
 
 // ── Detailed run logs (Tier 1 observability) ──────────────────────
