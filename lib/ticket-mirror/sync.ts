@@ -237,6 +237,9 @@ async function refreshDerived(db: Db, ticketId: number): Promise<void> {
 
 // ── One ticket ──────────────────────────────────────────────────────
 
+/** `updated_at` for a ticket whose thread is not stored yet: older than any real one. */
+export const NOT_YET_SYNCED = "1970-01-01T00:00:00Z";
+
 export type SyncResult = "skipped" | "synced" | "budget";
 
 /**
@@ -271,6 +274,16 @@ export async function syncTicket(
 
   if (!(await headroom())) return "budget";
 
+  // `updated_at` is what says "this ticket is current" — to the skip test
+  // above and to every reader. So it is written LAST, once the thread is in.
+  // It used to go in with the ticket row, before the conversations call: a
+  // rate limit, a 5xx or a killed function in between left a ticket that
+  // looked current with yesterday's thread, the next walk skipped it, and
+  // reconcile saw "no agent reply" on a ticket that had one. Until the thread
+  // is stored the row keeps its old stamp (or, new to us, the epoch).
+  const held = have?.updatedAt ?? NOT_YET_SYNCED;
+  const withoutStamp = TICKET_COLS.filter((c) => c !== "updatedAt");
+
   // New to us (or forced): the full ticket carries the opening message.
   let base: FDListTicket;
   if (!have || opts.force || !listed) {
@@ -279,16 +292,16 @@ export async function syncTicket(
     base = full;
     await db
       .insert(tickets)
-      .values(ticketRow(full))
-      .onConflictDoUpdate({ target: tickets.id, set: excluded(TICKET_COLS) });
+      .values({ ...ticketRow(full), updatedAt: held })
+      .onConflictDoUpdate({ target: tickets.id, set: excluded(withoutStamp) });
     const { msg, files } = openingMessage(full);
     await upsertMessages(db, [msg], files);
   } else {
     base = listed;
     await db
       .insert(tickets)
-      .values(ticketRow(listed))
-      .onConflictDoUpdate({ target: tickets.id, set: excluded(TICKET_COLS) });
+      .values({ ...ticketRow(listed), updatedAt: held })
+      .onConflictDoUpdate({ target: tickets.id, set: excluded(withoutStamp) });
   }
   if (base.requester?.id) await upsertContact(db, base.requester);
 
@@ -296,8 +309,13 @@ export async function syncTicket(
   // the first one we don't have. A forced sync re-reads the whole thread.
   const known = opts.force || !have ? 0 : Math.max(0, have.messageCount - 1);
   let page = Math.floor(known / CONV_PAGE) + 1;
+  // False only when the budget ran out part-way through the thread.
+  let complete = true;
   for (; page <= 10; page++) {
-    if (page > 1 && !(await headroom())) break;
+    if (page > 1 && !(await headroom())) {
+      complete = false;
+      break;
+    }
     const batch = await fd<FDConversation[]>(
       `/tickets/${ticketId}/conversations?per_page=${CONV_PAGE}&page=${page}`,
     );
@@ -308,6 +326,10 @@ export async function syncTicket(
   }
 
   await refreshDerived(db, ticketId);
+  // A thread cut short by the budget is not "synced": the walk stops here and
+  // comes back to this ticket, instead of moving its cursor past it.
+  if (!complete) return "budget";
+  await db.update(tickets).set({ updatedAt: base.updated_at }).where(eq(tickets.id, ticketId));
   return "synced";
 }
 

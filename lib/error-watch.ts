@@ -468,13 +468,33 @@ export async function maybeFileDevItem(i: WatchIssue): Promise<WatchDevItem | nu
   const base = { at: Date.now(), issueId: i.id, shortId: i.shortId, app: i.app, title: i.title, link: i.link, mode } as const;
   // Once per issue per mode: a "would file" in shadow does not stop the real
   // filing once the switch is turned on.
-  if (!(await markEventSeen(`errorwatch:devitem:${mode}:${i.id}`, 30 * 86_400))) return null;
+  //
+  // The marker says "decided", so it is released again whenever nothing was
+  // decided: the daily cap was reached, or the filing itself failed. It used
+  // to stay for its 30 days either way, so the third issue of a busy day was
+  // never filed at all.
+  const once = `errorwatch:devitem:${mode}:${i.id}`;
+  if (!(await markEventSeen(once, 30 * 86_400))) return null;
+  try {
+    return await fileDevItem(i, mode, base, once);
+  } catch (e) {
+    await unmarkEventSeen(once).catch(() => {});
+    throw e;
+  }
+}
 
+async function fileDevItem(
+  i: WatchIssue,
+  mode: "shadow" | "on",
+  base: Omit<WatchDevItem, "skipped" | "item">,
+  once: string,
+): Promise<WatchDevItem | null> {
   const existing = await monday.searchDevBoard(i.title.slice(0, 200), productOf(i.app)).catch(() => []);
   const strong = existing.find((x) => x.confidence === "strong");
   if (strong) return { ...base, skipped: `already on the board: ${strong.title}` };
   if (mode === "shadow") return { ...base, skipped: "shadow mode: would file" };
   if ((await rateCountPeek(`errorwatch:devitems:${new Date().toISOString().slice(0, 10)}`)) >= DEV_ITEMS_PER_DAY) {
+    await unmarkEventSeen(once).catch(() => {}); // not decided: try again tomorrow
     return { ...base, skipped: `daily cap of ${DEV_ITEMS_PER_DAY} reached` };
   }
   await rateCount(`errorwatch:devitems:${new Date().toISOString().slice(0, 10)}`, 2 * 86_400);

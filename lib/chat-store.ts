@@ -487,22 +487,48 @@ async function updateConversationLocked(
  * so on a store carrying a few weeks of resolved chats the stale ones — the
  * only ones the sweep wants — are precisely what falls off the end.
  *
- * Oldest first, so a run capped at MAX_PER_RUN works the longest-waiting
- * conversations rather than an arbitrary slice. Documents that have expired out
- * from under their index entry are skipped, not pruned: pruning belongs to the
- * console read path, and a cron quietly rewriting the index is harder to trust.
+ * Bounded on both sides, and when there are more than `limit` it is the most
+ * RECENTLY idle that are read. It used to take the oldest `limit` of everything
+ * idle since the beginning of the index — and resolved conversations stay in
+ * the index for the whole retention window. So once the store held more than
+ * `limit` old chats, every candidate was one of those, and a chat that went
+ * quiet fifteen minutes ago was never looked at: no nudge, no 24-hour resolve,
+ * no pickup of an unanswered hand-off, with the cron still reporting "ok".
+ *
+ * `IDLE_WINDOW_DAYS` is far longer than anything the sweep acts on (a nudge
+ * after minutes, a resolve after a day), so nothing that could be due is
+ * outside it. Documents that have expired out from under their index entry are
+ * skipped, not pruned: pruning belongs to the console read path, and a cron
+ * quietly rewriting the index is harder to trust.
  */
+export const IDLE_WINDOW_DAYS = 14;
+
+/** Which ids to read: inside the window, newest idle first, at most `limit`. Pure. */
+export function pickIdle<T extends { at: number }>(entries: T[], cutoffMs: number, limit: number): T[] {
+  const floor = cutoffMs - IDLE_WINDOW_DAYS * 86_400_000;
+  return entries
+    .filter((e) => e.at <= cutoffMs && e.at >= floor)
+    .sort((x, y) => y.at - x.at)
+    .slice(0, limit);
+}
+
 export async function listIdleSince(cutoffMs: number, limit = 200): Promise<ChatConversation[]> {
   const r = client();
   if (r) {
-    const ids = (await r.zrange<string[]>(CHAT_INDEX, 0, cutoffMs, { byScore: true })) ?? [];
-    const docs = await Promise.all(ids.slice(0, limit).map((id) => getConversation(id)));
+    const floor = cutoffMs - IDLE_WINDOW_DAYS * 86_400_000;
+    // Ascending by score, so the newest idle are at the END of the range.
+    const ids = (await r.zrange<string[]>(CHAT_INDEX, floor, cutoffMs, { byScore: true })) ?? [];
+    if (ids.length > limit) {
+      console.warn(`chat-store: ${ids.length} conversations idle in the last ${IDLE_WINDOW_DAYS} days; reading the ${limit} most recent.`);
+    }
+    const docs = await Promise.all(ids.slice(-limit).reverse().map((id) => getConversation(id)));
     return docs.filter((c): c is ChatConversation => !!c);
   }
-  return [...memChats.values()]
-    .filter((c) => c.messages.length > 0 && Date.parse(c.lastActivityAt) <= cutoffMs)
-    .sort((a, b) => Date.parse(a.lastActivityAt) - Date.parse(b.lastActivityAt))
-    .slice(0, limit);
+  return pickIdle(
+    [...memChats.values()].filter((c) => c.messages.length > 0).map((c) => ({ at: Date.parse(c.lastActivityAt), c })),
+    cutoffMs,
+    limit,
+  ).map((e) => e.c);
 }
 
 /**
