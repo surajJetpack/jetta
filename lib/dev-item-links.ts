@@ -38,9 +38,27 @@ function client(): Redis | null {
 }
 const mem = new Map<string, string>();
 
+/**
+ * Read-only mode, for a script's dry run. Reading rows learns links as a side
+ * effect, so "list the live items" is itself a write unless this is on. While
+ * it is, nothing is stored and the pairs that WOULD have been are collected.
+ */
+let readOnly: [string, string][] | null = null;
+export function setLinksReadOnly(on: boolean): void {
+  readOnly = on ? [] : null;
+}
+/** The pairs withheld since read-only mode was switched on. */
+export function withheldLinks(): [string, string][] {
+  return readOnly ? [...readOnly] : [];
+}
+
 /** Remember that `itemId` was filed for `ticketId`. Never throws. */
 export async function rememberItemTicket(itemId: string, ticketId: string | null | undefined): Promise<void> {
   if (!ticketId || !/^\d+$/.test(itemId) || !/^\d+$/.test(ticketId)) return;
+  if (readOnly) {
+    if (!readOnly.some(([i]) => i === itemId)) readOnly.push([itemId, ticketId]);
+    return;
+  }
   try {
     const r = client();
     if (r) await r.hset(KEY, { [itemId]: ticketId });

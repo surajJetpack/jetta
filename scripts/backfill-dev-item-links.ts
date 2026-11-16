@@ -13,7 +13,9 @@
  * Jetta's filing context is there. Items filed by hand have none and are
  * listed as such.
  *
- * DRY RUN BY DEFAULT — prints what it would store and writes nothing.
+ * DRY RUN BY DEFAULT — prints what it would store and writes nothing. That
+ * takes a switch (`setLinksReadOnly`): merely listing the live items learns
+ * the links that are in view, and without it the "dry" run stored those.
  *
  *   npx tsx --env-file=.env.local scripts/backfill-dev-item-links.ts
  *   npx tsx --env-file=.env.local scripts/backfill-dev-item-links.ts --commit
@@ -23,7 +25,7 @@
  */
 import { config } from "../lib/config";
 import { filingTicketByPaging, liveItemIds } from "../lib/tools/monday";
-import { itemTickets, rememberItemTicket } from "../lib/dev-item-links";
+import { itemTickets, rememberItemTicket, setLinksReadOnly, withheldLinks } from "../lib/dev-item-links";
 
 const COMMIT = process.argv.includes("--commit");
 
@@ -32,10 +34,15 @@ async function main() {
     console.error("monday is not connected — run with --env-file=.env.local.");
     process.exit(1);
   }
+  if (!COMMIT) setLinksReadOnly(true);
   const before = await itemTickets();
   const items = await liveItemIds();
+  const inView = withheldLinks();
   const unlinked = items.filter((i) => !i.ticketIds.length);
   console.log(`${items.length} live items, ${items.length - unlinked.length} already show a ticket, ${before.size} links stored.`);
+  if (!COMMIT) {
+    console.log(`${inView.length} of those have their filing update in view and no stored link yet; the app learns these on its own the next time it reads them.`);
+  }
   console.log(`Reading back through ${unlinked.length} item(s) with no ticket in view…\n`);
 
   let found = 0;
@@ -53,7 +60,11 @@ async function main() {
     }
     await new Promise((r) => setTimeout(r, 300));
   }
-  console.log(`\n${found} link(s) ${COMMIT ? "stored" : "found — re-run with --commit to store them"}.`);
+  console.log(
+    found
+      ? `\n${found} link(s) ${COMMIT ? "stored" : "found — re-run with --commit to store them"}.`
+      : "\nNothing to backfill: no live item has lost a ticket link.",
+  );
 }
 
 main().catch((e) => {
