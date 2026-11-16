@@ -433,6 +433,7 @@ export function reasoningRows(): StatusRow[] {
     sentryRow(),
     errorWatchRow(),
     selfReviewRow(),
+    getsignReferenceRow(),
     triageShadowRow(),
   ];
 }
@@ -484,6 +485,19 @@ function selfReviewRow(): StatusRow {
         ? "No OPENROUTER_API_KEY, so there is no judge."
         : "Switched off (JETTA_SELF_REVIEW=off): the Self-review page shows the last run.",
     setting: "JETTA_SELF_REVIEW",
+  };
+}
+
+function getsignReferenceRow(): StatusRow {
+  const on = !!config.getsignReferenceToken && !config.stubMode;
+  return {
+    label: "GetSign app reference (KB review queue)",
+    tone: on ? "on" : "off",
+    state: on ? "DAILY" : "SHIPPED COPY",
+    meaning: on
+      ? "Daily, with the site sync, Jetta reads the GetSign developers' configuration reference as it is that day. When a section has changed she redrafts the article written from it: an untouched draft is updated in the review queue, an article a person edited or published gets a \"Reference changed\" notice and is never overwritten, and a new section gets a new draft. Nothing is published without a person."
+      : "No token for the GetSign app repository (JETTA_GETSIGN_REFERENCE_TOKEN), so Jetta files the reference articles from the copy shipped with the code and does not notice changes until the next deploy that refreshes it.",
+    setting: "JETTA_GETSIGN_REFERENCE_TOKEN",
   };
 }
 
@@ -595,7 +609,7 @@ export const CRONS: readonly EndpointRow[] = [
   },
   { path: "/api/cron/first-response", detail: "Sends the first replies Jetta scheduled on direct tickets, after re-reading the ticket; armed by JETTA_FIRST_RESPONSE=on", schedule: "every minute" },
   { path: "/api/cron/chat-followup", detail: "Chat sweep: one check-in after 15 min of visitor silence, auto-resolve after 24h", schedule: "every 5 min" },
-  { path: "/api/cron/kb-sync", detail: "Re-crawls the sites into the knowledge base", schedule: "daily 05:00" },
+  { path: "/api/cron/kb-sync", detail: "Re-crawls the sites into the knowledge base, and files the GetSign app reference articles as review-queue drafts", schedule: "daily 05:00" },
   { path: "/api/cron/reconcile-drafts", detail: "Matches suggestions to what humans actually sent", schedule: "hourly at :15" },
   { path: "/api/cron/daily-overview", detail: "Yesterday's rollup and its written narrative", schedule: "daily 06:10" },
   { path: "/api/cron/performance-sync", detail: "Reads changed Freshdesk tickets into the Support health and Performance stores", schedule: "hourly at :40" },

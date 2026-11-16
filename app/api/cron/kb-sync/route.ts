@@ -2,7 +2,8 @@
  * Daily KB sync cron: mirror jetpackapps.io + getsign.io into the KB store
  * (new pages published, sync-owned pages updated, changed pages behind
  * hand-written articles filed as site-change notices in the KB review queue,
- * removed pages archived). Summary goes to the console log only — never Slack;
+ * removed pages archived), then file the GetSign app reference articles as
+ * review-queue drafts. Summary goes to the console log only — never Slack;
  * the review queue is where a person sees what needs them.
  * Scheduled in vercel.json (05:00 UTC); also invocable manually with the
  * CRON_SECRET bearer token.
@@ -10,6 +11,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { withCronBeat } from "@/lib/cron-beat";
 import { SITES, syncSite, type SyncResult } from "@/lib/kb-sync";
+import { syncGetSignReference, type ReferenceSyncResult } from "@/lib/getsign-reference";
 import { logOpsEvent } from "@/lib/events";
 import { cronAuthorized } from "@/lib/request-auth";
 
@@ -38,6 +40,23 @@ async function handler(req: NextRequest) {
         data: { site: site.key, error: e instanceof Error ? e.message : String(e) },
       });
     }
+  }
+
+  // The GetSign app reference: hand-written articles shipped with the code,
+  // filed as review-queue drafts (lib/getsign-reference.ts). No network.
+  let reference: ReferenceSyncResult | null = null;
+  try {
+    reference = await syncGetSignReference();
+  } catch (e) {
+    const msg = `getsign-reference: ${e instanceof Error ? e.message : String(e)}`;
+    errors.push(msg);
+    console.error("kb-sync failed for", msg);
+    await logOpsEvent({
+      level: "error",
+      event: "kbsync.site_failed",
+      source: "cron",
+      data: { site: "getsign-reference", error: e instanceof Error ? e.message : String(e) },
+    });
   }
 
   const eventful =
@@ -76,7 +95,7 @@ async function handler(req: NextRequest) {
     console.log(`kb-sync: ${headline}\n${lines.join("\n")}`);
   }
 
-  return NextResponse.json({ results, errors });
+  return NextResponse.json({ results, reference, errors });
 }
 
 export const GET = withCronBeat("kb-sync", handler);

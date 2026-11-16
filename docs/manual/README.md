@@ -308,7 +308,7 @@ What Jetta knows about the products. Articles move through four states — **dra
 
 The list shows each article's state, hit count, version, and a **DUP?** flag where two articles look like duplicates. **Test retrieval** is the box to use when you want to know what Jetta would actually find for a given question — it's the fastest way to answer "why did she say that?" about a fact.
 
-The knowledge base syncs daily from our websites, so most articles maintain themselves.
+The knowledge base syncs daily from our websites, so most articles maintain themselves. The GetSign app reference is the exception: its articles come in through the review queue (below).
 
 **Who can remove an article.** Anyone can delete a draft or something waiting in review. Archiving an article, and deleting one that is published or archived, needs an admin: both take away an answer Jetta relies on, and a delete cannot be undone.
 
@@ -316,7 +316,9 @@ The knowledge base syncs daily from our websites, so most articles maintain them
 
 ![The review queue](images/kb-review.webp)
 
-Draft articles waiting to be published, from these sources: the Knowledge Loop (Slack escalations), Freshdesk mining, the Dev board page, and the developers themselves (tagged `dev-board`). When a developer answers a Question item, or sends a doc after a fix, Jetta drafts it here; see "Jetta and the dev board, both ways" in chapter 4. Nothing here reaches Jetta yet.
+Draft articles waiting to be published, from these sources: the Knowledge Loop (Slack escalations), Freshdesk mining, the Dev board page, the developers themselves (tagged `dev-board`), and the GetSign app reference (tagged `reference`). When a developer answers a Question item, or sends a doc after a fix, Jetta drafts it here; see "Jetta and the dev board, both ways" in chapter 4. Nothing here reaches Jetta yet.
+
+**The GetSign app reference.** The GetSign developers keep a reference of every screen, tab and setting in the app, and the rules behind them (what is required, what is locked on which plan, why a workflow will not save). Jetta has articles written from it, titled "GetSign …", origin **GetSign app reference**. They arrive here as drafts and Jetta cannot use one until somebody publishes it. Two things to check before you do: that the wording is right, and that the screen it describes is live for customers, because the reference follows the app's development branch and can be a release ahead. These articles have no public link, so Jetta answers from them in her own words and gives no link. Every day, with the site sync, Jetta reads the reference again. When the developers have changed a section she redrafts the article written from it, leaving out file names and code names (a redraft that still names one is thrown away and tried again the next day). What happens next depends on who owns the article. A draft nobody has touched is simply updated here. Once you edit or publish an article it is yours and is never overwritten: a **Reference changed: …** notice appears here showing what would change; edit the article if it matters, then mark the notice handled. A new section in the reference becomes a new draft. If a section disappears, an untouched draft is removed and anything a person approved gets a **Reference dropped: …** notice. A draft you reject stays away until its section changes. The daily read needs `JETTA_GETSIGN_REFERENCE_TOKEN` (/system shows whether it is set); without it Jetta only has the copy of the reference shipped with the code.
 
 Approving does two things at once — it publishes the article *and* embeds it for retrieval. That's the moment it starts affecting answers. Rejecting deletes the draft, and only ever a draft.
 

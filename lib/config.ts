@@ -154,6 +154,15 @@ export const config = {
     : "off") as "off" | "shadow" | "on",
 
   /**
+   * A GitHub token that can read the GetSign app repository (private), so the
+   * daily kb-sync can read the team's configuration reference as it is today
+   * and redraft the articles whose section changed (lib/getsign-reference.ts).
+   * Unset: Jetta uses the copy of the reference shipped with the code, which
+   * only changes with a deploy. Read-only, contents of that one repository.
+   */
+  getsignReferenceToken: env("JETTA_GETSIGN_REFERENCE_TOKEN"),
+
+  /**
    * Jetta sends the FIRST public reply herself on tickets that came straight
    * in by email, the portal or the in-app form — never on a ticket that came
    * from a chat, where the customer has already been talking to her. Every

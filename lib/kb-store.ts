@@ -34,7 +34,14 @@ import type { KbScope } from "./profiles";
 // ── Types ──────────────────────────────────────────────────────────
 
 export type ArticleState = "draft" | "in_review" | "published" | "archived";
-export type ArticleOrigin = "manual" | "knowledge-loop" | "fd-mined" | "seed-getsign" | "seed-jetpackapps";
+export type ArticleOrigin =
+  | "manual"
+  | "knowledge-loop"
+  | "fd-mined"
+  | "seed-getsign"
+  | "seed-jetpackapps"
+  /** Sections of the GetSign app team's configuration reference (lib/getsign-reference.ts). */
+  | "getsign-reference";
 
 export interface KbArticle {
   /** Stable forever; doubles as the vector-index id. */
@@ -251,7 +258,7 @@ function memSeedIfNeeded(): void {
  * and the cost of guessing wrong in that direction is zero.
  */
 export function deriveScope(origin: ArticleOrigin, source: string): KbScope {
-  if (origin === "seed-getsign" || source === "getsign.io") return "getsign";
+  if (origin === "seed-getsign" || origin === "getsign-reference" || source === "getsign.io") return "getsign";
   if (origin === "seed-jetpackapps" || source === "jetpackapps.io") return "jetpackapps";
   return "shared";
 }
