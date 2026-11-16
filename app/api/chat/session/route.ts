@@ -10,12 +10,13 @@
  * transcript.
  */
 import { NextRequest } from "next/server";
-import { channelUnavailable, chatJson, preflight } from "@/lib/chat-http";
+import { channelUnavailable, chatJson, overSessionLimit, preflight } from "@/lib/chat-http";
+import { cleanApp, cleanEmail, cleanId, cleanName, cleanPageUrl, cleanSlug } from "@/lib/chat-visitor";
 import * as store from "@/lib/chat-store";
 import { getChatSettings } from "@/lib/chat-settings";
 import { profileForRequest } from "@/lib/profiles";
 import { verifyMondaySessionToken } from "@/lib/monday-session-token";
-import type { AppProduct, ChatSurface } from "@/lib/types";
+import type { ChatSurface } from "@/lib/types";
 
 export const runtime = "nodejs";
 
@@ -63,14 +64,21 @@ export async function POST(req: NextRequest) {
   }
 
   // ── New session ──
+  // Resuming is free; opening is not. Every new conversation is a Redis
+  // document kept for the retention window, and each one may go on to open a
+  // ticket or ping the team, so the message budget alone (which only counts
+  // messages) left this route as the unmetered way in.
+  if (await overSessionLimit(req)) {
+    return await chatJson(req, { error: "too many new chats from this network — try again later" }, { status: 429 });
+  }
   const rawSurface = typeof body.surface === "string" ? body.surface : "unknown";
   const surface = (SURFACES as string[]).includes(rawSurface)
     ? (rawSurface as ChatSurface)
     : "unknown";
 
-  // Identity is a hint on WordPress (whatever the visitor typed) and reliable
-  // on monday (the app SDK). We store both the same way and let the prompt
-  // decide how much to trust it; nothing here grants access to anything.
+  // Identity here is a hint, on every surface: `surface` and every `visitor`
+  // field are whatever the request said. The one thing that is more than a
+  // hint is a monday session token, verified below.
   const v = (body.visitor ?? {}) as Record<string, unknown>;
   const str = (k: string) => (typeof v[k] === "string" && v[k] ? (v[k] as string) : undefined);
   // Same resolution as /api/chat/config, through the same helper — the brand
@@ -106,19 +114,21 @@ export async function POST(req: NextRequest) {
    */
   const mondaySession = verifyMondaySessionToken(str("mondaySessionToken"));
 
-  const name = str("name")?.trim().slice(0, 120);
-  const rawEmail = str("email")?.trim().slice(0, 200);
-  const email = rawEmail && /^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(rawEmail) ? rawEmail : undefined;
+  // Each field is cut down to the shape the real thing has (lib/chat-visitor.ts):
+  // several of them are quoted in the system prompt, where free text from an
+  // anonymous request would read as an instruction.
+  const name = cleanName(v.name);
+  const email = cleanEmail(v.email);
 
   const conv = await store.createConversation({
     surface,
-    pageUrl: typeof body.pageUrl === "string" ? body.pageUrl.slice(0, 500) : undefined,
+    pageUrl: cleanPageUrl(body.pageUrl),
     visitor: {
       name,
       email,
-      mondayAccountSlug: mondaySession?.accountSlug ?? str("mondayAccountSlug")?.slice(0, 120),
-      mondayAccountId: mondaySession?.accountId ?? str("mondayAccountId")?.slice(0, 60),
-      mondayUserId: mondaySession?.userId ?? str("mondayUserId")?.slice(0, 60),
+      mondayAccountSlug: cleanSlug(mondaySession?.accountSlug) ?? cleanSlug(v.mondayAccountSlug),
+      mondayAccountId: cleanId(mondaySession?.accountId) ?? cleanId(v.mondayAccountId),
+      mondayUserId: cleanId(mondaySession?.userId) ?? cleanId(v.mondayUserId),
       // Whether the three fields above are monday's word or the page's. The
       // prompt says different things about the account depending on this, so
       // it travels with the conversation rather than being re-derived.
@@ -132,7 +142,7 @@ export async function POST(req: NextRequest) {
       // origin does.
       // A verified token names the app that issued it — the only source here
       // that cannot be edited by hand.
-      app: (mondaySession?.app ?? str("app") ?? originApp) as AppProduct | undefined,
+      app: mondaySession?.app ?? cleanApp(v.app) ?? originApp,
     },
   });
 

@@ -20,7 +20,42 @@ import { transcriptText } from "./chat-store";
 import { transcriptHtml } from "./chat-transcript-html";
 import { getChatSettings, publicSettings } from "./chat-settings";
 import { conversationUrl } from "./tools/jettachat";
+import { rateCount } from "./kv";
 import type { AppProduct, ChatConversation, ChatMessage } from "./types";
+
+/**
+ * Ceilings on what anonymous chat traffic can make Jetta do on her own.
+ *
+ * A ticket is not free: Freshdesk emails the address on it, from our support
+ * identity, quoting the transcript. Anyone can open a chat and type any
+ * address, so without a ceiling a loop could flood the queue and mail
+ * strangers. Real use is nowhere near these: a person opens one ticket, and
+ * the whole channel opens a handful an hour.
+ *
+ * They apply only where Jetta acts unprompted (her tools and the unanswered
+ * hand-off). A colleague converting a chat in the console is not counted.
+ */
+export const CHAT_TICKETS_PER_HOUR = 30;
+export const CHAT_TICKETS_PER_EMAIL_PER_DAY = 3;
+export const CHAT_HANDOFFS_PER_HOUR = 20;
+
+export type ChatTicketBudget = { ok: true } | { ok: false; reason: "email" | "channel" };
+
+/** Count one ticket about to be opened from chat, and say whether it may be. */
+export async function takeChatTicketBudget(email: string): Promise<ChatTicketBudget> {
+  // Per address first, so a loop aimed at one inbox stops at three without
+  // spending the channel's allowance for everybody else.
+  const perEmail = await rateCount(`jetta:chat:ticketrate:email:${email.trim().toLowerCase()}`, 86_400);
+  if (perEmail > CHAT_TICKETS_PER_EMAIL_PER_DAY) return { ok: false, reason: "email" };
+  const channel = await rateCount("jetta:chat:ticketrate:all", 3600);
+  if (channel > CHAT_TICKETS_PER_HOUR) return { ok: false, reason: "channel" };
+  return { ok: true };
+}
+
+/** Count one "ask the team to join" ping, and say whether it may go out. */
+export async function takeChatHandoffBudget(): Promise<boolean> {
+  return (await rateCount("jetta:chat:handoffrate:all", 3600)) <= CHAT_HANDOFFS_PER_HOUR;
+}
 
 export interface OpenTicketOptions {
   /** Requester address. Checked by the caller; used verbatim. */

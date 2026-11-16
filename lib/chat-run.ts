@@ -30,7 +30,7 @@ import { logOpsEvent } from "./events";
 import * as store from "./chat-store";
 import type { ChatConversation } from "./types";
 import { toChatText } from "./tools/jettachat";
-import { openTicketForConversation, suggestedSubject } from "./chat-ticket";
+import { openTicketForConversation, suggestedSubject, takeChatTicketBudget } from "./chat-ticket";
 import * as slack from "./tools/slack";
 import { config } from "./config";
 
@@ -385,6 +385,11 @@ export async function advanceHandoff(
   }
   const email = conv.visitor.email?.trim();
   if (!email) return ended("ended_no_ticket", NOBODY_FREE, { reason: "no_email" });
+
+  // The same ceiling as her own ticket tool: this path opens one unasked.
+  if (!(await takeChatTicketBudget(email)).ok) {
+    return ended("ended_no_ticket", NOBODY_FREE, { reason: "ticket_capped" });
+  }
 
   const fresh = (await store.getConversation(id)) ?? conv;
   const subject = suggestedSubject(fresh);

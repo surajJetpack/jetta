@@ -973,7 +973,7 @@ function contextBlock(ctx: ConversationContext, profile: Profile): string {
   if (ctx.chat) {
     lines.push(
       ctx.chat.surface === "monday"
-        ? `Chat surface: inside the customer's monday.com account (widget embedded in the app).`
+        ? `Chat surface: a monday.com app view (as reported by the widget).`
         : `Chat surface: ${ctx.chat.surface}${ctx.chat.pageUrl ? ` — page ${ctx.chat.pageUrl}` : ""}`,
     );
     if (ctx.chat.ticketId) {
@@ -989,24 +989,21 @@ function contextBlock(ctx: ConversationContext, profile: Profile): string {
        * The trial/discount tools normally have to ask the customer for this —
        * and how far the slug may be trusted depends on where it came from.
        *
-       * Signed, or inside the app: monday's own session token, verified here
-       * against the app's client secret, is monday saying who this is. An
-       * unsigned slug from a monday app VIEW is nearly as good in practice —
-       * the widget is running inside the customer's own logged-in app, and
-       * faking it means tampering with your own session in devtools. Both keep
-       * the behaviour that shipped: use it, don't ask.
+       * Signed: monday's own session token, verified against the app's client
+       * secret, is monday saying who this is. Use it, don't ask.
        *
-       * Anywhere else, it is a string the page handed us. A standalone support
-       * page opened from a link is a URL anyone can edit, so acting on its slug
-       * would let one customer raise a discount request against another's
-       * account. The claim is still worth showing — it is useful, and usually
-       * true — with the one instruction that makes a wrong one harmless.
+       * Anything else is a string the request handed us — a support link's
+       * query parameter, or the embed's config. "It came from inside the app
+       * view" used to count as nearly as good, but the surface is itself just
+       * a field in that request. Acting on an unsigned slug would let one
+       * customer raise a discount request against another's account. The claim
+       * is still worth showing — it is useful, and usually true — with the one
+       * instruction that makes a wrong one harmless.
        */
-      const trusted = ctx.chat.mondayAccountVerified || ctx.chat.surface === "monday";
       lines.push(
-        trusted
-          ? `monday account: ${ctx.chat.mondayAccountSlug} (${ctx.chat.mondayAccountVerified ? "VERIFIED — monday signed it" : "from the embedding app view"} — use it directly for trial/discount requests; do NOT ask the customer for their monday URL).`
-          : `monday account: ${ctx.chat.mondayAccountSlug} (CLAIMED by the page they are chatting from, and NOT proven — a support link's parameters are typed by whoever holds the link. Fine for orienting yourself. Before any trial or discount request, confirm with them that this is their account.)`,
+        ctx.chat.mondayAccountVerified
+          ? `monday account: ${ctx.chat.mondayAccountSlug} (VERIFIED — monday signed it — use it directly for trial/discount requests; do NOT ask the customer for their monday URL).`
+          : `monday account: ${ctx.chat.mondayAccountSlug} (CLAIMED by the page or app view they are chatting from, and NOT proven. Fine for orienting yourself. Before any trial or discount request, confirm with them that this is their account.)`,
       );
     }
   }

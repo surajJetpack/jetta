@@ -8,7 +8,8 @@
  *   - **Origin allowlist.** The widget is embedded cross-origin (WordPress,
  *     monday's iframe host), so CORS has to be permissive by name rather than
  *     absent. An unlisted origin gets no CORS headers and the browser drops it.
- *   - **Rate limiting.** Per-IP, fixed window, on the write path only.
+ *   - **Rate limiting.** Per-IP, fixed window: messages, uploads and new
+ *     conversations each have their own budget.
  *   - **Channel kill switch.** JETTACHAT_LIVE off ⇒ every route 503s, so the
  *     widget can be pulled without a redeploy of the WordPress site.
  */
@@ -68,6 +69,21 @@ export function clientIp(req: NextRequest): string {
 export async function overRateLimit(req: NextRequest): Promise<boolean> {
   const n = await rateCount(`jetta:chat:rate:${clientIp(req)}`, 3600);
   return n > (await getChatSettings()).rateLimitPerHour;
+}
+
+/**
+ * New conversations per IP per hour. Resumes are not counted.
+ *
+ * Generous on purpose: a whole office can sit behind one address, and each
+ * person's browser opens one conversation and then resumes it. The number only
+ * has to be far below what a loop can do.
+ */
+export const SESSIONS_PER_HOUR = 40;
+
+/** True when this IP has opened too many new conversations this hour. */
+export async function overSessionLimit(req: NextRequest): Promise<boolean> {
+  const n = await rateCount(`jetta:chat:sessionrate:${clientIp(req)}`, 3600);
+  return n > SESSIONS_PER_HOUR;
 }
 
 /**

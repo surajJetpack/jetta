@@ -5,6 +5,12 @@ Newest first. One entry per change people would notice: what Jetta does differen
 Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain words.
 
 
+## 2026-11-16: Chat: an account or email is only trusted when it is proven
+On the chat widget, a monday account now counts as the visitor's only when the embed passes monday's signed session token (`visitor.mondaySessionToken`; the Install page snippets include it). An app view that sends no token is treated like a support link: Jetta confirms the account before a trial or discount request and does not look up the account's earlier tickets. FastSpring billing is no longer looked up or changed from chat, because a typed email proves nothing; Jetta opens a ticket and the team answers by email. On tickets the billing lookup is for the requester's own address only. New ceilings, live on merge, no switch: 40 new chats per network per hour, 3 chat tickets per email per day, 30 chat tickets and 20 "ask the team" pings per hour across the channel; hitting one logs `chat.ticket_capped` or `chat.handoff_capped`.
+
+## 2026-11-16: A customer's answer goes in the developer's thread (#196)
+When a developer asks for something inside a thread on a dev item and Jetta replies there, the customer's answer is now posted as a reply in that same thread instead of as a new update. "The customer is asking for an update" posts stay top-level. Live.
+
 ## 2026-11-16: Jetta reports what actually happened
 Four places where "nothing happened" used to read as success. With billing writes off (`FASTSPRING_ALLOW_WRITES`), cancel and discount now say nothing was changed, to the customer-facing run and in Slack, instead of "Subscription cancelled". With monday writes off (`MONDAY_ALLOW_WRITES`) or monday not connected, filing a dev item, a question or a compliance request says nothing was filed and hands off through Slack, instead of returning a made-up item. A FastSpring lookup that failed (their system down or rate-limited) is reported as failed, no longer as "no account", so a legacy customer is not told they are billed through monday. And a tool call that threw no longer counts as done: a failed escalation is not recorded as an escalation, and a failed ticket creation no longer has the chat say a ticket was opened. Live on merge.
 

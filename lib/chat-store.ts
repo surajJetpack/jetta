@@ -548,16 +548,25 @@ export function isStale(conv: ChatConversation, idleHours: number): boolean {
 // ticket someone else opened (#14652: one colleague opened it, another asked, and Jetta
 // asked HIM what the problem was). The conversation that became the ticket
 // knows the account; this index lets the next one find it with one read.
-// Only accounts a monday app view vouches for are indexed: an editable support
-// link could otherwise file a stranger's ticket under someone else's account.
+// Only accounts monday itself vouches for (a verified session token) are
+// indexed: anything else could file a stranger's ticket under someone else's
+// account, or read one back.
 const accountTicketsKey = (slug: string) => `jetta:chat:account-tickets:${slug.toLowerCase()}`;
 /** Set once the index has been filled from the conversations that predate it. */
 const ACCOUNT_INDEX_BUILT = "jetta:chat:account-tickets:built:v1";
 const ACCOUNT_INDEX_TTL = 180 * 86400;
 const memAccountTickets = new Map<string, Set<string>>();
 
+/**
+ * The monday account this conversation provably belongs to, or null.
+ *
+ * Only a verified session token counts. `surface: "monday"` used to count as
+ * well, on the reasoning that the widget was running inside the customer's own
+ * app view — but `surface` is a field in the request body like any other, so a
+ * plain POST naming someone else's account was shown that account's tickets.
+ */
 export const trustedSlug = (conv: ChatConversation): string | null =>
-  conv.visitor.mondayAccountSlug && (conv.visitor.mondayAccountVerified || conv.surface === "monday")
+  conv.visitor.mondayAccountSlug && conv.visitor.mondayAccountVerified === true
     ? conv.visitor.mondayAccountSlug
     : null;
 

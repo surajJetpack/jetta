@@ -124,15 +124,23 @@ export default function InstallGuide({ baseUrl }: { baseUrl: string }) {
   // who they are — the question this snippet exists to skip. monday.api()
   // needs no token on the client (it uses the logged-in user's own
   // credentials), but it does need the app to hold the `me:read` scope.
+  //
+  // The session token is what makes the account more than a claim. Everything
+  // else in `visitor` is a string this page wrote, and the server treats it as
+  // one: without the token Jetta confirms the account before raising a trial
+  // or discount against it, and does not look up the account's earlier
+  // tickets. With it, monday has signed for the account and she does both.
   const mondaySnippet = `<script>
-  monday
-    .api("query { me { id name email } account { id slug } }")
-    .then(function (res) {
-      var me = res.data.me;
-      var account = res.data.account;
+  Promise.all([
+    monday.api("query { me { id name email } account { id slug } }"),
+    monday.get("sessionToken")
+  ]).then(function (results) {
+      var me = results[0].data.me;
+      var account = results[0].data.account;
       window.JettaChatConfig = {
         surface: "monday",
         visitor: {
+          mondaySessionToken: results[1].data,  // proves the account
           name: me.name,
           email: me.email,
           mondayAccountSlug: account.slug,
@@ -165,7 +173,10 @@ export async function mountJettaChat() {
   if (window.__jettaChatMounted) return;
   window.__jettaChatMounted = true;
 
-  const res = await monday.api("query { me { id name email } account { id slug } }");
+  const [res, session] = await Promise.all([
+    monday.api("query { me { id name email } account { id slug } }"),
+    monday.get("sessionToken"),
+  ]);
   const { me, account } = res.data;
 
   window.JettaChatConfig = {
@@ -175,6 +186,7 @@ export async function mountJettaChat() {
     // a launcher sent back to the right is lifted 88px above the sidekick.
     surface: "monday",
     visitor: {
+      mondaySessionToken: session.data, // proves the account; without it the rest is a claim
       name: me.name,
       email: me.email,
       mondayAccountSlug: account.slug,
