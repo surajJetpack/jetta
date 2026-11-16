@@ -5,6 +5,9 @@ Newest first. One entry per change people would notice: what Jetta does differen
 Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain words.
 
 
+## 2026-11-16: The manual catches up with today's changes
+The admin manual, the general handbook, the /system rows and the overview now describe what shipped today: who can archive and delete articles, what a chat visitor can and cannot get (billing, monday account, limits), how a first reply is retried or cancelled, the ticket follow-up as it really works (three touches, each announced an hour ahead), the dev-board thread replies and follow-up rules, and what happens when monday or billing writes are off. The general handbook's "what needs an admin" table was out of date on publishing and on trials and discounts, which have been open to the whole team since October and September. No behaviour change.
+
 ## 2026-11-16: A tool that declined no longer counts as done
 When one of Jetta's tools runs and refuses (a ticket not opened because it is the same issue as the existing one, a hand-off not made because the team was already asked and nobody came, a dev item not filed because writes are off), the run now records that nothing happened. Before, a refusal looked the same as a success to everything reading the run afterwards. In chat that meant a visitor could be told "I've passed this to our team" when no ticket had been opened, and outcomes could show an escalation or a ticket that never existed. Live on merge, no switch.
 

@@ -92,7 +92,7 @@ export function channelRows(): StatusRow[] {
     meaning: !jc.live
       ? "The public chat endpoints refuse traffic."
       : jc.secret
-        ? `Jetta answers visitors directly, with nobody reading first. ${
+        ? `Jetta answers visitors directly, with nobody reading first. A monday account is trusted only with a signed session token, billing is never answered in chat, and new chats, tickets and team pings are capped. ${
             origins ? `${origins} embedding origin${origins === 1 ? "" : "s"} allowed` : "Same-origin embedding only"
           }${config.blob.token ? "" : "; attachments are refused (no blob token)"}.`
         : "Switched on, but JETTACHAT_SECRET is unset — the channel refuses to serve.",
@@ -129,7 +129,7 @@ export function channelRows(): StatusRow[] {
     tone: fc.live && fcReady ? "warn" : "off",
     state: !fc.live ? "RETIRED" : fcReady ? "STILL ON" : "INCOMPLETE",
     meaning: !fc.live
-      ? "Replaced by JettaChat. The hand-off handler still exists but nothing is pointed at it."
+      ? "Replaced by JettaChat. The hand-off handler still exists but nothing is pointed at it, and it refuses any request it cannot verify."
       : fcReady
         ? "Switched on alongside JettaChat — two chat channels are live at once, which is probably not intended."
         : "Switched on but missing its API token, webhook key or hand-off group, so no event will ever be accepted.",
@@ -199,7 +199,7 @@ export function capabilityRows(): StatusRow[] {
       state: config.monday.allowWrites ? "ARMED" : "DRY RUN",
       meaning: config.monday.allowWrites
         ? "Creating items and posting their context happens for real, with no approval step."
-        : "Board searches work; every write is simulated.",
+        : "Board searches work; nothing is filed or posted. Jetta is told so, and hands the ticket to a person through Slack instead of saying the team has it.",
       setting: "MONDAY_ALLOW_WRITES",
     },
     {
@@ -208,7 +208,7 @@ export function capabilityRows(): StatusRow[] {
       state: config.fastspring.allowWrites ? "ARMED" : "DRY RUN",
       meaning: config.fastspring.allowWrites
         ? "Discounts and cancellations touch real subscriptions, including from Slack commands."
-        : "Account and invoice reads work; nothing can be charged, discounted or cancelled.",
+        : "Account and invoice reads work on tickets; nothing can be charged, discounted or cancelled, and Jetta and the Slack commands say so. Billing is never looked up or changed from chat.",
       setting: "FASTSPRING_ALLOW_WRITES",
     },
     {

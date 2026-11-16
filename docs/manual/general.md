@@ -30,7 +30,7 @@ Use your own username — every decision you make is recorded under your name. S
 
 You'll see three things in the sidebar: **Today**, **Chats**, and **Guide**. That's the shape of your day, and this handbook covers all three.
 
-Those three tabs are about attention, not permission. A direct link to a page that isn't in your sidebar will still open, and you can draft a knowledge base article there — you just can't be the one who publishes it. Chapter 7 covers where that line sits.
+Those three tabs are about attention, not permission. A direct link to a page that isn't in your sidebar will still open, and you can draft a knowledge base article there and publish it — you just can't archive one, or delete one that is already live. Chapter 7 covers where that line sits.
 
 ---
 
@@ -125,7 +125,7 @@ Two behaviours worth knowing:
 When a ticket needs engineering, Jetta files a dev item on monday. She can also keep the conversation going there. Whether each part is switched on is on the System page; "shadow" means she only logs what she would do.
 - **A developer asks something or marks the item "Need more info":** she answers from the ticket, or asks the customer. The question to the customer still comes to you as a suggestion.
 - **The fix ships:** she suggests telling the customer and asking them to try again.
-- **The customer adds details or files, or asks "any update?":** she passes it to the developer on the item.
+- **The customer adds details or files, or asks "any update?":** she passes it to the developer on the item. If the developer asked in a thread, her answer goes back into that thread.
 - **A question the knowledge base can't answer** ("can GetSign do X?"): she asks the developers as a Question item instead of guessing.
 - **An item goes quiet for 3 working days while a customer waits:** she asks the developer for an update, and raises it in Slack if nobody answers.
 - **A developer explains something:** she drafts a knowledge-base article for review.
@@ -204,14 +204,14 @@ Escalations land in **#jetta-escalations**. When Jetta posts there, it decided a
 
 ### The admin line
 
-You can do the whole support job and anything reversible: answer a live chat, draft an article, read every transcript. The things reserved for an admin are the ones that change **every future reply**, **spend money**, or decide **who may embed the chat**:
+You can do the whole support job: answer a live chat, draft an article, review and publish one, reject a draft, read every transcript, and decide a trial extension or a discount. The things reserved for an admin are the ones that change **every future reply**, **remove an answer Jetta relies on**, or decide **who may embed the chat**:
 
 | You want to | Ask an admin to |
 |---|---|
-| Get a knowledge base article live | Publish it — drafting is yours, publishing is theirs |
 | Turn a recurring correction into a rule Jetta follows | Approve the learning |
-| Extend a trial or grant a discount | Approve the request |
+| Take an article out of use | Archive it, or delete it if it is published or archived |
 | Allow the chat widget on a new site | Change the embed list |
+| Run Jetta live on a ticket from the System page | Do it — a dry-run preview is yours |
 
 Spotting these is genuinely useful work. If you keep correcting Jetta the same way, say so — that's a rule waiting to be written. If customers keep asking something with no article behind it, say that too.
 
