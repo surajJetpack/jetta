@@ -416,6 +416,83 @@ async function main() {
     assert.equal(await getTicketFollowUp(id), null);
   });
 
+  await test("the closing email goes out but the resolve fails → the next run closes the ticket, and sends nothing more", async () => {
+    const t = ticket();
+    const id = String(t.listed.id);
+    const f = fake([t]);
+    await f.run("2026-10-16T10:00:00Z");
+    assert.equal(await noteThenSend(f, id), "sent");
+    assert.equal(await noteThenSend(f, id), "sent");
+
+    // Touch 3: Freshdesk takes the reply and then refuses the status change.
+    const realResolve = f.deps.resolve;
+    f.deps.resolve = async () => {
+      throw new Error("Freshdesk PUT /tickets failed: 503");
+    };
+    assert.equal(await noteThenSend(f, id), "error");
+    assert.equal(f.sent.length, 3, "the closing email went out");
+    assert.deepEqual(f.resolved, [], "…and the ticket is still open");
+    const state = (await getTicketFollowUp(id))!;
+    assert.equal(state.touches.length, 3, "the closing email is on record, so it is not mistaken for a colleague's");
+    assert.equal(state.pending, undefined);
+
+    // Twenty minutes later Freshdesk is back.
+    f.deps.resolve = realResolve;
+    const notesBefore = f.notes.length;
+    const r = await f.run(new Date(f.clock.now + 20 * 60_000).toISOString());
+    assert.equal(r.handled.find((h) => h.ticketId === id)?.action, "resolved_late", JSON.stringify(r.handled));
+    assert.deepEqual(f.resolved, [id]);
+    assert.equal(f.sent.length, 3, "no fourth email");
+    assert.equal(f.notes.length, notesBefore, "and no \"cancelled: App Support closed the ticket\" note");
+    assert.equal(await getTicketFollowUp(id), null, "state is cleared once it really is closed");
+  });
+
+  await test("two runs overlap on a send → the customer gets one email", async () => {
+    const t = ticket();
+    const id = String(t.listed.id);
+    const f = fake([t]);
+    await f.run("2026-10-16T10:00:00Z");
+    const s = (await getTicketFollowUp(id))!;
+    await f.run(new Date(s.dueAt + 60_000).toISOString()); // noted
+    const pending = (await getTicketFollowUp(id))!.pending!;
+
+    // Both runs have read the same pending touch before either sends.
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const realReply = f.deps.reply;
+    f.deps.reply = async (tid, body) => {
+      await gate;
+      return realReply(tid, body);
+    };
+    const at = new Date(pending.sendAt + 60_000).toISOString();
+    const first = f.run(at);
+    const second = f.run(at);
+    release();
+    const actions = (await Promise.all([first, second])).map((r) => r.handled.find((h) => h.ticketId === id)?.action).sort();
+    assert.deepEqual(actions, ["sent", "skipped"], JSON.stringify(actions));
+    assert.equal(f.sent.length, 1, "one email, not two");
+  });
+
+  await test("a send that fails frees the touch for the next run", async () => {
+    const t = ticket();
+    const id = String(t.listed.id);
+    const f = fake([t]);
+    await f.run("2026-10-16T10:00:00Z");
+    const s = (await getTicketFollowUp(id))!;
+    await f.run(new Date(s.dueAt + 60_000).toISOString());
+    const pending = (await getTicketFollowUp(id))!.pending!;
+    const realReply = f.deps.reply;
+    f.deps.reply = async () => {
+      throw new Error("Freshdesk POST /reply failed: 500");
+    };
+    let r = await f.run(new Date(pending.sendAt + 60_000).toISOString());
+    assert.equal(r.handled.find((h) => h.ticketId === id)?.action, "error");
+    f.deps.reply = realReply;
+    r = await f.run(new Date(pending.sendAt + 21 * 60_000).toISOString());
+    assert.equal(r.handled.find((h) => h.ticketId === id)?.action, "sent", JSON.stringify(r.handled));
+    assert.equal(f.sent.length, 1);
+  });
+
   console.log(failures ? `\n${failures} failed` : "\nticket-followup-run-test: all passed");
   if (failures) process.exit(1);
 }

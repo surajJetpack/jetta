@@ -19,7 +19,7 @@ import { config } from "./config";
 import * as freshdesk from "./tools/freshdesk";
 import { complianceItemsForTicket, devItemsForTicket } from "./tools/monday";
 import { followUpCloseBlocker, describeFollowUpBlock } from "./followup-guard";
-import { getEscalationTs, recordOutcome } from "./kv";
+import { getEscalationTs, keepEventSeen, markEventSeen, recordOutcome, unmarkEventSeen } from "./kv";
 import { logOpsEvent } from "./events";
 import { modelLabel } from "./llm";
 import {
@@ -149,6 +149,9 @@ function priority(s: TicketFollowUp | undefined, now: number): number {
   if (s && !s.stopped && now >= s.dueAt) return 1;
   return 2;
 }
+
+/** How long one run may hold a touch it is about to send. */
+const SEND_CLAIM_SECONDS = 10 * 60;
 
 export type Handled = { ticketId: string; action: string; detail?: string; text?: string };
 
@@ -307,8 +310,17 @@ async function handle(t: Listed, prev: TicketFollowUp | undefined, opts: RunOpti
   }
   const n = s.pending?.n ?? s.touches.length + 1;
   if (n > MAX_TOUCHES) {
-    if (write) await clearTicketFollowUp(ticketId);
-    return { ticketId, action: "done" };
+    // Every touch has gone out and the state is still here: the closing
+    // message was sent and the resolve that follows it did not complete (the
+    // state is cleared when it does). The customer has been told the ticket
+    // is closed, so close it. Nothing else can bring us here — a reply from
+    // the customer or a colleague was handled above.
+    if (write) {
+      await deps.resolve(ticketId);
+      await clearTicketFollowUp(ticketId);
+      await deps.log({ level: "warn", event: "ticket_followup.resolved_late", source: "cron", ticketId, data: { touches: s.touches.length } });
+    }
+    return { ticketId, action: write ? "resolved_late" : "would_resolve" };
   }
   const dueAt = s.pending?.sendAt ?? s.dueAt;
   if (now < dueAt) {
@@ -347,10 +359,30 @@ async function handle(t: Listed, prev: TicketFollowUp | undefined, opts: RunOpti
   if (s.pending) {
     const { body } = s.pending;
     if (!write) return { ticketId, action: "would_send", detail: `touch ${n}`, text: body };
-    await deps.reply(ticketId, body);
+    // One send per touch, even if two runs overlap (Vercel can deliver a cron
+    // tick twice, and a manual run can land on top of a scheduled one). Both
+    // used to read `pending`, and both replied — on the last touch that is
+    // two "closing this" emails. Claimed short and kept once the reply is out,
+    // so a run that dies before sending frees the touch for the next one.
+    const claim = `ticketfollowup-send:${ticketId}:${n}:${s.anchorAt}`;
+    if (!(await markEventSeen(claim, SEND_CLAIM_SECONDS))) {
+      return { ticketId, action: "skipped", detail: `touch ${n} is being sent by another run` };
+    }
+    try {
+      await deps.reply(ticketId, body);
+    } catch (e) {
+      await unmarkEventSeen(claim).catch(() => {});
+      throw e;
+    }
+    await keepEventSeen(claim, 30 * 86_400).catch(() => {});
     const sentAt = new Date(now).toISOString();
     s = { ...s, pending: undefined, touches: [...s.touches, { n, sentAt, body }] };
     if (n === MAX_TOUCHES) {
+      // On record BEFORE the resolve is tried. If the resolve throws, the next
+      // run finds all touches sent and finishes the job (above). Unsaved, her
+      // own closing email looked like a colleague's: she posted "cancelled:
+      // App Support closed the ticket" and left it open.
+      await save();
       await deps.resolve(ticketId);
       await clearTicketFollowUp(ticketId);
       await deps

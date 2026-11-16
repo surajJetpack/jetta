@@ -46,7 +46,10 @@ export async function readFdBudget(): Promise<FdBudgetReading | null> {
   try {
     const raw = await kvGet(KEY);
     if (raw) {
-      const shared = JSON.parse(raw) as FdBudgetReading;
+      // Upstash hands a stored JSON string back already parsed. JSON.parse on
+      // that object threw, the catch below swallowed it, and the shared
+      // reading was never once read: each instance only saw its own calls.
+      const shared = (typeof raw === "string" ? JSON.parse(raw) : raw) as FdBudgetReading;
       if (!best || shared.at > best.at) best = shared;
     }
   } catch {
