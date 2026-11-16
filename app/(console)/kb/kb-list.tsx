@@ -337,6 +337,7 @@ export default function KbList() {
               <SelectItem value="knowledge-loop">Knowledge loop</SelectItem>
               <SelectItem value="fd-mined">Mined from Freshdesk</SelectItem>
               <SelectItem value="seed-getsign">GetSign seed</SelectItem>
+              <SelectItem value="getsign-reference">GetSign app reference</SelectItem>
             </SelectContent>
           </Select>
           <Select value={f.product || ALL} onValueChange={(v) => setF({ ...f, product: v === ALL ? "" : v })}>

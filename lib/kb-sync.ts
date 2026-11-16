@@ -42,7 +42,14 @@ const SYNC_ACTOR = "kb-sync";
  * article would otherwise mark the whole crawled corpus as human-edited and
  * quietly stop the daily sync from ever updating it again.
  */
-const CRAWLER_ACTORS = new Set([SYNC_ACTOR, "kb-crawl-jetpackapps", "kb-migrate", "kb-scope-backfill"]);
+const CRAWLER_ACTORS = new Set([
+  SYNC_ACTOR,
+  "kb-crawl-jetpackapps",
+  "kb-migrate",
+  "kb-scope-backfill",
+  // lib/getsign-reference.ts: its drafts follow the reference until a person edits one.
+  "kb-getsign-reference",
+]);
 /**
  * Body cap. Was 8000, which cut the GetSign MCP pages (10–13k chars) before
  * their FAQ — usually the part that answers the customer's actual question.
@@ -231,7 +238,7 @@ export function pageHash(title: string, body: string): string {
   return crypto.createHash("sha1").update(normalizeForCompare(`${title}\n${body}`)).digest("hex");
 }
 
-interface PageChange {
+export interface PageChange {
   /** Words added + removed, typography and whitespace ignored. */
   words: number;
   added: string[];
@@ -350,7 +357,7 @@ export interface SyncResult {
  * (kb-scope-backfill) restamp `updatedBy` on every article, which made a
  * human-edited article look untouched whenever a backfill ran after the human.
  */
-async function machineOnly(a: KbArticle): Promise<boolean> {
+export async function machineOnly(a: KbArticle): Promise<boolean> {
   if (!CRAWLER_ACTORS.has(a.updatedBy ?? a.createdBy) || !CRAWLER_ACTORS.has(a.createdBy)) return false;
   if (a.version === 1) return true;
   const versions = await listVersions(a.id);

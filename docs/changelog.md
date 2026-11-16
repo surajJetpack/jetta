@@ -5,6 +5,12 @@ Newest first. One entry per change people would notice: what Jetta does differen
 Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain words.
 
 
+## 2026-11-16: The GetSign app reference becomes knowledge base drafts, and stays current
+The GetSign developers' configuration reference (every screen, tab and setting, and why a workflow will not save) is now six articles in the KB review queue, origin "GetSign app reference", scoped to GetSign. They are drafts: Jetta cannot use one until a person publishes it, and the reference follows the app's development branch, so check the screen is live first.
+Every day the `kb-sync` cron reads the reference again. A changed section is redrafted by the model with file and code names left out (a redraft that names one is refused); an untouched draft is updated, an article a person edited or published is never overwritten and gets a "Reference changed" notice instead, a new section becomes a new draft, a dropped one removes an untouched draft or files a "Reference dropped" notice. A rejected draft stays rejected until its section changes.
+The daily read needs `JETTA_GETSIGN_REFERENCE_TOKEN` (read-only GitHub token for the GetSign app repository; row on /system). It is not set yet, so until it is Jetta files the six articles from the copy shipped with the code and does not see later changes.
+Jetta is also now told that an article with no link is internal: answer from it, give no link, invent none.
+
 ## 2026-11-16: Crons: five smaller ways to go quiet
 The ticket mirror (`ticket-sync`) no longer stalls on one ticket it cannot store: it stops at that ticket, keeps what it did, and after three runs in a row at the same one goes round it (`ticket_sync.ticket_failed`, then `ticket_sync.ticket_passed_over`, in the event log). The daily missed-reply check stops starting runs when it is nearly out of time, spaces its Freshdesk reads, and keeps a job that failed for the next day instead of dropping it. The ticket follow-up reads the `jetta-hold` tag fresh at send time, so a tag added a minute earlier is honoured. Self-review and Logs alerts are no longer silenced when the Slack post itself failed (`selfreview.alert_failed`, `errorwatch.alert_failed`); they are tried again on the next run. A ticket's run history now expires 180 days after its last run. No switch; live on merge.
 
