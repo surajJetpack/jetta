@@ -182,8 +182,3 @@ export function matchesBrand(
   if (rec.product === "getsign" || app === "getsign") return false;
   return rec.product === "jetpackapps" || (!!app && app !== "unknown");
 }
-
-/** Profile by its own key — for the settings overlay and the console. */
-export function profileByKey(key: string | null | undefined): Profile {
-  return key === "getsign" ? GETSIGN_PROFILE : MAIN_PROFILE;
-}

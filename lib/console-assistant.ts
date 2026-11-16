@@ -433,8 +433,6 @@ export function consoleTools(): ToolSet {
 /** Names of tools that run in the browser. The server refuses to execute these. */
 export const CLIENT_TOOLS = ["navigate", "open_ticket", "show_links", "think_deeper"] as const;
 
-export type ClientToolName = (typeof CLIENT_TOOLS)[number];
-
 /** Every console page id she may send the asker to. */
 export function pageIds(): string[] {
   return [...NAV.flatMap((g) => g.items.map((i) => i.id)), GUIDE_ITEM.id];

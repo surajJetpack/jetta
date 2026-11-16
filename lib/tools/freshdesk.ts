@@ -202,16 +202,6 @@ export function stripHtml(html: string): string {
     .trim();
 }
 
-export interface KbArticle {
-  title: string;
-  url: string;
-  /** Full article text (HTML stripped) so Jetta can ground answers in it. */
-  body: string;
-}
-
-/** Cap on per-article body length included in the tool result. */
-const KB_BODY_CHARS = 2500;
-
 type FDAttachment = {
   id: number;
   name: string;
@@ -897,85 +887,6 @@ export async function downloadTicketFiles(
   }
 
   return { files: files.slice(0, MAX_SEND_FILES), skipped };
-}
-
-export async function searchKnowledgeBase(keyword: string): Promise<KbArticle[]> {
-  if (!config.freshdesk.live) {
-    if (/mapping|map|column/i.test(keyword)) {
-      return [
-        {
-          title: "GetSign: Saving column mappings",
-          url: "https://support.jetpackapps.io/solution/articles/getsign-saving-mappings",
-          body: "Mappings must be confirmed with the Save button before closing the editor; they are not auto-saved on close. Click Save before closing. Confirmed in v2.3+.",
-        },
-      ];
-    }
-    return [];
-  }
-
-  type FDArticle = { id: number; title: string; description_text?: string; description?: string };
-  // Freshdesk's keyword search is noisy and ranks loosely, so we return the
-  // FULL body of the top matches and let Jetta judge relevance and ground her
-  // answer in the actual text (rather than us pre-truncating to a blurb).
-  const articles = await fd<FDArticle[]>(
-    `/search/solutions?term=${encodeURIComponent(keyword)}`,
-  );
-  return articles.slice(0, 5).map((a) => ({
-    title: a.title,
-    url: `https://${config.freshdesk.domain}/support/solutions/articles/${a.id}`,
-    body: (a.description_text ?? stripHtml(a.description ?? "")).slice(0, KB_BODY_CHARS),
-  }));
-}
-
-export interface SolutionArticle {
-  id: string;
-  title: string;
-  url: string;
-  body: string;
-  category: string;
-}
-
-/**
- * List every published Solutions article across all categories (General,
- * GetSign, Vlookup Auto-Link, …). Used to ingest the real, multi-product
- * Freshdesk KB into the vector index. Stub returns a small sample.
- */
-export async function listAllSolutionArticles(): Promise<SolutionArticle[]> {
-  if (!config.freshdesk.live) {
-    return [
-      {
-        id: "stub-1",
-        title: "GetSign: Saving column mappings",
-        url: "https://support.jetpackapps.io/solution/articles/getsign-saving-mappings",
-        body: "Mappings must be saved with the Save button before closing the editor.",
-        category: "GetSign",
-      },
-    ];
-  }
-
-  type FDCat = { id: number; name: string };
-  type FDFolder = { id: number };
-  type FDArticle = { id: number; title: string; status: number; description_text?: string; description?: string };
-
-  const out: SolutionArticle[] = [];
-  const cats = await fd<FDCat[]>(`/solutions/categories`);
-  for (const cat of cats) {
-    const folders = await fd<FDFolder[]>(`/solutions/categories/${cat.id}/folders`).catch(() => []);
-    for (const folder of folders) {
-      const articles = await fd<FDArticle[]>(`/solutions/folders/${folder.id}/articles`).catch(() => []);
-      for (const a of articles) {
-        if (a.status !== 2) continue; // published only
-        out.push({
-          id: String(a.id),
-          title: a.title,
-          url: `https://${config.freshdesk.domain}/support/solutions/articles/${a.id}`,
-          body: (a.description_text ?? stripHtml(a.description ?? "")).slice(0, 4000),
-          category: cat.name,
-        });
-      }
-    }
-  }
-  return out;
 }
 
 // ── Solutions write API — publish KB articles to the customer help center ──

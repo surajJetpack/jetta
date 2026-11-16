@@ -197,10 +197,6 @@ export function brandFor(productHint: string | null | undefined, text: string): 
   return { product, brand: signingBrand(product) };
 }
 
-// ── the writer ─────────────────────────────────────────────────────
-
-export type WriterDecision = "send" | "our_court" | "already_resolved" | "needs_person";
-
 const WRITTEN = z.object({
   decision: z.enum(["send", "our_court", "already_resolved", "needs_person"]),
   waitingOn: z.string().describe("The one thing we are waiting on from the customer, in a few words. Empty if nothing."),

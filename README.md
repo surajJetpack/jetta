@@ -1,36 +1,43 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Jetta
 
-## Getting Started
+The AI support agent for Jetpack Apps and GetSign. She answers Freshdesk tickets, runs the chat widget on the websites and inside the monday apps, keeps the developers' boards and the customers' tickets in step, and gives the support team a console to supervise all of it.
 
-First, run the development server:
+Next.js (App Router) on Vercel, with Upstash Redis for state, Upstash Vector for retrieval and Neon Postgres for the ticket mirror.
+
+## Where to read
+
+| For | Read |
+|---|---|
+| How the system fits together: the request flow, each component, the endpoints | [JETTA-OVERVIEW.md](JETTA-OVERVIEW.md) |
+| What changed and when, newest first | [docs/changelog.md](docs/changelog.md) |
+| The chat widget: embedding, identity, limits | [docs/jettachat.md](docs/jettachat.md) |
+| Using the console, for the support team | [docs/support-console-guide.md](docs/support-console-guide.md), [docs/manual](docs/manual) |
+| Before writing Next.js code here | [AGENTS.md](AGENTS.md) — this version differs from older ones |
+
+## Running it
 
 ```bash
+npm ci
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+With no environment variables Jetta runs in **stub mode**: every integration returns canned data and nothing can reach a customer, a ticket or a board. Each integration goes live on its own switch (`FRESHDESK_LIVE`, `MONDAY_LIVE`, …), and anything that writes has a second one (`MONDAY_ALLOW_WRITES`, `FASTSPRING_ALLOW_WRITES`). `lib/config.ts` defines them all; `/system` in the console shows what is on in a deployment.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Checks
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm run typecheck
+npm run lint
+npm test
+npm run build
+```
 
-## Learn More
+`npm test` runs every `scripts/*-test` file that needs no keys, each in its own process, with stub mode forced and credentials stripped from the environment. A new `*-test` file is picked up automatically. The few that need a live service or a model are listed in `scripts/run-tests.mjs` and are run by hand with `--env-file=.env.local`.
 
-To learn more about Next.js, take a look at the following resources:
+CI runs the same four on every pull request and on `main` (`.github/workflows/ci.yml`). It has no secrets.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Shipping
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Merging to `main` deploys to production. Work on a branch, open a pull request, and add an entry at the top of `docs/changelog.md` for anything people would notice — the console assistant reads it.
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Secrets a deployment must have, or the matching traffic is refused: `WEBHOOK_SECRET`, `CRON_SECRET`, `SLACK_SIGNING_SECRET`, and `CONSOLE_USERS` or `ADMIN_SECRET` (see `lib/request-auth.ts`).

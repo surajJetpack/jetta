@@ -30,7 +30,6 @@ import { textWithAttachments } from "./chat-files";
 import { humanizeText } from "./human-text";
 import type {
   AppProduct,
-  ChatAttachment,
   ChatConversation,
   ChatMessage,
   ChatSurface,
@@ -831,11 +830,6 @@ export function transcriptSince(conv: ChatConversation, sinceIso: string | undef
 export function messagesSince(conv: ChatConversation, sinceIso: string | undefined): ChatMessage[] {
   const since = sinceIso ? Date.parse(sinceIso) : 0;
   return conv.messages.filter((m) => Date.parse(m.createdAt) > since);
-}
-
-/** Every stored file across a conversation, oldest first. */
-export function conversationAttachments(conv: ChatConversation): ChatAttachment[] {
-  return conv.messages.flatMap((m) => m.attachments ?? []);
 }
 
 // ── Wipe ───────────────────────────────────────────────────────────

@@ -360,12 +360,6 @@ export async function scheduleFirstResponse(job: ScheduledFirstResponse): Promis
   return true;
 }
 
-export async function getScheduledFirstResponse(ticketId: string): Promise<ScheduledFirstResponse | null> {
-  const r = client();
-  if (r) return (await r.get<ScheduledFirstResponse>(key(ticketId))) ?? null;
-  return mem.get(ticketId) ?? null;
-}
-
 /** Every scheduled reply, due or not, soonest first. */
 export async function listScheduledFirstResponses(): Promise<ScheduledFirstResponse[]> {
   const r = client();
