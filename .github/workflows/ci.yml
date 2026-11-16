@@ -1,0 +1,61 @@
+# Runs the checks that already exist, so they stop depending on someone
+# remembering to type the command.
+#
+# Everything here is HERMETIC: no API keys, no network to our services, no
+# credentials. That is a safety property, not just a speed one — CI has no
+# secrets, so nothing in this file can reach a customer, a Freshdesk ticket or
+# the monday board even by accident. `npm test` enforces the same thing from
+# its side: it strips credentials from the environment and forces stub mode.
+# The scripts that DO touch live systems are listed in scripts/run-tests.mjs
+# (NEEDS_LIVE) and are run by hand.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A second push to the same branch makes the first run pointless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      # config.ts reads the environment once, on first import. Stub mode is the
+      # default, but it is set explicitly here so a future change to that
+      # default cannot quietly let CI start making real calls.
+      STUB_MODE: "true"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - name: Types
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      # Every offline test script, each in its own process. A new *-test file
+      # is picked up automatically.
+      - name: Tests
+        run: npm test
+
+      # The same build Vercel runs, including the prebuild check that every
+      # switch and cron is documented for the console assistant.
+      - name: Build
+        run: npm run build
