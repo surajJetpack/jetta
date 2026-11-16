@@ -109,7 +109,9 @@ Since 2026-10-12, Jetta answers the **first message** on a ticket herself, so cu
 
 - **Which tickets:** ones the customer opened directly: email, the support portal, the in-app support form (Freshdesk calls it "phone") and the Freshdesk widget. **Never tickets that came from a chat** (JettaChat or Freshchat hand-offs), and never once anyone has replied publicly.
 - **How:** Jetta writes the reply, a second model checks it (no invented promises, refunds, dates or fixes, no internal details), and if it passes she posts a private note saying when it will go out. **3 to 7 minutes later** she re-reads the ticket and sends it.
-- **How to stop one:** reply first yourself, add the tag `jetta-hold`, or close the ticket. If the customer writes again before it goes, it is cancelled too.
+- **How to stop one:** reply first yourself, add the tag `jetta-hold`, or close the ticket.
+- **If the customer writes again before it goes,** it is cancelled, and a private note says so: "Jetta did NOT send the first response announced above". Nothing has reached the customer at that point, so use the text as a draft if it still fits. An out-of-office auto-reply from the customer does not count as writing again; the reply still goes.
+- **If Freshdesk can't be reached at send time,** she tries again every minute. After an hour she gives up and leaves a note asking a person to send it. A note saying a reply is on its way is always followed by the reply or by a note saying it was not sent.
 - **When the check fails** (or it's a call/demo request or a price negotiation), nothing is sent: you get the normal private-note suggestion, with a banner saying it was held for a person.
 - **Everything after the first reply** is a suggestion in a private note, exactly as described below.
 
@@ -126,19 +128,27 @@ Two behaviours worth knowing:
 
 ### When the customer goes quiet
 
-When you send a reply that **resolves** the ticket, and it was Jetta's suggestion (as-is or edited), Jetta schedules a follow-up. The follow-up sweep runs once a day at **09:00 UTC** and picks up anything at least 24 hours old. If the customer still hasn't answered, it posts one fixed note ("I haven't heard back, so I'll assume this is resolved…") and sets the ticket to **Resolved**.
+When a customer goes quiet after our reply, Jetta follows up in her own name (`JETTA_TICKET_FOLLOWUP`; the cron runs every 20 minutes and only reports unless the switch is on).
 
-It only closes a ticket that is actually waiting on the customer:
+- **Three touches.** A check-in after 2 business days, a nudge 3 business days after that, and 3 more later a closing message, after which she sets the ticket to **Resolved**. Each is written from the thread, not from a template, and goes out around the hour the customer last wrote.
+- **You see each one first.** Every touch sits on the ticket as a private note for about an hour before it is sent. Reply to the customer yourself, or add the tag `jetta-hold`, and it is cancelled.
+- **A colleague's reply restarts the count** from that reply. If the colleague told the customer the ticket is closed, she stops there.
+- **A customer's reply ends it.** The ticket is theirs to be answered, and she writes a suggestion as usual.
+- **One follow-up per customer.** Someone with two tickets about the same problem is followed up on the one we answered most recently.
+- **Never on** outbound tickets, internal ones, or `[TEST]` tickets.
+
+She only closes a ticket that is actually waiting on the customer:
 
 - **Only Open, Pending or Waiting on Customer.** Escalated to Dev, Working on it, HOLD, Validating, Customer responded: all mean the next move is ours, so the ticket is left alone.
 - **Never while an escalation is open.** If Jetta escalated the ticket to the team, it is not closed automatically, whatever the status says.
-- **Never while the dev board still has it.** Before closing, Jetta looks up the dev items filed for that ticket on both boards (by the ticket link every item carries, whoever filed it). If one is still in flight, the issue is not resolved and the ticket stays open. "In flight" means anything in a live group — ToDo, Working on it, Waiting Customer, HOLD, Testing Failed, even Done until it is moved or marked Deployed to Prod. Only the Done / Deployed To Prod groups, or a status of Deployed to Prod, Archived, Not an Issue, Not Bug or Could not Replicate, count as finished. If monday can't be read, the ticket is held and checked again tomorrow.
-- **No follow-up for a suggestion you replaced.** If you wrote your own reply instead ("passed to the devs, we'll update you"), Jetta's suggestion doesn't count as a resolution, and nothing is scheduled.
-- **An escalation is never a resolution.** A turn where Jetta escalated or filed a dev item can't schedule a follow-up.
+- **Never while the dev board still has it.** Before any touch, Jetta looks up the dev items filed for that ticket on both boards. If one is still in flight there is no follow-up at all, with one exception: when engineering has parked the item on **Waiting Customer**, she checks in and nudges, but still never closes. "In flight" means anything in a live group — ToDo, Working on it, Waiting Customer, HOLD, Testing Failed, even Done until it is moved or marked Deployed to Prod. Only the Done / Deployed To Prod groups, or a status of Deployed to Prod, Archived, Not an Issue, Not Bug or Could not Replicate, count as finished. If monday can't be read, the ticket is held and looked at again on the next run. A dev item stays tied to its ticket however long its thread gets.
+- **An escalation is never a resolution.** A turn where Jetta escalated or filed a dev item is the customer waiting on us.
 
-When the customer does reply on a ticket that has a dev item, Jetta sees that item and its Dev Status in her context (not just fuzzy matches by subject), reads engineering's comments on it before answering, and treats the issue as unresolved while the item is in flight: she won't close the ticket, won't tag the turn as a resolution (so no follow-up gets scheduled), and won't file a second item for the same problem. If the item is finished but the customer says it still happens, that goes back to engineering as new information.
+Two things that used to go wrong and no longer do. If two runs overlap, the customer still gets each touch once. And if the closing message goes out but Freshdesk refuses the status change, the next run finishes the close instead of leaving the ticket open (`ticket_followup.resolved_late` in the event log).
 
-If the customer replies to a closed ticket, Jetta picks it up and writes a suggestion even if Freshdesk hasn't reopened the ticket yet. Held tickets show in the event log as `cron.followup_held`, with the dev item named when that is the reason. Ask Jetta in the console "what's going to be auto-closed?" to see the queue.
+When the customer does reply on a ticket that has a dev item, Jetta sees that item and its Dev Status in her context (not just fuzzy matches by subject), reads engineering's comments on it before answering, and treats the issue as unresolved while the item is in flight: she won't close the ticket, won't tag the turn as a resolution, and won't file a second item for the same problem. If the item is finished but the customer says it still happens, that goes back to engineering as new information.
+
+If the customer replies to a closed ticket, Jetta picks it up and writes a suggestion even if Freshdesk hasn't reopened the ticket yet. A separate daily check at 09:00 UTC catches a customer reply that never got a suggestion, on tickets where a resolution had been sent.
 
 ### Compliance and security paperwork goes to Mark
 
@@ -155,12 +165,14 @@ Jetta doesn't only file dev items; she keeps talking to the developers on them, 
   - Developers talking to each other, progress notes, other statuses: she does nothing.
   
   Customer replies from this still follow the normal rules (a suggestion you send, outside her first reply).
-- **Customer → developers** (`JETTA_DEV_RELAY`). When a customer writes on a ticket that has an open dev item, Jetta puts anything the developers can use on the item: details, error text, answers, files. When the customer explicitly asks for an update and nothing has moved, she asks the developer, once per silence. When a customer asks how something works and the KB has no answer, she files it as a **Type = Question** item instead of guessing (`ask_devs`), and tells the customer she's checking with the team.
-- **Follow-up on quiet dev items** (`JETTA_DEV_FOLLOWUP`, daily). If a ticket is still open and its item has had no comment and no status change for 3 working days (Saturday off), Jetta asks the Developer for an update; 3 working days later she asks again; then she raises it once in the escalation channel and stops. Any comment or status change resets it. She leaves alone items set to Waiting Customer or Need more info, on hold, finished, or feature requests.
+- **Customer → developers** (`JETTA_DEV_RELAY`). When a customer writes on a ticket that has an open dev item, Jetta puts anything the developers can use on the item: details, error text, answers, files. If a developer asked for something inside a thread, the customer's answer goes back into that same thread, with an @mention for whoever asked. When the customer explicitly asks for an update and nothing has moved, she asks the developer, once per silence, as a new comment so it is seen. When a customer asks how something works and the KB has no answer, she files it as a **Type = Question** item instead of guessing (`ask_devs`), and tells the customer she's checking with the team.
+- **Follow-up on quiet dev items** (`JETTA_DEV_FOLLOWUP`, daily). If a ticket is still open and its item has had no comment and no status change for 3 working days (Saturday off), Jetta asks the Developer for an update; 3 working days later she asks again; then she raises it once in the escalation channel and stops. A comment from engineering or a status change resets it. A comment from the item's Reporter or from the support team ("any update?") counts as another ask, not as progress, whoever the engineer answering is: they do not need to be the one in the Developer column. One item that fails does not stop the rest of the run. She leaves alone items set to Waiting Customer or Need more info, on hold, finished, or feature requests.
 - **Follow-up on items with no ticket link** (`JETTA_DEV_FOLLOWUP_UNLINKED`, same cron). Items filed by hand often name the customer in the title instead of linking the Freshdesk ticket. When a Reporter filed one, Jetta follows it up on the same rhythm: she asks the Developer; if the item is Waiting Customer she asks the Reporter whether the customer replied; if it has no Developer she asks the Reporter who should own it. She skips the Internal Bug group, feature requests, and anything quiet for over 60 working days.
-- **KB drafts from developers** (`JETTA_DEV_KB`). When a developer answers a Question item, the question and answer are drafted into the KB review queue. When a bug reaches Deployed to Prod or Not an Issue, Jetta asks its Developer once for a short explanation or a doc (PDF, Word or text, posted as a new update) and drafts an article from it. "no KB" ends that. Nothing is published without review.
+- **KB drafts from developers** (`JETTA_DEV_KB`). When a developer answers a Question item, the question and answer are drafted into the KB review queue. When a bug reaches Deployed to Prod or Not an Issue, Jetta asks its Developer once for a short explanation or a doc (PDF, Word or text, posted as a new update) and drafts an article from it. "no KB" ends that. Nothing is published without review. While that request is open, a developer's comment on the item still reaches the ticket in the usual way.
 
-**How it looks on monday.** Jetta posts with **Suraj's monday account**, because that is the token she has, so every post of hers starts with **🤖 Jetta:**. She @mentions whoever is in the item's **Developer** column, and posts without a mention when nobody is assigned. She never changes Dev Status or any other column. That stays the developers' call. Developers can reply in the thread, or set Need more info, and she will pick it up.
+**How it looks on monday.** Jetta posts with **Suraj's monday account**, because that is the token she has, so every post of hers starts with **🤖 Jetta:**. She @mentions whoever is in the item's **Developer** column, plus whoever asked when she is answering inside a thread. When there is nobody to mention she still posts, and her own record of the run says nobody was notified. She never changes Dev Status or any other column. That stays the developers' call. Developers can reply in the thread, or set Need more info, and she will pick it up.
+
+**When writes are off.** With `MONDAY_ALLOW_WRITES` off, or monday not connected, she files and posts nothing, knows that she didn't, and hands the ticket to a person through Slack. She does not tell the customer the team has it.
 
 **Safety rails.** A run a developer starts never files another item or closes the ticket. Jetta ignores her own posts, so she can't answer herself, and she runs at most six times per item per day. Never quoting engineers, naming them or giving dates to the customer still applies in full.
 
@@ -197,6 +209,15 @@ Pick a conversation and the transcript opens beside the list. Three controls mat
 A visitor who asks for a person moves to **Needs a person**, pins to the top, and pings Slack. The visitor always sees who is speaking, so a handover is never silent. If nobody takes the chat within a minute, Slack is pinged again (a louder second call) and the visitor sees "Still trying to find someone". If nobody takes it after that, Jetta **opens a Freshdesk ticket** with the transcript, tells the visitor the ticket number and that the team will email them, and posts the ticket link in Slack so nobody jumps into the chat late. Both the wait and the number of calls are in chat settings. A visitor who never gave an email can't get a ticket, so Jetta takes the chat back herself. She doesn't ask for a person a second time that day. A handoff left unanswered for over two hours is ended quietly, without a message, and shows under **With Jetta**.
 
 Jetta opens tickets herself when she can't resolve something — the button is for when you decide before she does.
+
+### What a visitor can and can't get in chat
+
+Anyone can open the widget and type anything, so chat is treated as anonymous until something proves otherwise.
+
+- **Billing.** Jetta does not look up or change a FastSpring account from chat: an email typed into a chat is not proof of who is typing. She opens a ticket, and the team answers by email, where the reply lands in the account owner's inbox.
+- **The monday account.** Inside our apps the widget can pass monday's signed session token. With it, Jetta knows the account for certain: she uses it for trial and discount requests without asking, and can see earlier tickets from that account ("did my template get fixed?"). Without it, including an app view that sends no token, the account is only a claim. She confirms it with the visitor before a trial or discount request and does not look up the account's other tickets.
+- **Limits.** One network can open 40 new chats an hour. One email address gets 3 chat tickets a day. Across the whole channel there are 30 chat tickets and 20 "ask the team to join" pings an hour. Real use is nowhere near these; when one is hit, Jetta says honestly that she couldn't open a ticket, and `chat.ticket_capped` or `chat.handoff_capped` appears in the event log. A ticket you open with **Make a ticket** is not counted.
+- **She says what happened.** If a ticket could not be opened, or nobody could be asked to join, the visitor is not told otherwise.
 
 ### Chats that finish themselves
 
@@ -289,13 +310,15 @@ The list shows each article's state, hit count, version, and a **DUP?** flag whe
 
 The knowledge base syncs daily from our websites, so most articles maintain themselves.
 
+**Who can remove an article.** Anyone can delete a draft or something waiting in review. Archiving an article, and deleting one that is published or archived, needs an admin: both take away an answer Jetta relies on, and a delete cannot be undone.
+
 ### The review queue
 
 ![The review queue](images/kb-review.webp)
 
 Draft articles waiting to be published, from these sources: the Knowledge Loop (Slack escalations), Freshdesk mining, the Dev board page, and the developers themselves (tagged `dev-board`). When a developer answers a Question item, or sends a doc after a fix, Jetta drafts it here; see "Jetta and the dev board, both ways" in chapter 4. Nothing here reaches Jetta yet.
 
-Approving does two things at once — it publishes the article *and* embeds it for retrieval. That's the moment it starts affecting answers.
+Approving does two things at once — it publishes the article *and* embeds it for retrieval. That's the moment it starts affecting answers. Rejecting deletes the draft, and only ever a draft.
 
 ---
 
@@ -351,6 +374,8 @@ The truth page. Every capability is a separate opt-in, independent of whether th
 
 If you ever want to know whether Jetta *can* do something, this page answers it rather than the docs.
 
+The ticket runner at the bottom previews what Jetta would do on a ticket. Anyone can run it as a **dry run**. Running it live, which posts on the real ticket, needs an admin, and is recorded in the event log with who did it. The event log itself (on Insights) is admin-only, because it holds sign-in attempts.
+
 ---
 
 ## 10. Ground rules
@@ -375,7 +400,7 @@ Appearance and limits for the widget. The **Access & limits** section is shared 
 
 ![Install](images/chats-install.webp)
 
-How the widget gets onto a site, including a checker that tells you whether an origin will work *before* you theme it and find an empty corner of the page.
+How the widget gets onto a site, including a checker that tells you whether an origin will work *before* you theme it and find an empty corner of the page. The snippets for a monday app view pass monday's session token; an embed without it still works, but Jetta treats the account as unconfirmed (chapter 5).
 
 ---
 
