@@ -124,3 +124,20 @@ export function requireAdmin(req: NextRequest): NextResponse | null {
   }
   return null;
 }
+
+/**
+ * May this caller delete an article in `state`? Returns a refusal, or null.
+ *
+ * Deleting follows the same line as archiving. Throwing away something that
+ * was never live — a draft, or an item waiting in the review queue — is review
+ * work, and review is open to the whole team. Deleting a published or archived
+ * article removes an answer Jetta relies on (or its only record), with its
+ * history and its search entry, and cannot be undone: that is admin's.
+ *
+ * Every delete path goes through this. Three of them used to check login only,
+ * which made the admin-only archive rule something a general user could step
+ * around by pressing Delete instead.
+ */
+export function denyArticleDelete(req: NextRequest, state: string): NextResponse | null {
+  return state === "draft" || state === "in_review" ? null : requireAdmin(req);
+}

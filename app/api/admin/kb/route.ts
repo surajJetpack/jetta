@@ -1,5 +1,6 @@
 /**
- * KB management API (admin-gated) over the unified article store.
+ * KB management API over the unified article store. Open to any signed-in
+ * user, except deleting an article that is or was live (admin only).
  *
  *   GET    /api/admin/kb?state=&category=&q=   → { articles, categories, byState, stale }
  *   POST   /api/admin/kb                       → create (default state "published" for console adds)
@@ -12,6 +13,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { adminAuthorized, adminActor } from "@/lib/auth";
+import { denyArticleDelete } from "@/lib/roles";
 import {
   getArticle,
   listArticles,
@@ -148,6 +150,10 @@ export async function DELETE(req: NextRequest) {
   if (!adminAuthorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const id = req.nextUrl.searchParams.get("id");
   if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
+  const existing = await getArticle(id);
+  if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
+  const denied = denyArticleDelete(req, existing.state);
+  if (denied) return denied;
   const ok = await deleteArticle(id, adminActor(req) ?? "console");
   if (!ok) return NextResponse.json({ error: "not found" }, { status: 404 });
   return NextResponse.json({ ok: true });

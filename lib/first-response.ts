@@ -30,6 +30,7 @@ import { generateObject } from "ai";
 import { z } from "zod";
 import { config } from "./config";
 import { getModel } from "./llm";
+import { looksAutomated } from "./intake";
 import type { AgentResult } from "./agent";
 import { GETSIGN_PROFILE, MAIN_PROFILE } from "./profiles";
 import type { ConversationContext, Product, Ticket } from "./types";
@@ -337,15 +338,26 @@ function client(): Redis | null {
 }
 const mem = new Map<string, ScheduledFirstResponse>();
 
-/** One per ticket: a newer schedule replaces an older one. */
-export async function scheduleFirstResponse(job: ScheduledFirstResponse): Promise<void> {
+/**
+ * One per ticket, and the reply to the NEWER customer message wins.
+ *
+ * Returns false when a reply to a later message is already queued, and leaves
+ * that one alone. Two emails seconds apart start two runs; if the run for the
+ * first finished last, its job used to replace the newer one, and the cron
+ * then cancelled it as stale ("customer wrote again") — so neither went out
+ * and neither run had left a draft.
+ */
+export async function scheduleFirstResponse(job: ScheduledFirstResponse): Promise<boolean> {
   const r = client();
+  const cur = r ? await r.get<ScheduledFirstResponse>(key(job.ticketId)) : mem.get(job.ticketId);
+  if (cur && cur.answersMessageAt > job.answersMessageAt) return false;
   if (r) {
     await r.set(key(job.ticketId), job, { ex: TTL_SECONDS });
     await r.zadd(SET, { score: job.sendAt, member: job.ticketId });
-    return;
+    return true;
   }
   mem.set(job.ticketId, job);
+  return true;
 }
 
 export async function getScheduledFirstResponse(ticketId: string): Promise<ScheduledFirstResponse | null> {
@@ -385,9 +397,19 @@ export async function clearScheduledFirstResponse(job: Pick<ScheduledFirstRespon
   if (!cur || cur.createdAt === job.createdAt) mem.delete(job.ticketId);
 }
 
-/** Created-at of the newest customer-authored, public message. */
+/**
+ * Created-at of the newest customer-authored, public message a person wrote.
+ *
+ * An autoresponder does not count. Freshdesk's "we received your request"
+ * email often draws an out-of-office back, which lands on the ticket as a
+ * customer reply; counted, it made the queued first response look stale
+ * ("customer wrote again") and cancelled it, while the run for the
+ * out-of-office itself was skipped at intake — so the customer got nothing.
+ */
 export function newestCustomerMessageAt(ticket: Ticket): string {
-  const last = [...ticket.replies].reverse().find((r) => r.author === "customer" && !r.isPrivate);
+  const last = [...ticket.replies]
+    .reverse()
+    .find((r) => r.author === "customer" && !r.isPrivate && !looksAutomated(r.body ?? ""));
   return last?.createdAt ?? "";
 }
 

@@ -4,6 +4,7 @@
  * Every function honours STUB_MODE: with no credentials it returns realistic
  * canned data so the Claude loop and webhook path can be exercised end-to-end.
  */
+import { imageNote } from "../injection";
 import { createHash } from "node:crypto";
 import { config } from "../config";
 import { humanizeText } from "../human-text";
@@ -103,6 +104,18 @@ export function customerWroteAfterClose(ticket: Pick<Ticket, "status" | "replies
  * has a new marker, so nothing legitimate is ever blocked.
  */
 export const CUSTOMER_MSG_MARKER_TTL = 30 * 86400;
+/**
+ * How long the marker is held while the run for it is still going: longer than
+ * any function may run (300s), short enough that a run killed at its limit
+ * frees the message again. Extended to the full TTL when the run completes
+ * (`keepEventSeen` in lib/kv.ts).
+ */
+export const CUSTOMER_MSG_CLAIM_TTL = 15 * 60;
+
+/** Did Freshdesk answer "no such thing" (as opposed to failing to answer)? */
+export function isNotFound(e: unknown): boolean {
+  return e instanceof Error && /^Freshdesk \S+ \S+ failed: 404\b/.test(e.message);
+}
 
 /**
  * Run-once key for the newest CUSTOMER message on a ticket: its timestamp, or
@@ -333,8 +346,9 @@ function withImageNote(text: string, html: string | undefined): string {
   if (!n) return text;
   // Prepended, not appended: the reply cap here and buildMessages' opening cap
   // both truncate the tail, which would silently eat a note placed at the end.
-  const it = n === 1 ? "it" : "them";
-  return `[system] The customer pasted ${n} image${n === 1 ? "" : "s"} into this message. You cannot view ${it} — never claim you have, and do not ask them to resend ${it}. Files that are real evidence go to the Dev board with an escalation or a dev-item update, and the tool result says which did; never say a file was forwarded unless it does.\n\n${text}`;
+  // The wording lives in lib/injection.ts, next to the detector that must not
+  // mistake it for a customer imitating the harness.
+  return `${imageNote(n)}\n\n${text}`;
 }
 
 export async function getTicketDetails(ticketId: string): Promise<Ticket> {
