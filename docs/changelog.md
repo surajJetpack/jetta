@@ -5,6 +5,9 @@ Newest first. One entry per change people would notice: what Jetta does differen
 Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain words.
 
 
+## 2026-11-16: First responses: fewer ways for an announced reply to vanish
+A message with a pasted screenshot is no longer handed to Jetta as a prompt-injection attempt (her own image note was tripping the detector). At send time, a Freshdesk error (rate limit, 5xx) is retried each minute for an hour and then handed to a person with a note, instead of being treated as "ticket not found" and dropped. A customer's out-of-office auto-reply no longer cancels the queued reply. When the customer really did write again, the cancel now leaves a note saying nothing was sent. If two replies are queued for one ticket, the one answering the newer message wins. And a run killed at the function time limit no longer leaves that customer message marked as handled for 30 days: the marker now lapses after 15 minutes unless the run finishes. Live on merge.
+
 ## 2026-11-10: Logs watches Cloudflare
 The Logs page has a Cloudflare section: server errors (5xx) on each site's production hosts (getsign.io, jetpackapps.io, jobflows.co), what the firewall blocked, each Worker's errors, and an hourly check that each site's busiest hosts answer. Click a number for the hosts, paths and firewall rules behind it; the AI read cites Cloudflare too. A site or Worker far above its usual day (or, while history builds, with errors a high share of its traffic) alerts the ops channel once a day; a host down two runs in a row alerts every 6 hours. Firewall blocks are page-only. Dev and staging hosts are shown, never flagged. Read-only token. `JETTA_CLOUDFLARE` (off leaves Cloudflare out). Live on merge once `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are set in Vercel.
 

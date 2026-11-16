@@ -25,7 +25,7 @@ import { runShadowTriage } from "@/lib/triage/shadow";
 import * as freshdesk from "@/lib/tools/freshdesk";
 import { buildSystemPrompt } from "@/lib/system-prompt";
 import { runAgentLoop } from "@/lib/agent";
-import { markEventSeen, unmarkEventSeen, scheduleFollowUp, recordOutcome, recordIntakeNoise } from "@/lib/kv";
+import { keepEventSeen, markEventSeen, unmarkEventSeen, scheduleFollowUp, recordOutcome, recordIntakeNoise } from "@/lib/kv";
 import { logOpsEvent } from "@/lib/events";
 import { recordRun } from "@/lib/runlog";
 import { createDraftFromRun } from "@/lib/drafts";
@@ -214,7 +214,11 @@ async function processTicket(ticketId: string, channel: "freshdesk" | "freshchat
     // (Console re-runs bypass this path on purpose.)
     // The follow-up cron claims the same marker before re-running a ticket.
     const marker = freshdesk.customerMessageMarker(ticketId, ctx.ticket);
-    if (!(await markEventSeen(marker, freshdesk.CUSTOMER_MSG_MARKER_TTL))) {
+    // Claimed SHORT here and kept for its full life only when the run ends
+    // (the `finally` below). A run killed at the function's time limit reaches
+    // neither `catch` nor `finally`, and a marker claimed for 30 days up front
+    // then made that customer message look answered to every later event.
+    if (!(await markEventSeen(marker, freshdesk.CUSTOMER_MSG_CLAIM_TTL))) {
       console.log(`Webhook ticket ${ticketId}: no new customer message since last run, skipping.`);
       await logOpsEvent({
         level: "info",
@@ -331,7 +335,11 @@ async function processTicket(ticketId: string, channel: "freshdesk" | "freshchat
     });
     // Release the customer-message marker so a retry can process this message.
     if (claimedMarker) await unmarkEventSeen(claimedMarker).catch(() => {});
+    claimedMarker = null;
   } finally {
+    // The run finished (it did not throw, and it was not killed): this message
+    // is handled, for the marker's full life.
+    if (claimedMarker) await keepEventSeen(claimedMarker, freshdesk.CUSTOMER_MSG_MARKER_TTL).catch(() => {});
     if (shadow) await shadow;
   }
 }
@@ -390,7 +398,7 @@ async function tryFirstResponse(
   const now = Date.now();
   const sendAt = now + pickDelayMs(config.firstResponseDelayMinutes);
   const body = withSignOff(reply, brand);
-  await scheduleFirstResponse({
+  const queued = await scheduleFirstResponse({
     ticketId,
     body,
     sendAt,
@@ -406,6 +414,14 @@ async function tryFirstResponse(
     escalated: result.toolsUsed.includes("send_escalation"),
     gateReason: verdict.reason,
   });
+  if (!queued) {
+    // The customer wrote again while this run was going, and the run for that
+    // later message has already queued its reply. This one answers an older
+    // message: it is dropped rather than announced, and no draft is left to
+    // compete with the newer reply.
+    await logOpsEvent({ level: "info", event: "first_response.superseded", source: "webhook", ticketId });
+    return { scheduled: true };
+  }
 
   // The announcement doubles as the veto: whoever opens the ticket in the
   // next few minutes sees what is about to go out and how to stop it.

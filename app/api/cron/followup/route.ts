@@ -12,7 +12,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { withCronBeat } from "@/lib/cron-beat";
 import { config } from "@/lib/config";
-import { getDueFollowUps, clearFollowUp, recordOutcome, markEventSeen, unmarkEventSeen } from "@/lib/kv";
+import { getDueFollowUps, clearFollowUp, recordOutcome, keepEventSeen, markEventSeen, unmarkEventSeen } from "@/lib/kv";
 import { buildContext, buildMessages } from "@/lib/context";
 import { buildSystemPrompt } from "@/lib/system-prompt";
 import { runAgentLoop } from "@/lib/agent";
@@ -57,7 +57,9 @@ async function handler(req: NextRequest) {
         const draftMode = config.replyMode === "draft";
         const ctx = await buildContext(job.ticketId);
         const marker = ctx.ticket ? freshdesk.customerMessageMarker(job.ticketId, ctx.ticket) : null;
-        if (marker && !(await markEventSeen(marker, freshdesk.CUSTOMER_MSG_MARKER_TTL))) {
+        // Claimed short and kept only once the run ends, as in the webhook:
+        // a run killed at the time limit must not leave the message "handled".
+        if (marker && !(await markEventSeen(marker, freshdesk.CUSTOMER_MSG_CLAIM_TTL))) {
           handled.push({ ticketId: job.ticketId, action: "replied → already handled by webhook" });
         } else if (ctx.ticket) {
           claimedMarker = marker;
@@ -100,6 +102,7 @@ async function handler(req: NextRequest) {
       }
     } catch (err) {
       if (claimedMarker) await unmarkEventSeen(claimedMarker).catch(() => {});
+      claimedMarker = null;
       handled.push({
         ticketId: job.ticketId,
         action: `error: ${err instanceof Error ? err.message : String(err)}`,
@@ -112,6 +115,7 @@ async function handler(req: NextRequest) {
         data: { error: err instanceof Error ? err.message : String(err) },
       });
     } finally {
+      if (claimedMarker) await keepEventSeen(claimedMarker, freshdesk.CUSTOMER_MSG_MARKER_TTL).catch(() => {});
       await clearFollowUp(job.ticketId);
     }
   }

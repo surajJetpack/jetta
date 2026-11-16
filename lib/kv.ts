@@ -62,6 +62,25 @@ export async function markEventSeen(eventId: string, ttlSeconds = 3600): Promise
   return true;
 }
 
+/**
+ * Keep a claimed marker for `ttlSeconds` from now.
+ *
+ * For work that is claimed BEFORE it is done: claim with a short TTL (a little
+ * longer than the function can run), and call this once the work has actually
+ * finished. A function killed at its time limit runs no `catch` and no
+ * `finally`, so a marker claimed for its full life up front stayed claimed —
+ * and the customer message behind it was treated as answered for 30 days.
+ * Claimed short, it simply lapses and the next event picks the work up.
+ */
+export async function keepEventSeen(eventId: string, ttlSeconds: number): Promise<void> {
+  const r = client();
+  if (r) {
+    await r.set(dedupeKey(eventId), "1", { ex: ttlSeconds });
+    return;
+  }
+  memEvents.set(eventId, Math.floor(Date.now() / 1000) + ttlSeconds);
+}
+
 /** Release a seen-marker so the event can be processed again (run-failure retry). */
 export async function unmarkEventSeen(eventId: string): Promise<void> {
   const r = client();
