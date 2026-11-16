@@ -19,7 +19,10 @@ import {
   isJettaPost,
   isNeedsInfoDevStatus,
   itemActivity,
+  correctionParent,
   NEW_INFO_PHRASE,
+  OWED_THREAD_DAYS,
+  owedThread,
   owedThreadId,
   ticketIdsOnItem,
   JETTA_POST_PREFIX,
@@ -270,25 +273,65 @@ console.log("#14591: who she tags, hand-offs, reposts");
   const ask = { id: "101", text_body: "Lets get access to test board with the formula?", created_at: t(11) };
   const promise = { id: "102", text_body: `${J} I have asked him. I will post his response here.`, created_at: t(12) };
   const gabriel = { id: "103", text_body: "I have just requested access", created_at: t(20) };
+  // A fixed clock: the debt lapses after OWED_THREAD_DAYS, so "now" must not be the wall clock.
+  const NOW = Date.parse(t(23));
   const thread = { ...info, replies: [ask, promise, gabriel] };
-  check("an answer she promised in a thread goes to that thread", owedThreadId([thread]) === "100");
+  check("an answer she promised in a thread goes to that thread", owedThreadId([thread], NOW) === "100");
   check(
     "…and once relayed, the next customer message is a fresh comment again",
-    owedThreadId([{ ...info, replies: [ask, promise, gabriel, { id: "104", text_body: `${J} ${NEW_INFO_PHRASE} #14600:\naccess granted`, created_at: t(21) }] }]) === null,
+    owedThreadId([{ ...info, replies: [ask, promise, gabriel, { id: "104", text_body: `${J} ${NEW_INFO_PHRASE} #14600:\naccess granted`, created_at: t(21) }] }], NOW) === null,
   );
-  check("a relay posted top-level after the promise also settles it", owedThreadId([thread, { id: "110", text_body: `${J} ${NEW_INFO_PHRASE} #14600:\naccess`, created_at: t(21) }]) === null);
-  check("no threads, no owed thread", owedThreadId([info, { id: "111", text_body: "I will release a fix today", created_at: t(13) }]) === null);
+  check("a relay posted top-level after the promise also settles it", owedThreadId([thread, { id: "110", text_body: `${J} ${NEW_INFO_PHRASE} #14600:\naccess`, created_at: t(21) }], NOW) === null);
+  check("no threads, no owed thread", owedThreadId([info, { id: "111", text_body: "I will release a fix today", created_at: t(13) }], NOW) === null);
   check(
     "her chase inside a thread is not a promise",
-    owedThreadId([{ ...info, replies: [ask, { id: "105", text_body: `${J} The customer on ticket #14600 ${CHASE_PHRASE}.`, created_at: t(12) }] }]) === null,
+    owedThreadId([{ ...info, replies: [ask, { id: "105", text_body: `${J} The customer on ticket #14600 ${CHASE_PHRASE}.`, created_at: t(12) }] }], NOW) === null,
   );
   check(
     "her upload correction under her own post opens no thread",
-    owedThreadId([{ ...info, replies: [{ id: "106", text_body: `${J} Correction: a.png failed to upload here.`, created_at: t(10) }] }]) === null,
+    owedThreadId([{ ...info, replies: [{ id: "106", text_body: `${J} Correction: a.png failed to upload here.`, created_at: t(10) }] }], NOW) === null,
   );
   const older = { id: "200", text_body: "which formula?", created_at: t(1), replies: [{ id: "201", text_body: `${J} Asked the customer for it.`, created_at: t(2) }] };
-  check("two open threads: the newest promise wins", owedThreadId([older, thread]) === "100");
-  check("a developer's own top-level question she answered in-thread counts", owedThreadId([older]) === "200");
+  check("two open threads: the newest promise wins", owedThreadId([older, thread], NOW) === "100");
+  check("a developer's own top-level question she answered in-thread counts", owedThreadId([older], NOW) === "200");
+
+  // The debt is not open-ended, and other ways of passing an answer on settle it.
+  const DAY = 86_400_000;
+  check("still owed a week later", owedThreadId([thread], Date.parse(t(12)) + 7 * DAY) === "100");
+  check(
+    "not owed after two weeks: by then a new message is a new topic",
+    owedThreadId([thread], Date.parse(t(12)) + (OWED_THREAD_DAYS + 1) * DAY) === null,
+  );
+  check(
+    "context added through create_dev_item (\"Follow-up from the SAME…\") settles it too",
+    owedThreadId([thread, { id: "120", text_body: "Follow-up from the SAME Freshdesk ticket — added here rather than filed as a second item.\n\nProduct: jetpackapps", created_at: t(21) }], NOW) === null,
+  );
+  check(
+    "…but only when it comes AFTER the promise",
+    owedThreadId([thread, { id: "121", text_body: "Follow-up from the SAME Freshdesk ticket.\n\nProduct: jetpackapps", created_at: t(10) }], NOW) === "100",
+  );
+
+  // Who to tell: the person she was answering, not whoever is in the Developer column.
+  const askedByPrashant = { ...ask, creator: { id: 63706225 } };
+  const laterColleague = { ...gabriel, creator: { id: 64260832 } };
+  const who = owedThread([{ ...info, replies: [askedByPrashant, promise, laterColleague] }], NOW);
+  check("the asker is the last person to post before her reply", who?.id === "100" && who.askedBy === "63706225", JSON.stringify(who));
+  check(
+    "a top-level question she answered in-thread names its author",
+    owedThread([{ ...older, creator: { id: 7 } }], NOW)?.askedBy === "7",
+  );
+  check("an asker with no creator on record is null, not a guess", owedThread([thread], NOW)?.askedBy === null);
+
+  // The upload correction follows the relay into the thread.
+  check(
+    "a correction to a threaded relay goes in the thread (a reply cannot be a parent)",
+    correctionParent({ id: "999", threaded: true }, "100") === "100",
+  );
+  check("a correction to a top-level post goes under that post", correctionParent({ id: "999", threaded: false }, undefined) === "999");
+  check(
+    "a relay that fell back to top-level is corrected where it actually landed",
+    correctionParent({ id: "999", threaded: false }, "100") === "999",
+  );
 }
 
 console.log(failures ? `\n${failures} FAILED` : "\nall passed");

@@ -1527,8 +1527,10 @@ export interface DevItemSnapshot {
   askTimes: string[];
   /** Newest post of Jetta's of any kind (ISO), or null. */
   lastJettaPostAt: string | null;
-  /** The thread a customer's answer belongs in (see owedThreadId), or null. */
+  /** The thread a customer's answer belongs in (see owedThread), or null. */
   owedThreadId: string | null;
+  /** Who asked in that thread — the person to @mention with the answer. Null if unknown. */
+  owedThreadAskerId: string | null;
   /** The Type column — "Question", "Bugs and Field Issues", … */
   type: string | null;
   /** When the progress column last changed (ISO) — a developer moving the item is activity. */
@@ -1606,6 +1608,7 @@ export async function getDevItemSnapshot(itemId: string): Promise<DevItemSnapsho
   const reporters = named(reporterIds, "reporter");
 
   const product: Product = item.board.id === config.monday.boardIds.getsign ? "getsign" : "jetpackapps";
+  const owed = owedThread(item.updates);
   return {
     id: item.id,
     name: item.name,
@@ -1621,7 +1624,8 @@ export async function getDevItemSnapshot(itemId: string): Promise<DevItemSnapsho
     // (every file Jetta forwards) hangs off its update.
     assetNames: [...(item.assets ?? []), ...item.updates.flatMap((u) => u.assets ?? [])].map((a) => a.name),
     ...itemActivity(item.updates, devIds),
-    owedThreadId: owedThreadId(item.updates),
+    owedThreadId: owed?.id ?? null,
+    owedThreadAskerId: owed?.askedBy ?? null,
     type: pickColumn(item.column_values, "status", ["type"]) ?? null,
     devStatusChangedAt:
       item.column_values.find(
@@ -1638,10 +1642,13 @@ export const NUDGE_PHRASE = "is still waiting";
 /** Opens update_dev_item's relay of what the customer said. */
 export const NEW_INFO_PHRASE = "New from the customer on ticket";
 
-type ThreadPost = { id: string; text_body: string | null; created_at: string };
+type ThreadPost = { id: string; text_body: string | null; created_at: string; creator?: { id: string | number } | null };
+
+/** How long a thread stays "owed" after her reply in it. Past this, a new message is a new topic. */
+export const OWED_THREAD_DAYS = 14;
 
 /**
- * The thread Jetta still owes the customer's answer in, or null. Pure.
+ * The thread Jetta still owes the customer's answer in, and who asked. Pure.
  *
  * When a developer asks for something inside a thread, reply_on_dev_item
  * answers there ("I have asked him, I will post his response here"). The
@@ -1650,29 +1657,53 @@ type ThreadPost = { id: string; text_body: string | null; created_at: string };
  * test-board access sat unread for a day and a half).
  *
  * So: the thread holding her newest in-thread answer to a person, as long as
- * she has not relayed anything from the customer since. Her chases, nudges and
- * upload corrections are not answers and open no thread.
+ * she has not passed anything on from the customer since. Her chases, nudges
+ * and upload corrections are not answers and open no thread.
+ *
+ * Two things end it. Anything she relays afterwards — a "New from the
+ * customer" post, or the context she adds through create_dev_item ("Follow-up
+ * from the SAME ticket") — settles the debt wherever it was posted. And it
+ * lapses after OWED_THREAD_DAYS: without that, one in-thread reply ("the
+ * account is acme") kept the thread owed for good, and details the customer
+ * sent weeks later about something else were filed under it.
+ *
+ * `askedBy` is whoever she was answering: the last person to post in the
+ * thread before her reply. That is the one to notify, and it is often not the
+ * item's Developer — on #14591 a colleague was doing the asking.
  */
-export function owedThreadId(updates: (ThreadPost & { replies?: ThreadPost[] | null })[]): string | null {
+export function owedThread(
+  updates: (ThreadPost & { replies?: ThreadPost[] | null })[],
+  now: number = Date.now(),
+): { id: string; askedBy: string | null } | null {
   const at = (p: { created_at: string }) => Date.parse(p.created_at);
-  let owed: { id: string; at: number } | null = null;
+  const person = (p: ThreadPost) => !isJettaPost(p.text_body) && !isJettaContextPost(p.text_body);
+  let owed: { id: string; at: number; askedBy: string | null } | null = null;
   let relayed = 0;
   for (const u of updates) {
     const thread = [u, ...(u.replies ?? [])];
     for (const p of thread) {
-      if (isJettaPost(p.text_body) && (p.text_body ?? "").includes(NEW_INFO_PHRASE)) relayed = Math.max(relayed, at(p));
+      const text = p.text_body ?? "";
+      const passedOn = (isJettaPost(text) && text.includes(NEW_INFO_PHRASE)) || /^\s*Follow-up from the SAME /.test(text);
+      if (passedOn) relayed = Math.max(relayed, at(p));
     }
     for (const r of u.replies ?? []) {
       const text = r.text_body ?? "";
       if (!isJettaPost(text)) continue;
       if ([CHASE_PHRASE, NUDGE_PHRASE, NEW_INFO_PHRASE, "Correction:"].some((m) => text.includes(m))) continue;
-      const asked = thread.some(
-        (p) => at(p) < at(r) && !isJettaPost(p.text_body) && !isJettaContextPost(p.text_body),
-      );
-      if (asked && (!owed || at(r) > owed.at)) owed = { id: u.id, at: at(r) };
+      const asker = thread.filter((p) => at(p) < at(r) && person(p)).sort((x, y) => at(y) - at(x))[0];
+      if (asker && (!owed || at(r) > owed.at)) {
+        owed = { id: u.id, at: at(r), askedBy: asker.creator?.id != null ? String(asker.creator.id) : null };
+      }
     }
   }
-  return owed && owed.at > relayed ? owed.id : null;
+  if (!owed || owed.at <= relayed) return null;
+  if (now - owed.at > OWED_THREAD_DAYS * 86_400_000) return null;
+  return { id: owed.id, askedBy: owed.askedBy };
+}
+
+/** Just the thread id. See `owedThread`. */
+export function owedThreadId(updates: (ThreadPost & { replies?: ThreadPost[] | null })[], now?: number): string | null {
+  return owedThread(updates, now)?.id ?? null;
 }
 
 type ItemPost = { text_body: string | null; created_at: string; creator?: { id: string | number } | null };
@@ -1800,6 +1831,18 @@ export async function postJettaComment(
     : await post(undefined);
   const filesAttached = await attachFilesToUpdate(data.create_update.id, opts.attachments ?? []);
   return { id: data.create_update.id, filesAttached, threaded };
+}
+
+/**
+ * Where a follow-up to one of her posts belongs (the "file failed to upload"
+ * correction). Under the post itself — unless the post is already a reply
+ * inside a thread: a reply cannot be a parent, so the follow-up goes in that
+ * same thread. Before, it was aimed at the reply, monday refused, and the
+ * correction fell out to a fresh top-level comment — away from the thread the
+ * relay had just been placed in. Pure.
+ */
+export function correctionParent(posted: { id: string; threaded: boolean }, threadId: string | undefined): string {
+  return posted.threaded && threadId ? threadId : posted.id;
 }
 
 /**

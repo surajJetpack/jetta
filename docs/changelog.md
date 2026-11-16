@@ -5,6 +5,9 @@ Newest first. One entry per change people would notice: what Jetta does differen
 Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain words.
 
 
+## 2026-11-16: Thread answers: who is told, and for how long a thread counts
+Follow-up to #196. When Jetta posts a customer's answer into a developer's thread she now @mentions whoever asked there as well as the item's Developers, and says so plainly when nobody could be mentioned (no Developer on the item). The "file failed to upload" correction now stays in that thread instead of landing as a separate comment. A thread only counts as waiting for the customer's answer for 14 days after her reply in it, and context she adds through a second `create_dev_item` on the same ticket settles it like any other relay. Not yet confirmed against monday: whether a reply inside a thread can carry files at all; when it cannot, the correction says the files are on the ticket.
+
 ## 2026-11-16: A missing secret now refuses, everywhere
 Every route a machine calls checks its secret the same way (`lib/request-auth.ts`), and a secret that is not set is a refusal on any deployment. Before, four crons (missed-reply backstop, KB sync, daily overview, dev follow-up), both Freshdesk webhooks, Slack and the retired Freshchat webhook let anyone in when their variable was unset. The console's open "dev" mode (no `CONSOLE_USERS` and no `ADMIN_SECRET`) now only works on a developer's machine; on a deployment that state is locked. Needs `CRON_SECRET`, `WEBHOOK_SECRET` and `SLACK_SIGNING_SECRET` set in every Vercel environment that should receive traffic. The Freshchat webhook answers 401 unless `FRESHCHAT_WEBHOOK_PUBLIC_KEY` is set.
 
