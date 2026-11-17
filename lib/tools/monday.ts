@@ -808,6 +808,21 @@ async function postContextUpdate(
   return { posted: !!id, filesAttached: await attachFilesToUpdate(id, attachments) };
 }
 
+/**
+ * Put another ticket's report on an item that already carries the same
+ * problem (lib/problems.ts), instead of filing a second item. The ticket is
+ * tied to the item by the link in this update, which `ticketIdsOnItem` reads.
+ */
+export async function addTicketToItem(
+  itemId: string,
+  input: CreateDevItemInput,
+): Promise<{ posted: boolean; filesAttached: string[]; notWritten?: "not_connected" | "writes_off" }> {
+  if (!config.monday.live) return { posted: false, filesAttached: [], notWritten: "not_connected" };
+  if (!config.monday.allowWrites) return { posted: false, filesAttached: [], notWritten: "writes_off" };
+  const body = ["Another Freshdesk ticket about the SAME problem, from a different customer — added here rather than filed as a second item.", "", contextBody(input, false)].join("\n");
+  return postContextUpdate(itemId, body, input.attachments ?? []);
+}
+
 export async function createDevItem(input: CreateDevItemInput): Promise<CreatedDevItem> {
   const fileCount = input.attachments?.length ?? 0;
   const files = fileCount ? ` (+${fileCount} file${fileCount === 1 ? "" : "s"})` : "";

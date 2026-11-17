@@ -17,6 +17,7 @@
  * a shared-secret header you configure on the automation rule, checked here.
  */
 import { noteRelatedFixes } from "@/lib/fix-lookup";
+import { raiseProblem } from "@/lib/problems";
 import { sharedSecretOk } from "@/lib/request-auth";
 import { NextRequest, NextResponse } from "next/server";
 import { after } from "next/server";
@@ -257,6 +258,9 @@ async function processTicket(ticketId: string, channel: "freshdesk" | "freshchat
     // What the fix lookup found goes to support in its own private note,
     // whichever way the reply itself goes out below. It never throws.
     await noteRelatedFixes(ctx);
+    // And if other customers have reported the same problem, the developers
+    // and support are told (lib/problems.ts). Also never throws.
+    await raiseProblem(ctx);
 
     // Draft mode: the customer-visible reply was held — materialize it as a
     // ReplyDraft for human approval. Follow-up scheduling moves to approve time

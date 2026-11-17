@@ -487,6 +487,23 @@ export interface ConversationContext {
    * prompt and no tool returns it, so the reply cannot claim a fix shipped.
    */
   recentFixes?: RelatedFix[];
+  /**
+   * The repeat problem this ticket belongs to: other customers' tickets about
+   * the same malfunction (lib/problems.ts). FOR THE SYSTEM ONLY, like
+   * recentFixes: never rendered into the prompt.
+   */
+  problem?: ProblemRef;
+}
+
+/** A ticket's repeat problem, as the run carries it. */
+export interface ProblemRef {
+  id: string;
+  title: string;
+  /** The OTHER tickets in it, oldest first. */
+  tickets: { id: string; at: string; subject: string; who?: string }[];
+  /** The dev item that carries the problem, once the developers have been told. */
+  itemId?: string;
+  itemUrl?: string;
 }
 
 /** One recent fix that may be about a ticket's problem. */
