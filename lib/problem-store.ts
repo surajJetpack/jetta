@@ -23,6 +23,11 @@ export interface SeenTicket {
   subject: string;
   /** The customer's opening message, trimmed. */
   text: string;
+  /**
+   * What is failing, in one sentence, with any error message quoted. Unset
+   * for a ticket that is not a malfunction: those are never compared.
+   */
+  symptom?: string;
   /** A short hash of who wrote in, so one customer's two tickets count once. Never the address itself. */
   who?: string;
   /** The problem it belongs to, once it matched another ticket. */
@@ -34,7 +39,7 @@ export interface Problem {
   id: string;
   /** The first ticket's subject: what a developer will read. */
   title: string;
-  tickets: { id: string; at: string; subject: string; who?: string }[];
+  tickets: { id: string; at: string; subject: string; who?: string; symptom?: string }[];
   /** Tickets that arrived although a fix for this was already in production. */
   afterFix: string[];
   /** Those fixes, for the developer. */

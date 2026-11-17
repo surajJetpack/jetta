@@ -8,9 +8,10 @@
  * reliably share one. Here tickets are compared with each other directly.
  *
  * Two steps, like the fix lookup (lib/fix-lookup.ts):
- *   - `problemForTicket`, in buildContext: does this ticket describe the same
- *     malfunction as an earlier one? A word-overlap shortlist, then one model
- *     call. No shortlist, no call.
+ *   - `problemForTicket`, in buildContext: a light call states the ticket's
+ *     symptom in one sentence (or says it is not a malfunction, and stops).
+ *     Earlier symptoms that share its words are shortlisted, and one more
+ *     call says which are the same malfunction. No shortlist, no second call.
  *   - `raiseProblem`, after the run: once enough tickets share a problem,
  *     find or file its dev item, say so once on the item, add each later
  *     ticket as one line, and leave support a private note on each ticket.
@@ -51,65 +52,100 @@ const TEXT_KEPT = 1200;
 
 // ── Is this the same problem as an earlier ticket? ─────────────────
 
+/**
+ * What a ticket is about, boiled down: tickets are compared on this, not on
+ * their raw text.
+ *
+ * Learned from replaying real tickets. Raw text compared badly: a chat
+ * transcript reaches the actual error a thousand characters in, after the
+ * greetings; a follow-up email says "we keep running into this" and carries
+ * the error only in its subject. One sentence naming the failure puts all of
+ * them on the same footing.
+ */
+export interface Described {
+  /** Something is not working as it should. A question, a billing matter or a request is not. */
+  malfunction: boolean;
+  /** What fails and how, one sentence, any error message quoted word for word. */
+  symptom: string;
+}
+export type Describer = (subject: string, body: string) => Promise<Described>;
+
+const DescribeSchema = z.object({
+  malfunction: z.boolean().describe("True when the customer reports something not working as it should."),
+  symptom: z.string().describe("One sentence: which screen or feature fails and how. Quote any error message exactly. Empty when not a malfunction."),
+});
+
+const DESCRIBE_SYSTEM = `You read one support ticket about GetSign, an e-signature app inside monday.com, and state the problem in it.
+
+- malfunction: true only when something is not working as it should. A how-to question, a billing or account question, a feature request, a sales enquiry or a thank-you is false.
+- symptom: ONE sentence naming the screen or feature and what goes wrong, as a developer would file it. If the customer quotes an error message, quote it exactly, in double quotes. The subject line counts: a reply that only says "still happening" takes its symptom from the subject.
+- No names, companies, emails, account or board numbers.
+- A chat transcript includes the assistant's own lines; describe the CUSTOMER's problem.`;
+
+const modelDescriber: Describer = async (subject, body) => {
+  const { object } = await generateObject({
+    model: getModel("light"),
+    schema: DescribeSchema,
+    system: DESCRIBE_SYSTEM,
+    prompt: `SUBJECT: ${subject}\n\n${body.slice(0, 4000)}`,
+  });
+  return { malfunction: object.malfunction && !!object.symptom.trim(), symptom: object.symptom.trim() };
+};
+
 export interface ShortlistedTicket {
   ticket: SeenTicket;
   shared: number;
 }
 
 /**
- * Earlier tickets that share enough distinctive words with this one to be
- * worth asking about, best first. Pure. Generous on purpose: it only decides
- * what the model sees.
+ * Earlier malfunctions whose symptom shares distinctive words with this one,
+ * best first. Pure. Generous on purpose: it only decides what the model sees.
  */
-export function shortlistTickets(id: string, subject: string, body: string, seen: SeenTicket[], now: Date, n = SHORTLIST): ShortlistedTicket[] {
-  const mine = words(`${subject}\n${body.slice(0, TEXT_KEPT)}`);
-  if (mine.size < 3) return [];
+export function shortlistTickets(id: string, symptom: string, seen: SeenTicket[], now: Date, n = SHORTLIST): ShortlistedTicket[] {
+  const mine = words(symptom);
+  if (mine.size < 2) return [];
   const since = new Date(now.getTime() - PROBLEM_WINDOW_DAYS * DAY_MS).toISOString();
   return seen
-    .filter((t) => t.id !== id && t.at >= since)
+    .filter((t) => t.id !== id && t.at >= since && !!t.symptom)
     .map((ticket) => {
-      const theirs = words(`${ticket.subject}\n${ticket.text}`);
+      const theirs = words(ticket.symptom!);
       let shared = 0;
       for (const w of mine) if (theirs.has(w)) shared++;
       return { ticket, shared, smaller: Math.min(mine.size, theirs.size) };
     })
-    .filter((x) => x.shared >= 3 && x.smaller > 0 && x.shared / x.smaller >= 0.25)
+    .filter((x) => x.shared >= 2 && x.smaller > 0 && x.shared / x.smaller >= 0.3)
     .sort((a, b) => b.shared - a.shared)
     .slice(0, n)
     .map(({ ticket, shared }) => ({ ticket, shared }));
 }
 
 export interface Joined {
-  /** The new ticket reports something broken, not a question or a request. */
-  malfunction: boolean;
   /** 1-based positions in the shortlist that are the same malfunction. */
   same: { n: number; confidence: "high" | "medium" | "low" }[];
 }
-export type Joiner = (subject: string, body: string, short: ShortlistedTicket[]) => Promise<Joined>;
+export type Joiner = (symptom: string, body: string, short: ShortlistedTicket[]) => Promise<Joined>;
 
 const JoinSchema = z.object({
-  malfunction: z.boolean().describe("True when the new ticket reports something not working as it should."),
   same: z.array(
     z.object({
-      n: z.number().describe("The earlier ticket's number, as given."),
+      n: z.number().describe("The earlier report's number, as given."),
       confidence: z.enum(["high", "medium", "low"]),
     }),
   ),
 });
 
-const JOIN_SYSTEM = `You compare support tickets about GetSign, an e-signature app inside monday.com. Decide whether a NEW ticket reports the same malfunction as any of several EARLIER tickets from other customers.
+const JOIN_SYSTEM = `You compare bug reports about GetSign, an e-signature app inside monday.com. A NEW report has come in. Decide which EARLIER reports, from other customers, are the same underlying malfunction: one a developer would fix with one change.
 
-- First: is the new ticket a malfunction at all? A how-to question, a billing or account question, a feature request or a sales enquiry is not, and matches nothing.
-- Two tickets are the same malfunction only when the same screen or feature fails in the same way: the same error message, or the same wrong behaviour.
-- The same area is not enough. "Emails are not sent" and "emails go to the wrong address" are different malfunctions.
-- "high": same error text or unmistakably the same failure. "medium": very likely the same, a detail unconfirmed. "low": a guess.
-- Most tickets match nothing. An empty list is the usual, correct answer.`;
+- Same malfunction: the same feature fails in the same way. The wording will differ between customers, and so can the exact error text: "Missing recipient email address" and "No recipient found for this document", both when sending, are one failure seen twice.
+- Not the same: a different feature, or the same feature failing differently. "Emails are not sent" and "emails go to the wrong address" are two bugs. So are "the editor never loads" and "the editor loads but a field is missing".
+- "high": unmistakably the same failure. "medium": very likely the same, a detail unconfirmed. "low": the same area only, or a guess.
+- Many reports match nothing. An empty list is a normal answer.`;
 
-const modelJoiner: Joiner = async (subject, body, short) => {
+const modelJoiner: Joiner = async (symptom, body, short) => {
   const prompt = [
-    `NEW TICKET\n${subject}\n${body.slice(0, 2000)}`,
-    "EARLIER TICKETS",
-    ...short.map((s, i) => `${i + 1}. ${s.ticket.subject}\n   ${s.ticket.text.slice(0, 500).replace(/\n+/g, " ")}`),
+    `NEW REPORT\n${symptom}\n\nFrom the ticket:\n${body.slice(0, 1200)}`,
+    "EARLIER REPORTS",
+    ...short.map((s, i) => `${i + 1}. ${s.ticket.symptom}\n   (ticket subject: ${s.ticket.subject.slice(0, 120)})`),
   ].join("\n\n");
   const { object } = await generateObject({ model: getModel("standard"), schema: JoinSchema, system: JOIN_SYSTEM, prompt });
   return object;
@@ -119,6 +155,8 @@ export interface ProblemOptions {
   now?: Date;
   /** null: no model, so nothing is ever grouped. Word overlap alone is not evidence of the same bug. */
   join?: Joiner | null;
+  /** null: no model, so no ticket has a symptom to compare. */
+  describe?: Describer | null;
   /** The requester's email. Kept only as a short hash, to count customers rather than tickets. */
   requester?: string | null;
 }
@@ -150,30 +188,37 @@ export async function problemForTicket(ticketId: string, subject: string, body: 
       return p ? refOf(p, ticketId) : null;
     }
     const me: SeenTicket = { id: ticketId, at: now.toISOString(), subject, text: body.slice(0, TEXT_KEPT), who: whoOf(opts.requester) };
-    const short = shortlistTickets(ticketId, subject, body, await listSeen(), now);
-    const join = opts.join !== undefined ? opts.join : llmKeyPresent() && !config.stubMode ? modelJoiner : null;
-    if (!short.length || !join) {
-      await saveSeen(me);
-      return null;
-    }
-    const verdict = await join(subject, body, short);
-    const matched = verdict.malfunction
-      ? verdict.same.filter((s) => s.confidence !== "low").map((s) => short[s.n - 1]?.ticket).filter((t): t is SeenTicket => !!t)
-      : [];
-    if (!matched.length) {
-      await saveSeen(me);
-      return null;
-    }
+    const useModel = llmKeyPresent() && !config.stubMode;
+    const describe = opts.describe !== undefined ? opts.describe : useModel ? modelDescriber : null;
+    const join = opts.join !== undefined ? opts.join : useModel ? modelJoiner : null;
+    // Recorded before anything can fail, so a ticket is only ever described once.
+    await saveSeen(me);
+    if (!describe || !join) return null;
+    const said = await describe(subject, body);
+    if (!said.malfunction) return null;
+    me.symptom = said.symptom;
+    await saveSeen(me);
+    const short = shortlistTickets(ticketId, me.symptom, await listSeen(), now);
+    if (!short.length) return null;
+    const verdict = await join(me.symptom, body, short);
+    const matched = verdict.same.filter((s) => s.confidence !== "low").map((s) => short[s.n - 1]?.ticket).filter((t): t is SeenTicket => !!t);
+    if (!matched.length) return null;
 
-    // Join the problem one of them already belongs to (the biggest, if they
-    // disagree), or start one from the earliest ticket.
-    const existing = (await Promise.all([...new Set(matched.map((t) => t.problemId).filter((x): x is string => !!x))].map(getProblem)))
-      .filter((p): p is Problem => !!p)
-      .sort((a, b) => b.tickets.length - a.tickets.length)[0];
+    // Join the problem most of the matched tickets already belong to, or
+    // start one from the earliest ticket. A ticket that is already in a
+    // DIFFERENT problem stays there: one new ticket resembling both is not
+    // reason enough to fuse two problems, and in a replay of real tickets
+    // that chaining turned "the editor is slow" and "a field is missing" into
+    // one sprawling group.
+    const votes = new Map<string, number>();
+    for (const t of matched) if (t.problemId) votes.set(t.problemId, (votes.get(t.problemId) ?? 0) + 1);
+    const candidates = (await Promise.all([...votes.keys()].map(getProblem))).filter((p): p is Problem => !!p);
+    const existing = candidates.sort((a, b) => (votes.get(b.id) ?? 0) - (votes.get(a.id) ?? 0) || b.tickets.length - a.tickets.length)[0];
     const first = [...matched].sort((a, b) => a.at.localeCompare(b.at))[0];
     const problem: Problem = existing ?? { id: `p${first.id}`, title: first.subject, tickets: [], afterFix: [], fixes: [] };
     for (const t of [...matched, me]) {
-      if (!problem.tickets.some((x) => x.id === t.id)) problem.tickets.push({ id: t.id, at: t.at, subject: t.subject, who: t.who });
+      if (t.problemId && t.problemId !== problem.id) continue;
+      if (!problem.tickets.some((x) => x.id === t.id)) problem.tickets.push({ id: t.id, at: t.at, subject: t.subject, who: t.who, symptom: t.symptom });
       if (t.problemId !== problem.id) await saveSeen({ ...t, problemId: problem.id });
     }
     problem.tickets.sort((a, b) => a.at.localeCompare(b.at));
@@ -219,7 +264,8 @@ export function shouldRaise(p: Problem, now: Date): boolean {
 }
 
 const day = (iso: string) => new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
-const ticketLine = (t: Problem["tickets"][number]) => `• ${day(t.at)}: ${t.subject.slice(0, 90)} ${freshdesk.freshdeskTicketUrl(t.id)}`;
+/** The symptom when there is one: it is what lets a developer see at a glance whether a ticket belongs. */
+const ticketLine = (t: Problem["tickets"][number]) => `• ${day(t.at)}: ${(t.symptom || t.subject).slice(0, 180)} ${freshdesk.freshdeskTicketUrl(t.id)}`;
 
 function fixLines(p: Problem, now: Date): string[] {
   if (!p.fixes.length) return [];

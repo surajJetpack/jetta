@@ -6,7 +6,7 @@ Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain word
 
 
 ## 2026-11-17: Repeat problems: the same bug from several customers reaches the developers as one
-When a GetSign ticket reports the same malfunction as earlier tickets from other customers, Jetta now groups them. She compares the tickets themselves, not their topic label, so four reports of one error message end up together.
+When a GetSign ticket reports the same malfunction as earlier tickets from other customers, Jetta now groups them. She states each ticket's problem in one sentence, quoting any error message, and compares those, not the topic label, so reports of one failure end up together even when worded differently. One customer's second ticket about the same thing does not count twice.
 At three different customers in 30 days, or two when one wrote in after a fix for it was already in production, she tells the developers once on one dev item (one a ticket already has, a clear match on the board, or one she files titled "[Repeat problem] …", at most two a day), listing every ticket. Each later ticket adds one line. Support gets a private note on each ticket naming the others and the item.
 When she files a dev item for a ticket whose problem already has one, the report joins that item and no second item is made. The reply is written without any of this: she does not tell a customer that others are affected. The grouping can be wrong, and her comment asks the developers to check.
 The switch is `JETTA_REPEAT_PROBLEMS` (off, shadow, on; row on /system), and it is off. Shadow groups tickets and logs `problems.shadow` events, and writes nothing to monday or Freshdesk.

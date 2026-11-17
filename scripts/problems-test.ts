@@ -22,6 +22,7 @@ async function main() {
   const { buildTools } = await import("../lib/tools");
   const { getOpsEvents } = await import("../lib/events");
   type Joiner = import("../lib/problems").Joiner;
+  type Describer = import("../lib/problems").Describer;
   type ProblemOps = import("../lib/problems").ProblemOps;
   type Problem = import("../lib/problem-store").Problem;
   const setMode = (m: "off" | "shadow" | "on") => ((config as { repeatProblems: string }).repeatProblems = m);
@@ -37,46 +38,78 @@ async function main() {
     subject: `Error message "Missing recipient email address" (${who})`,
     body: `When I send the contract from the board I get the error "Missing recipient email address", but the email column on the item is filled in. ${who}`,
   });
-  const yes: Joiner = async (_s, _b, short) => ({ malfunction: true, same: short.map((_, i) => ({ n: i + 1, confidence: "high" as const })) });
+  const yes: Joiner = async (_s, _b, short) => ({ same: short.map((_, i) => ({ n: i + 1, confidence: "high" as const })) });
+  /** A stand-in for the model that states the symptom: the subject is the symptom, and questions are not malfunctions. */
+  let described = 0;
+  const sym: Describer = async (subject) => (described++, { malfunction: !/^(Where|How|Invoice)/.test(subject), symptom: subject });
+  const pft = (id: string, subject: string, body: string, o: import("../lib/problems").ProblemOptions = {}) =>
+    problemForTicket(id, subject, body, { describe: sym, ...o });
   /** A model that recognises only these earlier tickets as the same malfunction. */
   const only = (ids: string[]): Joiner => async (_s, _b, short) => ({
-    malfunction: true,
     same: short.flatMap((x, i) => (ids.includes(x.ticket.id) ? [{ n: i + 1, confidence: "high" as const }] : [])),
   });
   let calls = 0;
   const counting: Joiner = async (s, b, short) => (calls++, yes(s, b, short));
 
   // ── Grouping ──
-  check("the first ticket of its kind joins nothing, and the model is not asked", (await problemForTicket("100", EMAIL("a").subject, EMAIL("a").body, { now: D(1), join: counting, requester: "A@one.example" })) === null && calls === 0);
-  check("an unrelated ticket joins nothing, and still the model is not asked", (await problemForTicket("101", "Invoice VAT number", "Please add our VAT number to the invoice for last month.", { now: D(2), join: counting })) === null && calls === 0);
+  check("the first ticket of its kind joins nothing, and the model is not asked", (await pft("100", EMAIL("a").subject, EMAIL("a").body, { now: D(1), join: counting, requester: "A@one.example" })) === null && calls === 0);
+  check("an unrelated ticket joins nothing, and still the model is not asked", (await pft("101", "Invoice VAT number", "Please add our VAT number to the invoice for last month.", { now: D(2), join: counting })) === null && calls === 0);
 
-  const short = shortlistTickets("102", EMAIL("b").subject, EMAIL("b").body, await store.listSeen(), D(3));
+  const short = shortlistTickets("102", EMAIL("b").subject, await store.listSeen(), D(3));
   check("a second ticket with the same error shortlists the first, not the invoice one", short.length === 1 && short[0].ticket.id === "100");
-  check("a ticket more than 30 days later is not compared", shortlistTickets("102", EMAIL("b").subject, EMAIL("b").body, await store.listSeen(), new Date(Date.UTC(2026, 11, 20))).length === 0);
+  check("a ticket more than 30 days later is not compared", shortlistTickets("102", EMAIL("b").subject, await store.listSeen(), new Date(Date.UTC(2026, 11, 20))).length === 0);
 
-  const second = await problemForTicket("102", EMAIL("b").subject, EMAIL("b").body, { now: D(3), join: counting, requester: "b@two.example" });
+  const second = await pft("102", EMAIL("b").subject, EMAIL("b").body, { now: D(3), join: counting, requester: "b@two.example" });
   check("the model is asked once, and the two tickets become one problem", calls === 1 && second?.id === "p100" && second.tickets.map((t) => t.id).join() === "100");
   check("the problem is named after the first ticket", second?.title === EMAIL("a").subject);
   check("the earlier ticket now belongs to it too", (await store.getSeen("100"))?.problemId === "p100");
-  await problemForTicket("102", EMAIL("b").subject, `${EMAIL("b").body} Any update?`, { now: D(4), join: counting });
+  await pft("102", EMAIL("b").subject, `${EMAIL("b").body} Any update?`, { now: D(4), join: counting });
+  const describedSoFar = described;
+  await pft("102", EMAIL("b").subject, "third message", { now: D(4), join: counting });
+  check("nor described again", described === describedSoFar);
   check("a later message on the same ticket is not decided again", calls === 1 && (await store.getProblem("p100"))?.tickets.length === 2);
 
   check(
-    "a how-to question about the same thing joins nothing",
-    (await problemForTicket("103", "Where do I set the recipient email address?", "Which column does the recipient email address come from when I send a contract from the board?", {
+    "a how-to question about the same thing joins nothing, and the comparison is never made",
+    (await pft("103", "Where do I set the recipient email address?", "Which column does the recipient email address come from when I send a contract from the board?", {
       now: D(4),
-      join: async () => ({ malfunction: false, same: [{ n: 1, confidence: "high" }] }),
-    })) === null,
+      join: counting,
+    })) === null && calls === 1,
   );
+  check("and a ticket that is not a malfunction is never compared against later", !(await store.getSeen("103"))?.symptom && !shortlistTickets("x", EMAIL("z").subject, await store.listSeen(), D(4)).some((x) => x.ticket.id === "103"));
   check(
     "a guess does not group",
-    (await problemForTicket("104", EMAIL("c").subject, EMAIL("c").body, { now: D(4), join: async (_s, _b, sh) => ({ malfunction: true, same: sh.map((_, i) => ({ n: i + 1, confidence: "low" as const })) }) })) === null,
+    (await pft("104", EMAIL("c").subject, EMAIL("c").body, { now: D(4), join: async (_s, _b, sh) => ({ same: sh.map((_, i) => ({ n: i + 1, confidence: "low" as const })) }) })) === null,
   );
-  check("without a model nothing is ever grouped", (await problemForTicket("105", EMAIL("d").subject, EMAIL("d").body, { now: D(4), join: null })) === null);
+  check("without a model nothing is ever grouped", (await pft("105", EMAIL("d").subject, EMAIL("d").body, { now: D(4), join: null, describe: null })) === null);
   check(
     "a model that fails groups nothing and does not throw",
-    (await problemForTicket("106", EMAIL("e").subject, EMAIL("e").body, { now: D(4), join: async () => { throw new Error("model down"); } })) === null,
+    (await pft("106", EMAIL("e").subject, EMAIL("e").body, { now: D(4), join: async () => { throw new Error("model down"); } })) === null,
   );
+
+  // A follow-up that says nothing itself still carries the error in its subject.
+  store.clearProblemsForTest();
+  await pft("150", EMAIL("p").subject, EMAIL("p").body, { now: D(1), join: yes, requester: "p@x.example" });
+  const bare = await pft("151", `Re: ${EMAIL("q").subject}`, "Hi, we keep running into issues. Thanks.", { now: D(2), join: yes, requester: "q@y.example" });
+  check("a reply with no detail in its body is matched through its subject", bare?.id === "p150");
+  store.clearProblemsForTest();
+  await pft("100", EMAIL("a").subject, EMAIL("a").body, { now: D(1), join: yes, requester: "A@one.example" });
+  await pft("102", EMAIL("b").subject, EMAIL("b").body, { now: D(3), join: yes, requester: "b@two.example" });
+
+  // A ticket resembling two problems joins one and does not fuse them.
+  store.clearProblemsForTest();
+  const SPIN = (w: string) => ({ subject: `Template editor stuck loading spinner (${w})`, body: `The template editor shows a loading spinner forever. ${w}` });
+  await pft("160", EMAIL("m").subject, EMAIL("m").body, { now: D(1), join: yes, requester: "m@a.example" });
+  await pft("161", EMAIL("n").subject, EMAIL("n").body, { now: D(2), join: yes, requester: "n@b.example" });
+  await pft("170", SPIN("a").subject, SPIN("a").body, { now: D(3), join: yes, requester: "s@c.example" });
+  await pft("171", SPIN("b").subject, SPIN("b").body, { now: D(4), join: yes, requester: "t@d.example" });
+  await pft("172", SPIN("c").subject, SPIN("c").body, { now: D(5), join: yes, requester: "u@e.example" });
+  const both = await pft("180", `Template editor stuck loading spinner, then error message "Missing recipient email address"`, "Both things happen.", { now: D(6), join: yes, requester: "v@f.example" });
+  check("it joins the problem more of its matches belong to", both?.id === "p170");
+  check("and the other problem keeps its own tickets", (await store.getProblem("p160"))?.tickets.map((t) => t.id).join() === "160,161" && !(await store.getProblem("p170"))?.tickets.some((t) => t.id === "160"));
+  store.clearProblemsForTest();
+  await pft("100", EMAIL("a").subject, EMAIL("a").body, { now: D(1), join: yes, requester: "A@one.example" });
+  await pft("102", EMAIL("b").subject, EMAIL("b").body, { now: D(3), join: yes, requester: "b@two.example" });
 
   // ── When to raise ──
   const P = (tickets: [string, Date][], afterFix: string[] = []): Problem => ({
@@ -121,10 +154,10 @@ async function main() {
     ({ channel: "freshdesk", ticket: { id, subject: "s", description: "d", status: "open", replies: [] }, account: null, relatedDevItems: [], product: "getsign", appProduct: "getsign", app: "getsign", problem, ...extra }) as never;
 
   setMode("on");
-  const ref102 = await problemForTicket("102", "", "", { now: D(4) });
+  const ref102 = await pft("102", "", "", { now: D(4) });
   check("two tickets, no fix: nothing is raised", (await raiseProblem(ctxFor("102", ref102), { now: D(4), ops })) === "below" && comments.length === 0);
 
-  const third = await problemForTicket("107", EMAIL("f").subject, EMAIL("f").body, { now: D(5), join: only(["100", "102"]) });
+  const third = await pft("107", EMAIL("f").subject, EMAIL("f").body, { now: D(5), join: only(["100", "102"]) });
   check("a third ticket joins the same problem", third?.id === "p100" && third.tickets.length === 2);
 
   setMode("shadow");
@@ -138,12 +171,13 @@ async function main() {
   writes = true;
   check("three tickets, no item anywhere: one is filed and the developers are told", (await raiseProblem(ctxFor("107", third), { now: D(5), ops })) === "raised" && filed.length === 1 && comments.length === 1 && comments[0].itemId === "new-p100");
   check("the address itself is never kept, only a short hash", !JSON.stringify(await store.listSeen()).includes("@"));
+  check("each ticket is shown by its symptom, so a developer can see whether it belongs", comments[0].text.includes("Missing recipient email address"));
   check("the comment lists every ticket and says the grouping is Jetta's", ["100", "102", "107"].every((id) => comments[0].text.includes(`/tickets/${id}`)) && /please check they are the same/.test(comments[0].text));
   check("support gets a note on each of the three tickets, naming the others and the item", notes.length === 3 && notes.find((x) => x.ticketId === "100")!.text.includes("/tickets/107") && notes[0].text.includes("https://m/new-p100"));
   check("the note keeps the count from the customer", /Do not tell the customer how many others/.test(notes[0].text));
   check("a second run for the same ticket says nothing more", (await raiseProblem(ctxFor("107", third), { now: D(5), ops })) === "already" && comments.length === 1 && notes.length === 3);
 
-  const fourth = await problemForTicket("108", EMAIL("g").subject, EMAIL("g").body, { now: D(6), join: only(["100", "102", "107"]) });
+  const fourth = await pft("108", EMAIL("g").subject, EMAIL("g").body, { now: D(6), join: only(["100", "102", "107"]) });
   check("a fourth ticket knows the item", fourth?.itemId === "new-p100");
   check("and adds one line on it, not a second alert or a second item", (await raiseProblem(ctxFor("108", fourth), { now: D(6), ops })) === "added" && comments.length === 2 && comments[1].text.includes("/tickets/108") && filed.length === 1);
   check("with one note, on the new ticket only", notes.length === 4 && notes[3].ticketId === "108");
@@ -151,8 +185,8 @@ async function main() {
   // A fix that was already live: two tickets are enough, and the item a ticket already has is reused.
   store.clearProblemsForTest();
   const DOCX = (who: string) => ({ subject: `Template editor loads blank canvas (${who})`, body: `The DOCX template editor shows a blank canvas and the document content is not rendering. ${who}` });
-  await problemForTicket("200", DOCX("a").subject, DOCX("a").body, { now: D(10), join: yes });
-  const docx2 = await problemForTicket("201", DOCX("b").subject, DOCX("b").body, { now: D(11), join: yes });
+  await pft("200", DOCX("a").subject, DOCX("a").body, { now: D(10), join: yes });
+  const docx2 = await pft("201", DOCX("b").subject, DOCX("b").body, { now: D(11), join: yes });
   itemFor = { "200": { id: "777", url: "https://m/777" } };
   const fix = { key: "fix/docx", summary: "Documents with merge fields render in the editor.", state: "released", when: "15 Oct", urls: ["https://github.com/x/1"], confidence: "high", reason: "r", recent: false };
   const before = comments.length;
@@ -165,8 +199,8 @@ async function main() {
   store.clearProblemsForTest();
   itemFor = {};
   boardHit = { id: "888", url: "https://m/888" };
-  for (const [i, id] of ["300", "301", "302"].entries()) await problemForTicket(id, EMAIL(`x${i}`).subject, EMAIL(`x${i}`).body, { now: D(12 + i), join: yes });
-  const board = await problemForTicket("302", "", "", { now: D(14) });
+  for (const [i, id] of ["300", "301", "302"].entries()) await pft(id, EMAIL(`x${i}`).subject, EMAIL(`x${i}`).body, { now: D(12 + i), join: yes });
+  const board = await pft("302", "", "", { now: D(14) });
   await raiseProblem(ctxFor("302", board), { now: D(14), ops });
   check("an item already on the board for this is reused", comments.at(-1)!.itemId === "888" && filed.length === 1);
 
@@ -175,8 +209,8 @@ async function main() {
   const outcomes: string[] = [];
   for (const base of [400, 500, 600]) {
     store.clearProblemsForTest();
-    for (const i of [0, 1, 2]) await problemForTicket(String(base + i), EMAIL(`c${base}${i}`).subject, EMAIL(`c${base}${i}`).body, { now: D(20, i), join: yes });
-    outcomes.push(await raiseProblem(ctxFor(String(base + 2), await problemForTicket(String(base + 2), "", "", { now: D(20) })), { now: D(20, 5), ops }));
+    for (const i of [0, 1, 2]) await pft(String(base + i), EMAIL(`c${base}${i}`).subject, EMAIL(`c${base}${i}`).body, { now: D(20, i), join: yes });
+    outcomes.push(await raiseProblem(ctxFor(String(base + 2), await pft(String(base + 2), "", "", { now: D(20) })), { now: D(20, 5), ops }));
   }
   check("at most two items a day are filed for repeat problems", outcomes.join() === "raised,raised,over the cap");
 
@@ -200,7 +234,7 @@ async function main() {
 
   // ── Forgetting ──
   store.clearProblemsForTest();
-  await problemForTicket("900", EMAIL("old").subject, EMAIL("old").body, { now: new Date(Date.UTC(2026, 7, 1)), join: yes });
+  await pft("900", EMAIL("old").subject, EMAIL("old").body, { now: new Date(Date.UTC(2026, 7, 1)), join: yes });
   await store.pruneProblems(D(20));
   check("a ticket past the window is forgotten", (await store.listSeen()).length === 0);
 
