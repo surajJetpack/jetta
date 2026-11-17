@@ -9,13 +9,14 @@
  * embedding page's localStorage and is the visitor's only claim to their own
  * transcript.
  */
+import { config } from "@/lib/config";
 import { NextRequest } from "next/server";
 import { channelUnavailable, chatJson, overSessionLimit, preflight } from "@/lib/chat-http";
 import { cleanApp, cleanEmail, cleanId, cleanName, cleanPageUrl, cleanSlug } from "@/lib/chat-visitor";
 import * as store from "@/lib/chat-store";
 import { getChatSettings } from "@/lib/chat-settings";
 import { profileForRequest } from "@/lib/profiles";
-import { verifyMondaySessionToken } from "@/lib/monday-session-token";
+import { strictSession, verifyMondaySessionToken } from "@/lib/monday-session-token";
 import type { ChatSurface } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -133,6 +134,16 @@ export async function POST(req: NextRequest) {
       // prompt says different things about the account depending on this, so
       // it travels with the conversation rather than being re-derived.
       mondayAccountVerified: mondaySession ? true : undefined,
+      // What reading the customer's app state needs on top of that
+      // (lib/tools/getsign-app.ts): when monday vouched, and whether the
+      // token was the strict kind. Both come from the token, never the page.
+      mondayVerifiedAt: mondaySession ? Math.floor(Date.now() / 1000) : undefined,
+      mondayTokenStrict: mondaySession
+        ? strictSession(mondaySession, config.monday.monetization.stores[mondaySession.app]?.appId) || undefined
+        : undefined,
+      // The board is the page's claim. It only narrows what the backend
+      // returns for the verified account, so a wrong one shows nothing.
+      mondayBoardId: cleanId(v.mondayBoardId ?? v.boardId),
       // A visitor on GetSign's own site is a GetSign visitor, whatever the
       // install snippet says. This is the pin the whole GetSign profile hangs
       // on: `conversationToTicket` turns `app` into `productHint`, which

@@ -5,6 +5,7 @@
  */
 import { lookupApplies, lookupForTicket } from "./fix-lookup";
 import { problemForTicket, problemsApply } from "./problems";
+import { appStateForChat } from "./tools/getsign-app";
 import { generateObject, type ModelMessage } from "ai";
 import { z } from "zod";
 import type {
@@ -462,6 +463,9 @@ export async function buildContext(
           ticketId: chatConv.ticketId,
           // Best-effort: a Freshdesk or monday blip must not stop a chat reply.
           accountTickets: await accountTicketsForChat(chatConv).catch(() => null),
+          // Their own GetSign setup, for a visitor monday has vouched for.
+          // Undefined for everyone else, and when switched off.
+          appState: await appStateForChat(chatConv).catch(() => undefined),
           };
         })()
       : undefined,

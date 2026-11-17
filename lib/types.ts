@@ -273,6 +273,24 @@ export interface ChatVisitor {
    * verified account and a claimed one. See lib/monday-session-token.ts.
    */
   mondayAccountVerified?: boolean;
+  /**
+   * When the session token was verified, unix seconds. A conversation can be
+   * resumed for a day and kept for months, and reading the customer's app
+   * state (lib/tools/getsign-app.ts) needs monday's word to be recent.
+   */
+  mondayVerifiedAt?: number;
+  /**
+   * The verified token also had an expiry and, where an app id is configured
+   * for that app, named it. Needed on top of `mondayAccountVerified` before
+   * app state is read; trial and discount requests keep the looser check.
+   */
+  mondayTokenStrict?: boolean;
+  /**
+   * The board the app view was showing, as the page reported it. A CLAIM, and
+   * safe as one: it only narrows which of the verified account's own
+   * workflows the GetSign backend returns.
+   */
+  mondayBoardId?: string;
   /** Which app the view is embedded in — a direct AppProduct signal. */
   app?: AppProduct;
 }
@@ -472,6 +490,13 @@ export interface ConversationContext {
      * account isn't vouched for by a monday app view.
      */
     accountTickets?: import("./account-tickets").AccountTicket[] | null;
+    /**
+     * This customer's own GetSign setup, read for a verified in-app visitor
+     * (lib/tools/getsign-app.ts). "unknown": she may know and the lookup
+     * failed. Rendered into the prompt as facts about their account; she
+     * states them and never says she looked.
+     */
+    appState?: import("./tools/getsign-app").AppState | "unknown";
   };
   /**
    * Set when a DEVELOPER started this run, not the customer: a comment or a

@@ -5,6 +5,11 @@ Newest first. One entry per change people would notice: what Jetta does differen
 Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain words.
 
 
+## 2026-11-17: Jetta can answer from the customer's own GetSign setup (in-app chat)
+For a visitor chatting from inside the GetSign app, with a monday session token verified in the last 24 hours, Jetta can read that account's own setup from the GetSign backend: plan and what it includes, usage against limits, settings, the workflows on the board in view (which column the signer's email comes from, auto-send, reminders, link expiry, templates), session counts and failures on record. Read-only. No signer names or emails, documents or links.
+She answers from it as something she knows and never says she looked, checked or can see their account. How the product works and the steps to fix something still come from a KB article. A visitor monday has not vouched for, on the website for example, gets no lookup: she asks, and may suggest opening the chat from inside GetSign.
+The switch is `JETTA_APP_STATE` (off, shadow, on; row on /system), and it is off. It also needs `GETSIGN_API_BASE_URL` and `GETSIGN_SUPPORT_KEY`, and two changes on the GetSign side that are not live yet: the board view must pass monday's session token and the board, and the backend needs the support route. Until then nothing is read.
+
 ## 2026-11-17: Fix: the GitHub features were silently doing nothing in production
 The GetSign reference read, the release watcher, the fix lookup and repeat problems all refused to run while `STUB_MODE` was on. Production runs with `STUB_MODE` on and each integration switched live by its own `*_LIVE` flag, and GitHub has none, so nothing was read from GitHub and the model steps were skipped, while every run reported success and /system showed the features as on. Found from the logs: the daily sync reported the reference as "shipped" with the token set and no fetch error.
 Now the token alone (`JETTA_GETSIGN_REFERENCE_TOKEN`) decides whether GitHub is read, and the model key alone decides whether a model is asked, as everywhere else in Jetta. Nothing else about `STUB_MODE` changes.

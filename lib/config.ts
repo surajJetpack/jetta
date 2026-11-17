@@ -218,6 +218,27 @@ export const config = {
     : "off") as "off" | "shadow" | "on",
 
   /**
+   * The customer's own GetSign setup in chat (lib/tools/getsign-app.ts): for
+   * a visitor chatting from inside the GetSign app, with a monday session
+   * token verified in the last 24 hours, Jetta reads that account's plan,
+   * settings, the workflows on the board in view, session counts and stored
+   * failures from the GetSign backend, and answers from them. Read-only. No
+   * signer names or emails, documents or links. She states what is true of
+   * their setup and never says she looked. A website visitor gets no lookup.
+   *  - "off" (default) / "shadow" (reads and logs appstate.shadow, the prompt
+   *    is unchanged) / "on".
+   * Does nothing without GETSIGN_API_BASE_URL and GETSIGN_SUPPORT_KEY, the
+   * backend's address and the service key for its support route.
+   */
+  appState: (["shadow", "on"].includes(env("JETTA_APP_STATE") ?? "")
+    ? env("JETTA_APP_STATE")
+    : "off") as "off" | "shadow" | "on",
+  getsignApp: {
+    baseUrl: env("GETSIGN_API_BASE_URL"),
+    supportKey: env("GETSIGN_SUPPORT_KEY"),
+  },
+
+  /**
    * Jetta sends the FIRST public reply herself on tickets that came straight
    * in by email, the portal or the in-app form — never on a ticket that came
    * from a chat, where the customer has already been talking to her. Every
