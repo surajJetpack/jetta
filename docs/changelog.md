@@ -5,6 +5,12 @@ Newest first. One entry per change people would notice: what Jetta does differen
 Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain words.
 
 
+## 2026-11-17: Has this already been fixed? Jetta checks GetSign tickets against recent fixes
+The release watcher now remembers what it reads from GitHub: every fix, whether it is in production or merged and waiting for the next release. On its first run it also reads the last 60 days of releases into that memory, and nothing else.
+When a GetSign ticket arrives, Jetta checks it against those fixes. A match goes to support in one private note on the ticket (what was fixed, in production or not yet released, the link), and onto the dev item if she files one, flagged as a possible cause when it shipped in the last 14 days.
+The reply is written without any of this: the ticket agent is never shown a match, so Jetta does not tell a customer a fix shipped. That is support's call from the note. Matches can be wrong.
+The switch is `JETTA_FIX_LOOKUP` (off, shadow, on; row on /system), and it is off. Shadow logs `fixlookup.shadow` events and writes nothing. It needs `JETTA_RELEASE_WATCH` not to be off, since that is what fills the memory.
+
 ## 2026-11-17: Jetta reads what the GetSign team ships to production
 A new hourly cron, `release-watch`, reads GitHub for merges into production in the four GetSign app repositories (board view, backend, application, item view) and works out which changes a customer could notice.
 When a shipped fix looks like the fix for an open dev item, Jetta asks the Developer on that item whether it is. She tells no customer herself: the developer confirms by setting Dev Status to Deployed to Prod, and the dev bridge sends the news as before. Published GetSign articles about the changed area get a "Release changed" notice in the KB review queue (the article is never edited), and one what-shipped note goes to Slack.

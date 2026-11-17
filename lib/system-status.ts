@@ -435,6 +435,7 @@ export function reasoningRows(): StatusRow[] {
     selfReviewRow(),
     getsignReferenceRow(),
     releaseWatchRow(),
+    fixLookupRow(),
     triageShadowRow(),
   ];
 }
@@ -499,6 +500,36 @@ function getsignReferenceRow(): StatusRow {
       ? "Daily, with the site sync, Jetta reads the GetSign developers' configuration reference as it is that day. When a section has changed she redrafts the article written from it: an untouched draft is updated in the review queue, an article a person edited or published gets a \"Reference changed\" notice and is never overwritten, and a new section gets a new draft. Nothing is published without a person."
       : "No token for the GetSign app repositories (JETTA_GETSIGN_REFERENCE_TOKEN), so Jetta files the reference articles from the copy shipped with the code and does not notice changes until the next deploy that refreshes it. The release watcher uses the same token and does nothing without it.",
     setting: "JETTA_GETSIGN_REFERENCE_TOKEN",
+  };
+}
+
+function fixLookupRow(): StatusRow {
+  const mode = config.fixLookup;
+  const on =
+    "When a GetSign ticket arrives, Jetta checks it against the fixes the release watcher has remembered from GitHub. " +
+    "A match goes to support in one private note on the ticket: what was fixed, whether it is in production or merged and waiting for a release, and the link. " +
+    "If she files a dev item, the same changes go on the item, flagged as a possible cause when they shipped in the last 14 days. " +
+    "The reply is written without any of this, so she never tells a customer a fix shipped; that is support's call from the note.";
+  if (mode !== "off" && config.releaseWatch === "off") {
+    return {
+      label: "Fix lookup (already fixed? caused by a release?)",
+      tone: "warn",
+      state: "NOTHING TO READ",
+      meaning: `Switched to ${mode}, but the release watcher is off (JETTA_RELEASE_WATCH), so no fixes are being remembered and every lookup comes back empty. When working: ${on}`,
+      setting: "JETTA_FIX_LOOKUP",
+    };
+  }
+  return {
+    label: "Fix lookup (already fixed? caused by a release?)",
+    tone: mode === "on" ? "on" : mode === "shadow" ? "good" : "off",
+    state: mode.toUpperCase(),
+    meaning:
+      mode === "on"
+        ? on
+        : mode === "shadow"
+          ? `Shadow: looks up every GetSign ticket and logs what it would write (fixlookup.shadow events), writes nothing. When on: ${on}`
+          : `Off. When on: ${on}`,
+    setting: "JETTA_FIX_LOOKUP",
   };
 }
 

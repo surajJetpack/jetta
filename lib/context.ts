@@ -3,6 +3,7 @@
  * and any existing monday.com Dev items, then shape the conversation history
  * into the message array handed to the Claude loop.
  */
+import { lookupApplies, lookupForTicket } from "./fix-lookup";
 import { generateObject, type ModelMessage } from "ai";
 import { z } from "zod";
 import type {
@@ -360,7 +361,7 @@ export async function buildContext(
     appProductFromHint(ticket.productHint) ??
     inferAppProduct(`${ticket.subject}\n${ticket.description}`);
 
-  const [triage, account, relatedDevItems, ticketDevItems, ticketComplianceItems] = await Promise.all([
+  const [triage, account, relatedDevItems, ticketDevItems, ticketComplianceItems, recentFixes] = await Promise.all([
     contentIsLive
       ? triageTicket(ticket.subject, ticket.description, taskUsage, newestCustomerReply(ticket))
       : Promise.resolve<TicketTriage>({
@@ -386,6 +387,12 @@ export async function buildContext(
     // Same for a request already with Mark on the compliance board.
     channel === "freshdesk"
       ? monday.complianceItemsForTicket(ticketId).catch(() => undefined)
+      : Promise.resolve(undefined),
+    // Has this been fixed lately? For support and the developers, never for
+    // the prompt (lib/fix-lookup.ts). The product is the synchronous guess,
+    // like the dev-board search above: triage has not answered yet.
+    lookupApplies({ channel }, searchProduct)
+      ? lookupForTicket(ticketId, ticket.subject, [ticket.description, newestCustomerReply(ticket) ?? ""].join("\n"))
       : Promise.resolve(undefined),
   ]);
 
@@ -422,6 +429,7 @@ export async function buildContext(
     intake: triage.intake,
     topic: triage.topic,
     taskUsage,
+    ...(recentFixes?.length ? { recentFixes } : {}),
     chat: chatConv
       ? await (async () => {
           const chatSettings = await getChatSettings();

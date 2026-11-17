@@ -16,6 +16,7 @@
  * Note: Freshdesk's native webhooks do not HMAC-sign payloads — verification is
  * a shared-secret header you configure on the automation rule, checked here.
  */
+import { noteRelatedFixes } from "@/lib/fix-lookup";
 import { sharedSecretOk } from "@/lib/request-auth";
 import { NextRequest, NextResponse } from "next/server";
 import { after } from "next/server";
@@ -253,6 +254,9 @@ async function processTicket(ticketId: string, channel: "freshdesk" | "freshchat
       draftMode ? { holdCustomerWrites: true, autoTier: true } : { autoTier: true },
     );
     await recordRun("webhook", ctx, result, Date.now() - started);
+    // What the fix lookup found goes to support in its own private note,
+    // whichever way the reply itself goes out below. It never throws.
+    await noteRelatedFixes(ctx);
 
     // Draft mode: the customer-visible reply was held — materialize it as a
     // ReplyDraft for human approval. Follow-up scheduling moves to approve time

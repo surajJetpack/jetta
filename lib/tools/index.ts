@@ -10,6 +10,7 @@
  * a resolution via add_private_note, we flip `resolutionSent` so the webhook
  * schedules the 24h follow-up.
  */
+import { devEvidence } from "../fix-lookup";
 import { tool, type ToolSet } from "ai";
 import { z } from "zod";
 import { cleanName as cleanVisitorName } from "../chat-visitor";
@@ -1099,6 +1100,8 @@ export function buildTools(
           attachments: await customerAttachments(),
           logEvidence: evidence,
           sentryEvidence: sentry,
+          // Shadow looks and logs (lib/fix-lookup.ts noteRelatedFixes); only "on" writes.
+          releaseEvidence: config.fixLookup === "on" ? devEvidence(ctx.recentFixes) : null,
         });
         if (item.notWritten) return declined("create_dev_item", notFiled("Dev board item", item.notWritten));
         mondayItemUrl = item.url;

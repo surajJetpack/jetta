@@ -147,9 +147,9 @@ async function main() {
   };
   let failRepo: string | null = null;
   const github: GithubReader = {
-    async mergedInto(repo, since) {
+    async mergedInto(repo, base, since) {
       if (repo === failRepo) throw new Error("GitHub answered 404");
-      return Object.values(pulls).filter((p) => p.repo === repo && p.base === "main" && p.mergedAt! > since);
+      return Object.values(pulls).filter((p) => p.repo === repo && p.base === base && p.mergedAt! > since);
     },
     commitHeadlines: async (repo, number) => commits[`${repo}#${number}`] ?? [],
     pull: async (repo, number) => pulls[`${repo}#${number}`] ?? null,
@@ -253,8 +253,35 @@ async function main() {
   const partial = await runReleaseWatch({ ...base, mode: "on" });
   check(
     "an unreadable repository is an error for that repository only",
-    partial.errors.length === 1 && partial.errors[0].startsWith("getsign-backend") && partial.releases.length === 1 && (await cursor("getsign-backend")) === before && (await cursor("getsign-board-view")) === "2026-11-25T07:00:00Z",
+    partial.errors.length === 2 && partial.errors.every((e) => e.startsWith("getsign-backend")) && partial.releases.length === 1 && (await cursor("getsign-backend")) === before && (await cursor("getsign-board-view")) === "2026-11-25T07:00:00Z",
   );
+
+  // ── What the watcher remembers (lib/fix-store.ts) ──
+  const { listFixes } = await import("../lib/fix-store");
+  failRepo = null;
+  const cancelledFix = (await listFixes()).find((f) => f.key === "fix/board-awaiting-cancelled-sessions");
+  check("a released fix is remembered once, both halves together", cancelledFix?.state === "released" && cancelledFix.prs.length === 2);
+  check("with the day its release shipped, not the day it merged", cancelledFix?.releasedAt === "2026-11-09T09:11:00Z" && cancelledFix.mergedAt === "2026-11-07T10:00:00Z");
+  check("internal changes are remembered too, marked as such", (await listFixes()).find((f) => f.key === "fix/suppress-store-api")?.customerVisible === false);
+
+  pulls["getsign-board-view#310"] = pr("getsign-board-view", 310, "fix/reminder-time-zone", "fix: reminders use the account time zone", { mergedAt: "2026-11-26T07:00:00Z" });
+  const waiting = await runReleaseWatch({ ...base, mode: "shadow" });
+  const merged = (await listFixes()).find((f) => f.key === "fix/reminder-time-zone");
+  check("a fix merged into dev is remembered as waiting for a release, even in shadow", waiting.remembered >= 1 && merged?.state === "merged" && !merged.releasedAt);
+  check("and nothing was said about it anywhere", waiting.fixes.length === 0 && posted.length === 1);
+
+  pulls["getsign-board-view#320"] = pr("getsign-board-view", 320, "dev", "Prod Release Nov 30", { base: "main", mergedAt: "2026-11-30T07:00:00Z" });
+  commits["getsign-board-view#320"] = ["Merge pull request #310 from x/fix/reminder-time-zone"];
+  let labelCalls = 0;
+  const counting = async (fixes: import("../lib/release-watch").Fix[]) => {
+    labelCalls += fixes.length;
+    return label(fixes);
+  };
+  await runReleaseWatch({ ...base, label: counting, mode: "shadow" });
+  const shippedNow = (await listFixes()).find((f) => f.key === "fix/reminder-time-zone");
+  check("when a release carries it, it becomes released", shippedNow?.state === "released" && shippedNow.releasedAt === "2026-11-30T07:00:00Z");
+  check("and the label it was given when it merged is kept, not asked for again", labelCalls === 0);
+  check("a dry run remembers nothing", (await runReleaseWatch({ ...base, mode: "on", dryRun: true, since: "2026-01-01T00:00:00Z" })).remembered === 0);
 
   console.log(`release-watch: all ${n} assertions passed`);
 }

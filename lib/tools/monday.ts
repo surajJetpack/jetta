@@ -712,6 +712,11 @@ export interface CreateDevItemInput {
    * (lib/tools/sentry.ts sentryEvidence). Item only, like logEvidence.
    */
   sentryEvidence?: string | null;
+  /**
+   * Recent developer changes that look related to this problem
+   * (lib/fix-lookup.ts devEvidence). Item only, like logEvidence.
+   */
+  releaseEvidence?: string | null;
 }
 
 /** A created item, plus the names of the files that actually attached. */
@@ -751,7 +756,7 @@ export function notWrittenReason(reason: "not_connected" | "writes_off"): string
 }
 
 /** The context block Jetta posts on an item, as an update. */
-function contextBody(input: CreateDevItemInput, followUp: boolean): string {
+export function contextBody(input: CreateDevItemInput, followUp: boolean): string {
   return [
     ...(followUp
       ? [
@@ -771,6 +776,9 @@ function contextBody(input: CreateDevItemInput, followUp: boolean): string {
       : []),
     ...(input.sentryEvidence
       ? ["", "From Sentry (added automatically by Jetta; the customer has not seen this):", input.sentryEvidence]
+      : []),
+    ...(input.releaseEvidence
+      ? ["", "Recent changes in this area (matched automatically by Jetta from GitHub; a lead, not a diagnosis):", input.releaseEvidence]
       : []),
   ].join("\n");
 }
