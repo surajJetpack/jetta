@@ -434,6 +434,7 @@ export function reasoningRows(): StatusRow[] {
     errorWatchRow(),
     selfReviewRow(),
     getsignReferenceRow(),
+    releaseWatchRow(),
     triageShadowRow(),
   ];
 }
@@ -496,8 +497,37 @@ function getsignReferenceRow(): StatusRow {
     state: on ? "DAILY" : "SHIPPED COPY",
     meaning: on
       ? "Daily, with the site sync, Jetta reads the GetSign developers' configuration reference as it is that day. When a section has changed she redrafts the article written from it: an untouched draft is updated in the review queue, an article a person edited or published gets a \"Reference changed\" notice and is never overwritten, and a new section gets a new draft. Nothing is published without a person."
-      : "No token for the GetSign app repository (JETTA_GETSIGN_REFERENCE_TOKEN), so Jetta files the reference articles from the copy shipped with the code and does not notice changes until the next deploy that refreshes it.",
+      : "No token for the GetSign app repositories (JETTA_GETSIGN_REFERENCE_TOKEN), so Jetta files the reference articles from the copy shipped with the code and does not notice changes until the next deploy that refreshes it. The release watcher uses the same token and does nothing without it.",
     setting: "JETTA_GETSIGN_REFERENCE_TOKEN",
+  };
+}
+
+function releaseWatchRow(): StatusRow {
+  const mode = config.releaseWatch;
+  const on =
+    "Hourly, Jetta reads what the GetSign team merged into production on GitHub (board view, backend, application, item view). " +
+    "When a shipped fix looks like the fix for an open dev item she asks the Developer on that item; the developer confirms by changing Dev Status, and only then is the customer told (Developers → customer). " +
+    'Published KB articles about the changed area get a "Release changed" notice in the review queue, and one what-shipped note goes to Slack. She never tells a customer a fix shipped on her own guess.';
+  if (mode !== "off" && (!config.getsignReferenceToken || config.stubMode)) {
+    return {
+      label: "Release watcher (GitHub → dev items, KB, Slack)",
+      tone: "warn",
+      state: "NO TOKEN",
+      meaning: `Switched to ${mode} but there is no token for the GetSign app repositories (JETTA_GETSIGN_REFERENCE_TOKEN), so nothing is read. When working: ${on}`,
+      setting: "JETTA_RELEASE_WATCH",
+    };
+  }
+  return {
+    label: "Release watcher (GitHub → dev items, KB, Slack)",
+    tone: mode === "on" ? "on" : mode === "shadow" ? "good" : "off",
+    state: mode.toUpperCase(),
+    meaning:
+      mode === "on"
+        ? `${on} Comments on dev items also need MONDAY_ALLOW_WRITES.`
+        : mode === "shadow"
+          ? `Shadow: works out what it would do and logs it (release.* events), writes nothing. When on: ${on}`
+          : `Off. When on: ${on}`,
+    setting: "JETTA_RELEASE_WATCH",
   };
 }
 
@@ -619,4 +649,5 @@ export const CRONS: readonly EndpointRow[] = [
   { path: "/api/cron/self-review", detail: "Jetta's self-review for the Self-review page: cron heartbeats, run failures and latency, error events, and an independent model grading a few recent replies; posts problems and a daily scorecard to the ops channel. Off with JETTA_SELF_REVIEW=off", schedule: "hourly at :45" },
   { path: "/api/cron/error-watch", detail: "Reads Sentry, the app logs and Cloudflare for the Logs page: flags new and spiking errors hitting customers, alerts Slack, lists or files dev items (JETTA_ERROR_WATCH_DEV_ITEMS), writes the AI read. Off with JETTA_ERROR_WATCH=off", schedule: "hourly at :35" },
   { path: "/api/cron/dev-followup", detail: "Asks developers for an update on quiet dev items a customer is waiting on; escalates after two unanswered asks. Armed by JETTA_DEV_FOLLOWUP", schedule: "daily 04:30" },
+  { path: "/api/cron/release-watch", detail: "Reads what the GetSign team merged into production on GitHub: asks the Developer on an open dev item whether a shipped fix resolves it, files \"Release changed\" notices in the KB review queue, posts a what-shipped note to Slack. Armed by JETTA_RELEASE_WATCH; needs JETTA_GETSIGN_REFERENCE_TOKEN", schedule: "hourly at :20" },
 ] as const;

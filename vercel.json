@@ -56,6 +56,10 @@
     {
       "path": "/api/cron/self-review",
       "schedule": "45 * * * *"
+    },
+    {
+      "path": "/api/cron/release-watch",
+      "schedule": "20 * * * *"
     }
   ]
 }

@@ -120,6 +120,10 @@ export async function getDevItem(id: string): Promise<DevItem | null> {
   if (!r) return ((mem.get(ITEMS_KEY) as Record<string, DevItem>) ?? {})[id] ?? null;
   return (await r.hget<DevItem>(ITEMS_KEY, id)) ?? null;
 }
+/** Every stored item on both boards, as of the last hourly sync. */
+export async function listDevItems(): Promise<DevItem[]> {
+  return [...(await hashAll<DevItem>(ITEMS_KEY)).values()];
+}
 export async function getMined(id: string): Promise<MinedItem | null> {
   const r = client();
   if (!r) return ((mem.get(MINED_KEY) as Record<string, MinedItem>) ?? {})[id] ?? null;

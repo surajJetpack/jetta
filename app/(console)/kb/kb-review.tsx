@@ -83,7 +83,11 @@ function DraftCard({ draft, onDecide }: { draft: Article; onDecide: () => void }
       }
       meta={
         <>
-          {revises ? <StatusChip tone="stale">site changed</StatusChip> : <>{draft.origin} · {draft.createdBy}</>}
+          {revises ? (
+            <StatusChip tone="stale">{draft.tags?.includes("release-change") ? "release changed" : "site changed"}</StatusChip>
+          ) : (
+            <>{draft.origin} · {draft.createdBy}</>
+          )}
           {dup && <StatusChip tone="stale">Possible duplicate: {dup.title.slice(0, 40)}</StatusChip>}
         </>
       }

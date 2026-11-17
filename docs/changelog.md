@@ -5,6 +5,11 @@ Newest first. One entry per change people would notice: what Jetta does differen
 Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain words.
 
 
+## 2026-11-17: Jetta reads what the GetSign team ships to production
+A new hourly cron, `release-watch`, reads GitHub for merges into production in the four GetSign app repositories (board view, backend, application, item view) and works out which changes a customer could notice.
+When a shipped fix looks like the fix for an open dev item, Jetta asks the Developer on that item whether it is. She tells no customer herself: the developer confirms by setting Dev Status to Deployed to Prod, and the dev bridge sends the news as before. Published GetSign articles about the changed area get a "Release changed" notice in the KB review queue (the article is never edited), and one what-shipped note goes to Slack.
+The switch is `JETTA_RELEASE_WATCH` (off, shadow, on; row on /system), and it is off. It reads GitHub with `JETTA_GETSIGN_REFERENCE_TOKEN`, which now needs Pull requests read on those four repositories; without the token the watcher does nothing. Start it on shadow: it logs `release.*_shadow` events and writes nothing.
+
 ## 2026-11-16: The GetSign app reference becomes knowledge base drafts, and stays current
 The GetSign developers' configuration reference (every screen, tab and setting, and why a workflow will not save) is now six articles in the KB review queue, origin "GetSign app reference", scoped to GetSign. They are drafts: Jetta cannot use one until a person publishes it, and the reference follows the app's development branch, so check the screen is live first.
 Every day the `kb-sync` cron reads the reference again. A changed section is redrafted by the model with file and code names left out (a redraft that names one is refused); an untouched draft is updated, an article a person edited or published is never overwritten and gets a "Reference changed" notice instead, a new section becomes a new draft, a dropped one removes an untouched draft or files a "Reference dropped" notice. A rejected draft stays rejected until its section changes.
