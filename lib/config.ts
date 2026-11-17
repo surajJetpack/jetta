@@ -203,8 +203,8 @@ export const config = {
   /**
    * Repeat problems (lib/problems.ts): when a GetSign ticket reports the same
    * malfunction as earlier tickets from other customers, Jetta groups them.
-   * At three tickets in 30 days, or two when one arrived after a fix for it
-   * was already in production, she tells the developers once on one dev item
+   * At three different customers in 30 days, or two when one wrote in after a
+   * fix for it was already in production, she tells the developers once on one dev item
    * (an existing one, or one she files, at most two a day) listing every
    * ticket, adds each later ticket as one line, and leaves support a private
    * note on each ticket. When she files a dev item for a ticket whose problem
