@@ -154,13 +154,35 @@ export const config = {
     : "off") as "off" | "shadow" | "on",
 
   /**
-   * A GitHub token that can read the GetSign app repository (private), so the
-   * daily kb-sync can read the team's configuration reference as it is today
-   * and redraft the articles whose section changed (lib/getsign-reference.ts).
+   * A GitHub token that can read the GetSign app repositories (private). Two
+   * readers use it:
+   *  - the daily kb-sync reads the team's configuration reference as it is
+   *    today and redrafts the articles whose section changed
+   *    (lib/getsign-reference.ts). Needs Contents on getsign-board-view.
+   *  - the release watcher reads what merged into production
+   *    (lib/release-watch.ts). Needs Pull requests on getsign-board-view,
+   *    getsign-backend, getsign-application and getsign-item-view.
    * Unset: Jetta uses the copy of the reference shipped with the code, which
-   * only changes with a deploy. Read-only, contents of that one repository.
+   * only changes with a deploy, and the release watcher does nothing.
+   * Read-only; Jetta never writes to GitHub.
    */
   getsignReferenceToken: env("JETTA_GETSIGN_REFERENCE_TOKEN"),
+
+  /**
+   * The release watcher (lib/release-watch.ts, hourly): when the GetSign team
+   * merges into production, Jetta reads the fixes in the release, asks the
+   * Developer on an open dev item whether a fix resolves it, files a "Release
+   * changed" notice in the KB review queue for published articles about the
+   * changed area, and posts one "what shipped" note to Slack. She never tells
+   * a customer anything from this: that still needs the developer to change
+   * Dev Status (JETTA_DEV_BRIDGE).
+   *  - "off" (default) / "shadow" (logged as release.*_shadow, nothing
+   *    written) / "on" (monday comments need MONDAY_ALLOW_WRITES too).
+   * Needs JETTA_GETSIGN_REFERENCE_TOKEN.
+   */
+  releaseWatch: (["shadow", "on"].includes(env("JETTA_RELEASE_WATCH") ?? "")
+    ? env("JETTA_RELEASE_WATCH")
+    : "off") as "off" | "shadow" | "on",
 
   /**
    * Jetta sends the FIRST public reply herself on tickets that came straight

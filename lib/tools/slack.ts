@@ -644,6 +644,21 @@ export async function notifyKbSync(headline: string, details: string[]): Promise
 }
 
 /**
+ * What shipped to production (lib/release-watch.ts): one headline per release
+ * with the customer-visible changes in its thread. Routine news, so it goes
+ * where the drafts go, else the ops channel. Throws when the headline cannot
+ * be posted, so the watcher can try again next hour.
+ */
+export async function notifyRelease(headline: string, details: string[]): Promise<void> {
+  const channel = config.slack.draftsChannel ?? opsChannel();
+  const ts = await postMessage(channel, clamp(headline, 400));
+  if (!details.length) return;
+  await postMessage(channel, details.join("\n"), ts).catch((e) =>
+    console.warn("release note detail reply failed:", e instanceof Error ? e.message : e),
+  );
+}
+
+/**
  * An error-watch alert (lib/error-watch.ts): a new or spiking error that hits
  * customers. Its own channel when JETTA_ERROR_WATCH_CHANNEL is set, else the
  * ops channel: a watch alert asks a person to look, it is not yet a dev bug,

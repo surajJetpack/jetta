@@ -5,6 +5,11 @@ Newest first. One entry per change people would notice: what Jetta does differen
 Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain words.
 
 
+## 2026-11-17: Jetta reads what the GetSign team ships to production
+A new hourly cron, `release-watch`, reads GitHub for merges into production in the four GetSign app repositories (board view, backend, application, item view) and works out which changes a customer could notice.
+When a shipped fix looks like the fix for an open dev item, Jetta asks the Developer on that item whether it is. She tells no customer herself: the developer confirms by setting Dev Status to Deployed to Prod, and the dev bridge sends the news as before. Published GetSign articles about the changed area get a "Release changed" notice in the KB review queue (the article is never edited), and one what-shipped note goes to Slack.
+The switch is `JETTA_RELEASE_WATCH` (off, shadow, on; row on /system), and it is off. It reads GitHub with `JETTA_GETSIGN_REFERENCE_TOKEN`, which now needs Pull requests read on those four repositories; without the token the watcher does nothing. Start it on shadow: it logs `release.*_shadow` events and writes nothing.
+
 ## 2026-11-17: Self-review: the judge reads everything Jetta read, and "bad" means serious
 I read 12 replies the self-review judge had marked bad against the runs behind them. About 5 were serious, 4 were minor, and 1 was wrong (2 more likely): the judge saw only the first 3,000 characters of each lookup while Jetta reads whole articles, so it called a step "unsupported" that was in the article she quoted. It now reads up to 16,000 characters per lookup.
 Every problem the judge names is now serious or minor. One serious problem makes a reply bad; minor ones alone (a hedged suggestion, an obvious inference, wording) make it weak at worst. The Self-review page marks the minor ones.
