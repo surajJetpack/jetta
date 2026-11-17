@@ -33,6 +33,7 @@ import type { DevItem } from "./dev-board";
 import { listDevItems } from "./dev-board-sync";
 import { itemTickets } from "./dev-item-links";
 import { logOpsEvent } from "./events";
+import { getFix, saveFixes, type ShippedFix } from "./fix-store";
 import { GITHUB_OWNER, githubGet, githubReady } from "./github";
 import { createArticle, getArticle, searchPublishedKb, updateArticle } from "./kb-store";
 import { kvDel, kvGet, kvSet, kvSetNx, rememberJettaPost } from "./kv";
@@ -48,6 +49,8 @@ import { queryVector, vectorEnabled } from "./vector";
 /** The repositories that make up the GetSign app customers use on monday. */
 export const RELEASE_REPOS = ["getsign-board-view", "getsign-backend", "getsign-application", "getsign-item-view"] as const;
 const PROD_BRANCH = "main";
+/** Where a fix lands first. Merged here and not yet in production means "fixed, waiting for the next release". */
+const DEV_BRANCH = "dev";
 /** Long-lived branches. A pull request FROM one of these carries other people's work; it is not a fix. */
 const TRUNK = /^(main|master|dev|develop|qa|staging)$/i;
 
@@ -74,8 +77,8 @@ export interface PullRef {
 
 /** Everything the watcher reads from GitHub, so a test can stand in for it. */
 export interface GithubReader {
-  /** Pull requests merged into the production branch after `sinceIso`. */
-  mergedInto(repo: string, sinceIso: string): Promise<PullRef[]>;
+  /** Pull requests merged into `base` ("main" for production, "dev" for work not yet released) after `sinceIso`. */
+  mergedInto(repo: string, base: string, sinceIso: string): Promise<PullRef[]>;
   /** First line of each commit in a pull request. */
   commitHeadlines(repo: string, number: number): Promise<string[]>;
   pull(repo: string, number: number): Promise<PullRef | null>;
@@ -103,9 +106,9 @@ const toPull = (repo: string, p: RawPull): PullRef => ({
 });
 
 const liveGithub: GithubReader = {
-  async mergedInto(repo, sinceIso) {
+  async mergedInto(repo, base, sinceIso) {
     const rows = await githubGet<RawPull[]>(
-      `/repos/${GITHUB_OWNER}/${repo}/pulls?state=closed&base=${PROD_BRANCH}&sort=updated&direction=desc&per_page=50`,
+      `/repos/${GITHUB_OWNER}/${repo}/pulls?state=closed&base=${base}&sort=updated&direction=desc&per_page=50`,
     );
     return rows.filter((p) => p.merged_at && p.merged_at > sinceIso).map((p) => toPull(repo, p));
   },
@@ -512,6 +515,8 @@ export interface ReleaseWatchOptions {
   candidates?: Candidate[];
   /** Post the comment on the dev item; returns the new update's id, or null when monday writes are off. */
   comment?: Commenter;
+  /** How far back the first run reads to fill the fix store. Default 60. */
+  seedDays?: number;
 }
 
 export type Commenter = (itemId: string, text: string) => Promise<string | null>;
@@ -548,6 +553,8 @@ export interface ReleaseWatchResult {
   /** Notice ids written. */
   noticed: string[];
   noted: boolean;
+  /** Fixes written to the fix store this run (lib/fix-store.ts): released, merged into dev, and the first-run seed. */
+  remembered: number;
   errors: string[];
 }
 
@@ -561,7 +568,7 @@ export async function runReleaseWatch(opts: ReleaseWatchOptions = {}): Promise<R
   const mode = opts.mode ?? config.releaseWatch;
   const dry = !!opts.dryRun;
   const now = opts.now ?? new Date();
-  const res: ReleaseWatchResult = { mode, dry, ready: false, releases: [], fixes: [], commented: 0, noticed: [], noted: false, errors: [] };
+  const res: ReleaseWatchResult = { mode, dry, ready: false, releases: [], fixes: [], commented: 0, noticed: [], noted: false, remembered: 0, errors: [] };
   if (mode === "off" && !dry) return res;
   const gh = opts.github ?? (githubReady() ? liveGithub : null);
   if (!gh) return res;
@@ -569,6 +576,8 @@ export async function runReleaseWatch(opts: ReleaseWatchOptions = {}): Promise<R
 
   // 1. What merged into production since last time, repository by repository.
   const found: PullRef[] = [];
+  /** When the release that carried each pull request merged. */
+  const releasedAt = new Map<string, string>();
   const nextCursor = new Map<string, string>();
   for (const repo of RELEASE_REPOS) {
     try {
@@ -578,22 +587,13 @@ export async function runReleaseWatch(opts: ReleaseWatchOptions = {}): Promise<R
         nextCursor.set(repo, stamp(now));
         continue;
       }
-      const merged = await gh.mergedInto(repo, since);
-      let newest = since;
-      for (const pr of merged) {
-        const kind = releaseKind(pr);
-        if (!kind) continue;
-        res.releases.push({ id: `${repo}#${pr.number}`, kind, title: pr.title, mergedAt: pr.mergedAt!, url: pr.url });
-        if (pr.mergedAt! > newest) newest = pr.mergedAt!;
-        if (kind === "hotfix") {
-          found.push(pr);
-          continue;
-        }
-        for (const n of fixNumbers(await gh.commitHeadlines(repo, pr.number))) {
-          const fix = await gh.pull(repo, n);
-          if (fix && !isCarrier(fix)) found.push(fix);
-        }
+      const read = await readProduction(gh, repo, since);
+      res.releases.push(...read.releases);
+      for (const x of read.fixes) {
+        found.push(x.pr);
+        releasedAt.set(prSeenKey(x.pr), x.releasedAt);
       }
+      const newest = read.newest;
       nextCursor.set(repo, newest);
     } catch (e) {
       // This repository is read again next hour; the others carry on.
@@ -617,17 +617,23 @@ export async function runReleaseWatch(opts: ReleaseWatchOptions = {}): Promise<R
   if (fixes.length) {
     const shipped = releaseLabel(res.releases.map((r) => r.mergedAt).sort().at(-1) ?? now.toISOString());
 
-    // 2. Which of them a customer would notice.
+    // 2. Which of them a customer would notice. A fix labelled when it merged
+    //    into dev keeps that label.
     const useModel = llmKeyPresent() && !config.stubMode;
-    const labeller = opts.label ?? (useModel ? modelLabeller : null);
-    let labels: Label[];
-    try {
-      labels = labeller ? await labeller(fixes) : fixes.map(heuristicLabel);
-    } catch (e) {
-      log.warn("release.label_failed", { error: errText(e), source: "cron" });
-      labels = fixes.map(heuristicLabel);
+    const labelled = await labelFixes(fixes, opts.label ?? (useModel ? modelLabeller : null));
+
+    // Remembered before anything is acted on: a failed comment must not cost
+    // the ticket lookup its memory of what shipped.
+    if (!dry) {
+      const fallback = res.releases.map((r) => r.mergedAt).sort().at(-1) ?? stamp(now);
+      res.remembered += await saveFixes(
+        labelled.map((f) => toShipped(f, f.prs.map((p) => releasedAt.get(prSeenKey(p))).filter((x): x is string => !!x).sort()[0] ?? fallback)),
+        now,
+      ).catch((e) => {
+        res.errors.push(`fix store: ${errText(e)}`);
+        return 0;
+      });
     }
-    const labelled: LabelledFix[] = fixes.map((f, i) => ({ ...f, ...(labels[i] ?? heuristicLabel(f)) }));
 
     // 3. Each visible fix against the open dev items and the published articles.
     const picker = opts.pick !== undefined ? opts.pick : useModel ? modelPicker : null;
@@ -679,6 +685,13 @@ export async function runReleaseWatch(opts: ReleaseWatchOptions = {}): Promise<R
     }
   }
 
+  // What is fixed but not yet shipped, and on the very first run the recent
+  // past. Both only fill Jetta's memory of fixes; neither writes anywhere else.
+  if (!dry) {
+    await rememberMerged(gh, opts, now, res);
+    await seedFixStore(gh, opts, now, res);
+  }
+
   // 5. Only a clean run moves on. A failed one is repeated, and the markers
   //    on each comment, notice and note keep it from doing anything twice.
   if (!dry && acted) {
@@ -699,6 +712,120 @@ export async function runReleaseWatch(opts: ReleaseWatchOptions = {}): Promise<R
     });
   }
   return res;
+}
+
+/** One repository's merges into production since `since`, each release opened into its fixes. */
+async function readProduction(
+  gh: GithubReader,
+  repo: string,
+  since: string,
+): Promise<{ releases: ReleaseWatchResult["releases"]; fixes: { pr: PullRef; releasedAt: string }[]; newest: string }> {
+  const releases: ReleaseWatchResult["releases"] = [];
+  const fixes: { pr: PullRef; releasedAt: string }[] = [];
+  let newest = since;
+  for (const pr of await gh.mergedInto(repo, PROD_BRANCH, since)) {
+    const kind = releaseKind(pr);
+    if (!kind) continue;
+    releases.push({ id: `${repo}#${pr.number}`, kind, title: pr.title, mergedAt: pr.mergedAt!, url: pr.url });
+    if (pr.mergedAt! > newest) newest = pr.mergedAt!;
+    if (kind === "hotfix") {
+      fixes.push({ pr, releasedAt: pr.mergedAt! });
+      continue;
+    }
+    for (const n of fixNumbers(await gh.commitHeadlines(repo, pr.number))) {
+      const fix = await gh.pull(repo, n);
+      if (fix && !isCarrier(fix)) fixes.push({ pr: fix, releasedAt: pr.mergedAt! });
+    }
+  }
+  return { releases, fixes, newest };
+}
+
+/**
+ * Label fixes, a batch at a time. A fix already in the store keeps the label
+ * it was given; a batch the model fails on falls back to the title.
+ */
+async function labelFixes(fixes: Fix[], labeller: Labeller | null): Promise<LabelledFix[]> {
+  const known = await Promise.all(fixes.map((f) => getFix(f.key).catch(() => null)));
+  const labels: (Label | null)[] = known.map((k) => (k ? { customerVisible: k.customerVisible, summary: k.summary } : null));
+  const todo = fixes.map((f, i) => ({ f, i })).filter((x) => !labels[x.i]);
+  for (let at = 0; at < todo.length; at += 25) {
+    const batch = todo.slice(at, at + 25);
+    let got: Label[] = [];
+    try {
+      got = labeller ? await labeller(batch.map((x) => x.f)) : [];
+    } catch (e) {
+      log.warn("release.label_failed", { error: errText(e), source: "cron" });
+    }
+    batch.forEach((x, n) => (labels[x.i] = got[n] ?? heuristicLabel(x.f)));
+  }
+  return fixes.map((f, i) => ({ ...f, ...(labels[i] ?? heuristicLabel(f)) }));
+}
+
+/** A fix as the store keeps it. `releasedAt` unset: merged, not yet in production. */
+function toShipped(fix: LabelledFix, releasedAt?: string): ShippedFix {
+  const merged = fix.prs.map((p) => p.mergedAt).filter((x): x is string => !!x).sort()[0];
+  return {
+    key: fix.key,
+    title: fix.title,
+    summary: fix.summary,
+    body: fix.body.slice(0, 1500),
+    customerVisible: fix.customerVisible,
+    prs: fix.prs.map((p) => ({ repo: p.repo, number: p.number, url: p.url })),
+    state: releasedAt ? "released" : "merged",
+    mergedAt: merged ?? releasedAt ?? stamp(new Date()),
+    ...(releasedAt ? { releasedAt } : {}),
+  };
+}
+
+const devCursorKey = (repo: string) => `jetta:release:devcursor:${repo}`;
+const SEEDED_KEY = "jetta:release:seeded";
+
+/**
+ * Fixes merged into dev since last time: done, and waiting for a release.
+ * The first run looks back two weeks, roughly one release's worth.
+ */
+async function rememberMerged(gh: GithubReader, opts: ReleaseWatchOptions, now: Date, res: ReleaseWatchResult): Promise<void> {
+  const useModel = llmKeyPresent() && !config.stubMode;
+  for (const repo of RELEASE_REPOS) {
+    try {
+      const since = (await kvGet(devCursorKey(repo))) ?? stamp(new Date(now.getTime() - 14 * DAY * 1000));
+      const merged = (await gh.mergedInto(repo, DEV_BRANCH, since)).filter((p) => p.mergedAt && !isCarrier(p));
+      if (merged.length) {
+        const labelled = await labelFixes(groupFixes(merged), opts.label ?? (useModel ? modelLabeller : null));
+        res.remembered += await saveFixes(labelled.map((f) => toShipped(f)), now);
+      }
+      const newest = merged.map((p) => p.mergedAt!).sort().at(-1);
+      await kvSet(devCursorKey(repo), newest && newest > since ? newest : since, 365 * DAY);
+    } catch (e) {
+      res.errors.push(`${repo} (dev): ${errText(e)}`);
+    }
+  }
+}
+
+/**
+ * Once, ever: read the last couple of months of releases into the fix store,
+ * so a ticket arriving tomorrow can be checked against last week's release.
+ * Store only. No comments, no notices, no note: old releases are not news.
+ */
+async function seedFixStore(gh: GithubReader, opts: ReleaseWatchOptions, now: Date, res: ReleaseWatchResult): Promise<void> {
+  if (!(await kvSetNx(SEEDED_KEY, stamp(now), 365 * DAY))) return;
+  const since = stamp(new Date(now.getTime() - (opts.seedDays ?? 60) * DAY * 1000));
+  const useModel = llmKeyPresent() && !config.stubMode;
+  try {
+    const all: { pr: PullRef; releasedAt: string }[] = [];
+    for (const repo of RELEASE_REPOS) all.push(...(await readProduction(gh, repo, since)).fixes);
+    const when = new Map(all.map((x) => [prSeenKey(x.pr), x.releasedAt]));
+    const unique = [...new Map(all.map((x) => [prSeenKey(x.pr), x.pr])).values()];
+    const labelled = await labelFixes(groupFixes(unique), opts.label ?? (useModel ? modelLabeller : null));
+    res.remembered += await saveFixes(
+      labelled.map((f) => toShipped(f, f.prs.map((p) => when.get(prSeenKey(p))).filter((x): x is string => !!x).sort()[0])),
+      now,
+    );
+  } catch (e) {
+    // Try again next hour rather than never.
+    await kvDel(SEEDED_KEY);
+    res.errors.push(`seed: ${errText(e)}`);
+  }
 }
 
 /** Ask the developer on the item. Returns what happened. */

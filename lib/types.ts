@@ -480,6 +480,30 @@ export interface ConversationContext {
    * to the prompt.
    */
   devEvent?: DevEvent;
+  /**
+   * Recent developer fixes that look like this ticket's problem
+   * (lib/fix-lookup.ts). FOR THE SYSTEM ONLY: it goes into a private note for
+   * support and onto a dev item Jetta files. It is never rendered into the
+   * prompt and no tool returns it, so the reply cannot claim a fix shipped.
+   */
+  recentFixes?: RelatedFix[];
+}
+
+/** One recent fix that may be about a ticket's problem. */
+export interface RelatedFix {
+  /** The fix's branch name: its identity in lib/fix-store.ts. */
+  key: string;
+  summary: string;
+  /** "released": in production. "merged": done, waiting for the next release. */
+  state: "merged" | "released";
+  /** "9 Nov": when it shipped, or when it merged if it has not shipped. */
+  when: string;
+  urls: string[];
+  /** "possible": word overlap only, no model confirmed it. */
+  confidence: "high" | "medium" | "possible";
+  reason: string;
+  /** In production within the regression window: it may be what broke this. */
+  recent: boolean;
 }
 
 export interface DevEvent {

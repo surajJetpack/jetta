@@ -185,6 +185,22 @@ export const config = {
     : "off") as "off" | "shadow" | "on",
 
   /**
+   * The fix lookup (lib/fix-lookup.ts): when a GetSign ticket arrives, check
+   * it against the fixes the release watcher has remembered. A match goes to
+   * support in one private note (in production, or merged and waiting for a
+   * release), and onto the dev item if Jetta files one, flagged as a possible
+   * regression when the fix shipped in the last 14 days. The ticket agent is
+   * never shown a match, so no reply can claim a fix on a guess.
+   *  - "off" (default) / "shadow" (logged as fixlookup.shadow, nothing
+   *    written) / "on".
+   * Needs the release watcher to have run (JETTA_RELEASE_WATCH not off): that
+   * is what fills the store.
+   */
+  fixLookup: (["shadow", "on"].includes(env("JETTA_FIX_LOOKUP") ?? "")
+    ? env("JETTA_FIX_LOOKUP")
+    : "off") as "off" | "shadow" | "on",
+
+  /**
    * Jetta sends the FIRST public reply herself on tickets that came straight
    * in by email, the portal or the in-app form — never on a ticket that came
    * from a chat, where the customer has already been talking to her. Every
