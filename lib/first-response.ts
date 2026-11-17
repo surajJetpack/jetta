@@ -226,12 +226,12 @@ const VERDICT = z.object({
 });
 
 /** What the run looked up and did, trimmed to what the gate needs to check claims against. */
-export function evidenceFromTrace(result: Pick<AgentResult, "trace">, maxChars = 9000): string {
+export function evidenceFromTrace(result: Pick<AgentResult, "trace">, maxChars = 9000, perTool = 3000): string {
   const parts: string[] = [];
   for (const t of result.trace) {
     if (t.tool === "reply_to_ticket" || t.tool === "add_private_note") continue;
     const out = typeof t.result === "string" ? t.result : JSON.stringify(t.result ?? "");
-    parts.push(`[${t.tool}${t.failed ? " FAILED" : ""}] ${JSON.stringify(t.input ?? {})}\n${out.slice(0, 3000)}`);
+    parts.push(`[${t.tool}${t.failed ? " FAILED" : ""}] ${JSON.stringify(t.input ?? {})}\n${out.slice(0, perTool)}`);
   }
   const all = parts.join("\n\n");
   return all.length > maxChars ? `${all.slice(0, maxChars)}\n[…evidence truncated]` : all || "(none — no tools were called)";

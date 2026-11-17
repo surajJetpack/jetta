@@ -5,6 +5,12 @@ Newest first. One entry per change people would notice: what Jetta does differen
 Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain words.
 
 
+## 2026-11-17: Self-review: the judge reads everything Jetta read, and "bad" means serious
+I read 12 replies the self-review judge had marked bad against the runs behind them. About 5 were serious, 4 were minor, and 1 was wrong (2 more likely): the judge saw only the first 3,000 characters of each lookup while Jetta reads whole articles, so it called a step "unsupported" that was in the article she quoted. It now reads up to 16,000 characters per lookup.
+Every problem the judge names is now serious or minor. One serious problem makes a reply bad; minor ones alone (a hedged suggestion, an obvious inference, wording) make it weak at worst. The Self-review page marks the minor ones.
+New rule check, no model: a reply that says "I've flagged this to the team" or "I've added this to your ticket" when the run handed nothing to anyone is bad (missed escalation).
+Live on merge (`JETTA_SELF_REVIEW`, unchanged). Replies judged before today keep their old grade, so expect the bad count to drop from 2026-11-17 for this reason alone; compare days only from then on.
+
 ## 2026-11-16: The GetSign app reference becomes knowledge base drafts, and stays current
 The GetSign developers' configuration reference (every screen, tab and setting, and why a workflow will not save) is now six articles in the KB review queue, origin "GetSign app reference", scoped to GetSign. They are drafts: Jetta cannot use one until a person publishes it, and the reference follows the app's development branch, so check the screen is live first.
 Every day the `kb-sync` cron reads the reference again. A changed section is redrafted by the model with file and code names left out (a redraft that names one is refused); an untouched draft is updated, an article a person edited or published is never overwritten and gets a "Reference changed" notice instead, a new section becomes a new draft, a dropped one removes an untouched draft or files a "Reference dropped" notice. A rejected draft stays rejected until its section changes.

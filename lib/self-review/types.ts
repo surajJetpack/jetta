@@ -104,7 +104,11 @@ export interface JudgedReply {
   score: number;
   answered: "yes" | "partly" | "no";
   grounded: "yes" | "partly" | "no";
-  issues: { category: IssueCategory; detail: string }[];
+  /**
+   * `severity` arrived on 2026-11-17. Rows judged before it have none and were
+   * graded under the old rule, where any unsupported detail made a reply bad.
+   */
+  issues: { category: IssueCategory; detail: string; severity?: "serious" | "minor" }[];
   summary: string;
   fixType: FixType;
   fix: string;

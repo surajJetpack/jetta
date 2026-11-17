@@ -13,7 +13,7 @@
 import { writeFileSync } from "node:fs";
 import type { RunLog } from "../lib/kv";
 import type { ChatConversation } from "../lib/types";
-import { evidenceFromTrace, judgeReply, judgeable, kindOf, replyOf, ruleChecks, finalVerdict } from "../lib/self-review/quality";
+import { EVIDENCE_CHARS, EVIDENCE_PER_TOOL, evidenceFromTrace, judgeReply, judgeable, kindOf, replyOf, ruleChecks, finalVerdict } from "../lib/self-review/quality";
 
 const arg = (k: string, d: string) => {
   const i = process.argv.indexOf(`--${k}`);
@@ -61,7 +61,7 @@ async function main() {
     const kind = kindOf(l);
     const reply = replyOf(l)!;
     const customerAsk = kind === "chat" ? await chatAsk(l.ticketId, l.at * 1000 + 1500) : ticketAsk(l);
-    const evidence = evidenceFromTrace({ trace: l.trace as never }, 9000);
+    const evidence = evidenceFromTrace({ trace: l.trace as never }, EVIDENCE_CHARS, EVIDENCE_PER_TOOL);
     const checks = await ruleChecks(kind, reply, evidence, customerAsk);
     const out: Record<string, unknown> = {};
     for (const m of MODELS) {
