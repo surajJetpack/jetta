@@ -5,6 +5,11 @@ Newest first. One entry per change people would notice: what Jetta does differen
 Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain words.
 
 
+## 2026-11-17: Fix: the GitHub features were silently doing nothing in production
+The GetSign reference read, the release watcher, the fix lookup and repeat problems all refused to run while `STUB_MODE` was on. Production runs with `STUB_MODE` on and each integration switched live by its own `*_LIVE` flag, and GitHub has none, so nothing was read from GitHub and the model steps were skipped, while every run reported success and /system showed the features as on. Found from the logs: the daily sync reported the reference as "shipped" with the token set and no fetch error.
+Now the token alone (`JETTA_GETSIGN_REFERENCE_TOKEN`) decides whether GitHub is read, and the model key alone decides whether a model is asked, as everywhere else in Jetta. Nothing else about `STUB_MODE` changes.
+Effect on merge: the reference is read live at the next daily sync, the release watcher starts reading releases and fills its memory of fixes on its next hourly run, and the fix lookup (on) and repeat problems (shadow) start working.
+
 ## 2026-11-17: Repeat problems: the same bug from several customers reaches the developers as one
 When a GetSign ticket reports the same malfunction as earlier tickets from other customers, Jetta now groups them. She states each ticket's problem in one sentence, quoting any error message, and compares those, not the topic label, so reports of one failure end up together even when worded differently. One customer's second ticket about the same thing does not count twice.
 At three different customers in 30 days, or two when one wrote in after a fix for it was already in production, she tells the developers once on one dev item (one a ticket already has, a clear match on the board, or one she files titled "[Repeat problem] …", at most two a day), listing every ticket. Each later ticket adds one line. Support gets a private note on each ticket naming the others and the item.

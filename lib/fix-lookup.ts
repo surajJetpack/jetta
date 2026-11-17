@@ -167,7 +167,7 @@ export async function relatedFixes(subject: string, body: string, opts: LookupOp
     const now = opts.now ?? new Date();
     const short = shortlistFixes(subject, body, opts.fixes ?? (await listFixes()));
     if (!short.length) return [];
-    const confirm = opts.confirm !== undefined ? opts.confirm : llmKeyPresent() && !config.stubMode ? modelConfirmer : null;
+    const confirm = opts.confirm !== undefined ? opts.confirm : llmKeyPresent() ? modelConfirmer : null;
     if (!confirm) {
       return short.filter(strongOverlap).slice(0, 2).map((s) => toRelated(s.fix, "possible", `Shares ${s.shared} distinctive words with the ticket.`, now));
     }

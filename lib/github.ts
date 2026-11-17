@@ -13,9 +13,17 @@ import { config } from "./config";
 const API = "https://api.github.com";
 export const GITHUB_OWNER = "Jetpack-Work-Labs";
 
-/** False in stub mode or with no token: callers do nothing rather than fail. */
+/**
+ * False with no token: callers do nothing rather than fail.
+ *
+ * The token is the whole switch. NOT `config.stubMode`: production runs with
+ * STUB_MODE on and each integration switched live by its own `*_LIVE` flag,
+ * and GitHub has no such flag, so a stub-mode check here meant GitHub was
+ * never read in production while everything reported success. Reading is
+ * safe to leave to the token alone: it is GET only.
+ */
 export function githubReady(): boolean {
-  return !config.stubMode && !!config.getsignReferenceToken;
+  return !!config.getsignReferenceToken;
 }
 
 /** One GET. Throws with the status on anything but 2xx. */
