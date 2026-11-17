@@ -492,7 +492,7 @@ function selfReviewRow(): StatusRow {
 }
 
 function getsignReferenceRow(): StatusRow {
-  const on = !!config.getsignReferenceToken && !config.stubMode;
+  const on = !!config.getsignReferenceToken;
   return {
     label: "GetSign app reference (KB review queue)",
     tone: on ? "on" : "off",
@@ -561,7 +561,7 @@ function releaseWatchRow(): StatusRow {
     "Hourly, Jetta reads what the GetSign team merged into production on GitHub (board view, backend, application, item view). " +
     "When a shipped fix looks like the fix for an open dev item she asks the Developer on that item; the developer confirms by changing Dev Status, and only then is the customer told (Developers → customer). " +
     'Published KB articles about the changed area get a "Release changed" notice in the review queue, and one what-shipped note goes to Slack. She never tells a customer a fix shipped on her own guess.';
-  if (mode !== "off" && (!config.getsignReferenceToken || config.stubMode)) {
+  if (mode !== "off" && !config.getsignReferenceToken) {
     return {
       label: "Release watcher (GitHub → dev items, KB, Slack)",
       tone: "warn",

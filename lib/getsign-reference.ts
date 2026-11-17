@@ -128,7 +128,8 @@ const MIN_SECTIONS = 5;
  * the copy shipped with the code", never "the reference is empty".
  */
 export async function fetchReference(): Promise<string | null> {
-  if (config.stubMode || !config.getsignReferenceToken) return null;
+  // The token alone decides (lib/github.ts githubReady explains why not stub mode).
+  if (!config.getsignReferenceToken) return null;
   try {
     const res = await fetch(`https://api.github.com/repos/${REPO}/contents/${DOC_PATH}?ref=dev`, {
       headers: {

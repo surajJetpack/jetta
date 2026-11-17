@@ -571,7 +571,12 @@ export async function runReleaseWatch(opts: ReleaseWatchOptions = {}): Promise<R
   const res: ReleaseWatchResult = { mode, dry, ready: false, releases: [], fixes: [], commented: 0, noticed: [], noted: false, remembered: 0, errors: [] };
   if (mode === "off" && !dry) return res;
   const gh = opts.github ?? (githubReady() ? liveGithub : null);
-  if (!gh) return res;
+  if (!gh) {
+    // Said out loud. A run that reads nothing used to look exactly like a
+    // quiet success, and that hid a watcher that never ran for hours.
+    if (!dry) log.warn("cron.release_watch", { mode, ready: false, reason: "no GitHub token (JETTA_GETSIGN_REFERENCE_TOKEN): nothing was read", source: "cron" });
+    return res;
+  }
   res.ready = true;
 
   // 1. What merged into production since last time, repository by repository.
@@ -619,7 +624,7 @@ export async function runReleaseWatch(opts: ReleaseWatchOptions = {}): Promise<R
 
     // 2. Which of them a customer would notice. A fix labelled when it merged
     //    into dev keeps that label.
-    const useModel = llmKeyPresent() && !config.stubMode;
+    const useModel = llmKeyPresent();
     const labelled = await labelFixes(fixes, opts.label ?? (useModel ? modelLabeller : null));
 
     // Remembered before anything is acted on: a failed comment must not cost
@@ -698,10 +703,14 @@ export async function runReleaseWatch(opts: ReleaseWatchOptions = {}): Promise<R
     for (const pr of fresh) await kvSet(prSeenKey(pr), "1", 180 * DAY);
     for (const [repo, at] of nextCursor) await kvSet(cursorKey(repo), at, 365 * DAY);
   }
-  if (res.releases.length || res.errors.length) {
+  // Every run leaves one line, quiet ones included: it is the only proof
+  // from outside that GitHub was actually read.
+  if (!dry || res.releases.length || res.errors.length) {
     log[res.errors.length ? "warn" : "info"]("cron.release_watch", {
       mode,
       dry,
+      ready: true,
+      remembered: res.remembered,
       releases: res.releases.map((r) => r.id),
       fixes: res.fixes.length,
       visible: res.fixes.filter((f) => f.customerVisible).length,
@@ -785,7 +794,7 @@ const SEEDED_KEY = "jetta:release:seeded";
  * The first run looks back two weeks, roughly one release's worth.
  */
 async function rememberMerged(gh: GithubReader, opts: ReleaseWatchOptions, now: Date, res: ReleaseWatchResult): Promise<void> {
-  const useModel = llmKeyPresent() && !config.stubMode;
+  const useModel = llmKeyPresent();
   for (const repo of RELEASE_REPOS) {
     try {
       const since = (await kvGet(devCursorKey(repo))) ?? stamp(new Date(now.getTime() - 14 * DAY * 1000));
@@ -810,7 +819,7 @@ async function rememberMerged(gh: GithubReader, opts: ReleaseWatchOptions, now: 
 async function seedFixStore(gh: GithubReader, opts: ReleaseWatchOptions, now: Date, res: ReleaseWatchResult): Promise<void> {
   if (!(await kvSetNx(SEEDED_KEY, stamp(now), 365 * DAY))) return;
   const since = stamp(new Date(now.getTime() - (opts.seedDays ?? 60) * DAY * 1000));
-  const useModel = llmKeyPresent() && !config.stubMode;
+  const useModel = llmKeyPresent();
   try {
     const all: { pr: PullRef; releasedAt: string }[] = [];
     for (const repo of RELEASE_REPOS) all.push(...(await readProduction(gh, repo, since)).fixes);

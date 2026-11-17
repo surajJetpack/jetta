@@ -188,7 +188,7 @@ export async function problemForTicket(ticketId: string, subject: string, body: 
       return p ? refOf(p, ticketId) : null;
     }
     const me: SeenTicket = { id: ticketId, at: now.toISOString(), subject, text: body.slice(0, TEXT_KEPT), who: whoOf(opts.requester) };
-    const useModel = llmKeyPresent() && !config.stubMode;
+    const useModel = llmKeyPresent();
     const describe = opts.describe !== undefined ? opts.describe : useModel ? modelDescriber : null;
     const join = opts.join !== undefined ? opts.join : useModel ? modelJoiner : null;
     // Recorded before anything can fail, so a ticket is only ever described once.
