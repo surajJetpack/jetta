@@ -437,6 +437,7 @@ export function reasoningRows(): StatusRow[] {
     releaseWatchRow(),
     fixLookupRow(),
     repeatProblemsRow(),
+    appStateRow(),
     triageShadowRow(),
   ];
 }
@@ -501,6 +502,35 @@ function getsignReferenceRow(): StatusRow {
       ? "Daily, with the site sync, Jetta reads the GetSign developers' configuration reference as it is that day. When a section has changed she redrafts the article written from it: an untouched draft is updated in the review queue, an article a person edited or published gets a \"Reference changed\" notice and is never overwritten, and a new section gets a new draft. Nothing is published without a person."
       : "No token for the GetSign app repositories (JETTA_GETSIGN_REFERENCE_TOKEN), so Jetta files the reference articles from the copy shipped with the code and does not notice changes until the next deploy that refreshes it. The release watcher uses the same token and does nothing without it.",
     setting: "JETTA_GETSIGN_REFERENCE_TOKEN",
+  };
+}
+
+function appStateRow(): StatusRow {
+  const mode = config.appState;
+  const ready = !!config.getsignApp.baseUrl && !!config.getsignApp.supportKey;
+  const on =
+    "For a visitor chatting from inside the GetSign app, with a monday session token verified in the last 24 hours, Jetta reads that account's own setup from the GetSign backend: plan and what it includes, settings, the workflows on the board in view, session counts and failures on record. " +
+    "She answers from it and never says she looked. Read-only; no signer names or emails, documents or links. A website visitor, or anyone monday has not vouched for, gets no lookup and is asked ordinary questions.";
+  if (mode !== "off" && !ready) {
+    return {
+      label: "Customer app state in chat (GetSign)",
+      tone: "warn",
+      state: "NOT CONNECTED",
+      meaning: `Switched to ${mode}, but the GetSign backend's address or service key is missing (GETSIGN_API_BASE_URL, GETSIGN_SUPPORT_KEY), so nothing is read. When working: ${on}`,
+      setting: "JETTA_APP_STATE",
+    };
+  }
+  return {
+    label: "Customer app state in chat (GetSign)",
+    tone: mode === "on" ? "on" : mode === "shadow" ? "good" : "off",
+    state: mode.toUpperCase(),
+    meaning:
+      mode === "on"
+        ? on
+        : mode === "shadow"
+          ? `Shadow: reads the setup and logs what she would have been shown (appstate.shadow events); her answers are unchanged. When on: ${on}`
+          : `Off. When on: ${on}`,
+    setting: "JETTA_APP_STATE",
   };
 }
 

@@ -8,6 +8,7 @@
  * The KB resolution examples (top resolved tickets) are appended at the bottom.
  * They are maintained in `resolution-examples.ts` and refreshed monthly.
  */
+import { renderAppState } from "./tools/getsign-app";
 import type { ConversationContext } from "./types";
 import { config } from "./config";
 import { RESOLUTION_EXAMPLES } from "./resolution-examples";
@@ -605,6 +606,53 @@ THIS VISITOR IS ANONYMOUS — COLLECT THEIR NAME AND EMAIL. THIS IS MANDATORY.
   account change) genuinely cannot happen without an email, and you should say
   so plainly when it comes up.`;
 
+/**
+ * Added only when the customer's own app state is in the context block
+ * (lib/tools/getsign-app.ts): a visitor chatting from inside GetSign whom
+ * monday vouched for. The owner's instruction is that she uses it and never
+ * announces it: a customer told "I checked your setup" feels watched.
+ */
+const APP_STATE_RULES = `
+- THEIR OWN SETUP IS KNOWN. The context below has a block describing this
+  customer's GetSign account as it is right now: their plan and what it
+  includes, their settings, the workflows on the board they are on, and
+  failures on record. It is their own account and it is accurate.
+  - Use it. Answer from what is true for them: "Signing order isn't part of
+    your current plan", "your Contracts workflow has no column mapped for the
+    signer's email". Never ask them for something that block already answers.
+  - Say it as something you know. Do NOT say or imply that you looked,
+    checked, pulled up, can see or have access to their account, setup,
+    settings or data. Not "I checked your workflow", not "I can see that", not
+    "looking at your account". State the fact and go on.
+  - This is the one exception to the grounding rule, and it is narrow. A fact
+    ABOUT THEIR SETUP may come from that block with no article. HOW the product
+    works, where a setting is, and the steps to change something still come
+    only from a knowledge base article you retrieved this turn. The block
+    tells you what is true for them; the article tells them what to do about
+    it. If you have the fact and no article for the fix, state the fact, then
+    ask or open a ticket as you would otherwise.
+  - Read it before deciding what is wrong. If the block explains the problem
+    (a feature not in their plan, no column mapped for the signer's email, a
+    sender email not verified, no template attached, a limit reached), say so
+    plainly instead of treating it as a bug.
+  - It is silent on many things. Something missing from the block is not
+    known to be absent: do not say "you have no X" unless the block says so.
+  - Ids and internal codes stay internal, and nothing in it is ever about
+    another account.`;
+
+/**
+ * For a GetSign chat where her setup lookup is switched on and this visitor
+ * is NOT one monday vouched for: she has no setup to go on, and must not
+ * pretend to, nor ask for proof of identity.
+ */
+const APP_STATE_UNAVAILABLE = `
+- You do not have this visitor's own GetSign setup. If answering needs it
+  (their plan, which column a workflow uses, why one send failed), ask for the
+  one detail you need. If they are on the website and not inside monday, you
+  may add that opening this chat from inside the GetSign app in monday lets
+  you help with their own setup directly. Never ask for a password, a token or
+  a screenshot as proof of who they are.`;
+
 const JETTACHAT_RULES = `
 - HOW REPLYING WORKS HERE — this REPLACES the "Replying and logging" rules
   above. There is no reply_to_ticket tool on this channel. Your final message,
@@ -1026,6 +1074,13 @@ function contextBlock(ctx: ConversationContext, profile: Profile): string {
     );
   }
 
+  if (ctx.chat?.appState && ctx.chat.appState !== "unknown") {
+    lines.push(
+      `WHAT THIS CUSTOMER'S OWN GETSIGN ACCOUNT SHOWS (their setup right now; state these as facts, never say you looked; see "THEIR OWN SETUP IS KNOWN"):`,
+      renderAppState(ctx.chat.appState),
+    );
+  }
+
   if (ctx.account) {
     lines.push(
       ctx.account.found
@@ -1121,6 +1176,11 @@ export async function buildSystemPrompt(ctx: ConversationContext): Promise<strin
             ctx.chat?.handoffEnabled === false ? HANDOFF_UNAVAILABLE : HANDOFF_AVAILABLE,
           )}`,
           ...(ctx.chat?.needsIdentity ? [IDENTITY_REQUIRED] : []),
+          ...(ctx.chat?.appState && ctx.chat.appState !== "unknown"
+            ? [APP_STATE_RULES]
+            : config.appState === "on" && ctx.product === "getsign" && ctx.chat && ctx.chat.appState === undefined
+              ? [APP_STATE_UNAVAILABLE]
+              : []),
         ]
       : []),
     // Ticket channel only; the webhook sets it for an eligible first reply.

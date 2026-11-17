@@ -20,6 +20,7 @@
  *      answering that with the crash apology told a customer the bot had broken
  *      at the moment it had actually worked.
  */
+import { renderAppState } from "./tools/getsign-app";
 import { getChatSettings } from "./chat-settings";
 import { buildContext, buildMessages } from "./context";
 import { buildSystemPrompt } from "./system-prompt";
@@ -216,6 +217,12 @@ export async function runChatTurn(conversationId: string, messageId: string): Pr
     // Autonomous by necessity, and pinned to the standard tier: no human reads
     // this before the customer does, so it is not a place to save on model.
     const result = await runAgentLoop(system, messages, ctx);
+    // What she was shown of the customer's own setup goes on the run as
+    // evidence. The self-review judge reads only the trace, and without this
+    // a correct "that isn't in your plan" would be graded an unsupported claim.
+    if (ctx.chat?.appState && ctx.chat.appState !== "unknown") {
+      result.trace.unshift({ tool: "account_context", input: {}, result: renderAppState(ctx.chat.appState) });
+    }
     await recordRun("jettachat", ctx, result, Date.now() - started);
 
     const ticketed = result.toolsUsed.includes("create_support_ticket");

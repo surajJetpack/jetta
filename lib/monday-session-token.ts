@@ -36,6 +36,25 @@ export interface MondaySessionClaims {
   accountId?: string;
   accountSlug?: string;
   userId?: string;
+  /** monday's app id from the token, when it carries one. Not checked here; see `strictSession`. */
+  appId?: string;
+  /** When the token expires, unix seconds. Absent when the token has no `exp`. */
+  expiresAt?: number;
+}
+
+/**
+ * Is this verified token good enough to unlock the customer's own data?
+ *
+ * `verifyMondaySessionToken` accepts a token with no expiry and does not look
+ * at the app id, which is fine for what it has guarded so far (a trial
+ * request a person approves). Reading a customer's app state asks for more:
+ * the token must expire, and where we know the app's id it must be that app's
+ * token. Kept separate so the existing behaviour for every other app is
+ * untouched. Pure.
+ */
+export function strictSession(claims: MondaySessionClaims | null, expectedAppId?: string): boolean {
+  if (!claims || typeof claims.expiresAt !== "number") return false;
+  return !expectedAppId || claims.appId === String(expectedAppId);
 }
 
 interface TokenPayload {
@@ -108,6 +127,8 @@ export function verifyMondaySessionToken(token: string | undefined | null): Mond
       accountId: dat.account_id != null ? String(dat.account_id) : undefined,
       accountSlug: typeof dat.slug === "string" && dat.slug ? dat.slug : undefined,
       userId: dat.user_id != null ? String(dat.user_id) : undefined,
+      appId: dat.app_id != null ? String(dat.app_id) : undefined,
+      expiresAt: typeof payload.exp === "number" ? payload.exp : undefined,
     };
   }
   return null;
