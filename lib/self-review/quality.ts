@@ -26,7 +26,7 @@ import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { config } from "../config";
 import { evidenceFromTrace, hardBlock } from "../first-response";
 import type { RunLog } from "../kv";
-import { ISSUE_CATEGORIES, FIX_TYPES, type JudgedReply, type ReplyKind } from "./types";
+import { ISSUE_CATEGORIES, FIX_TYPES, type JudgedReply, type ReplyKind, type Verdict } from "./types";
 
 // ── what gets judged ────────────────────────────────────────────────
 
@@ -76,14 +76,47 @@ async function linkIsDead(url: string): Promise<boolean> {
   }
 }
 
+/**
+ * How much of a run's tool results the judge reads. It used to be the first
+ * 3,000 characters of each result and 9,000 in all, the excerpt the
+ * first-reply reviewer uses. Jetta reads whole articles (up to 16,000
+ * characters each), so the judge called steps "unsupported" that were in the
+ * article she quoted, further down than it could see.
+ */
+export const EVIDENCE_PER_TOOL = 16_000;
+export const EVIDENCE_CHARS = 60_000;
+
+/** Tools that put something in front of a person. */
+export const HANDOFF_TOOLS = new Set([
+  "send_escalation",
+  "create_dev_item",
+  "update_dev_item",
+  "reply_on_dev_item",
+  "ask_devs",
+  "create_support_ticket",
+  "add_to_ticket",
+  "request_human",
+  "send_to_compliance",
+  "notify_partner_manager",
+  "send_ticket_files",
+  "add_private_note",
+]);
+
+/** "I've flagged this to the team", "I have added it to your ticket", "I've logged this with engineering". */
+const HANDOFF_CLAIM =
+  /\bI(?:'ve|\u2019ve| have)\s+(?:also\s+|already\s+|just\s+|now\s+)?(?:flagged|escalated|passed|forwarded|logged|raised|reported|added|shared|sent|handed)\b[^.!?\n]{0,90}\b(?:team|engineers?|engineering|developers?|devs|ticket|specialists?|colleagues?)\b/i;
+
 export async function ruleChecks(
   kind: ReplyKind,
   reply: string,
   evidence: string,
   customerAsk: string,
-  opts: { checkLinks?: boolean } = {},
+  opts: { checkLinks?: boolean; handoff?: boolean } = {},
 ): Promise<string[]> {
   const out: string[] = [];
+  // She told the customer a person has it, and the run handed nothing to
+  // anyone. Only checked when the caller knows what the run did.
+  if (opts.handoff === false && HANDOFF_CLAIM.test(reply)) out.push("claimed_handoff");
   const hard = hardBlock(reply.padEnd(40, " "));
   if (hard && hard !== "too_short") out.push(hard);
   if (kind === "chat" && reply.length > 1400) out.push("long_for_chat");
@@ -129,12 +162,17 @@ const Judgement = z.object({
       z.object({
         category: z.enum(ISSUE_CATEGORIES),
         detail: z.string().describe("One sentence, quoting the reply where it helps."),
+        severity: z
+          .enum(["serious", "minor"])
+          .describe(
+            "serious = a customer acting on it would do the wrong thing, wait for something that is not coming, or be misled: a wrong or invented fact, step or limit stated as fact; a promise or reassurance nothing supports; a hand-off that was needed and not made; a broken rule. minor = everything else: a hedged suggestion clearly offered as something to try, an inference a careful agent would also make, wording, length, tone.",
+          ),
       }),
     )
     .max(4)
     .describe("Real problems only. Empty for a good reply."),
   score: z.number().int().min(1).max(5).describe("5 = as good as our best human agent; 3 = acceptable but could be clearly better; 1 = harmful or wrong."),
-  verdict: z.enum(["good", "weak", "bad"]).describe("good = score 4-5; weak = 3; bad = 1-2 or any wrong/unsupported fact a customer would act on."),
+  verdict: z.enum(["good", "weak", "bad"]).describe("good = score 4-5 and no serious issue; weak = 3, or only minor issues; bad = 1-2, or any serious issue."),
   summary: z.string().describe("One plain sentence for the support lead: what the reply did well or badly."),
   fixType: z.enum(FIX_TYPES).describe(
     "What would most improve this: kb_gap = the knowledge base lacks the fact; prompt = Jetta's instructions/behaviour; tool_or_bug = a tool returned nothing or failed; policy = a rule was broken; none = nothing to fix.",
@@ -148,7 +186,8 @@ You get the customer's conversation up to the reply, the EVIDENCE Jetta's run ga
 
 Grade it the way a demanding support lead would:
 - Did it answer what the customer asked in their latest message, completely?
-- Is every product fact, step, button name, limit, price or promise supported by the evidence or the conversation? A plausible-sounding detail that is NOT in the evidence is an unsupported_claim, and a customer acting on it is the worst outcome: verdict bad.
+- Is every product fact, step, button name, limit, price or promise supported by the evidence or the conversation? A plausible-sounding detail that is NOT in the evidence is an unsupported_claim. Read the whole evidence before saying so: articles are long and the step is often further down. How the customer's own tools work in general (monday.com menus, a browser refresh) is not a product claim and needs no evidence.
+- Give every issue a severity. serious: stated as fact and a customer acting on it could do the wrong thing, wait for something that is not coming, or be misled (an invented cause, step or limit; "your document is safe" with nothing behind it; "I've passed this to the team" when she did not). minor: a suggestion plainly offered as something to try ("this may help while we check"), an inference any careful agent would make, wording, length, tone. One serious issue makes the reply bad. Minor issues alone make it weak at worst.
 - Was the action right? A real bug, an account or billing change, or a request she can't fulfil should go to a person (missed_escalation if not). A plain how-to that the evidence answers should not be escalated (needless_escalation).
 - Length and tone: chat answers should be short and conversational; emails complete but not padded. Robotic, preachy or over-apologetic tone is "tone".
 - Policy: never reveal internal systems, logs, tokens, dev boards, ticket numbers or internal notes; never admit fault or blame anyone; never promise refunds, cancellations, fixes or dates without evidence. Breaking any of these is "policy" or "internal_leak".
@@ -210,9 +249,15 @@ export type JudgementResult = z.infer<typeof Judgement>;
 export function finalVerdict(j: JudgementResult, checks: string[]): Pick<JudgedReply, "verdict" | "score" | "issues" | "fixType" | "fix"> {
   const issues = [...j.issues];
   for (const c of checks) {
-    if (c.startsWith("dead_link")) issues.push({ category: "broken_link", detail: `Link does not open: ${c.slice(10)}` });
-    else if (["internal_link", "ticket_number", "internal_detail", "self_reference", "placeholder"].includes(c)) issues.push({ category: "internal_leak", detail: `Rule check: ${c.replace(/_/g, " ")}` });
-    else if (c === "admission") issues.push({ category: "policy", detail: "Rule check: admits fault" });
+    if (c.startsWith("dead_link")) issues.push({ category: "broken_link", severity: "serious", detail: `Link does not open: ${c.slice(10)}` });
+    else if (["internal_link", "ticket_number", "internal_detail", "self_reference", "placeholder"].includes(c)) issues.push({ category: "internal_leak", severity: "serious", detail: `Rule check: ${c.replace(/_/g, " ")}` });
+    else if (c === "admission") issues.push({ category: "policy", severity: "serious", detail: "Rule check: admits fault" });
+    else if (c === "claimed_handoff")
+      issues.push({
+        category: "missed_escalation",
+        severity: "serious",
+        detail: "Rule check: the reply tells the customer this was passed to a person, and the run handed nothing to anyone.",
+      });
   }
   if (blockingCheck(checks)) {
     return { verdict: "bad", score: Math.min(j.score, 2), issues, fixType: j.fixType === "none" ? "policy" : j.fixType, fix: j.fix || "A rule check failed; see the issues." };
@@ -221,8 +266,17 @@ export function finalVerdict(j: JudgementResult, checks: string[]): Pick<JudgedR
   // hide in the averages and a "bad" for a wrong fact isn't softened by a 3.
   const RANK = { good: 0, weak: 1, bad: 2 } as const;
   const byScore = j.score >= 4 ? "good" : j.score === 3 ? "weak" : "bad";
-  const verdict = RANK[j.verdict] > RANK[byScore] ? j.verdict : byScore;
-  return { verdict, score: j.score, issues, fixType: verdict === "good" ? "none" : j.fixType, fix: verdict === "good" ? "" : j.fix };
+  let verdict: Verdict = RANK[j.verdict] > RANK[byScore] ? j.verdict : byScore;
+  // Severity decides between weak and bad. "Bad" used to mean "anything not in
+  // the evidence", which put a hedged suggestion on an escalated ticket in the
+  // same pile as a false promise, and made the bad count useless as a signal.
+  // An issue with no severity (a judge that left it out) counts as serious.
+  const serious = issues.some((i) => i.severity !== "minor");
+  if (serious) verdict = "bad";
+  else if (verdict === "bad" && issues.length > 0) verdict = "weak";
+  // Keep the number in step with the word: the averages are built from it.
+  const score = verdict === "bad" ? Math.min(j.score, 2) : verdict === "weak" ? 3 : j.score;
+  return { verdict, score, issues, fixType: verdict === "good" ? "none" : j.fixType, fix: verdict === "good" ? "" : j.fix };
 }
 
 export { evidenceFromTrace };

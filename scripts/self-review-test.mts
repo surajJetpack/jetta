@@ -4,7 +4,7 @@
  */
 import assert from "node:assert/strict";
 import { assessCrons, assessRuns, everyMinutes, reliabilityFlags, assessEvents } from "../lib/self-review/reliability";
-import { finalVerdict, type JudgementResult, judgeable, kindOf, replyOf, ruleChecks, urlsIn } from "../lib/self-review/quality";
+import { EVIDENCE_CHARS, EVIDENCE_PER_TOOL, HANDOFF_TOOLS, evidenceFromTrace, finalVerdict, type JudgementResult, judgeable, kindOf, replyOf, ruleChecks, urlsIn } from "../lib/self-review/quality";
 import { buildQuality, pickRuns } from "../lib/self-review";
 import type { RunLog } from "../lib/kv";
 import type { JudgedReply } from "../lib/self-review/types";
@@ -113,6 +113,52 @@ await t("final verdict: the worse of score and verdict; a blocking check is bad"
   assert.equal(leaked.verdict, "bad");
   assert.ok(leaked.issues.some((i) => i.category === "internal_leak"));
   assert.equal(finalVerdict({ ...j }, ["long_for_chat"]).verdict, "good");
+});
+
+await t("severity: minor issues alone are weak, one serious issue is bad", () => {
+  const j: JudgementResult = { answered: "yes", grounded: "partly", issues: [], score: 2, verdict: "bad", summary: "", fixType: "prompt", fix: "x" };
+  const minor = { category: "unsupported_claim" as const, detail: "a hedged suggestion", severity: "minor" as const };
+  const serious = { category: "unsupported_claim" as const, detail: "an invented step", severity: "serious" as const };
+  const weak = finalVerdict({ ...j, issues: [minor, minor] }, []);
+  assert.equal(weak.verdict, "weak");
+  assert.equal(weak.score, 3);
+  assert.equal(finalVerdict({ ...j, issues: [minor, serious] }, []).verdict, "bad");
+  // The judge said "good, 4" but named a serious issue: the issue wins.
+  const lenient = finalVerdict({ ...j, score: 4, verdict: "good", issues: [serious] }, []);
+  assert.equal(lenient.verdict, "bad");
+  assert.ok(lenient.score <= 2);
+  // An issue with no severity is treated as serious, never waved through.
+  assert.equal(finalVerdict({ ...j, issues: [{ category: "wrong_info", detail: "x" } as never] }, []).verdict, "bad");
+  // Minor issues do not drag a good reply down.
+  assert.equal(finalVerdict({ ...j, score: 4, verdict: "good", issues: [minor] }, []).verdict, "good");
+});
+
+await t("rule check: a hand-off she claimed and did not make", async () => {
+  const claim = "I don't have exact steps. I've added this to your open ticket so the team can address it.";
+  const none = await ruleChecks("chat", claim, "", "", { checkLinks: false, handoff: false });
+  assert.ok(none.includes("claimed_handoff"));
+  assert.deepEqual(await ruleChecks("chat", claim, "", "", { checkLinks: false, handoff: true }), []);
+  // Not checked when the caller does not know what the run did.
+  assert.deepEqual(await ruleChecks("chat", claim, "", "", { checkLinks: false }), []);
+  for (const said of ["I\u2019ve flagged this with our engineering team as urgent.", "I have passed it along to engineering.", "I've logged this with our engineering team."]) {
+    assert.ok((await ruleChecks("email", said, "", "", { checkLinks: false, handoff: false })).includes("claimed_handoff"), said);
+  }
+  for (const fine of ["I can open a ticket so the team replies by email. Would you like that?", "I've added the steps below.", "The team will follow up."]) {
+    assert.deepEqual(await ruleChecks("email", fine, "", "", { checkLinks: false, handoff: false }), [], fine);
+  }
+  const j: JudgementResult = { answered: "yes", grounded: "yes", issues: [], score: 5, verdict: "good", summary: "", fixType: "none", fix: "" };
+  const v = finalVerdict(j, ["claimed_handoff"]);
+  assert.equal(v.verdict, "bad");
+  assert.ok(v.issues.some((i) => i.category === "missed_escalation" && i.severity === "serious"));
+  assert.ok(HANDOFF_TOOLS.has("send_escalation") && !HANDOFF_TOOLS.has("search_knowledge_base"));
+});
+
+await t("evidence: the judge reads the whole article, not its first 3,000 characters", () => {
+  const body = `${"Intro sentence about the board view. ".repeat(130)}Click Send Document from the Board View, choose your workflow.`;
+  const trace = [{ tool: "search_knowledge_base", input: { keyword: "board view" }, result: body }];
+  assert.ok(body.length > 4500);
+  assert.ok(!evidenceFromTrace({ trace: trace as never }).includes("Click Send Document"));
+  assert.ok(evidenceFromTrace({ trace: trace as never }, EVIDENCE_CHARS, EVIDENCE_PER_TOOL).includes("Click Send Document"));
 });
 
 await t("pickRuns: chat first, skips judged, two per conversation a day", () => {
