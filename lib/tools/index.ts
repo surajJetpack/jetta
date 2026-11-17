@@ -1090,7 +1090,7 @@ export function buildTools(
         if (sentry) {
           void events.logOpsEvent({ level: "info", event: "sentry.evidence", source: "app", ticketId, data: { app: ctx.app ?? ctx.appProduct } });
         }
-        const item = await monday.createDevItem({
+        const filing = {
           title,
           product: ctx.product,
           accountUrl: accountUrl(ctx),
@@ -1102,7 +1102,24 @@ export function buildTools(
           sentryEvidence: sentry,
           // Shadow looks and logs (lib/fix-lookup.ts noteRelatedFixes); only "on" writes.
           releaseEvidence: config.fixLookup === "on" ? devEvidence(ctx.recentFixes) : null,
-        });
+        };
+        // Other customers have reported this same problem and the developers
+        // already have it on one item (lib/problems.ts): this ticket joins
+        // that item rather than becoming a second one. The model is told what
+        // it is told for any ticket that already has an item, and nothing
+        // about the other customers.
+        const shared = config.repeatProblems === "on" ? ctx.problem : undefined;
+        if (shared?.itemId && shared.itemUrl && !ctx.ticketDevItems?.length) {
+          const added = await monday.addTicketToItem(shared.itemId, filing);
+          if (added.notWritten) return declined("create_dev_item", notFiled("Dev board item", added.notWritten));
+          if (added.posted) {
+            mondayItemUrl = shared.itemUrl;
+            void events.logOpsEvent({ level: "info", event: "problems.joined_item", source: "app", ticketId, data: { problem: shared.id, itemId: shared.itemId } });
+            return `The Dev board ALREADY has an item for this problem — the context you just gave was added to that item as a comment, and no second item was filed.${filesNote(added.filesAttached)} Do not call create_dev_item again for this ticket. To the customer this is still "the team has it"; do not tell them a new report was raised, and do not mention the tracker. INTERNAL URL — private note ONLY: ${shared.itemUrl}`;
+          }
+          // The comment did not post: file the usual way rather than lose the report.
+        }
+        const item = await monday.createDevItem(filing);
         if (item.notWritten) return declined("create_dev_item", notFiled("Dev board item", item.notWritten));
         mondayItemUrl = item.url;
         if (item.contextPosted === false) return contextLost(item);

@@ -4,6 +4,7 @@
  * into the message array handed to the Claude loop.
  */
 import { lookupApplies, lookupForTicket } from "./fix-lookup";
+import { problemForTicket, problemsApply } from "./problems";
 import { generateObject, type ModelMessage } from "ai";
 import { z } from "zod";
 import type {
@@ -396,6 +397,14 @@ export async function buildContext(
       : Promise.resolve(undefined),
   ]);
 
+  // Is this the same malfunction other customers have reported (lib/problems.ts)?
+  // After triage, because only a real customer query can be one. Decided once
+  // per ticket from its opening message, and never shown to the prompt.
+  const problem =
+    problemsApply({ channel }, searchProduct) && triage.intake === "customer_query"
+      ? await problemForTicket(ticketId, ticket.subject, ticket.description, { requester: ticket.requesterEmail })
+      : null;
+
   // Attribution precedence: Freshdesk's cf_product field (ground truth set by
   // agents/forms) > keyword heuristic > LLM triage fallback.
   const hintProduct = productFromHint(ticket.productHint);
@@ -430,6 +439,7 @@ export async function buildContext(
     topic: triage.topic,
     taskUsage,
     ...(recentFixes?.length ? { recentFixes } : {}),
+    ...(problem ? { problem } : {}),
     chat: chatConv
       ? await (async () => {
           const chatSettings = await getChatSettings();

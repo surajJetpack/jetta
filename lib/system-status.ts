@@ -436,6 +436,7 @@ export function reasoningRows(): StatusRow[] {
     getsignReferenceRow(),
     releaseWatchRow(),
     fixLookupRow(),
+    repeatProblemsRow(),
     triageShadowRow(),
   ];
 }
@@ -500,6 +501,27 @@ function getsignReferenceRow(): StatusRow {
       ? "Daily, with the site sync, Jetta reads the GetSign developers' configuration reference as it is that day. When a section has changed she redrafts the article written from it: an untouched draft is updated in the review queue, an article a person edited or published gets a \"Reference changed\" notice and is never overwritten, and a new section gets a new draft. Nothing is published without a person."
       : "No token for the GetSign app repositories (JETTA_GETSIGN_REFERENCE_TOKEN), so Jetta files the reference articles from the copy shipped with the code and does not notice changes until the next deploy that refreshes it. The release watcher uses the same token and does nothing without it.",
     setting: "JETTA_GETSIGN_REFERENCE_TOKEN",
+  };
+}
+
+function repeatProblemsRow(): StatusRow {
+  const mode = config.repeatProblems;
+  const on =
+    "When a GetSign ticket reports the same malfunction as earlier tickets from other customers, Jetta groups them. " +
+    "At three different customers in 30 days, or two when one wrote in after a fix for it was already in production, she tells the developers once on one dev item (an existing one, or one she files, at most two a day) with every ticket listed, and adds each later ticket as one line. " +
+    "Support gets a private note on each ticket naming the others and the item. When she files a dev item for a ticket whose problem already has one, it joins that item. " +
+    "The reply is written without any of this: she never tells a customer that others are affected.";
+  return {
+    label: "Repeat problems (same bug, several customers)",
+    tone: mode === "on" ? "on" : mode === "shadow" ? "good" : "off",
+    state: mode.toUpperCase(),
+    meaning:
+      mode === "on"
+        ? `${on} Posting on dev items also needs MONDAY_ALLOW_WRITES.`
+        : mode === "shadow"
+          ? `Shadow: groups tickets and logs what it would post or file (problems.shadow events), writes nothing to monday or Freshdesk. When on: ${on}`
+          : `Off. When on: ${on}`,
+    setting: "JETTA_REPEAT_PROBLEMS",
   };
 }
 

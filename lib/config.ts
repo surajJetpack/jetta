@@ -201,6 +201,23 @@ export const config = {
     : "off") as "off" | "shadow" | "on",
 
   /**
+   * Repeat problems (lib/problems.ts): when a GetSign ticket reports the same
+   * malfunction as earlier tickets from other customers, Jetta groups them.
+   * At three tickets in 30 days, or two when one arrived after a fix for it
+   * was already in production, she tells the developers once on one dev item
+   * (an existing one, or one she files, at most two a day) listing every
+   * ticket, adds each later ticket as one line, and leaves support a private
+   * note on each ticket. When she files a dev item for a ticket whose problem
+   * already has one, the details go on that item instead of a second one.
+   * The ticket agent is never shown the grouping.
+   *  - "off" (default) / "shadow" (groups and logs problems.shadow, writes
+   *    nothing to monday or Freshdesk) / "on" (monday needs MONDAY_ALLOW_WRITES).
+   */
+  repeatProblems: (["shadow", "on"].includes(env("JETTA_REPEAT_PROBLEMS") ?? "")
+    ? env("JETTA_REPEAT_PROBLEMS")
+    : "off") as "off" | "shadow" | "on",
+
+  /**
    * Jetta sends the FIRST public reply herself on tickets that came straight
    * in by email, the portal or the in-app form — never on a ticket that came
    * from a chat, where the customer has already been talking to her. Every

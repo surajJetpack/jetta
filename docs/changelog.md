@@ -5,6 +5,12 @@ Newest first. One entry per change people would notice: what Jetta does differen
 Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain words.
 
 
+## 2026-11-17: Repeat problems: the same bug from several customers reaches the developers as one
+When a GetSign ticket reports the same malfunction as earlier tickets from other customers, Jetta now groups them. She compares the tickets themselves, not their topic label, so four reports of one error message end up together.
+At three different customers in 30 days, or two when one wrote in after a fix for it was already in production, she tells the developers once on one dev item (one a ticket already has, a clear match on the board, or one she files titled "[Repeat problem] …", at most two a day), listing every ticket. Each later ticket adds one line. Support gets a private note on each ticket naming the others and the item.
+When she files a dev item for a ticket whose problem already has one, the report joins that item and no second item is made. The reply is written without any of this: she does not tell a customer that others are affected. The grouping can be wrong, and her comment asks the developers to check.
+The switch is `JETTA_REPEAT_PROBLEMS` (off, shadow, on; row on /system), and it is off. Shadow groups tickets and logs `problems.shadow` events, and writes nothing to monday or Freshdesk.
+
 ## 2026-11-17: Has this already been fixed? Jetta checks GetSign tickets against recent fixes
 The release watcher now remembers what it reads from GitHub: every fix, whether it is in production or merged and waiting for the next release. On its first run it also reads the last 60 days of releases into that memory, and nothing else.
 When a GetSign ticket arrives, Jetta checks it against those fixes. A match goes to support in one private note on the ticket (what was fixed, in production or not yet released, the link), and onto the dev item if she files one, flagged as a possible cause when it shipped in the last 14 days.
