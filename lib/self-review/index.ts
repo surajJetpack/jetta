@@ -28,7 +28,7 @@ import { shiftDayKey, supportTimeZone, zonedDayKey } from "../tz";
 import * as slack from "../tools/slack";
 import { assessReliability } from "./reliability";
 import { assessActions } from "./actions";
-import { evidenceFromTrace, finalVerdict, judgeModelId, judgeReply, judgeable, kindOf, replyOf, ruleChecks } from "./quality";
+import { EVIDENCE_CHARS, EVIDENCE_PER_TOOL, HANDOFF_TOOLS, evidenceFromTrace, finalVerdict, judgeModelId, judgeReply, judgeable, kindOf, replyOf, ruleChecks } from "./quality";
 import { FIX_TYPES, ISSUE_CATEGORIES, type DayScore, type JudgedReply, type QualityReport, type SelfReviewSummary } from "./types";
 
 export * from "./types";
@@ -124,8 +124,10 @@ export async function judgeRun(l: RunLog, loadContext: (l: RunLog) => Promise<st
   const kind = kindOf(l);
   const reply = replyOf(l)!;
   const customerAsk = await loadContext(l);
-  const evidence = evidenceFromTrace({ trace: l.trace as never }, 9000);
-  const checks = await ruleChecks(kind, reply, evidence, customerAsk);
+  const evidence = evidenceFromTrace({ trace: l.trace as never }, EVIDENCE_CHARS, EVIDENCE_PER_TOOL);
+  const checks = await ruleChecks(kind, reply, evidence, customerAsk, {
+    handoff: l.escalated || (l.trace ?? []).some((t) => HANDOFF_TOOLS.has(t.tool)),
+  });
   const judge = judgeModelId();
   const j = await judgeReply({ kind, app: l.app, subject: l.subject, customerAsk, evidence, reply, escalated: l.escalated }, judge);
   return {

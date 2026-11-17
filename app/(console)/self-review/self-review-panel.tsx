@@ -459,7 +459,10 @@ function ReplySheet({ reply, onClose }: { reply: JudgedReply | null; onClose: ()
                   <ul className="grid gap-1.5">
                     {reply.issues.map((i, n) => (
                       <li key={n} className="text-xs text-pretty">
-                        <span className="font-medium">{words(i.category)}:</span>
+                        <span className="font-medium">
+                          {words(i.category)}
+                          {i.severity === "minor" ? " (minor)" : ""}:
+                        </span>
                         {" "}
                         {i.detail}
                       </li>
