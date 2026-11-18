@@ -86,6 +86,16 @@ async function main() {
   check("a reply that is not an object is nothing", sanitizeAppState("oops") === null && sanitizeAppState(null) === null && sanitizeAppState([1]) === null);
   check("an empty object is an empty state, not a crash", sanitizeAppState({})!.workflows.length === 0);
 
+  // A busy board: the backend lists the newest dozen and says so.
+  check("an ordinary board is not marked as cut short", state.workflowsTruncated === undefined && !renderAppState(state).includes("MORE workflows"));
+  const busy = sanitizeAppState({ ...RAW, workflowsTruncated: true })!;
+  check("a board with more workflows than are listed says so", busy.workflowsTruncated === true);
+  check("and she is told not to read the list or the counts as the whole board", /A workflow missing from this list may still exist/.test(renderAppState(busy)) && /cover only the listed workflows/.test(renderAppState(busy)));
+  check("anything but a plain true is ignored", sanitizeAppState({ ...RAW, workflowsTruncated: "yes" })!.workflowsTruncated === undefined);
+  // The backend sends a fixed sentence and a reason code for a failure, never the stored error text.
+  const coded = sanitizeAppState({ failures: [{ kind: "send", reason: "missing_recipient", message: "No signer email was found for the item.", at: "2026-11-16T10:00:00Z" }] })!;
+  check("a failure given as a reason and a fixed sentence is kept", coded.failures[0].message === "No signer email was found for the item." && renderAppState(coded).includes("No signer email was found for the item."));
+
   const shown = renderAppState(state);
   check("the block says what the plan lacks", shown.includes("NOT included in their plan: signing_order"));
   check("and what is wrong with the workflow", shown.includes(`"Contracts"`) && shown.includes("NO column is mapped for the signer's email") && shown.includes("sender email NOT verified"));
