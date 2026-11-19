@@ -131,16 +131,16 @@ export default function InstallGuide({ baseUrl }: { baseUrl: string }) {
   // or discount against it, and does not look up the account's earlier
   // tickets. With it, monday has signed for the account and she does both.
   const mondaySnippet = `<script>
-  Promise.all([
-    monday.api("query { me { id name email } account { id slug } }"),
-    monday.get("sessionToken")
-  ]).then(function (results) {
-      var me = results[0].data.me;
-      var account = results[0].data.account;
+  monday.api("query { me { id name email } account { id slug } }")
+    .then(function (res) {
+      var me = res.data.me;
+      var account = res.data.account;
       window.JettaChatConfig = {
         surface: "monday",
+        // Proves the account. Called each time a chat opens or resumes, so
+        // the token is always a fresh one.
+        getMondaySessionToken: function () { return monday.get("sessionToken"); },
         visitor: {
-          mondaySessionToken: results[1].data,  // proves the account
           name: me.name,
           email: me.email,
           mondayAccountSlug: account.slug,
@@ -173,10 +173,7 @@ export async function mountJettaChat() {
   if (window.__jettaChatMounted) return;
   window.__jettaChatMounted = true;
 
-  const [res, session] = await Promise.all([
-    monday.api("query { me { id name email } account { id slug } }"),
-    monday.get("sessionToken"),
-  ]);
+  const res = await monday.api("query { me { id name email } account { id slug } }");
   const { me, account } = res.data;
 
   window.JettaChatConfig = {
@@ -185,8 +182,10 @@ export async function mountJettaChat() {
     // launcher: { position, offsetX, offsetY } only to put it somewhere else;
     // a launcher sent back to the right is lifted 88px above the sidekick.
     surface: "monday",
+    // Proves the account; without it the rest is a claim. Called each time a
+    // chat opens or resumes, so the token is always a fresh one.
+    getMondaySessionToken: () => monday.get("sessionToken"),
     visitor: {
-      mondaySessionToken: session.data, // proves the account; without it the rest is a claim
       name: me.name,
       email: me.email,
       mondayAccountSlug: account.slug,

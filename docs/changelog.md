@@ -5,6 +5,11 @@ Newest first. One entry per change people would notice: what Jetta does differen
 Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain words.
 
 
+## 2026-11-19: A saved chat is verified again, and monday's token is fetched fresh
+The chat widget used to take monday's session token once, when the page loaded, and a conversation was verified only when it was first opened. So a visitor who already had a saved chat was never verified, and "Start a new chat" reused a token that had expired, which silently left the new chat unverified.
+Now an embedding app can give the widget a function, `JettaChatConfig.getMondaySessionToken`, which is called each time a session is opened or resumed. A resumed conversation is checked again with that token: it becomes verified (or its 24 hours are renewed, and it follows the board now in view) when the token is for the same account, user and app the conversation already carries; a different account changes nothing.
+The widget no longer keeps the token: a plain `visitor.mondaySessionToken` still works but is removed from the page's config, used once and forgotten. No switch; live for any embed that passes a token. The GetSign board view does not pass one yet.
+
 ## 2026-11-17: Jetta can answer from the customer's own GetSign setup (in-app chat)
 For a visitor chatting from inside the GetSign app, with a monday session token verified in the last 24 hours, Jetta can read that account's own setup from the GetSign backend: plan and what it includes, usage against limits, settings, the workflows on the board in view (which column the signer's email comes from, auto-send, reminders, link expiry, templates), session counts and failures on record. Read-only. No signer names or emails, documents or links.
 She answers from it as something she knows and never says she looked, checked or can see their account. How the product works and the steps to fix something still come from a KB article. A visitor monday has not vouched for, on the website for example, gets no lookup: she asks, and may suggest opening the chat from inside GetSign.
