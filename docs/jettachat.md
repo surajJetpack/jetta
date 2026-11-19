@@ -83,7 +83,12 @@ route correctly on the first turn; `mondayAccountSlug` means the trial and
 discount tools stop having to ask the customer for their monday URL.
 
 The account only counts as proven when the embed also passes monday's signed
-session token (`monday.get("sessionToken")`) as `visitor.mondaySessionToken`.
+session token. Give the widget a function, `getMondaySessionToken`, and it is
+called each time a session is opened or resumed, so the token is always fresh
+and a saved chat is verified again on every page load. It may return the token
+or the SDK's `{ data: token }`, directly or as a promise. A fixed
+`visitor.mondaySessionToken` still works, but it is used once and removed from
+the page, so a chat started later in the same page view is unverified.
 Everything else in `visitor`, and `surface` itself, is a claim made by the
 request. Without the token Jetta confirms the account before raising a trial or
 discount against it and does not look up the account's earlier tickets. The
@@ -93,11 +98,13 @@ Install page in the console has the full snippet.
 <script>
   window.JettaChatConfig = {
     surface: "monday",
+    // Proves the account. Called whenever a session opens or resumes.
+    getMondaySessionToken: function () { return monday.get("sessionToken"); },
     visitor: {
-      mondaySessionToken: session.data, // from monday.get("sessionToken"); proves the account
       mondayAccountSlug: "acme",     // from the monday SDK context
       mondayAccountId: "12345",
       mondayUserId: "67890",
+      mondayBoardId: "777",           // the board in view, when there is one
       app: "vlookup",                 // AppProduct slug
       email: "user@acme.com",
     },

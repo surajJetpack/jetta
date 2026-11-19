@@ -12,7 +12,7 @@
 import { config } from "@/lib/config";
 import { NextRequest } from "next/server";
 import { channelUnavailable, chatJson, overSessionLimit, preflight } from "@/lib/chat-http";
-import { cleanApp, cleanEmail, cleanId, cleanName, cleanPageUrl, cleanSlug } from "@/lib/chat-visitor";
+import { cleanApp, cleanEmail, cleanId, cleanName, cleanPageUrl, cleanSlug, reverifiedVisitor } from "@/lib/chat-visitor";
 import * as store from "@/lib/chat-store";
 import { getChatSettings } from "@/lib/chat-settings";
 import { profileForRequest } from "@/lib/profiles";
@@ -55,6 +55,25 @@ export async function POST(req: NextRequest) {
     // this only decides what gets picked back up. See store.isStale.
     if (store.isStale(conv, (await getChatSettings()).sessionIdleHours)) {
       return await chatJson(req, { expired: true }, { status: 410 });
+    }
+    /*
+     * A fresh monday token, when the page resuming had one.
+     *
+     * Verification used to happen only when a conversation was opened, so a
+     * saved chat was never verified again: one begun before the app passed a
+     * token stayed a claim, and a verified one aged out of the 24 hours app
+     * state needs. The token is checked exactly as on open and dropped; what
+     * may change, and when it is refused, is `reverifiedVisitor`.
+     */
+    const fresh = verifyMondaySessionToken(
+      typeof body.mondaySessionToken === "string" ? body.mondaySessionToken : undefined,
+    );
+    if (fresh) {
+      const strict = strictSession(fresh, config.monday.monetization.stores[fresh.app]?.appId);
+      const now = Math.floor(Date.now() / 1000);
+      await store.setConversationVisitor(conv.id, (current) =>
+        reverifiedVisitor(current, { ...fresh, strict }, body.mondayBoardId, now),
+      );
     }
     return await chatJson(req, {
       conversationId: conv.id,

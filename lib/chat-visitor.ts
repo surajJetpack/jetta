@@ -12,7 +12,7 @@
  * So each field is reduced here to the shape the real thing has, and anything
  * that does not fit is dropped rather than repaired. Pure, for the test script.
  */
-import { APP_NAMES, type AppProduct } from "./types";
+import { APP_NAMES, type AppProduct, type ChatVisitor } from "./types";
 
 /** monday account slugs are subdomain labels: `acme`, `acme-corp`. */
 export function cleanSlug(value: unknown): string | undefined {
@@ -75,4 +75,58 @@ export function cleanPageUrl(value: unknown): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+/** What a verified monday session token says, as the session route passes it on. */
+export interface VerifiedMonday {
+  app: AppProduct;
+  accountId?: string;
+  accountSlug?: string;
+  userId?: string;
+  /** The token passed the strict checks (lib/monday-session-token.ts `strictSession`). */
+  strict: boolean;
+}
+
+/**
+ * A resumed conversation, and a fresh token from the page that resumed it.
+ *
+ * A conversation used to be verified once, when it was opened, and never
+ * again. So a visitor who already had a saved chat when their app started
+ * passing the token stayed unverified for as long as that chat lived, and a
+ * verified one aged past the 24 hours app state needs with no way back.
+ *
+ * Returns the visitor to store, or null to leave the conversation alone. It is
+ * left alone when the token names a DIFFERENT account, user or app than the
+ * conversation already carries: the saved chat lives in the browser, which two
+ * monday accounts can share, and a transcript begun as one account must not
+ * quietly become another's. Fields the conversation never had are filled in.
+ *
+ * The board is still the page's claim; it only narrows what the backend
+ * returns for the verified account. Pure, for the test script.
+ */
+export function reverifiedVisitor(
+  current: ChatVisitor,
+  token: VerifiedMonday,
+  boardId: unknown,
+  nowSeconds: number,
+): ChatVisitor | null {
+  const accountId = cleanId(token.accountId);
+  if (!accountId) return null;
+  const userId = cleanId(token.userId);
+  if (current.mondayAccountId && current.mondayAccountId !== accountId) return null;
+  if (current.mondayUserId && userId && current.mondayUserId !== userId) return null;
+  if (current.app && current.app !== token.app) return null;
+  // Once strict, a later looser token must not keep the clock running.
+  if (current.mondayTokenStrict && !token.strict) return null;
+  return {
+    ...current,
+    mondayAccountId: accountId,
+    mondayAccountSlug: cleanSlug(token.accountSlug) ?? current.mondayAccountSlug,
+    mondayUserId: userId ?? current.mondayUserId,
+    mondayAccountVerified: true,
+    mondayVerifiedAt: nowSeconds,
+    mondayTokenStrict: token.strict || undefined,
+    mondayBoardId: cleanId(boardId) ?? current.mondayBoardId,
+    app: current.app ?? token.app,
+  };
 }

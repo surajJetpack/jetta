@@ -82,7 +82,71 @@
   })();
 
   var surface = config.surface || data.surface || "wordpress";
-  var visitor = config.visitor || {};
+  var visitor = Object.assign({}, config.visitor || {});
+
+  /**
+   * monday's session token: asked for when it is needed, never kept.
+   *
+   * It is a short-lived credential. A page that reads it once at load and
+   * leaves it on `window.JettaChatConfig` hands the frame a stale one whenever
+   * a session is opened later ("Start a new chat"), and leaves it readable by
+   * every other script on the page for as long as the page is open.
+   *
+   * So the page may give a FUNCTION, `JettaChatConfig.getMondaySessionToken`,
+   * which is called each time the frame opens or resumes a session. It may
+   * return the token or the SDK's own `{ data: token }`, directly or as a
+   * promise: `function () { return monday.get("sessionToken"); }` is enough.
+   *
+   * A plain `visitor.mondaySessionToken` still works. It is taken off the
+   * page's config here, handed to the frame once, and forgotten.
+   */
+  var tokenSource = typeof config.getMondaySessionToken === "function" ? config.getMondaySessionToken : null;
+  var TOKEN_WAIT_MS = 3000;
+  var onceToken = null;
+  function takeToken(from) {
+    if (from && typeof from.mondaySessionToken === "string" && from.mondaySessionToken) {
+      onceToken = from.mondaySessionToken;
+    }
+    if (from) {
+      try {
+        delete from.mondaySessionToken;
+      } catch {
+        // A frozen config object: the copy held here is still cleared.
+      }
+    }
+  }
+  takeToken(config.visitor);
+  delete visitor.mondaySessionToken;
+
+  /** Calls back once with the visitor, carrying a token when there is one. */
+  function withVisitor(cb) {
+    var done = false;
+    function finish(token) {
+      if (done) return;
+      done = true;
+      if (token && typeof token === "object") token = token.data;
+      var v = Object.assign({}, visitor);
+      if (typeof token === "string" && token) v.mondaySessionToken = token;
+      cb(v);
+    }
+    if (!tokenSource) {
+      var t = onceToken;
+      onceToken = null;
+      finish(t);
+      return;
+    }
+    // The chat must open whether or not monday answers.
+    setTimeout(function () {
+      finish(null);
+    }, TOKEN_WAIT_MS);
+    try {
+      Promise.resolve(tokenSource()).then(finish, function () {
+        finish(null);
+      });
+    } catch {
+      finish(null);
+    }
+  }
 
   /**
    * Launcher placement, as the embedding page asked for it.
@@ -623,20 +687,29 @@
     var msg = event.data || {};
 
     if (msg.type === "jettachat:ready") {
-      frame.contentWindow.postMessage(
-        {
-          type: "jettachat:init",
-          session: readSession(),
-          surface: surface,
-          visitor: visitor,
-          pageUrl: location.href,
-          open: open,
-          // So the frame can drop its close button: there is nothing to close
-          // back to, and a dead control is worse than no control.
-          inline: inline,
-        },
-        origin,
-      );
+      withVisitor(function (v) {
+        frame.contentWindow.postMessage(
+          {
+            type: "jettachat:init",
+            session: readSession(),
+            surface: surface,
+            visitor: v,
+            pageUrl: location.href,
+            open: open,
+            // So the frame can drop its close button: there is nothing to close
+            // back to, and a dead control is worse than no control.
+            inline: inline,
+            // The frame may ask for the visitor again (below).
+            freshIdentity: true,
+          },
+          origin,
+        );
+      });
+    } else if (msg.type === "jettachat:identity") {
+      // "Start a new chat": the token from page load is long expired.
+      withVisitor(function (v) {
+        frame.contentWindow.postMessage({ type: "jettachat:identity", visitor: v }, origin);
+      });
     } else if (msg.type === "jettachat:brand") {
       brand = msg.brand || {};
       paintLauncher();
@@ -736,7 +809,9 @@
       setOpen(false);
     },
     identify: function (next) {
-      visitor = Object.assign({}, visitor, next || {});
+      var given = Object.assign({}, next || {});
+      takeToken(given);
+      visitor = Object.assign({}, visitor, given);
     },
     reset: function () {
       writeSession(null);

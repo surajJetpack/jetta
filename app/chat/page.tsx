@@ -137,6 +137,23 @@ interface Session {
   lastSeenId?: string;
 }
 
+/** How long "Start a new chat" waits for the page to hand over a fresh token. */
+const IDENTITY_TIMEOUT_MS = 4000;
+
+type WithToken = ChatVisitor & { mondaySessionToken?: string };
+
+function mondayToken(visitor: ChatVisitor | undefined): string | undefined {
+  const token = (visitor as WithToken | undefined)?.mondaySessionToken;
+  return typeof token === "string" && token ? token : undefined;
+}
+
+function withoutToken(visitor: ChatVisitor | undefined): ChatVisitor | undefined {
+  if (!visitor) return visitor;
+  const rest = { ...(visitor as WithToken) };
+  delete rest.mondaySessionToken;
+  return rest;
+}
+
 interface InitPayload {
   session?: Session | null;
   surface?: ChatSurface;
@@ -144,6 +161,12 @@ interface InitPayload {
   pageUrl?: string;
   /** Whether the panel is showing right now — only the parent knows. */
   open?: boolean;
+  /**
+   * The loader can be asked for the visitor again (`jettachat:identity`), with
+   * a monday token fetched at that moment. An older cached loader cannot, and
+   * must not be waited on.
+   */
+  freshIdentity?: boolean;
   /**
    * True when this frame IS the page — a "chat with us" page, or the support
    * page a monday app's button opens — rather than a panel floating over one.
@@ -208,6 +231,8 @@ export default function ChatWidgetPage() {
   // open one with the identity the visitor already gave — asking a person who
   // has been chatting for ten minutes to retype their email is absurd.
   const initRef = useRef<InitPayload>({ surface: "unknown" });
+  /** Resolves the one outstanding `jettachat:identity` request, if any. */
+  const identityWaiter = useRef<((visitor?: ChatVisitor) => void) | null>(null);
   // Two-step, because one stray click would otherwise wipe a transcript the
   // visitor is mid-way through reading.
   const [confirmNew, setConfirmNew] = useState(false);
@@ -304,7 +329,10 @@ export default function ChatWidgetPage() {
       // A form was one more screen between a person with a problem and the
       // first message, and the monday surface never needed it — the embedding
       // app supplies identity from its SDK, which is still passed through here.
-      initRef.current = init;
+      // Kept WITHOUT the monday token. It is a short-lived credential that is
+      // used once, below; the copy held for "Start a new chat" would be stale
+      // by the time anyone pressed it, and is asked for again instead.
+      initRef.current = { ...init, visitor: withoutToken(init.visitor) };
       setInline(init.inline ?? false);
 
       // Two attempts at most: a stored session that outlived its transcript
@@ -323,7 +351,15 @@ export default function ChatWidgetPage() {
             headers: { "content-type": "application/json" },
             body: JSON.stringify(
               attempt.session
-                ? { conversationId: attempt.session.conversationId, token: attempt.session.token }
+                ? {
+                    conversationId: attempt.session.conversationId,
+                    token: attempt.session.token,
+                    // A saved chat is verified again on every load, so one
+                    // begun before the app passed a token, or verified more
+                    // than a day ago, is not stuck as a claim.
+                    mondaySessionToken: mondayToken(attempt.visitor),
+                    mondayBoardId: attempt.visitor?.mondayBoardId,
+                  }
                 : {
                     surface: attempt.surface ?? "unknown",
                     // Fall back to the frame's brand when the embedding page
@@ -454,6 +490,10 @@ export default function ChatWidgetPage() {
         if (data.open) markSeen();
         return;
       }
+      if (data?.type === "jettachat:identity") {
+        identityWaiter.current?.(data.visitor);
+        return;
+      }
       if (data?.type !== "jettachat:init" || settled) return;
       settled = true;
       parentOrigin.current = event.origin;
@@ -496,7 +536,24 @@ export default function ChatWidgetPage() {
     setMessages([]);
     setTicketed(false);
     setError(null);
-    await openSession({ ...initRef.current, session: null });
+    // The token from page load has expired by now. Ask the page for the
+    // visitor again; no answer in time just means an unverified chat.
+    let visitor = initRef.current.visitor;
+    if (initRef.current.freshIdentity && window.parent !== window) {
+      visitor = await new Promise<ChatVisitor | undefined>((resolve) => {
+        const timer = setTimeout(() => {
+          identityWaiter.current = null;
+          resolve(initRef.current.visitor);
+        }, IDENTITY_TIMEOUT_MS);
+        identityWaiter.current = (v) => {
+          clearTimeout(timer);
+          identityWaiter.current = null;
+          resolve(v ?? initRef.current.visitor);
+        };
+        post("jettachat:identity");
+      });
+    }
+    await openSession({ ...initRef.current, visitor, session: null });
   }, [openSession, post]);
 
   // ── Live updates ─────────────────────────────────────────────────

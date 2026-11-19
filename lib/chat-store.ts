@@ -272,6 +272,29 @@ export async function setConversationApp(
 }
 
 /**
+ * Replace who the visitor is, after a fresh monday token on resume.
+ *
+ * Like `setConversationApp`, this does not touch `lastActivityAt`: loading a
+ * page is not activity, and bumping the clock would keep an idle chat from
+ * ever going stale. `next` is worked out from the conversation as it is under
+ * the lock, so two tabs resuming at once cannot write over each other.
+ */
+export async function setConversationVisitor(
+  conversationId: string,
+  next: (current: ChatVisitor) => ChatVisitor | null,
+): Promise<ChatConversation | null> {
+  return withConversationLock(conversationId, async () => {
+    const conv = await getConversation(conversationId);
+    if (!conv) return null;
+    const visitor = next(conv.visitor);
+    if (!visitor) return conv;
+    conv.visitor = visitor;
+    await save(conv);
+    return conv;
+  });
+}
+
+/**
  * Mark a conversation resolved, without touching `lastActivityAt`.
  *
  * Deliberately NOT `updateConversation({ status: "resolved" })`, for the same
