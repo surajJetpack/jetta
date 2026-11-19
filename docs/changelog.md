@@ -10,6 +10,11 @@ The chat widget used to take monday's session token once, when the page loaded, 
 Now an embedding app can give the widget a function, `JettaChatConfig.getMondaySessionToken`, which is called each time a session is opened or resumed. A resumed conversation is checked again with that token: it becomes verified (or its 24 hours are renewed, and it follows the board now in view) when the token is for the same account, user and app the conversation already carries; a different account changes nothing.
 The widget no longer keeps the token: a plain `visitor.mondaySessionToken` still works but is removed from the page's config, used once and forgotten. No switch; live for any embed that passes a token. The GetSign board view does not pass one yet.
 
+
+## 2026-11-18: Customer app state: a busy board is not read as the whole board
+The GetSign backend lists at most the newest twelve workflows on a board. When there are more it now says so, and Jetta is told: a workflow missing from her list may still exist, and the session and failure figures cover only the listed ones. She will not tell a customer a workflow does not exist, or that a board is quiet, on the strength of a partial list.
+Failures now arrive from the backend as a fixed description, never the stored error text, which could name a signer. Both changes come from the GetSign developers' review of the backend route. `JETTA_APP_STATE` is still off.
+
 ## 2026-11-17: Jetta can answer from the customer's own GetSign setup (in-app chat)
 For a visitor chatting from inside the GetSign app, with a monday session token verified in the last 24 hours, Jetta can read that account's own setup from the GetSign backend: plan and what it includes, usage against limits, settings, the workflows on the board in view (which column the signer's email comes from, auto-send, reminders, link expiry, templates), session counts and failures on record. Read-only. No signer names or emails, documents or links.
 She answers from it as something she knows and never says she looked, checked or can see their account. How the product works and the steps to fix something still come from a KB article. A visitor monday has not vouched for, on the website for example, gets no lookup: she asks, and may suggest opening the chat from inside GetSign.

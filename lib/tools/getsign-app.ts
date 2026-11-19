@@ -89,6 +89,12 @@ export interface AppState {
   };
   /** Workflows on the board the customer is looking at. */
   workflows: AppWorkflow[];
+  /**
+   * The board has more workflows than are listed (the backend lists the
+   * newest dozen). The session and failure figures then cover only those, so
+   * the board is busier than they say and a workflow missing here may exist.
+   */
+  workflowsTruncated?: boolean;
   sessions?: {
     total?: number;
     completed?: number;
@@ -196,6 +202,7 @@ export function sanitizeAppState(raw: unknown): AppState | null {
         };
       })
       .filter((w): w is AppWorkflow => w !== null),
+    ...(r.workflowsTruncated === true ? { workflowsTruncated: true } : {}),
     ...(Object.keys(sessions).length
       ? {
           sessions: {
@@ -365,6 +372,11 @@ export function renderAppState(s: AppState): string {
         w.templates.length ? `templates: ${w.templates.map((t) => `"${t.name}"${t.type ? ` (${t.type})` : ""}`).join(", ")}` : "NO template attached",
       ].filter(Boolean);
       lines.push(`    - "${w.name}": ${bits.join("; ")}.`);
+    }
+    if (s.workflowsTruncated) {
+      lines.push(
+        `    (The board has MORE workflows than these, the newest ones. A workflow missing from this list may still exist: do not say it does not. The session and failure figures below cover only the listed workflows, so the board may be busier than they say.)`,
+      );
     }
   } else {
     lines.push(`  Workflows on the board they are on: none.`);
