@@ -9,7 +9,8 @@
 import { config } from "./config";
 import { parseAliases } from "./activity";
 import { getSlackNames, loadActivities } from "./activity-store";
-import { getDevBoardRows } from "./dev-board-sync";
+import { getDevBoardRows, listDevItems } from "./dev-board-sync";
+import { isJettaContextPost, isJettaPost } from "./jetta-posts";
 import { getOpsEvents } from "./events";
 import { itemTickets } from "./dev-item-links";
 import { markEventSeen, unmarkEventSeen } from "./kv";
@@ -48,7 +49,7 @@ export async function previewTeamReport(
   const d = day && DAY_KEY.test(day) ? day : reportDay(now, tz);
   // Two days of slack either side of the day covers every timezone offset.
   const since = Date.parse(`${d}T00:00:00Z`) - 2 * DAY_MS;
-  const [acts, slackNames, tickets, health, devRows, links, events] = await Promise.all([
+  const [acts, slackNames, tickets, health, devRows, links, events, devItems] = await Promise.all([
     loadActivities(since),
     getSlackNames().catch(() => ({})),
     loadPerfTickets(),
@@ -59,7 +60,19 @@ export async function previewTeamReport(
     // Jetta's own sends. The event log keeps the newest 5,000 events (a few
     // days), which covers yesterday; a preview of an older day shows none.
     getOpsEvents({ sinceMs: since, limit: 5000 }).catch(() => []),
+    // Both boards' items with their comments, as of the last hourly sync: where Jetta's own comments are.
+    listDevItems().catch(() => []),
   ]);
+  // Her comments are recognised by their shape (lib/jetta-posts.ts): a
+  // "🤖 Jetta:" comment, or a context post ("Product: …") added to an item
+  // that already existed. The context post that opens an item is the filing,
+  // which the rows already count.
+  const jettaComments = devItems.flatMap((item) => {
+    const firstAt = Math.min(...item.posts.map((p) => p.at));
+    return item.posts
+      .filter((p) => p.at >= since && (isJettaPost(p.text) || (isJettaContextPost(p.text) && p.at > firstAt)))
+      .map((p) => ({ at: p.at, itemId: item.id }));
+  });
   const SENT: Record<string, "first" | "followup"> = { "first_response.sent": "first", "ticket_followup.sent": "followup" };
   const jettaSent = events
     .filter((e) => e.event in SENT && e.ticketId)
@@ -76,6 +89,7 @@ export async function previewTeamReport(
     devRows,
     itemTickets: links,
     jettaSent,
+    jettaComments,
     support: (config.devBoardSupport ?? "").split(",").map((x) => x.trim()).filter(Boolean),
   });
   const urls = { ticketUrlBase: freshdeskTicketUrl(""), consoleUrl: config.consoleUrl };

@@ -121,6 +121,8 @@ check("jetta: drafts, what followed, handoffs", r.jetta, {
   firstReplyH: null,
   devItemsFiled: null,
   replies: { first: 0, followups: 0, ticketIds: [] },
+  devComments: 0,
+  devCommentItems: 0,
 });
 
 const text = formatTeamReport(r, { ticketUrlBase: "https://x.freshdesk.com/a/tickets/", consoleUrl: "https://console.example" });
@@ -327,7 +329,14 @@ const grouped = buildTeamReport({
   now,
   support: ["Cherryl", "Gabriel"],
   jettaSent: [{ at: at("2026-11-19T10:06:00Z"), ticketId: 14820, kind: "first" }],
+  jettaComments: [
+    { at: at("2026-11-19T05:00:00Z"), itemId: "111" },
+    { at: at("2026-11-19T09:00:00Z"), itemId: "111" },
+    { at: at("2026-11-19T11:00:00Z"), itemId: "222" },
+    { at: at("2026-11-19T20:00:00Z"), itemId: "333" }, // the 20th in Kathmandu
+  ],
 });
+check("jetta: her comments on dev items that day, and on how many items", [grouped.jetta.devComments, grouped.jetta.devCommentItems], [3, 2]);
 check("groups: the support roster, everyone else", grouped.people.map((p) => [p.name, p.group]), [
   ["Cherryl", "support"],
   ["Sujata", "other"],
@@ -344,7 +353,7 @@ check("tables: Team is grouped, four columns, counts as links", teamTable.rows.m
   ["SUPPORT", " ", " ", " "],
   ["Cherryl", "[3 replies] · [1 note] · 1 first reply (1.4h)", "–", "[1 chat taken] (in 4 min) · 1 console decision"],
   ["DEVELOPERS AND OTHERS", " ", " ", " "],
-  ["Jetta", "1 reply sent ([#14820]) · [2 drafts written]", "[1 item filed]", "–"],
+  ["Jetta", "1 reply sent ([#14820]) · [2 drafts written]", "[1 item filed] · [3 comments]", "–"],
   ["Sujata", "–", "[1 item filed] · [1 comment] · [1 status change]", "[1 Slack message]"],
 ]);
 const linkIn = (row: number, col: number, label: string) => teamTable.rows[row][col].elements[0].elements.find((e) => e.type === "link" && e.text === label);

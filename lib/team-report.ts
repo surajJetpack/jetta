@@ -149,6 +149,13 @@ export interface TeamReport {
     /** Client items she filed on the dev boards that day. Null when the Dev board rows were not read. */
     devItemsFiled: number | null;
     /**
+     * Comments she wrote on dev items that day (updates relayed from a ticket,
+     * follow-ups to developers, replies), and on how many items. The post that
+     * files an item is counted as the filing, not as a comment.
+     */
+    devComments: number;
+    devCommentItems: number;
+    /**
      * Replies she sent to customers herself that day, from her own send
      * events: automatic first responses and follow-ups to quiet customers.
      * A draft a colleague sent is that colleague's reply, not hers.
@@ -181,6 +188,8 @@ export interface TeamReportInput {
   itemTickets?: Map<string, string> | null;
   /** Names of the support team (the DEV_BOARD_SUPPORT roster); everyone else is listed in a second group. */
   support?: string[] | null;
+  /** Jetta's own comments on dev items (her posts in the Dev board store). Any window; filtered here. */
+  jettaComments?: { at: number; itemId: string }[] | null;
   /** Replies Jetta sent herself (first_response.sent / ticket_followup.sent events). Any window; filtered here. */
   jettaSent?: { at: number; ticketId: number; kind: "first" | "followup" }[] | null;
 }
@@ -372,7 +381,12 @@ export function buildTeamReport(input: TeamReportInput): TeamReport {
     firstReplyH: median(firstBy.get(JETTA_KEY) ?? []),
     devItemsFiled: input.devRows ? input.devRows.filter((r) => r.origin === "jetta" && dayOf(r.createdAt) === day).length : null,
     replies: { first: 0, followups: 0, ticketIds: [] },
+    devComments: 0,
+    devCommentItems: 0,
   };
+  const commented = (input.jettaComments ?? []).filter((c) => dayOf(c.at) === day);
+  jetta.devComments = commented.length;
+  jetta.devCommentItems = new Set(commented.map((c) => c.itemId)).size;
   const sent = (input.jettaSent ?? []).filter((e) => dayOf(e.at) === day);
   jetta.replies = {
     first: sent.filter((e) => e.kind === "first").length,
@@ -409,7 +423,8 @@ export function buildTeamReport(input: TeamReportInput): TeamReport {
 
 /** Nothing a person did and nothing that came in: a weekend or a holiday. Not worth a post. */
 export function isEmptyReport(r: TeamReport): boolean {
-  return r.people.length === 0 && r.team.newTickets === 0 && r.jetta.drafts === 0 && r.jetta.replies.first + r.jetta.replies.followups === 0;
+  const j = r.jetta;
+  return r.people.length === 0 && r.team.newTickets === 0 && j.drafts === 0 && j.replies.first + j.replies.followups === 0 && j.devComments === 0;
 }
 
 // ── Slack text ──────────────────────────────────────────────────────
@@ -520,7 +535,9 @@ function jettaLine(j: TeamReport["jetta"], ref: (id: number) => string): string 
   }
   // The board is the better count of items she filed; her ticket notes are the fallback.
   const filed = j.devItemsFiled ?? j.handoffs.dev_item;
-  if (filed > 0) parts.push(`dev board: ${filed} filed`);
+  if (filed > 0 || j.devComments > 0) {
+    parts.push(`dev board: ${[filed > 0 && `${filed} filed`, j.devComments > 0 && n(j.devComments, "comment")].filter(Boolean).join(", ")}`);
+  }
   if (j.handoffs.slack > 0) parts.push(n(j.handoffs.slack, "Slack escalation"));
   if (j.handoffs.chat > 0) parts.push(`${n(j.handoffs.chat, "chat")} → ticket`);
   return parts.join(" · ");
@@ -749,11 +766,15 @@ export function teamReportMessages(r: TeamReport, links: ReportLinks = {}): Repo
     [j.drafts > 0 && page("drafts", `${n(j.drafts, "draft")} written`)],
   ]);
   const jettaOther = dotted([[j.handoffs.slack > 0 && n(j.handoffs.slack, "Slack escalation")], [j.handoffs.chat > 0 && `${n(j.handoffs.chat, "chat")} turned into a ticket`]]);
-  if (sent > 0 || j.drafts > 0 || filed > 0 || jettaOther.length) {
+  const jettaBoard = dotted([
+    [filed > 0 && page("dev-board", `${n(filed, "item")} filed`)],
+    [j.devComments > 0 && page("dev-board", n(j.devComments, "comment"))],
+  ]);
+  if (sent > 0 || j.drafts > 0 || jettaBoard.length || jettaOther.length) {
     rows.push({
       name: "Jetta",
       group: "other",
-      cells: [cell(txt("Jetta", true)), cell(...jettaFd), cell(filed > 0 && page("dev-board", `${n(filed, "item")} filed`)), cell(...jettaOther)],
+      cells: [cell(txt("Jetta", true)), cell(...jettaFd), cell(...jettaBoard), cell(...jettaOther)],
     });
   }
   rows.sort((a, b) => a.name.localeCompare(b.name));
