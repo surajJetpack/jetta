@@ -90,7 +90,12 @@ export interface PersonReport {
   };
   chat: { taken: number; actions: number; pickupMin: number | null };
   slack: { messages: number; responseMin: number | null };
-  monday: { created: number; comments: number; status: number; moved: number; items: number };
+  /**
+   * Items filed and comments written. Status changes and moves between groups
+   * are not counted: they are clicks, several to an item, and the ones that
+   * matter to a customer are already in the action items.
+   */
+  monday: { created: number; comments: number; items: number };
   /**
    * Console decisions: KB, learnings, billing, settings, drafts sent or discarded
    * there. What a person did with Jetta's drafts in Freshdesk (as-is, edited,
@@ -262,13 +267,13 @@ export function buildTeamReport(input: TeamReportInput): TeamReport {
         monday: {
           created: count(a, "monday.created"),
           comments: count(a, "monday.comment"),
-          status: count(a, "monday.status"),
-          moved: count(a, "monday.moved"),
-          items: distinct(mondayActs.map((x) => x.ref)),
+          items: distinct(mondayActs.filter((x) => x.action === "monday.created" || x.action === "monday.comment").map((x) => x.ref)),
         },
         console: p.counts.console - draftOutcomes,
       };
     })
+    // Someone whose whole day was status changes or moves has nothing to show.
+    .filter((p) => p.fd.replies + p.fd.notes + p.fd.firstReplies + p.chat.taken + p.chat.actions + p.slack.messages + p.monday.created + p.monday.comments + p.console > 0)
     .sort((x, y) => x.name.localeCompare(y.name));
 
   const listed = new Set(people.map((p) => p.key));
@@ -495,13 +500,11 @@ function personLine(p: PersonReport, ref: (id: number) => string): string {
     );
   }
   const m = p.monday;
-  if (m.created || m.comments || m.status || m.moved) {
+  if (m.created || m.comments) {
     parts.push(
       `dev board: ${[
         m.created > 0 && `${m.created} filed`,
         m.comments > 0 && n(m.comments, "comment"),
-        m.status > 0 && n(m.status, "status change"),
-        m.moved > 0 && n(m.moved, "move"),
       ]
         .filter(Boolean)
         .join(", ")}`,
@@ -738,8 +741,6 @@ export function teamReportMessages(r: TeamReport, links: ReportLinks = {}): Repo
           ...dotted([
             [m.created > 0 && list(p.key, { action: "monday.created" }, `${n(m.created, "item")} filed`)],
             [m.comments > 0 && list(p.key, { action: "monday.comment" }, n(m.comments, "comment"))],
-            [m.status > 0 && list(p.key, { action: "monday.status" }, n(m.status, "status change"))],
-            [m.moved > 0 && list(p.key, { action: "monday.moved" }, n(m.moved, "move"))],
           ]),
         ),
         cell(

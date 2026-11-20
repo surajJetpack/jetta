@@ -102,7 +102,7 @@ const [cherryl, sujata] = r.people;
 check("Freshdesk names and the console merge into one person", cherryl.fd, { replies: 3, notes: 1, tickets: 2, ticketIds: [14809, 14815], firstReplies: 1, firstReplyH: 1.35 });
 check("draft outcomes are not console work, and are not reported per person", [cherryl.console, "drafts" in cherryl], [1, false]);
 check("chat pickup time", cherryl.chat, { taken: 1, actions: 0, pickupMin: 4 });
-check("monday actions and distinct items", sujata.monday, { created: 1, comments: 1, status: 1, moved: 0, items: 2 });
+check("monday: items filed and comments; status changes and moves are not counted", sujata.monday, { created: 1, comments: 1, items: 2 });
 check("activity outside the support day is not counted", sujata.fd.replies, 0);
 check("slack response time", sujata.slack, { messages: 1, responseMin: 30 });
 
@@ -148,7 +148,7 @@ check(
   text.includes("• *Cherryl:* 3 replies, 1 note (<https://x.freshdesk.com/a/tickets/14809|#14809> <https://x.freshdesk.com/a/tickets/14815|#14815>), 1 first reply in 1.4h · 1 chat taken in 4 min · console: 1"),
   true,
 );
-check("text: dev board and Slack on a person's line", text.includes("• *Sujata:* dev board: 1 filed, 1 comment, 1 status change · Slack: 1 (answers in 30 min)"), true);
+check("text: dev board and Slack on a person's line", text.includes("• *Sujata:* dev board: 1 filed, 1 comment · Slack: 1 (answers in 30 min)"), true);
 check("text: jetta's line", text.includes("• *Jetta:* 2 drafts (of 1 sent after one: 1 as-is, 0 edited, 0 replaced) · dev board: 1 filed"), true);
 check("text: Jetta is in Support; without a roster the people are in the second group", [...text.matchAll(/^(?:\*([A-Z][a-z ]+)\*|• \*([A-Z][a-z]+):\*)/gm)].map((m) => m[1] ?? m[2]).slice(-5), ["Support", "Jetta", "Developers and others", "Cherryl", "Sujata"]);
 
@@ -230,6 +230,20 @@ check(
   ),
   true,
 );
+
+// A day of nothing but status changes and moves is not listed.
+const clicks = buildTeamReport({
+  day: DAY,
+  tz: TZ,
+  acts: [
+    act({ at: at("2026-11-19T05:00:00Z"), who: "Nir Ofir", action: "monday.status", place: "monday", ref: "9" }),
+    act({ at: at("2026-11-19T05:01:00Z"), who: "Nir Ofir", action: "monday.moved", place: "monday", ref: "9" }),
+  ],
+  tickets: [],
+  aliases,
+  now,
+});
+check("people: only status changes and moves means not listed", clicks.people, []);
 
 // Developer updates the customer has not heard about.
 const H = 3_600_000;
@@ -354,7 +368,7 @@ check("tables: Team is grouped, four columns, counts as links", teamTable.rows.m
   ["Cherryl", "[3 replies] · [1 note] · 1 first reply (1.4h)", "–", "[1 chat taken] (in 4 min) · 1 console decision"],
   ["Jetta", "1 reply sent ([#14820]) · [2 drafts written]", "[1 item filed] · [3 comments]", "–"],
   ["DEVELOPERS AND OTHERS", " ", " ", " "],
-  ["Sujata", "–", "[1 item filed] · [1 comment] · [1 status change]", "[1 Slack message]"],
+  ["Sujata", "–", "[1 item filed] · [1 comment]", "[1 Slack message]"],
 ]);
 const linkIn = (row: number, col: number, label: string) => teamTable.rows[row][col].elements[0].elements.find((e) => e.type === "link" && e.text === label);
 check("tables: a count opens that person's list of that action for that day", linkIn(2, 1, "3 replies"), {
