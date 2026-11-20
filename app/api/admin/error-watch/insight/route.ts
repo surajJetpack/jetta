@@ -1,10 +1,10 @@
 /**
- * The /logs AI read (admin only). The cron writes it whenever what is flagged
+ * The /logs AI read (admins and CONSOLE_DEV_USERS). The cron writes it whenever what is flagged
  * changes, so a page view normally just reads it; `?refresh=1` rewrites it.
  * A failed rewrite serves the previous read marked stale.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/roles";
+import { requireDev } from "@/lib/roles";
 import { adminActor } from "@/lib/auth";
 import { errorWatchInsight, getErrorWatchInsight, getErrorWatchSummary } from "@/lib/error-watch";
 import { logOpsEvent } from "@/lib/events";
@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 export async function GET(req: NextRequest) {
-  const denied = requireAdmin(req);
+  const denied = requireDev(req);
   if (denied) return denied;
   const force = req.nextUrl.searchParams.get("refresh") === "1";
   const summary = await getErrorWatchSummary();

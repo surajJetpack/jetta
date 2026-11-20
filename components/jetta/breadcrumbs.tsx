@@ -9,12 +9,12 @@ import { usePathname } from "next/navigation";
 import { ChevronRight } from "lucide-react";
 import { GUIDE_ITEM, activeId, navFor } from "./console-nav";
 
-export function Breadcrumbs({ isAdmin }: { isAdmin: boolean }) {
+export function Breadcrumbs({ isAdmin, canSeeDevPages }: { isAdmin: boolean; canSeeDevPages: boolean }) {
   const pathname = usePathname();
-  const id = activeId(pathname, isAdmin);
+  const id = activeId(pathname, isAdmin, canSeeDevPages);
   if (!id) return null;
 
-  const group = navFor(isAdmin).find((g) => g.items.some((i) => i.id === id));
+  const group = navFor(isAdmin, canSeeDevPages).find((g) => g.items.some((i) => i.id === id));
   const item = group?.items.find((i) => i.id === id) ?? (id === GUIDE_ITEM.id ? GUIDE_ITEM : null);
   if (!item) return null;
 
