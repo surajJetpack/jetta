@@ -584,6 +584,13 @@ export interface DevEvent {
    * run can't see it already told the customer.
    */
   pendingReply?: { at: string; body: string };
+  /**
+   * Draft mode: a reply_to_ticket in this run is NOT sent. It becomes a
+   * suggested-reply note on the ticket that a colleague approves. The run is
+   * told so, because it reports on the item and in its note what it did, and
+   * "I have replied to the customer" was read by developers as sent.
+   */
+  replyHeld?: boolean;
 }
 
 /** Token usage of one LLM task, for the per-ticket cost breakdown. */

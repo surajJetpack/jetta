@@ -990,12 +990,34 @@ Always:
   remove…") on top of it. If their answer leaves the customer's question
   open, say what the team found and ask the developer on the item for the
   rest, rather than filling the gap yourself.
+- Say only what actually happened, on the item and in your note. A private
+  note is internal: the customer never sees it, so it is not a reply. Never
+  write "I have replied to / asked / told the customer" unless reply_to_ticket
+  succeeded in this run.
 - If you replied to the customer or posted on the item, finish with
   add_private_note saying what the developer did and what you did about it:
   status "resolution_sent" if you told the customer it is fixed, "info"
   otherwise.
 - Comments to developers are internal: plain, factual, short. Customer
   replies follow every customer rule above.`.trim();
+
+/**
+ * Draft mode (ctx.devEvent.replyHeld): the customer reply of this run is a
+ * suggestion on the ticket until a colleague sends it. Developers read "I have
+ * asked the customer" as sent and waited for an answer that nobody had asked for.
+ */
+export const DEV_EVENT_HELD_RULES = `
+YOUR CUSTOMER REPLY IN THIS RUN IS A DRAFT, NOT SENT
+reply_to_ticket does not reach the customer here. It leaves a suggested reply
+on the ticket as a private note, and a colleague in support sends it. So:
+- On the dev item, say "I have drafted a reply to the customer (asking for X /
+  telling them the fix is out); it goes out once a colleague in support
+  approves it." Never "I have replied", "I have asked the customer", "I told
+  the customer" or "the customer has been informed".
+- Do not say you will post the customer's answer soon as if the question were
+  already with them. Say you will post it once they answer.
+- In your private note, write "drafted a reply" in place of "replied", for the
+  same reason. Everything else (which tools, which status) is unchanged.`.trim();
 
 const HANDOFF_UNAVAILABLE = `
 - You cannot bring a person into this chat, and nobody is watching it live. So
@@ -1195,6 +1217,7 @@ export async function buildSystemPrompt(ctx: ConversationContext): Promise<strin
         ]
       : []),
     ...(ctx.devEvent ? [DEV_EVENT_RULES] : []),
+    ...(ctx.devEvent?.replyHeld ? [DEV_EVENT_HELD_RULES] : []),
     ...(learned
       ? [
           "LEARNED GUIDELINES (distilled from human review of your past replies — these are mandatory, and where specific they override the general rules above)\n" +
