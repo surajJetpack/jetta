@@ -99,7 +99,7 @@ const r = buildTeamReport({ day: DAY, tz: TZ, acts, tickets, aliases, now });
 
 check("people are alphabetical, sign-in-only people are left out", r.people.map((p) => p.name), ["Cherryl", "Sujata"]);
 const [cherryl, sujata] = r.people;
-check("Freshdesk names and the console merge into one person", cherryl.fd, { replies: 3, notes: 1, tickets: 2, firstReplies: 1, firstReplyH: 1.35 });
+check("Freshdesk names and the console merge into one person", cherryl.fd, { replies: 3, notes: 1, tickets: 2, ticketIds: [14809, 14815], firstReplies: 1, firstReplyH: 1.35 });
 check("draft outcomes are not console work, and are not reported per person", [cherryl.console, "drafts" in cherryl], [1, false]);
 check("chat pickup time", cherryl.chat, { taken: 1, actions: 0, pickupMin: 4 });
 check("monday actions and distinct items", sujata.monday, { created: 1, comments: 1, status: 1, moved: 0, items: 2 });
@@ -120,12 +120,17 @@ check("jetta: drafts, what followed, handoffs", r.jetta, {
   firstReplies: 0,
   firstReplyH: null,
   devItemsFiled: null,
+  replies: { first: 0, followups: 0, ticketIds: [] },
 });
 
 const text = formatTeamReport(r, { ticketUrlBase: "https://x.freshdesk.com/a/tickets/", consoleUrl: "https://console.example" });
 console.log(`\n${text}\n`);
-check("text: header names the day and zone", text.split("\n")[0], ":bar_chart: *Support team, Thu 19 Nov* _(Asia/Kathmandu day)_");
-check("text: team line", text.includes("*Team:* 3 new tickets, 2 answered (median first reply 44 min) · 2 customers waiting on a reply right now"), true);
+check(
+  "text: one header line with the team's numbers, waiting linked to Support health",
+  text.split("\n")[0],
+  ":bar_chart: *Support, Thu 19 Nov* · 3 new, 2 answered (first reply 44 min) · <https://console.example/health|2 waiting on us> · 1 first reply from the App Support login",
+);
+check("text: every line is short", text.split("\n").every((l) => l.length < 420), true);
 check(
   "actions: waiting past the same-shift bar, with who answered last",
   r.actions.reply.map((a) => [a.id, a.lastBy, a.draftReady]),
@@ -134,12 +139,16 @@ check(
     [14821, null, false],
   ],
 );
-check("text: action items link and escape customer text", text.includes("• Reply to <https://x.freshdesk.com/a/tickets/14821|#14821> Board &lt;limit&gt; &amp; error: customer has waited 16h"), true);
-check("text: an action names who answered last", text.includes("• Reply to <https://x.freshdesk.com/a/tickets/14700|#14700> Ticket 14700: customer has waited 2d (last answered by Sujata)"), true);
-check("text: a person's Freshdesk line", text.includes("• Freshdesk: 3 replies, 1 note on 2 tickets · 1 first reply (median 1.4h after the ticket came in)"), true);
-check("text: monday line", text.includes("• monday dev boards: 1 item created, 1 comment, 1 status change across 2 items"), true);
-check("text: jetta block", text.includes("*Jetta*\n• Freshdesk: 2 drafts written for the team\n• Of 1 reply the team sent after a draft: 1 as-is, 0 edited, 0 replaced\n• monday dev boards: 1 item filed for developers"), true);
-check("text: jetta sits with the team, alphabetically", [...text.matchAll(/^\*([A-Z][a-z]+)\*$/gm)].map((m) => m[1]), ["Cherryl", "Jetta", "Sujata"]);
+check("text: replies owed are one line of ticket links", text.includes("• *Reply:* <https://x.freshdesk.com/a/tickets/14700|#14700> 2d · <https://x.freshdesk.com/a/tickets/14821|#14821> 16h"), true);
+check("text: no ticket subjects (customer text) in the post", text.includes("limit"), false);
+check(
+  "text: a person is one line, their tickets linked",
+  text.includes("• *Cherryl:* 3 replies, 1 note (<https://x.freshdesk.com/a/tickets/14809|#14809> <https://x.freshdesk.com/a/tickets/14815|#14815>), 1 first reply in 1.4h · 1 chat taken in 4 min · console: 1"),
+  true,
+);
+check("text: dev board and Slack on a person's line", text.includes("• *Sujata:* dev board: 1 filed, 1 comment, 1 status change · Slack: 1 (answers in 30 min)"), true);
+check("text: jetta's line", text.includes("• *Jetta:* 2 drafts (of 1 sent after one: 1 as-is, 0 edited, 0 replaced) · dev board: 1 filed"), true);
+check("text: jetta sits with the team, alphabetically", [...(text.split("*Team*")[1] ?? "").matchAll(/^• \*([A-Z][a-z]+):\*/gm)].map((m) => m[1]), ["Cherryl", "Jetta", "Sujata"]);
 
 // With her login aliased, her own first replies move from the team line into her block.
 const named = buildTeamReport({
@@ -152,7 +161,7 @@ const named = buildTeamReport({
   devRows: [],
 });
 check("jetta: first replies under her own name once the login has an alias", [named.jetta.firstReplies, named.jetta.firstReplyH, named.team.sharedFirstReplies, named.jetta.devItemsFiled], [1, 0.1, [], 0]);
-check("text: jetta's first replies", formatTeamReport(named).includes("• Freshdesk: 1 first reply sent (median 6 min after the ticket came in) · 2 drafts written for the team"), true);
+check("text: jetta's first replies", formatTeamReport(named).includes("• *Jetta:* 1 first reply in 6 min · 2 drafts"), true);
 check("text: no per-person line about Jetta's drafts", text.includes("Jetta's drafts:"), false);
 check("text: no ranking words", /\b(top|rank|best|worst|leader)/i.test(text), false);
 
@@ -191,10 +200,34 @@ const acting = buildTeamReport({
 check("actions: under the bar is left out, stale is its own list", [acting.actions.reply.map((a) => a.id), acting.actions.stale.map((a) => a.id)], [[7, 14789], [8]]);
 check("actions: a draft nobody has sent is flagged", acting.actions.reply.find((a) => a.id === 14789)?.draftReady, true);
 const actingText = formatTeamReport(acting);
-check("text: draft note on an action", actingText.includes("• Reply to #14789 Address in subject line: customer has waited 7h (Jetta's draft is on the ticket)"), true);
-check("text: stale tickets are one line", actingText.includes("• Reply or close: 1 ticket has had the customer waiting for over 14 days: #8 20d"), true);
+check("text: a waiting draft is marked, with a legend", [actingText.includes("• *Reply:* #7 13h · #14789 7h :memo:"), actingText.includes("_:memo: Jetta's draft is on the ticket_")], [true, true]);
+check("text: stale tickets are one line", actingText.includes("• *Reply or close* (14d+): #8 20d"), true);
 const calm = buildTeamReport({ day: DAY, tz: TZ, acts, tickets, aliases, now, backlog: { owesReply: 1, waiting: [{ ticketId: 9, subject: "Just came in", waitingH: 2 }] } });
-check("text: no action section when nothing needs doing", formatTeamReport(calm).includes("Action items"), false);
+check("text: no action section when nothing needs doing", formatTeamReport(calm).includes("To do"), false);
+
+// Replies Jetta sent herself, from her send events: counted for that day only, tickets linked.
+const sending = buildTeamReport({
+  day: DAY,
+  tz: TZ,
+  acts,
+  tickets,
+  aliases: parseAliases("Jetta=App Support"),
+  now,
+  jettaSent: [
+    { at: at("2026-11-19T10:06:00Z"), ticketId: 14820, kind: "first" },
+    { at: at("2026-11-19T15:00:00Z"), ticketId: 14700, kind: "followup" },
+    { at: at("2026-11-19T16:00:00Z"), ticketId: 14700, kind: "followup" },
+    { at: at("2026-11-19T19:00:00Z"), ticketId: 14999, kind: "followup" }, // the 20th in Kathmandu
+  ],
+});
+check("jetta: her own sends that day", sending.jetta.replies, { first: 1, followups: 2, ticketIds: [14700, 14820] });
+check(
+  "text: jetta's replies, linked",
+  formatTeamReport(sending, { ticketUrlBase: "https://x.freshdesk.com/a/tickets/" }).includes(
+    "• *Jetta:* 3 replies sent (<https://x.freshdesk.com/a/tickets/14700|#14700> <https://x.freshdesk.com/a/tickets/14820|#14820>): 1 first response in 6 min, 2 follow-ups · 2 drafts",
+  ),
+  true,
+);
 
 // Developer updates the customer has not heard about.
 const H = 3_600_000;
@@ -270,18 +303,16 @@ check(
 check("dev actions: an old handback is counted, not listed", withDev.actions.devOlder, 1);
 const devText = formatTeamReport(withDev, { ticketUrlBase: "https://x.freshdesk.com/a/tickets/", consoleUrl: "https://console.example" });
 check(
-  "text: a developer update to relay",
-  devText.includes(
-    "• Relay the developers' update to the customer on <https://x.freshdesk.com/a/tickets/500|#500>: <https://monday.example/i-relay|Email not extracted &lt;Person&gt;> (GetSign; they answered 5h ago; status Ready for Review; support on it: Sujata)",
-  ),
+  "text: a developer update links the ticket and the dev item",
+  devText.includes("• *Relay dev update:* <https://x.freshdesk.com/a/tickets/500|#500> (<https://monday.example/i-relay|dev item>)"),
   true,
 );
-check("text: a shipped fix", devText.includes("• Fixed, tell the customer on <https://x.freshdesk.com/a/tickets/502|#502>: <https://monday.example/i-fixed|Item i-fixed> (GetSign; resolved 20h ago; status Deployed to Prod"), true);
-check("text: older handbacks are one line", devText.includes("• 1 item handed back over 14 days ago: <https://console.example/dev-board|open Dev board>"), true);
-check("text: dev updates alone are enough for an action section", devText.includes("*Action items*"), true);
+check("text: the other dev kinds", [devText.includes("• *Fixed, tell customer:* <https://x.freshdesk.com/a/tickets/502|#502> (<https://monday.example/i-fixed|dev item>)"), devText.includes("• *Dev needs customer info:* <https://x.freshdesk.com/a/tickets/504|#504> (<https://monday.example/i-ask|dev item>)"), devText.includes("• *Handed back on dev board:* <https://monday.example/i-board|dev item>")], [true, true, true]);
+check("text: older handbacks are one linked line", devText.includes("• <https://console.example/dev-board|1 dev item handed back 14d+ ago>"), true);
+check("text: dev updates alone are enough for a To do section", devText.includes("*To do*"), true);
 
 const quiet = buildTeamReport({ day: "2026-11-21", tz: TZ, acts, tickets: tickets.filter((t) => t.status === 5), aliases, now });
-check("a day with nothing is empty, and says so if printed", [isEmptyReport(quiet), formatTeamReport(quiet).includes("Nothing recorded")], [true, true]);
+check("a day with nothing is empty, and prints only the header", [isEmptyReport(quiet), formatTeamReport(quiet).split("\n").length], [true, 1]);
 check("a day with work is not empty", isEmptyReport(r), false);
 
 if (failed) {

@@ -10,6 +10,7 @@ import { config } from "./config";
 import { parseAliases } from "./activity";
 import { getSlackNames, loadActivities } from "./activity-store";
 import { getDevBoardRows } from "./dev-board-sync";
+import { getOpsEvents } from "./events";
 import { itemTickets } from "./dev-item-links";
 import { markEventSeen, unmarkEventSeen } from "./kv";
 import { getSupportHealth, loadPerfTickets } from "./performance-sync";
@@ -44,7 +45,7 @@ export async function previewTeamReport(day?: string, now = Date.now()): Promise
   const d = day && DAY_KEY.test(day) ? day : reportDay(now, tz);
   // Two days of slack either side of the day covers every timezone offset.
   const since = Date.parse(`${d}T00:00:00Z`) - 2 * DAY_MS;
-  const [acts, slackNames, tickets, health, devRows, links] = await Promise.all([
+  const [acts, slackNames, tickets, health, devRows, links, events] = await Promise.all([
     loadActivities(since),
     getSlackNames().catch(() => ({})),
     loadPerfTickets(),
@@ -52,7 +53,14 @@ export async function previewTeamReport(day?: string, now = Date.now()): Promise
     // Each of these is optional: without it the report loses a section, not the post.
     getDevBoardRows().catch(() => null),
     itemTickets().catch(() => null),
+    // Jetta's own sends. The event log keeps the newest 5,000 events (a few
+    // days), which covers yesterday; a preview of an older day shows none.
+    getOpsEvents({ sinceMs: since, limit: 5000 }).catch(() => []),
   ]);
+  const SENT: Record<string, "first" | "followup"> = { "first_response.sent": "first", "ticket_followup.sent": "followup" };
+  const jettaSent = events
+    .filter((e) => e.event in SENT && e.ticketId)
+    .map((e) => ({ at: e.at, ticketId: Number(e.ticketId), kind: SENT[e.event] }));
   const report = buildTeamReport({
     day: d,
     tz,
@@ -64,6 +72,7 @@ export async function previewTeamReport(day?: string, now = Date.now()): Promise
     backlog: health?.backlog ?? null,
     devRows,
     itemTickets: links,
+    jettaSent,
   });
   const text = formatTeamReport(report, { ticketUrlBase: freshdeskTicketUrl(""), consoleUrl: config.consoleUrl });
   return { report, text };
