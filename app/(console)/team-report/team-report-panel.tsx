@@ -78,7 +78,8 @@ export default function TeamReportPanel({ initial = {} }: { initial?: { day?: st
   useEffect(() => {
     if (!shownDay) return;
     const q = new URLSearchParams({ day: shownDay, ...(pick ? { who: pick.who, list: pick.list } : {}) });
-    window.history.replaceState(null, "", `/team-report?${q}`);
+    // A section link from the Slack post (#to-do) is kept until a list is opened.
+    window.history.replaceState(null, "", `/team-report?${q}${pick ? "" : window.location.hash}`);
   }, [shownDay, pick]);
 
   // Arriving from a link, or clicking a count: bring the list into view.
@@ -86,6 +87,16 @@ export default function TeamReportPanel({ initial = {} }: { initial?: { day?: st
   useEffect(() => {
     if (pick && loaded) requestAnimationFrame(() => listRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
   }, [pick, loaded]);
+
+  // Arriving on a section link (#to-do, #team): the section is drawn after the
+  // data loads, so the browser's own jump has already missed it.
+  const jumped = useRef(false);
+  useEffect(() => {
+    if (!loaded || jumped.current) return;
+    jumped.current = true;
+    const id = window.location.hash.slice(1);
+    if (id) requestAnimationFrame(() => document.getElementById(id)?.scrollIntoView({ block: "start" }));
+  }, [loaded]);
 
   if (err && !data) {
     return (

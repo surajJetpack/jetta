@@ -5,6 +5,11 @@ Newest first. One entry per change people would notice: what Jetta does differen
 Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain words.
 
 
+
+## 2026-11-20: The daily Slack report no longer carries the To do list
+The post is now one message: the summary line and the Team table. What needs doing (customers waiting, developer updates to pass on) stays on the console's Daily report page, and the summary line links to it as "N to do".
+No switch; applies to the next post. The Daily report page is unchanged.
+
 ## 2026-11-20: A daily team report in Slack
 Each morning (03:30 UTC) Jetta can post a short report about the day before as two Slack tables (To do, and Team: Name, Freshdesk, monday dev boards, Other), with every ticket and dev item linked. It has the team's numbers, a To do list when there is one, and one line per person, Jetta included.
 To do: customers waiting more than 4 hours for a reply, tickets waiting over 14 days to reply to or close, and developer updates the customer has not been told about yet (developers answered, need more from the customer, or shipped a fix), from the Dev board.

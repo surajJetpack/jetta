@@ -130,7 +130,7 @@ console.log(`\n${text}\n`);
 check(
   "text: one header line with the team's numbers, waiting linked to Support health",
   text.split("\n")[0],
-  ":bar_chart: *Support, Thu 19 Nov* · 3 new, 2 answered (first reply 44 min) · <https://console.example/health|2 waiting on us> · 1 first reply from the App Support login",
+  ":bar_chart: *Support, Thu 19 Nov* · 3 new, 2 answered (first reply 44 min) · <https://console.example/health|2 waiting on us> · <https://console.example/team-report?day=2026-11-19#to-do|2 to do> · 1 first reply from the App Support login",
 );
 check("text: every line is short", text.split("\n").every((l) => l.length < 420), true);
 check(
@@ -141,7 +141,6 @@ check(
     [14821, null, false],
   ],
 );
-check("text: replies owed are one line of ticket links", text.includes("• *Reply:* <https://x.freshdesk.com/a/tickets/14700|#14700> 2d · <https://x.freshdesk.com/a/tickets/14821|#14821> 16h"), true);
 check("text: no ticket subjects (customer text) in the post", text.includes("limit"), false);
 check(
   "text: a person is one line, their tickets linked",
@@ -201,9 +200,6 @@ const acting = buildTeamReport({
 });
 check("actions: under the bar is left out, stale is its own list", [acting.actions.reply.map((a) => a.id), acting.actions.stale.map((a) => a.id)], [[7, 14789], [8]]);
 check("actions: a draft nobody has sent is flagged", acting.actions.reply.find((a) => a.id === 14789)?.draftReady, true);
-const actingText = formatTeamReport(acting);
-check("text: a waiting draft is marked, with a legend", [actingText.includes("• *Reply:* #7 13h · #14789 7h :memo:"), actingText.includes("_:memo: Jetta's draft is on the ticket_")], [true, true]);
-check("text: stale tickets are one line", actingText.includes("• *Reply or close* (14d+): #8 20d"), true);
 const calm = buildTeamReport({ day: DAY, tz: TZ, acts, tickets, aliases, now, backlog: { owesReply: 1, waiting: [{ ticketId: 9, subject: "Just came in", waitingH: 2 }] } });
 check("text: no action section when nothing needs doing", formatTeamReport(calm).includes("To do"), false);
 
@@ -317,15 +313,6 @@ check(
   ],
 );
 check("dev actions: an old handback is counted, not listed", withDev.actions.devOlder, 1);
-const devText = formatTeamReport(withDev, { ticketUrlBase: "https://x.freshdesk.com/a/tickets/", consoleUrl: "https://console.example" });
-check(
-  "text: a developer update links the ticket and the dev item",
-  devText.includes("• *Relay dev update:* <https://x.freshdesk.com/a/tickets/500|#500> (<https://monday.example/i-relay|dev item>)"),
-  true,
-);
-check("text: the other dev kinds", [devText.includes("• *Fixed, tell customer:* <https://x.freshdesk.com/a/tickets/502|#502> (<https://monday.example/i-fixed|dev item>)"), devText.includes("• *Dev needs customer info:* <https://x.freshdesk.com/a/tickets/504|#504> (<https://monday.example/i-ask|dev item>)"), devText.includes("• *Handed back on dev board:* <https://monday.example/i-board|dev item>")], [true, true, true]);
-check("text: older handbacks are one linked line", devText.includes("• <https://console.example/dev-board|1 dev item handed back 14d+ ago>"), true);
-check("text: dev updates alone are enough for a To do section", devText.includes("*To do*"), true);
 
 // The same report as Slack tables: a To do table and a Team table, one per message.
 const L = { ticketUrlBase: "https://x.freshdesk.com/a/tickets/", consoleUrl: "https://console.example" };
@@ -356,12 +343,16 @@ check("groups: the support roster, everyone else", grouped.people.map((p) => [p.
   ["Sujata", "other"],
 ]);
 const msgs = teamReportMessages(grouped, L)!;
-check("tables: two messages, the summary line first", [msgs.length, msgs[0].text.startsWith(":bar_chart: *Support, Thu 19 Nov*")], [2, true]);
-check("tables: To do rows", tableOf(msgs[0])!.rows.map((row) => row.map(flat)), [
-  ["To do", "Tickets"],
-  ["Reply", "[#14700] 2d  [#14821] 16h"],
-]);
-const teamTable = tableOf(msgs[1])!;
+check("tables: one message, the summary line then the Team table", [msgs.length, msgs[0].text.startsWith(":bar_chart: *Support, Thu 19 Nov*"), (msgs[0].blocks as { type: string }[]).map((b) => b.type)], [1, true, ["section", "table", "context"]]);
+check(
+  "post: the summary line links the To do list on the console",
+  formatTeamReport(withDev, L).split("\n")[0].includes("<https://console.example/team-report?day=2026-11-19#to-do|5 to do>"),
+  true,
+);
+check("post: no To do link on a day with nothing to do", formatTeamReport(calm, L).includes("to do"), false);
+// The To do list is on the console page, not in the post, even on a day with plenty to do.
+check("post: no To do section, in tables or in text", [JSON.stringify(teamReportMessages(withDev, L)).includes("Relay dev update"), formatTeamReport(withDev, L).includes("To do"), formatTeamReport(acting).includes("Reply")], [false, false, false]);
+const teamTable = tableOf(msgs[0])!;
 check("tables: Team is grouped, four columns, counts as links", teamTable.rows.map((row) => row.map(flat)), [
   ["Name", "Freshdesk", "monday dev boards", "Other"],
   ["SUPPORT", " ", " ", " "],
@@ -398,15 +389,6 @@ check("lists: Jetta's own", [L2["jetta:sent"].map((x) => [x.ticketId, x.note]), 
   ],
 ]);
 
-const devMsgs = teamReportMessages(withDev, L)!;
-check("tables: developer updates link the ticket and the dev item", tableOf(devMsgs[0])!.rows.map((row) => row.map(flat)).slice(1), [
-  ["Relay dev update", "[#500] ([dev item])"],
-  ["Dev needs customer info", "[#504] ([dev item])"],
-  ["Fixed, tell customer", "[#502] ([dev item])"],
-  ["Handed back on dev board", "[dev item]"],
-  ["Older on dev board", "[1 dev item handed back 14d+ ago]"],
-]);
-check("tables: nothing to do means no To do table", tableOf(teamReportMessages(calm, L)![0]), undefined);
 // Too big for Slack's table limit: no tables, so the caller posts text.
 const huge = { ...grouped, people: Array.from({ length: 80 }, (_, i) => ({ ...grouped.people[0], name: `Person${i}`, key: `p${i}` })) };
 check("tables: over the size budget returns null", [TABLE_CHAR_BUDGET, teamReportMessages(huge, L)], [9000, null]);
