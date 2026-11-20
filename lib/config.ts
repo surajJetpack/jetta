@@ -819,9 +819,14 @@ export const config = {
    * console), the team's ticket numbers and Jetta's own block. Read from the
    * Team activity and Performance stores; it reads nothing new.
    *   JETTA_TEAM_REPORT_CHANNEL   the Slack channel id it posts to. Unset = no post.
+   *   JETTA_TEAM_REPORT_TZ        the zone whose calendar day "yesterday" is (an IANA
+   *                               name, e.g. Asia/Kathmandu). Its own setting because
+   *                               JETTA_TZ also moves the day on other console pages.
+   *                               Unset = JETTA_TZ.
    */
   teamReport: {
     channel: env("JETTA_TEAM_REPORT_CHANNEL"),
+    timezone: env("JETTA_TEAM_REPORT_TZ"),
   },
 
   /**

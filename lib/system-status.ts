@@ -591,7 +591,7 @@ function teamReportRow(): StatusRow {
   const what =
     "one Slack message each morning (03:30 UTC) with what each person on the support team did the day before: Freshdesk replies and notes, first replies and how fast, what they did with Jetta's drafts, chats taken, Slack, activity on both monday dev boards and console decisions. " +
     "It opens with the team's line (new tickets, answered, customers waiting on a reply right now with the three oldest) and ends with Jetta's own block (drafts written, how the replies that followed used them, handoffs). " +
-    "People are listed alphabetically, not ranked, and someone with nothing recorded is left out. It is read from the Team activity and Performance stores, so it only knows what those pages know; it is skipped on a day with no activity and no tickets. " +
+    "People are listed alphabetically, not ranked, and someone with nothing recorded is left out. Names are merged the way Team activity merges them (AGENT_ALIASES), so a shared login or a Slack id shows as itself until it is given an alias. \"Yesterday\" is the calendar day in JETTA_TEAM_REPORT_TZ (unset: JETTA_TZ). It is read from the Team activity and Performance stores, so it only knows what those pages know; it is skipped on a day with no activity and no tickets. " +
     "Admins can read the exact text for any day, without posting, at /api/admin/team-report?day=YYYY-MM-DD.";
   return {
     label: "Daily team report (Slack)",

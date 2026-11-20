@@ -78,6 +78,14 @@ export interface TeamReportInput {
   slackNames?: Record<string, string>;
   /** Report time, for "owed a reply now". */
   now: number;
+  /**
+   * Support health's own backlog (lib/support-health.ts), when it has been
+   * computed. Preferred over the ticket records for "waiting on a reply now":
+   * it is built with each ticket's current Freshdesk status, where a record
+   * keeps the status from the last time its thread was read, so a ticket
+   * closed since then would still look owed.
+   */
+  backlog?: { owesReply: number; waiting: { ticketId: number; subject: string; waitingH: number }[] } | null;
 }
 
 /** One formatter per zone: the ticket store is a few thousand records and Intl construction is the slow part. */
@@ -159,9 +167,14 @@ export function buildTeamReport(input: TeamReportInput): TeamReport {
     .sort((a, b) => a.login.localeCompare(b.login));
 
   // The team line.
-  const created = tickets.filter((t) => dayOf(Date.parse(t.createdAt)) === day);
+  // Closed with no reply from anyone is mail nobody needed to answer (booking
+  // confirmations, meeting notes, vendor notices). Counting it as "new" made
+  // 2026-11-19 read "10 new tickets, 4 answered" when all four real ones were.
+  const created = tickets.filter(
+    (t) => dayOf(Date.parse(t.createdAt)) === day && !((t.status === 4 || t.status === 5) && t.agentReplies === 0),
+  );
   const answered = created.filter((t) => t.agentReplies > 0);
-  const owed = tickets
+  const fromRecords = tickets
     .filter((t) => t.status !== 4 && t.status !== 5 && owesReply({ ...t, status: t.status ?? null }))
     .map((t) => {
       const since = t.lastPublicFrom === "customer" && t.lastPublicAt ? t.lastPublicAt : t.createdAt;
@@ -169,6 +182,12 @@ export function buildTeamReport(input: TeamReportInput): TeamReport {
     })
     .filter((t) => Number.isFinite(t.sinceH))
     .sort((a, b) => b.sinceH - a.sinceH);
+  const owed = input.backlog
+    ? [...input.backlog.waiting]
+        .sort((a, b) => b.waitingH - a.waitingH)
+        .map((w) => ({ id: w.ticketId, subject: w.subject, sinceH: w.waitingH }))
+    : fromRecords;
+  const owedCount = input.backlog ? input.backlog.owesReply : fromRecords.length;
 
   // Jetta's own day, from her notes on the tickets.
   const jetta: TeamReport["jetta"] = {
@@ -195,7 +214,7 @@ export function buildTeamReport(input: TeamReportInput): TeamReport {
       newTickets: created.length,
       answered: answered.length,
       firstReplyH: median(answered.map((t) => t.firstReplyH)),
-      owed: owed.length,
+      owed: owedCount,
       oldestOwed: owed.slice(0, 3),
       sharedFirstReplies,
     },

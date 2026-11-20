@@ -10,7 +10,7 @@ import { config } from "./config";
 import { parseAliases } from "./activity";
 import { getSlackNames, loadActivities } from "./activity-store";
 import { markEventSeen, unmarkEventSeen } from "./kv";
-import { loadPerfTickets } from "./performance-sync";
+import { getSupportHealth, loadPerfTickets } from "./performance-sync";
 import { buildTeamReport, formatTeamReport, isEmptyReport, type TeamReport } from "./team-report";
 import { freshdeskTicketUrl } from "./tools/freshdesk";
 import { postTeamReport } from "./tools/slack";
@@ -19,18 +19,45 @@ import { shiftDayKey, supportTimeZone, zonedDayKey } from "./tz";
 const DAY_MS = 86_400_000;
 const DAY_KEY = /^\d{4}-\d{2}-\d{2}$/;
 
-/** Yesterday in the support timezone: the day the morning post is about. */
-export function reportDay(now = Date.now(), tz = supportTimeZone()): string {
+/** The report's own zone when it is a real IANA name, else the support timezone. */
+export function reportTimeZone(): string {
+  const name = config.teamReport.timezone;
+  if (!name) return supportTimeZone();
+  try {
+    new Intl.DateTimeFormat("en-CA", { timeZone: name });
+    return name;
+  } catch {
+    console.warn(`JETTA_TEAM_REPORT_TZ="${name}" is not a valid IANA timezone; using the support timezone.`);
+    return supportTimeZone();
+  }
+}
+
+/** Yesterday in the report's timezone: the day the morning post is about. */
+export function reportDay(now = Date.now(), tz = reportTimeZone()): string {
   return shiftDayKey(zonedDayKey(new Date(now), tz), -1);
 }
 
 export async function previewTeamReport(day?: string, now = Date.now()): Promise<{ report: TeamReport; text: string }> {
-  const tz = supportTimeZone();
+  const tz = reportTimeZone();
   const d = day && DAY_KEY.test(day) ? day : reportDay(now, tz);
   // Two days of slack either side of the day covers every timezone offset.
   const since = Date.parse(`${d}T00:00:00Z`) - 2 * DAY_MS;
-  const [acts, slackNames, tickets] = await Promise.all([loadActivities(since), getSlackNames().catch(() => ({})), loadPerfTickets()]);
-  const report = buildTeamReport({ day: d, tz, acts, tickets, aliases: parseAliases(config.agentAliases), slackNames, now });
+  const [acts, slackNames, tickets, health] = await Promise.all([
+    loadActivities(since),
+    getSlackNames().catch(() => ({})),
+    loadPerfTickets(),
+    getSupportHealth().catch(() => null),
+  ]);
+  const report = buildTeamReport({
+    day: d,
+    tz,
+    acts,
+    tickets,
+    aliases: parseAliases(config.agentAliases),
+    slackNames,
+    now,
+    backlog: health?.backlog ?? null,
+  });
   const text = formatTeamReport(report, { ticketUrlBase: freshdeskTicketUrl(""), consoleUrl: config.consoleUrl });
   return { report, text };
 }

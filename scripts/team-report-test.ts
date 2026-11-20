@@ -87,6 +87,8 @@ const tickets: PerfTicket[] = [
   ticket({ id: 14600, createdAt: "2026-10-20T00:00:00Z", status: 5, lastPublicFrom: "customer" }),
   // Junk never counts, as a new ticket or as owed.
   ticket({ id: 14822, createdAt: "2026-11-19T11:00:00Z", subject: "Automatic reply: out of office" }),
+  // Closed the same day with no reply from anyone: a booking confirmation, not a new ticket.
+  ticket({ id: 14823, createdAt: "2026-11-19T13:00:00Z", subject: "Appointment booked: Solution consulting", status: 5 }),
   // A draft written that day that nobody has sent yet.
   ticket({ id: 14789, createdAt: "2026-11-17T00:43:00Z", status: 6, agentReplies: 1, lastPublicFrom: "agent", suggestions: [{ at: "2026-11-19T10:04:00Z", sim: null, replyBy: null, waitH: null }] }),
 ];
@@ -103,7 +105,7 @@ check("monday actions and distinct items", sujata.monday, { created: 1, comments
 check("activity outside the support day is not counted", sujata.fd.replies, 0);
 check("slack response time", sujata.slack, { messages: 1, responseMin: 30 });
 
-check("team: new tickets, junk excluded", [r.team.newTickets, r.team.answered], [3, 2]);
+check("team: new tickets, junk and closed-unanswered mail excluded", [r.team.newTickets, r.team.answered], [3, 2]);
 check("team: median first reply of that day's answered tickets", r.team.firstReplyH, 0.73);
 check("team: owed now, oldest first, closed and junk excluded", r.team.oldestOwed.map((o) => [o.id, Math.round(o.sinceH)]), [
   [14700, 48],
@@ -123,6 +125,18 @@ check("text: jetta block", text.includes("• 2 drafts written · of 1 reply sen
 check("text: no ranking words", /\b(top|rank|best|worst|leader)/i.test(text), false);
 
 check("fmtHours", [fmtHours(0.1), fmtHours(5.25), fmtHours(80), fmtHours(5587)], ["6 min", "5.3h", "3.3d", "233d"]);
+
+// Support health's backlog knows each ticket's current status; when it is there it wins.
+const withHealth = buildTeamReport({
+  day: DAY,
+  tz: TZ,
+  acts,
+  tickets,
+  aliases,
+  now,
+  backlog: { owesReply: 5, waiting: [{ ticketId: 9, subject: "Short wait", waitingH: 2 }, { ticketId: 8, subject: "Long wait", waitingH: 30 }] },
+});
+check("team: Support health's backlog replaces the record-based one", [withHealth.team.owed, withHealth.team.oldestOwed.map((o) => o.id)], [5, [8, 9]]);
 
 const quiet = buildTeamReport({ day: "2026-11-21", tz: TZ, acts, tickets: tickets.filter((t) => t.status === 5), aliases, now });
 check("a day with nothing is empty, and says so if printed", [isEmptyReport(quiet), formatTeamReport(quiet).includes("Nothing recorded")], [true, true]);
