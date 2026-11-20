@@ -334,6 +334,7 @@ export async function handleDevBoardEvent(e: MondayWebhookEvent, opts: { requeue
       pendingReply: pending
         ? { at: new Date(pending.createdAt * 1000).toISOString(), body: pending.suggestedReply.slice(0, 3000) }
         : undefined,
+      replyHeld: config.devBridge !== "shadow" && config.replyMode === "draft",
     };
     ctx.devEvent = ev;
 

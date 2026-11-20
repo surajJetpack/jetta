@@ -5,6 +5,11 @@ Newest first. One entry per change people would notice: what Jetta does differen
 Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain words.
 
 
+## 2026-11-20: On the dev board, a drafted reply is called a draft
+In draft mode Jetta's reply to the customer is only a suggested reply on the ticket (a private note) until a colleague sends it. In a run a developer started she still wrote on the dev item, and in her own note, "I have replied to / asked the customer", and developers took that as sent.
+Now she is told the reply is a draft and says so: "I have drafted a reply to the customer; it goes out once a colleague in support approves it." If her comment does not say it, one line saying the reply has not gone out yet is added to the comment. A private note alone is never described as a reply.
+No switch; applies whenever `JETTA_REPLY_MODE` is draft and the dev bridge is on. With replies on auto nothing changes.
+
 ## 2026-11-19: A saved chat is verified again, and monday's token is fetched fresh
 The chat widget used to take monday's session token once, when the page loaded, and a conversation was verified only when it was first opened. So a visitor who already had a saved chat was never verified, and "Start a new chat" reused a token that had expired, which silently left the new chat unverified.
 Now an embedding app can give the widget a function, `JettaChatConfig.getMondaySessionToken`, which is called each time a session is opened or resumed. A resumed conversation is checked again with that token: it becomes verified (or its 24 hours are renewed, and it follows the board now in view) when the token is for the same account, user and app the conversation already carries; a different account changes nothing.

@@ -27,6 +27,8 @@ import {
   ticketIdsOnItem,
   JETTA_POST_PREFIX,
 } from "../lib/tools/monday";
+import { heldReplyResult, devCommentWithDraftCaveat, DRAFT_CAVEAT } from "../lib/tools/index";
+import { DEV_EVENT_HELD_RULES } from "../lib/system-prompt";
 import type { MondayWebhookEvent } from "../lib/activity";
 import { countInlineImages } from "../lib/tools/freshdesk";
 
@@ -206,6 +208,18 @@ console.log("The run sees a reply already drafted");
   check("no pending draft → no note", !devEventMessage(ev).includes("ALREADY DRAFTED"));
   const withDraft = devEventMessage({ ...ev, pendingReply: { at: "2026-10-28T08:44:00Z", body: "Hi Sneha, a fix has gone out." } });
   check("pending draft is shown to the run", withDraft.includes("ALREADY DRAFTED") && withDraft.includes("a fix has gone out"));
+}
+
+console.log("Draft mode: a drafted reply is never reported as sent");
+{
+  check("a developer run is told its reply is a draft", /DRAFTED, not sent/.test(heldReplyResult(false, true)));
+  check("any other held run still reads as sent", heldReplyResult(false, false) === "Reply posted to the ticket.");
+  const claimed = devCommentWithDraftCaveat("I've asked the customer for the board link and will post it here.", true);
+  check("a comment that claims a reply gets the draft caveat", claimed.endsWith(DRAFT_CAVEAT));
+  const honest = "I've drafted a reply asking the customer for the board link.";
+  check("a comment that already says draft is left alone", devCommentWithDraftCaveat(honest, true) === honest);
+  check("no drafted reply in the run → comment untouched", devCommentWithDraftCaveat("The account is acme.monday.com.", false) === "The account is acme.monday.com.");
+  check("the prompt names the draft", DEV_EVENT_HELD_RULES.includes("DRAFT, NOT SENT"));
 }
 
 console.log("#14591: who she tags, hand-offs, reposts");

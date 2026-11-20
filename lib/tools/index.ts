@@ -97,6 +97,31 @@ function accountUrl(ctx: ConversationContext): string {
     : "(no linked billing account)";
 }
 
+/**
+ * What a held reply_to_ticket tells the run. Everywhere but a developer run it
+ * reads as sent, so the run behaves as it would in autonomous mode. A developer
+ * run goes on to tell the developers what it did, so it has to know the truth.
+ */
+export function heldReplyResult(isChat: boolean, devRun: boolean): string {
+  if (devRun) {
+    return "Reply DRAFTED, not sent: it is on the ticket as a suggested reply and reaches the customer only when a colleague approves it. Carry on as usual (note, status), but on the dev item and in your note say you DRAFTED a reply that is waiting for a colleague to send. Do not say you replied to, asked or told the customer.";
+  }
+  return isChat ? "Chat message sent to the customer." : "Reply posted to the ticket.";
+}
+
+export const DRAFT_CAVEAT =
+  "Note: my reply to the customer is a draft on the ticket, waiting for a colleague in support to send it. It has not gone out yet.";
+
+/**
+ * The comment as it goes on the dev item. When this run's customer reply was
+ * only drafted and the comment does not say so, the fact is added here rather
+ * than left to the model: a developer who reads "asked the customer" waits.
+ */
+export function devCommentWithDraftCaveat(message: string, heldReplyThisRun: boolean): string {
+  if (!heldReplyThisRun || /\bdraft/i.test(message)) return message;
+  return `${message.trimEnd()}\n\n${DRAFT_CAVEAT}`;
+}
+
 export function buildTools(
   ctx: ConversationContext,
   signals: AgentSignals,
@@ -106,6 +131,8 @@ export function buildTools(
   const requesterEmail = ctx.ticket?.requesterEmail ?? undefined;
   const dry = opts.dryRun === true;
   const held = opts.holdCustomerWrites === true;
+  /** A customer reply was drafted (held) earlier in this run. */
+  let heldReplyThisRun = false;
   /**
    * Return `text` to the model AND record that `tool` did nothing this call.
    * For a refusal, a no-op, shadow mode, "writes are off" — any result where
@@ -298,7 +325,12 @@ export function buildTools(
               // Draft mode: report success so downstream behavior (private note,
               // resolution logging) matches autonomous mode; the webhook turns the
               // trace into a ReplyDraft for human approval.
-              if (held) return isChat ? "Chat message sent to the customer." : "Reply posted to the ticket.";
+              // A developer run is the exception: it reports what it did to the
+              // developers, so it is told the reply is only a draft.
+              if (held) {
+                heldReplyThisRun = true;
+                return heldReplyResult(isChat, !!ctx.devEvent);
+              }
               if (isChat) {
                 await chatClient.replyToConversation(ticketId, body);
                 return "Chat message sent to the customer.";
@@ -994,8 +1026,9 @@ export function buildTools(
                 .boolean()
                 .describe("True ONLY when this comment asks the developer something you need THEM to answer. False when you are answering them, reporting what you asked the customer (even if you quote that question), or passing on the customer's reply. When true, an unanswered question is chased on your behalf after a few working days."),
             }),
-            execute: async ({ message, mention_developer, asks_developer }) => {
+            execute: async ({ message: written, mention_developer, asks_developer }) => {
               const ev = ctx.devEvent!;
+              const message = devCommentWithDraftCaveat(written, heldReplyThisRun);
               const targets = mention_developer ? monday.devMentionTargets(ev) : [];
               const mentionIds = targets.map((d) => d.id);
               const to = targets.length ? ` (@${targets.map((d) => d.name).join(", @")})` : "";
