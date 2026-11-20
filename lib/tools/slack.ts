@@ -55,6 +55,8 @@ async function postMessage(
   rawText: string,
   threadTs?: string,
   broadcast = false,
+  /** False for a post that must not land anywhere but the channel it names. */
+  allowFallback = true,
 ): Promise<string> {
   // The one place every Slack message passes through — see stripBoardViewUrls.
   const text = stripBoardViewUrls(rawText);
@@ -98,7 +100,7 @@ async function postMessage(
   // works rather than lose the message, and say loudly what happened.
   const missing = json.error === "channel_not_found" || json.error === "not_in_channel";
   const fallback = config.slack.escalationChannel ?? "#jetta-escalations";
-  if (missing && channel !== fallback) {
+  if (missing && allowFallback && channel !== fallback) {
     console.error(
       `Slack: ${channel} is ${json.error === "not_in_channel" ? "not a channel Jetta has been invited to" : "unknown"} — posting to ${fallback} instead. Create it and invite the bot, or fix the setting.`,
     );
@@ -1000,4 +1002,14 @@ export async function checkChannels(): Promise<ChannelCheck[]> {
       }
     }),
   );
+}
+
+/**
+ * The daily team report (lib/team-report.ts). It names people, so unlike every
+ * other post it never falls back to the escalation channel: a wrong or
+ * uninvited channel id fails, and the cron says so, instead of publishing each
+ * person's day somewhere nobody chose.
+ */
+export async function postTeamReport(channel: string, text: string): Promise<void> {
+  await postMessage(channel, text, undefined, false, false);
 }

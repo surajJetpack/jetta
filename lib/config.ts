@@ -813,6 +813,18 @@ export const config = {
   },
 
   /**
+   * The daily team report (lib/team-report.ts, /api/cron/team-report): one
+   * Slack message each morning with what every person on the support team did
+   * the day before (Freshdesk, chats, Slack, the monday dev boards, the
+   * console), the team's ticket numbers and Jetta's own block. Read from the
+   * Team activity and Performance stores; it reads nothing new.
+   *   JETTA_TEAM_REPORT_CHANNEL   the Slack channel id it posts to. Unset = no post.
+   */
+  teamReport: {
+    channel: env("JETTA_TEAM_REPORT_CHANNEL"),
+  },
+
+  /**
    * Cloudflare, read-only (lib/tools/cloudflare.ts): the error watch reads
    * edge 5xx, Worker errors and firewall blocks per zone, and probes the
    * busiest hosts. JETTA_CLOUDFLARE=off leaves it out of the watch.
