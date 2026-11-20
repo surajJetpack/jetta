@@ -55,6 +55,7 @@ type Need = "login" | "admin" | "assistant" | "dev" | "conditional";
 /** route (under app/api/admin) → method → who may call it. */
 const ROLES: Record<string, Record<string, Need>> = {
   "activity": { GET: "admin", POST: "admin" },
+  "team-report": { GET: "admin" },
   "assistant/session": { POST: "assistant" },
   "assistant/tool": { POST: "assistant" },
   "attention": { GET: "login" },

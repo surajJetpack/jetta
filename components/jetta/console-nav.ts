@@ -22,6 +22,7 @@ import {
   BookOpen,
   Bug,
   ClipboardCheck,
+  ClipboardList,
   CreditCard,
   FlaskConical,
   Gauge,
@@ -118,6 +119,14 @@ export const NAV: NavGroup[] = [
         label: "Team activity",
         icon: Activity,
         hint: "What each person did, and where — Freshdesk, chats, Slack, monday, the console",
+        adminOnly: true,
+      },
+      {
+        id: "team-report",
+        href: "/team-report",
+        label: "Daily report",
+        icon: ClipboardList,
+        hint: "One day at a time: what needs doing, what each person did, and the list behind every count",
         adminOnly: true,
       },
       {
@@ -280,6 +289,11 @@ export const PAGE_SECTIONS: Record<string, Record<string, string>> = {
     attention: "Needs attention — new or spiking errors that hit customers",
     "by-app": "By app — Sentry errors and log failures, 14-day trends",
     activity: "Recent alerts and dev items the watch filed or would file",
+  },
+  "team-report": {
+    "to-do": "To do — customers waiting and developer updates to pass on",
+    team: "Team — what each person did that day",
+    list: "The list behind a count",
   },
   activity: {
     scorecard: "Who did what — the scorecard",

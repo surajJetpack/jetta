@@ -60,6 +60,10 @@
     {
       "path": "/api/cron/release-watch",
       "schedule": "20 * * * *"
+    },
+    {
+      "path": "/api/cron/team-report",
+      "schedule": "30 3 * * *"
     }
   ]
 }

@@ -5,6 +5,12 @@ Newest first. One entry per change people would notice: what Jetta does differen
 Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain words.
 
 
+## 2026-11-20: A daily team report in Slack
+Each morning (03:30 UTC) Jetta can post a short report about the day before as two Slack tables (To do, and Team: Name, Freshdesk, monday dev boards, Other), with every ticket and dev item linked. It has the team's numbers, a To do list when there is one, and one line per person, Jetta included.
+To do: customers waiting more than 4 hours for a reply, tickets waiting over 14 days to reply to or close, and developer updates the customer has not been told about yet (developers answered, need more from the customer, or shipped a fix), from the Dev board.
+Per person, support team first and developers and others after: Freshdesk replies, first replies, chats, items filed and comments on both monday dev boards, Slack, console. Each count is a link that opens the list behind it on a new console page, Daily report (/team-report, admin), which shows the same report for any day. Alphabetical, not ranked. Worked out by rule from the Team activity, Performance, Support health and Dev board stores; no model writes it.
+Off until `JETTA_TEAM_REPORT_CHANNEL` holds a Slack channel id; `JETTA_TEAM_REPORT_TZ` sets whose calendar day "yesterday" is (unset: `JETTA_TZ`). Not live yet. Admins can read the exact text for any day without posting at `/api/admin/team-report?day=YYYY-MM-DD`.
+
 ## 2026-11-20: A developer can be given the Dev board and Logs & errors
 Both pages were admin-only, so a developer with a general login could not see the two pages written for them without being made a full admin.
 Now a general user named in `CONSOLE_DEV_USERS` (comma-separated usernames) sees **Dev board** and **Logs & errors** in the sidebar and ⌘K, and the data behind them loads, including what the pages do: sync, a KB draft from a thread, and the error watch run. Everything else stays as it was for a general user: no Insights, Performance, Team activity, Self-review, Evals, Articles or System.

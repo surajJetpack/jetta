@@ -55,6 +55,8 @@ async function postMessage(
   rawText: string,
   threadTs?: string,
   broadcast = false,
+  /** False for a post that must not land anywhere but the channel it names. */
+  allowFallback = true,
 ): Promise<string> {
   // The one place every Slack message passes through — see stripBoardViewUrls.
   const text = stripBoardViewUrls(rawText);
@@ -98,7 +100,7 @@ async function postMessage(
   // works rather than lose the message, and say loudly what happened.
   const missing = json.error === "channel_not_found" || json.error === "not_in_channel";
   const fallback = config.slack.escalationChannel ?? "#jetta-escalations";
-  if (missing && channel !== fallback) {
+  if (missing && allowFallback && channel !== fallback) {
     console.error(
       `Slack: ${channel} is ${json.error === "not_in_channel" ? "not a channel Jetta has been invited to" : "unknown"} — posting to ${fallback} instead. Create it and invite the bot, or fix the setting.`,
     );
@@ -1000,4 +1002,46 @@ export async function checkChannels(): Promise<ChannelCheck[]> {
       }
     }),
   );
+}
+
+/**
+ * The daily team report (lib/team-report.ts). It names people, so unlike every
+ * other post it never falls back to the escalation channel: a wrong or
+ * uninvited channel id fails, and the cron says so, instead of publishing each
+ * person's day somewhere nobody chose.
+ */
+export async function postTeamReport(
+  channel: string,
+  text: string,
+  /** The same report as table messages (lib/team-report.ts), or null when it does not fit in tables. */
+  tables: { text: string; blocks: unknown[] }[] | null = null,
+): Promise<"tables" | "text"> {
+  if (tables?.length) {
+    try {
+      for (const m of tables) await postBlocks(channel, m.text, m.blocks);
+      return "tables";
+    } catch (e) {
+      // Tables are the newest thing Slack draws and the first to be refused
+      // (an older workspace, a size limit). The report still has to arrive, so
+      // it goes out as text, whole, even if a first table already landed.
+      console.warn("team report: tables were refused, posting text instead:", e instanceof Error ? e.message : e);
+    }
+  }
+  await postMessage(channel, text, undefined, false, false);
+  return "text";
+}
+
+/** A message with Block Kit blocks, to exactly the channel named: no fallback channel. */
+async function postBlocks(channel: string, text: string, blocks: unknown[]): Promise<void> {
+  if (!config.slack.live) {
+    console.log(`[stub] slack → ${channel} (blocks):\n${text}\n${JSON.stringify(blocks)}`);
+    return;
+  }
+  const res = await fetch("https://slack.com/api/chat.postMessage", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${config.slack.botToken}`, "Content-Type": "application/json; charset=utf-8" },
+    body: JSON.stringify({ channel, text: stripBoardViewUrls(text), blocks }),
+  });
+  const json = (await res.json()) as { ok: boolean; error?: string };
+  if (!json.ok) throw new Error(`Slack postMessage (blocks) failed: ${json.error}`);
 }

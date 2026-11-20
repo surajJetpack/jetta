@@ -445,6 +445,7 @@ export function reasoningRows(): StatusRow[] {
     selfReviewRow(),
     getsignReferenceRow(),
     releaseWatchRow(),
+    teamReportRow(),
     fixLookupRow(),
     repeatProblemsRow(),
     appStateRow(),
@@ -592,6 +593,26 @@ function fixLookupRow(): StatusRow {
           ? `Shadow: looks up every GetSign ticket and logs what it would write (fixlookup.shadow events), writes nothing. When on: ${on}`
           : `Off. When on: ${on}`,
     setting: "JETTA_FIX_LOOKUP",
+  };
+}
+
+function teamReportRow(): StatusRow {
+  const channel = config.teamReport.channel;
+  const what =
+    "a short report each morning (03:30 UTC) about the day before, as two Slack tables (To do, then Team with the columns Name, Freshdesk, monday dev boards, Other), every ticket and dev item a link; plain lines instead if Slack refuses the tables. " +
+    "First line: new tickets, answered, median first reply, customers waiting on us. " +
+    "To do, only when there is something: Reply (customers waiting over 4 hours, longest first), Reply or close (over 14 days), and developer updates the customer has not been told about, from the Dev board: Relay dev update, Dev needs customer info, Fixed tell customer (resolved in the last 7 days), each only while its ticket is open and nobody has written to the customer since. A memo mark means Jetta's draft is on the ticket. " +
+    "Team: two groups, the support team (DEV_BOARD_SUPPORT, plus Jetta) then developers and everyone else, one line per person, alphabetical inside each group and not ranked; each count is a link that opens the console's Daily report page (/team-report) on the list behind it for that person and day. Per person: with Freshdesk replies (tickets linked), first replies, chats, items filed and comments on both monday dev boards (status changes and moves are not counted), Slack and console decisions. Jetta is on the list too: replies she sent herself (first responses and follow-ups), drafts written, dev items filed and her comments on dev items, handoffs. " +
+    "Someone with nothing recorded is left out; names are merged the way Team activity merges them (AGENT_ALIASES); \"yesterday\" is the calendar day in JETTA_TEAM_REPORT_TZ (unset: JETTA_TZ); a day with nothing is skipped. Worked out by rule from the Team activity, Performance, Support health and Dev board stores, not written by a model. " +
+    "Admins can read the exact text for any day, without posting, at /api/admin/team-report?day=YYYY-MM-DD.";
+  return {
+    label: "Daily team report (Slack)",
+    tone: channel ? "on" : "off",
+    state: channel ? "POSTING" : "OFF",
+    meaning: channel
+      ? `Posts to ${channel}: ${what} The post goes only to that channel; if Jetta is not in it, nothing is posted and the cron reports the failure.`
+      : `Off: no channel is set. When JETTA_TEAM_REPORT_CHANNEL holds a Slack channel id, Jetta posts ${what}`,
+    setting: "JETTA_TEAM_REPORT_CHANNEL",
   };
 }
 
@@ -743,4 +764,5 @@ export const CRONS: readonly EndpointRow[] = [
   { path: "/api/cron/error-watch", detail: "Reads Sentry, the app logs and Cloudflare for the Logs page: flags new and spiking errors hitting customers, alerts Slack, lists or files dev items (JETTA_ERROR_WATCH_DEV_ITEMS), writes the AI read. Off with JETTA_ERROR_WATCH=off", schedule: "hourly at :35" },
   { path: "/api/cron/dev-followup", detail: "Asks developers for an update on quiet dev items a customer is waiting on; escalates after two unanswered asks. Armed by JETTA_DEV_FOLLOWUP", schedule: "daily 04:30" },
   { path: "/api/cron/release-watch", detail: "Reads what the GetSign team merged into production on GitHub: asks the Developer on an open dev item whether a shipped fix resolves it, files \"Release changed\" notices in the KB review queue, posts a what-shipped note to Slack. Armed by JETTA_RELEASE_WATCH; needs JETTA_GETSIGN_REFERENCE_TOKEN", schedule: "hourly at :20" },
+  { path: "/api/cron/team-report", detail: "Posts yesterday's per-person team report to Slack (Freshdesk, chats, Slack, monday dev boards, console, plus the team line and Jetta's block), once a day, from the Team activity and Performance stores. Posts nothing until JETTA_TEAM_REPORT_CHANNEL is set", schedule: "daily 03:30" },
 ] as const;

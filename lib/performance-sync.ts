@@ -202,6 +202,9 @@ async function allTickets(): Promise<PerfTicket[]> {
   return Object.values(raw);
 }
 
+/** Every stored ticket record, for readers outside the sync (the daily team report). */
+export const loadPerfTickets = (): Promise<PerfTicket[]> => allTickets();
+
 async function allOutcomes(): Promise<Map<number, HandoffOutcome>> {
   const r = client();
   const raw = r ? ((await r.hgetall<Record<string, HandoffOutcome>>(OUTCOMES_KEY)) ?? {}) : Object.fromEntries(mem.outcomes);
