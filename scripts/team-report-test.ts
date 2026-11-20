@@ -118,7 +118,16 @@ const text = formatTeamReport(r, { ticketUrlBase: "https://x.freshdesk.com/a/tic
 console.log(`\n${text}\n`);
 check("text: header names the day and zone", text.split("\n")[0], ":bar_chart: *Support team, Thu 19 Nov* _(Asia/Kathmandu day)_");
 check("text: team line", text.includes("*Team:* 3 new tickets, 2 answered (median first reply 44 min) · 2 customers waiting on a reply right now"), true);
-check("text: owed tickets link and escape customer text", text.includes("• <https://x.freshdesk.com/a/tickets/14821|#14821> Board &lt;limit&gt; &amp; error: waiting 16h"), true);
+check(
+  "actions: waiting past the same-shift bar, with who answered last",
+  r.actions.reply.map((a) => [a.id, a.lastBy, a.draftReady]),
+  [
+    [14700, "Sujata", false],
+    [14821, null, false],
+  ],
+);
+check("text: action items link and escape customer text", text.includes("• Reply to <https://x.freshdesk.com/a/tickets/14821|#14821> Board &lt;limit&gt; &amp; error: customer has waited 16h"), true);
+check("text: an action names who answered last", text.includes("• Reply to <https://x.freshdesk.com/a/tickets/14700|#14700> Ticket 14700: customer has waited 2d (last answered by Sujata)"), true);
 check("text: a person's Freshdesk line", text.includes("• Freshdesk: 3 replies, 1 note on 2 tickets · 1 first reply (median 1.4h after the ticket came in)"), true);
 check("text: monday line", text.includes("• monday dev boards: 1 item created, 1 comment, 1 status change across 2 items"), true);
 check("text: jetta block", text.includes("• 2 drafts written · of 1 reply sent after a draft: 1 as-is, 0 edited, 0 replaced"), true);
@@ -138,6 +147,32 @@ const withHealth = buildTeamReport({
   backlog: { owesReply: 5, waiting: [{ ticketId: 9, subject: "Short wait", waitingH: 2 }, { ticketId: 8, subject: "Long wait", waitingH: 30 }] },
 });
 check("team: Support health's backlog replaces the record-based one", [withHealth.team.owed, withHealth.team.oldestOwed.map((o) => o.id)], [5, [8, 9]]);
+
+// Action items: a short wait is not one, a long one is "reply or close", a pending draft is mentioned.
+const acting = buildTeamReport({
+  day: DAY,
+  tz: TZ,
+  acts,
+  tickets,
+  aliases,
+  now,
+  backlog: {
+    owesReply: 4,
+    waiting: [
+      { ticketId: 9, subject: "Just came in", waitingH: 2 },
+      { ticketId: 14789, subject: "Address in subject line", waitingH: 7 },
+      { ticketId: 8, subject: "Forgotten", waitingH: 20 * 24 },
+      { ticketId: 7, subject: "Overnight", waitingH: 13 },
+    ],
+  },
+});
+check("actions: under the bar is left out, stale is its own list", [acting.actions.reply.map((a) => a.id), acting.actions.stale.map((a) => a.id)], [[7, 14789], [8]]);
+check("actions: a draft nobody has sent is flagged", acting.actions.reply.find((a) => a.id === 14789)?.draftReady, true);
+const actingText = formatTeamReport(acting);
+check("text: draft note on an action", actingText.includes("• Reply to #14789 Address in subject line: customer has waited 7h (Jetta's draft is on the ticket)"), true);
+check("text: stale tickets are one line", actingText.includes("• Reply or close: 1 ticket has had the customer waiting for over 14 days: #8 20d"), true);
+const calm = buildTeamReport({ day: DAY, tz: TZ, acts, tickets, aliases, now, backlog: { owesReply: 1, waiting: [{ ticketId: 9, subject: "Just came in", waitingH: 2 }] } });
+check("text: no action section when nothing needs doing", formatTeamReport(calm).includes("Action items"), false);
 
 const quiet = buildTeamReport({ day: "2026-11-21", tz: TZ, acts, tickets: tickets.filter((t) => t.status === 5), aliases, now });
 check("a day with nothing is empty, and says so if printed", [isEmptyReport(quiet), formatTeamReport(quiet).includes("Nothing recorded")], [true, true]);

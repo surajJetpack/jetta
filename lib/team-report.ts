@@ -22,9 +22,28 @@
  */
 import { buildScorecard, resolvePerson, type Activity, type ActionKind } from "./activity";
 import { isJunkSubject, median, suggestionUse, type HandoffKind, type PerfTicket } from "./performance";
-import { owesReply } from "./support-health";
+import { owesReply, TARGETS } from "./support-health";
 
 const HOUR_MS = 3_600_000;
+
+/** Past this a waiting customer is a to-do for the morning (the same-shift bar on /health). */
+export const ACTION_AFTER_H = TARGETS.fastReplyH;
+/** Past this the ticket is not "reply today" any more: someone has to decide to answer or close it. */
+export const STALE_AFTER_H = 14 * 24;
+/** Reply items written out one per line; the rest are linked on one line. */
+const MAX_REPLY_LINES = 6;
+const MAX_LINKS = 8;
+
+/** A customer who has waited long enough that someone should act today. */
+export interface ReplyAction {
+  id: number;
+  subject: string;
+  sinceH: number;
+  /** Who on the team answered this ticket last, when the record knows. Not an assignee. */
+  lastBy: string | null;
+  /** Jetta's newest draft on the ticket has not been followed by a reply yet. */
+  draftReady: boolean;
+}
 
 export interface PersonReport {
   key: string;
@@ -62,6 +81,16 @@ export interface TeamReport {
      * first responses and drafts approved in the console both go out as it.
      */
     sharedFirstReplies: { login: string; count: number; firstReplyH: number | null }[];
+  };
+  /**
+   * What needs doing today, worked out from the same stores (no model): empty
+   * arrays when nothing does, and then the post has no action section at all.
+   */
+  actions: {
+    /** Waiting longer than ACTION_AFTER_H and less than STALE_AFTER_H, longest first. */
+    reply: ReplyAction[];
+    /** Waiting STALE_AFTER_H or more: answer or close. */
+    stale: ReplyAction[];
   };
   jetta: {
     drafts: number;
@@ -187,6 +216,24 @@ export function buildTeamReport(input: TeamReportInput): TeamReport {
     : fromRecords;
   const owedCount = input.backlog ? input.backlog.owesReply : fromRecords.length;
 
+  // Action items: every customer who has waited past the same-shift bar.
+  const byId = new Map(tickets.map((t) => [t.id, t]));
+  const toAction = (o: { id: number; subject: string; sinceH: number }): ReplyAction => {
+    const t = byId.get(o.id);
+    const lastSuggestion = t?.suggestions[t.suggestions.length - 1];
+    const lastReplier = [...(t?.suggestions ?? [])].reverse().find((s) => s.replyBy)?.replyBy ?? t?.firstReplyBy ?? null;
+    return {
+      ...o,
+      lastBy: lastReplier ? person(lastReplier).name : null,
+      draftReady: !!lastSuggestion && lastSuggestion.sim == null,
+    };
+  };
+  const overdue = owed.filter((o) => o.sinceH > ACTION_AFTER_H);
+  const actions: TeamReport["actions"] = {
+    reply: overdue.filter((o) => o.sinceH < STALE_AFTER_H).map(toAction),
+    stale: overdue.filter((o) => o.sinceH >= STALE_AFTER_H).map(toAction),
+  };
+
   // Jetta's own day, from her notes on the tickets.
   const jetta: TeamReport["jetta"] = {
     drafts: 0,
@@ -216,6 +263,7 @@ export function buildTeamReport(input: TeamReportInput): TeamReport {
       oldestOwed: owed.slice(0, 3),
       sharedFirstReplies,
     },
+    actions,
     jetta,
   };
 }
@@ -298,11 +346,7 @@ export function formatTeamReport(r: TeamReport, links: { ticketUrlBase?: string;
     t.owed > 0 ? `${n(t.owed, "customer")} waiting on a reply right now` : "nobody is waiting on a reply right now",
   ];
   lines.push(`*Team:* ${team.join(" · ")}`);
-  for (const o of t.oldestOwed) {
-    const ref = links.ticketUrlBase ? `<${links.ticketUrlBase}${o.id}|#${o.id}>` : `#${o.id}`;
-    const subject = o.subject.trim() ? ` ${esc(short(o.subject.trim()))}` : "";
-    lines.push(`• ${ref}${subject}: waiting ${fmtHours(o.sinceH)}`);
-  }
+  const ref = (id: number) => (links.ticketUrlBase ? `<${links.ticketUrlBase}${id}|#${id}>` : `#${id}`);
 
   for (const f of t.sharedFirstReplies) {
     lines.push(
@@ -310,6 +354,33 @@ export function formatTeamReport(r: TeamReport, links: { ticketUrlBase?: string;
         f.firstReplyH != null ? ` (median ${fmtHours(f.firstReplyH)})` : ""
       }: Jetta's automatic first responses and drafts approved in the console`,
     );
+  }
+
+  // Action items: only when there is something to do.
+  const { reply, stale } = r.actions;
+  if (reply.length || stale.length) {
+    lines.push("", "*Action items*");
+    for (const a of reply.slice(0, MAX_REPLY_LINES)) {
+      const subject = a.subject.trim() ? ` ${esc(short(a.subject.trim()))}` : "";
+      const notes = [a.lastBy && `last answered by ${esc(a.lastBy)}`, a.draftReady && "Jetta's draft is on the ticket"].filter(Boolean);
+      lines.push(`• Reply to ${ref(a.id)}${subject}: customer has waited ${fmtHours(a.sinceH)}${notes.length ? ` (${notes.join("; ")})` : ""}`);
+    }
+    const rest = reply.slice(MAX_REPLY_LINES);
+    if (rest.length) {
+      lines.push(
+        `• ${n(rest.length, "more customer")} waiting over ${fmtHours(ACTION_AFTER_H)}: ${rest.slice(0, MAX_LINKS).map((a) => ref(a.id)).join(", ")}${
+          rest.length > MAX_LINKS ? ` and ${rest.length - MAX_LINKS} more` : ""
+        }`,
+      );
+    }
+    if (stale.length) {
+      lines.push(
+        `• Reply or close: ${n(stale.length, "ticket has", "tickets have")} had the customer waiting for over ${Math.round(STALE_AFTER_H / 24)} days: ${stale
+          .slice(0, MAX_LINKS)
+          .map((a) => `${ref(a.id)} ${fmtHours(a.sinceH)}`)
+          .join(", ")}${stale.length > MAX_LINKS ? ` and ${stale.length - MAX_LINKS} more` : ""}`,
+      );
+    }
   }
 
   for (const p of r.people) {

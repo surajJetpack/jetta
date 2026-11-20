@@ -590,7 +590,8 @@ function teamReportRow(): StatusRow {
   const channel = config.teamReport.channel;
   const what =
     "one Slack message each morning (03:30 UTC) with what each person on the support team did the day before: Freshdesk replies and notes, first replies and how fast, chats taken, Slack, activity on both monday dev boards and console decisions. " +
-    "It opens with the team's line (new tickets, answered, customers waiting on a reply right now with the three oldest) and ends with Jetta's own block (drafts written, how the replies that followed used them, handoffs). " +
+    "It opens with the team's line (new tickets, answered, customers waiting on a reply right now) and ends with Jetta's own block (drafts written, how the replies that followed used them, handoffs). " +
+    "Then, only when there is something to do, an Action items list: every customer who has waited more than 4 hours for a reply, longest first, with who answered that ticket last and whether a draft of Jetta's is sitting on it, and one line for tickets waiting over 14 days (reply or close). The list is worked out by rule from Support health's backlog, not written by a model. " +
     "People are listed alphabetically, not ranked, and someone with nothing recorded is left out. Names are merged the way Team activity merges them (AGENT_ALIASES), so a shared login or a Slack id shows as itself until it is given an alias. \"Yesterday\" is the calendar day in JETTA_TEAM_REPORT_TZ (unset: JETTA_TZ). It is read from the Team activity and Performance stores, so it only knows what those pages know; it is skipped on a day with no activity and no tickets. " +
     "Admins can read the exact text for any day, without posting, at /api/admin/team-report?day=YYYY-MM-DD.";
   return {
