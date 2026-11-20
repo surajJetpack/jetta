@@ -717,10 +717,24 @@ export function buildScorecard(
   return { people: rows, byPlace, total };
 }
 
+export const isActionKind = (v: string | null | undefined): v is ActionKind => !!v && v in ACTION_LABEL;
+
+/**
+ * A calendar day in a timezone, as a filter: the acts whose local day is `day`.
+ * The daily team report counts a person's day this way, so a link from one of
+ * its numbers has to cut the day the same way to list exactly what was counted.
+ */
+export function onDay(acts: Activity[], day: string, tz: string): Activity[] {
+  const f = new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" });
+  return acts.filter((a) => f.format(new Date(a.at)) === day);
+}
+
 export interface TimelineFilter {
   person?: string;
   place?: Place;
   column?: ColumnId;
+  /** One kind of action only ("monday.comment"): what a number in the daily team report links to. Wins over `column`. */
+  action?: ActionKind;
   /** Hide sign-ins (default true: they are noise unless asked for). */
   hideLogins?: boolean;
 }
@@ -731,7 +745,11 @@ export function filterTimeline(
   f: TimelineFilter,
   opts: { aliases: Map<string, string>; slackNames?: Record<string, string> },
 ): Activity[] {
-  const cols = f.column ? new Set<ActionKind>(COLUMNS.find((c) => c.id === f.column)?.actions ?? []) : null;
+  const cols = f.action
+    ? new Set<ActionKind>([f.action])
+    : f.column
+      ? new Set<ActionKind>(COLUMNS.find((c) => c.id === f.column)?.actions ?? [])
+      : null;
   return acts
     .filter((a) => {
       if (f.place && a.place !== f.place) return false;

@@ -75,6 +75,8 @@ export interface ReplyAction {
 export interface PersonReport {
   key: string;
   name: string;
+  /** "support" for the people named as the support team (DEV_BOARD_SUPPORT), "other" for everyone else. */
+  group: "support" | "other";
   /** Work actions of any kind that day. */
   total: number;
   fd: {
@@ -177,6 +179,8 @@ export interface TeamReportInput {
   devRows?: DevRow[] | null;
   /** monday item id → Freshdesk ticket id (lib/dev-item-links.ts). */
   itemTickets?: Map<string, string> | null;
+  /** Names of the support team (the DEV_BOARD_SUPPORT roster); everyone else is listed in a second group. */
+  support?: string[] | null;
   /** Replies Jetta sent herself (first_response.sent / ticket_followup.sent events). Any window; filtered here. */
   jettaSent?: { at: number; ticketId: number; kind: "first" | "followup" }[] | null;
 }
@@ -210,6 +214,7 @@ export function buildTeamReport(input: TeamReportInput): TeamReport {
     firstLogin.set(k, t.firstReplyBy);
   }
 
+  const supportKeys = new Set((input.support ?? []).map((name) => person(name).key));
   const mine = new Map<string, Activity[]>();
   for (const a of acts) {
     const k = person(a.who).key;
@@ -226,6 +231,7 @@ export function buildTeamReport(input: TeamReportInput): TeamReport {
       return {
         key: p.key,
         name: p.name,
+        group: supportKeys.has(p.key) ? ("support" as const) : ("other" as const),
         total: p.total,
         fd: {
           replies: p.counts.fdReplies,
@@ -437,6 +443,12 @@ const DRAFT = ":memo:";
 const MAX_PER_LINE = 8;
 const MAX_PERSON_TICKETS = 6;
 
+/** The two groups of the Team table, in the order they are shown. */
+const GROUPS: ["support" | "other", string][] = [
+  ["support", "Support"],
+  ["other", "Developers and others"],
+];
+
 export interface ReportLinks {
   /** Freshdesk ticket link prefix, e.g. "https://x.freshdesk.com/a/tickets/". */
   ticketUrlBase?: string;
@@ -555,10 +567,16 @@ export function formatTeamReport(r: TeamReport, links: ReportLinks = {}): string
   }
 
   // The team, Jetta included, one line each in alphabetical order.
-  const team = [...r.people.map((p) => ({ name: p.name, line: personLine(p, ref) })), { name: "Jetta", line: jettaLine(r.jetta, ref) }]
+  const team = [
+    ...r.people.map((p) => ({ name: p.name, group: p.group, line: personLine(p, ref) })),
+    { name: "Jetta", group: "other" as const, line: jettaLine(r.jetta, ref) },
+  ]
     .filter((b) => b.line)
     .sort((a, b) => a.name.localeCompare(b.name));
-  if (team.length) lines.push("", "*Team*", ...team.map((b) => `• *${esc(b.name)}:* ${b.line}`));
+  for (const [group, title] of GROUPS) {
+    const of = team.filter((b) => b.group === group);
+    if (of.length) lines.push("", `*${title}*`, ...of.map((b) => `• *${esc(b.name)}:* ${b.line}`));
+  }
 
   if (links.consoleUrl) lines.push("", [page("activity", "Team activity"), page("dev-board", "Dev board"), page("health", "Support health")].join(" · "));
   return lines.join("\n");
@@ -662,67 +680,96 @@ export function teamReportMessages(r: TeamReport, links: ReportLinks = {}): Repo
   }
   messages.push({ text: summary, blocks: first });
 
-  // Team: one row per person, Jetta included, alphabetical. Four columns:
-  // Name | Freshdesk | monday dev boards | Other.
-  const linksAfter = (ids: number[]): Inline[] => (ids.length ? [txt(" ("), ...joined(ids.map((id) => [ticket(id)]), MAX_PERSON_TICKETS, " "), txt(")")] : []);
-  const rows: { name: string; cells: Cell[] }[] = r.people.map((p) => {
+  // Team: two groups (support, then everyone else), one row per person in
+  // alphabetical order, four columns: Name | Freshdesk | monday dev boards | Other.
+  // Every count is a link to the list behind it: Team activity, opened on that
+  // person, that kind of action and that day.
+  const list = (key: string, what: { action?: ActionKind; column?: string }, label: string): Inline => {
+    if (!links.consoleUrl) return txt(label);
+    const q = new URLSearchParams({ person: key, ...(what.action ? { action: what.action } : {}), ...(what.column ? { column: what.column } : {}), day: r.day, tz: r.tz });
+    return { type: "link", url: `${links.consoleUrl}/activity?${q}`, text: label };
+  };
+  const page = (path: string, label: string): Inline => (links.consoleUrl ? { type: "link", url: `${links.consoleUrl}/${path}`, text: label } : txt(label));
+  /** Parts joined by " · ", skipping the empty ones. */
+  const dotted = (parts: (Inline | string | false)[][]): (Inline | string)[] => {
+    const out: (Inline | string)[] = [];
+    for (const part of parts.map((x) => x.filter(Boolean) as (Inline | string)[]).filter((x) => x.length)) {
+      if (out.length) out.push(" · ");
+      out.push(...part);
+    }
+    return out;
+  };
+  const rows: { name: string; group: "support" | "other"; cells: Cell[] }[] = r.people.map((p) => {
     const m = p.monday;
-    const work = [p.fd.replies > 0 && n(p.fd.replies, "reply", "replies"), p.fd.notes > 0 && n(p.fd.notes, "note")].filter(Boolean).join(", ");
     const first =
       p.fd.firstReplies > 0
         ? `${n(p.fd.firstReplies, "first reply", "first replies")}${p.fd.firstReplyH != null ? ` (${p.fd.firstReplies > 1 ? "median " : ""}${fmtHours(p.fd.firstReplyH)})` : ""}`
         : "";
-    const fd: (Inline | string | false)[] = [
-      work && `${work} on ${n(p.fd.tickets, "ticket")}`,
-      ...(work ? linksAfter(p.fd.ticketIds) : []),
-      work && first && " · ",
-      first,
-    ];
-    const board = [
-      m.created > 0 && `${n(m.created, "item")} filed`,
-      m.comments > 0 && n(m.comments, "comment"),
-      m.status > 0 && n(m.status, "status change"),
-      m.moved > 0 && n(m.moved, "move"),
-    ]
-      .filter(Boolean)
-      .join(", ");
-    const other = [
-      p.chat.taken > 0 && `${n(p.chat.taken, "chat")} taken${p.chat.pickupMin != null ? ` (picked up in ${fmtMin(p.chat.pickupMin)})` : ""}`,
-      p.chat.actions > 0 && n(p.chat.actions, "chat action"),
-      p.slack.messages > 0 && `${n(p.slack.messages, "Slack message")}${p.slack.responseMin != null ? ` (answers in ${fmtMin(p.slack.responseMin)})` : ""}`,
-      p.console > 0 && n(p.console, "console decision"),
-    ].filter(Boolean);
     return {
       name: p.name,
-      cells: [cell(txt(p.name, true)), cell(...fd), cell(board && `${board}${m.items > 0 ? ` (${n(m.items, "item")})` : ""}`), cell(other.join(", "))],
+      group: p.group,
+      cells: [
+        cell(txt(p.name, true)),
+        cell(
+          ...dotted([
+            [p.fd.replies > 0 && list(p.key, { action: "fd.reply" }, n(p.fd.replies, "reply", "replies"))],
+            [p.fd.notes > 0 && list(p.key, { action: "fd.note" }, n(p.fd.notes, "note"))],
+            [first],
+          ]),
+        ),
+        cell(
+          ...dotted([
+            [m.created > 0 && list(p.key, { action: "monday.created" }, `${n(m.created, "item")} filed`)],
+            [m.comments > 0 && list(p.key, { action: "monday.comment" }, n(m.comments, "comment"))],
+            [m.status > 0 && list(p.key, { action: "monday.status" }, n(m.status, "status change"))],
+            [m.moved > 0 && list(p.key, { action: "monday.moved" }, n(m.moved, "move"))],
+          ]),
+        ),
+        cell(
+          ...dotted([
+            [p.chat.taken > 0 && list(p.key, { action: "chat.joined" }, `${n(p.chat.taken, "chat")} taken`), p.chat.taken > 0 && p.chat.pickupMin != null && ` (in ${fmtMin(p.chat.pickupMin)})`],
+            [p.chat.actions > 0 && list(p.key, { column: "chatActions" }, n(p.chat.actions, "chat action"))],
+            [p.slack.messages > 0 && list(p.key, { column: "slack" }, n(p.slack.messages, "Slack message"))],
+            [p.console > 0 && n(p.console, "console decision")],
+          ]),
+        ),
+      ],
     };
   });
   const j = r.jetta;
   const sent = j.replies.first + j.replies.followups;
   const filed = j.devItemsFiled ?? j.handoffs.dev_item;
-  const jettaFd: (Inline | string | false)[] = [
-    sent > 0 && `${n(sent, "reply", "replies")} sent`,
-    ...(sent > 0 ? linksAfter(j.replies.ticketIds) : []),
-    sent > 0 &&
-      `: ${[j.replies.first > 0 && `${n(j.replies.first, "first response")}${j.firstReplyH != null ? ` in ${fmtHours(j.firstReplyH)}` : ""}`, j.replies.followups > 0 && n(j.replies.followups, "follow-up")]
-        .filter(Boolean)
-        .join(", ")}`,
-    sent > 0 && j.drafts > 0 && " · ",
-    j.drafts > 0 && `${n(j.drafts, "draft")} written for the team`,
-  ];
-  const jettaOther = [j.handoffs.slack > 0 && n(j.handoffs.slack, "Slack escalation"), j.handoffs.chat > 0 && `${n(j.handoffs.chat, "chat")} turned into a ticket`].filter(Boolean);
+  // Jetta is not in the activity store, so her counts link to the tickets
+  // themselves and to the console pages that list her work.
+  const jettaFd = dotted([
+    [
+      sent > 0 && `${n(sent, "reply", "replies")} sent`,
+      ...(sent > 0 && j.replies.ticketIds.length ? [txt(" ("), ...joined(j.replies.ticketIds.map((id) => [ticket(id)]), MAX_PERSON_TICKETS, " "), txt(")")] : []),
+    ],
+    [j.drafts > 0 && page("drafts", `${n(j.drafts, "draft")} written`)],
+  ]);
+  const jettaOther = dotted([[j.handoffs.slack > 0 && n(j.handoffs.slack, "Slack escalation")], [j.handoffs.chat > 0 && `${n(j.handoffs.chat, "chat")} turned into a ticket`]]);
   if (sent > 0 || j.drafts > 0 || filed > 0 || jettaOther.length) {
     rows.push({
       name: "Jetta",
-      cells: [cell(txt("Jetta", true)), cell(...jettaFd), cell(filed > 0 && `${n(filed, "item")} filed for developers`), cell(jettaOther.join(", "))],
+      group: "other",
+      cells: [cell(txt("Jetta", true)), cell(...jettaFd), cell(filed > 0 && page("dev-board", `${n(filed, "item")} filed`)), cell(...jettaOther)],
     });
   }
   rows.sort((a, b) => a.name.localeCompare(b.name));
   if (rows.length) {
+    const body: Cell[][] = [];
+    for (const [group, title] of GROUPS) {
+      const of = rows.filter((x) => x.group === group);
+      if (!of.length) continue;
+      // A group heading is a row of its own: the title, then blank cells.
+      body.push([cell(txt(title.toUpperCase(), true)), cell(" "), cell(" "), cell(" ")]);
+      body.push(...of.map((x) => x.cells));
+    }
     const table: TableBlock = {
       type: "table",
       column_settings: [null, { is_wrapped: true }, { is_wrapped: true }, { is_wrapped: true }],
-      rows: [["Name", "Freshdesk", "monday dev boards", "Other"].map((h) => cell(txt(h, true))), ...rows.map((x) => x.cells)],
+      rows: [["Name", "Freshdesk", "monday dev boards", "Other"].map((h) => cell(txt(h, true))), ...body],
     };
     if (tableChars(table) > TABLE_CHAR_BUDGET) return null;
     const footer = links.consoleUrl

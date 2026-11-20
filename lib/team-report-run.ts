@@ -76,6 +76,7 @@ export async function previewTeamReport(
     devRows,
     itemTickets: links,
     jettaSent,
+    support: (config.devBoardSupport ?? "").split(",").map((x) => x.trim()).filter(Boolean),
   });
   const urls = { ticketUrlBase: freshdeskTicketUrl(""), consoleUrl: config.consoleUrl };
   // `text` is the whole report as plain lines: the fallback when tables are refused, and the preview.

@@ -16,6 +16,8 @@ import {
   sameMondayAction,
   buildScorecard,
   filterTimeline,
+  isActionKind,
+  onDay,
   isMachineActor,
   parseAliases,
   resolvePerson,
@@ -175,6 +177,24 @@ check(
   ["4", "3"],
 );
 check("timeline: logins hidden by default", filterTimeline(acts, {}, { aliases }).some((a) => a.action === "console.login"), false);
+// What a number in the daily team report links to: one kind of action, one calendar day.
+check("timeline: one kind of action", filterTimeline(acts, { person: "cherryl", action: "fd.reply" }, { aliases }).map((a) => a.id), ["1"]);
+check("timeline: an action wins over a column", filterTimeline(acts, { column: "chats", action: "fd.note" }, { aliases }).map((a) => a.id), ["2"]);
+check("timeline: action names are checked", [isActionKind("monday.comment"), isActionKind("nope"), isActionKind(null)], [true, false, false]);
+check(
+  "day filter: the calendar day in the named zone, not UTC",
+  onDay(
+    [
+      { id: "a", at: Date.parse("2026-11-18T18:10:00Z"), place: "freshdesk", who: "x", action: "fd.reply" }, // 23:55 on the 18th in Kathmandu
+      { id: "b", at: Date.parse("2026-11-18T18:20:00Z"), place: "freshdesk", who: "x", action: "fd.reply" }, // 00:05 on the 19th
+      { id: "c", at: Date.parse("2026-11-19T18:10:00Z"), place: "freshdesk", who: "x", action: "fd.reply" }, // 23:55 on the 19th
+      { id: "d", at: Date.parse("2026-11-19T18:20:00Z"), place: "freshdesk", who: "x", action: "fd.reply" }, // the 20th
+    ],
+    "2026-11-19",
+    "Asia/Kathmandu",
+  ).map((a) => a.id),
+  ["b", "c"],
+);
 check("timeline: place filter", filterTimeline(acts, { place: "freshdesk" }, { aliases }).map((a) => a.id), ["7", "1", "2"]); // equal times keep their order
 
 // ── Pushed events ───────────────────────────────────────────────────

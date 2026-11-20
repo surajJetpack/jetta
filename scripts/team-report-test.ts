@@ -148,7 +148,7 @@ check(
 );
 check("text: dev board and Slack on a person's line", text.includes("• *Sujata:* dev board: 1 filed, 1 comment, 1 status change · Slack: 1 (answers in 30 min)"), true);
 check("text: jetta's line", text.includes("• *Jetta:* 2 drafts (of 1 sent after one: 1 as-is, 0 edited, 0 replaced) · dev board: 1 filed"), true);
-check("text: jetta sits with the team, alphabetically", [...(text.split("*Team*")[1] ?? "").matchAll(/^• \*([A-Z][a-z]+):\*/gm)].map((m) => m[1]), ["Cherryl", "Jetta", "Sujata"]);
+check("text: without a roster everyone is in the second group, alphabetical, Jetta among them", [...text.matchAll(/^(?:\*([A-Z][a-z ]+)\*|• \*([A-Z][a-z]+):\*)/gm)].map((m) => m[1] ?? m[2]).slice(-4), ["Developers and others", "Cherryl", "Jetta", "Sujata"]);
 
 // With her login aliased, her own first replies move from the team line into her block.
 const named = buildTeamReport({
@@ -317,21 +317,45 @@ const L = { ticketUrlBase: "https://x.freshdesk.com/a/tickets/", consoleUrl: "ht
 const flat = (c: TableBlock["rows"][number][number]) =>
   c.elements[0].elements.map((e) => (e.type === "link" ? `[${e.text}]` : e.type === "emoji" ? `:${e.name}:` : e.text)).join("");
 const tableOf = (m: { blocks: unknown[] }) => (m.blocks as TableBlock[]).find((b) => b.type === "table");
-const msgs = teamReportMessages(sending, L)!;
+// A support roster splits the table in two; every count is a link to its list on Team activity.
+const grouped = buildTeamReport({
+  day: DAY,
+  tz: TZ,
+  acts,
+  tickets,
+  aliases: parseAliases("Cherryl=Solutions Team;Jetta=App Support"),
+  now,
+  support: ["Cherryl", "Gabriel"],
+  jettaSent: [{ at: at("2026-11-19T10:06:00Z"), ticketId: 14820, kind: "first" }],
+});
+check("groups: the support roster, everyone else", grouped.people.map((p) => [p.name, p.group]), [
+  ["Cherryl", "support"],
+  ["Sujata", "other"],
+]);
+const msgs = teamReportMessages(grouped, L)!;
 check("tables: two messages, the summary line first", [msgs.length, msgs[0].text.startsWith(":bar_chart: *Support, Thu 19 Nov*")], [2, true]);
 check("tables: To do rows", tableOf(msgs[0])!.rows.map((row) => row.map(flat)), [
   ["To do", "Tickets"],
   ["Reply", "[#14700] 2d  [#14821] 16h"],
 ]);
-check("tables: Team has the four columns, one row per person, Jetta among them", tableOf(msgs[1])!.rows.map((row) => row.map(flat)), [
+const teamTable = tableOf(msgs[1])!;
+check("tables: Team is grouped, four columns, counts as links", teamTable.rows.map((row) => row.map(flat)), [
   ["Name", "Freshdesk", "monday dev boards", "Other"],
-  ["Cherryl", "2 replies on 1 ticket ([#14809])", "–", "1 chat taken (picked up in 4 min), 1 console decision"],
-  ["Jetta", "3 replies sent ([#14700] [#14820]): 1 first response in 6 min, 2 follow-ups · 2 drafts written for the team", "1 item filed for developers", "–"],
-  // No alias for this login in this run, so it is its own row.
-  ["Solutions", "1 reply, 1 note on 1 ticket ([#14815]) · 1 first reply (1.4h)", "–", "–"],
-  ["Sujata", "–", "1 item filed, 1 comment, 1 status change (2 items)", "1 Slack message (answers in 30 min)"],
+  ["SUPPORT", " ", " ", " "],
+  ["Cherryl", "[3 replies] · [1 note] · 1 first reply (1.4h)", "–", "[1 chat taken] (in 4 min) · 1 console decision"],
+  ["DEVELOPERS AND OTHERS", " ", " ", " "],
+  ["Jetta", "1 reply sent ([#14820]) · [2 drafts written]", "[1 item filed]", "–"],
+  ["Sujata", "–", "[1 item filed] · [1 comment] · [1 status change]", "[1 Slack message]"],
 ]);
-check("tables: a ticket cell is a real link", tableOf(msgs[1])!.rows[1][1].elements[0].elements.find((e) => e.type === "link"), { type: "link", url: "https://x.freshdesk.com/a/tickets/14809", text: "#14809" });
+const linkIn = (row: number, col: number, label: string) => teamTable.rows[row][col].elements[0].elements.find((e) => e.type === "link" && e.text === label);
+check("tables: a count opens that person's list of that action for that day", linkIn(2, 1, "3 replies"), {
+  type: "link",
+  url: "https://console.example/activity?person=cherryl&action=fd.reply&day=2026-11-19&tz=Asia%2FKathmandu",
+  text: "3 replies",
+});
+check("tables: comments open the comments", (linkIn(5, 2, "1 comment") as { url: string }).url, "https://console.example/activity?person=sujata&action=monday.comment&day=2026-11-19&tz=Asia%2FKathmandu");
+check("tables: Jetta's reply links the ticket itself", linkIn(4, 1, "#14820"), { type: "link", url: "https://x.freshdesk.com/a/tickets/14820", text: "#14820" });
+
 const devMsgs = teamReportMessages(withDev, L)!;
 check("tables: developer updates link the ticket and the dev item", tableOf(devMsgs[0])!.rows.map((row) => row.map(flat)).slice(1), [
   ["Relay dev update", "[#500] ([dev item])"],
@@ -342,7 +366,7 @@ check("tables: developer updates link the ticket and the dev item", tableOf(devM
 ]);
 check("tables: nothing to do means no To do table", tableOf(teamReportMessages(calm, L)![0]), undefined);
 // Too big for Slack's table limit: no tables, so the caller posts text.
-const huge = { ...sending, people: Array.from({ length: 80 }, (_, i) => ({ ...sending.people[0], name: `Person${i}`, key: `p${i}`, fd: { ...sending.people[0].fd, ticketIds: [1, 2, 3, 4, 5, 6] } })) };
+const huge = { ...grouped, people: Array.from({ length: 80 }, (_, i) => ({ ...grouped.people[0], name: `Person${i}`, key: `p${i}` })) };
 check("tables: over the size budget returns null", [TABLE_CHAR_BUDGET, teamReportMessages(huge, L)], [9000, null]);
 
 const quiet = buildTeamReport({ day: "2026-11-21", tz: TZ, acts, tickets: tickets.filter((t) => t.status === 5), aliases, now });
