@@ -10,7 +10,7 @@ import { cookies } from "next/headers";
 import crypto from "node:crypto";
 import { config } from "./config";
 import { isDeployed } from "./request-auth";
-import { roleOf, effectiveRole, canUseAssistant, VIEW_AS_COOKIE, type Role } from "./roles";
+import { roleOf, effectiveRole, canUseAssistant, canSeeDevPages, VIEW_AS_COOKIE, type Role } from "./roles";
 
 export const SESSION_COOKIE = "jetta_session";
 export const SESSION_TTL_S = 7 * 24 * 3600;
@@ -93,6 +93,8 @@ export async function gate(): Promise<{
   viewingAsGeneral: boolean;
   /** May open the voice assistant (admins + CONSOLE_ASSISTANT_USERS). */
   canUseAssistant: boolean;
+  /** Sees the Dev board and Logs & errors (admins + CONSOLE_DEV_USERS). */
+  canSeeDevPages: boolean;
 }> {
   const jar = await cookies();
   const viewAs = jar.get(VIEW_AS_COOKIE)?.value;
@@ -105,6 +107,7 @@ export async function gate(): Promise<{
       isAdmin: role === "admin",
       viewingAsGeneral: roleOf(user) === "admin" && role === "general",
       canUseAssistant: canUseAssistant(user, viewAs),
+      canSeeDevPages: canSeeDevPages(user, viewAs),
     };
   };
   // Dev-open is for a developer's machine. A deployment with nobody
@@ -113,5 +116,5 @@ export async function gate(): Promise<{
   const user = verifySession(jar.get(SESSION_COOKIE)?.value);
   return user
     ? decide(user, false)
-    : { locked: true, user: "", role: "general", isAdmin: false, viewingAsGeneral: false, canUseAssistant: false };
+    : { locked: true, user: "", role: "general", isAdmin: false, viewingAsGeneral: false, canUseAssistant: false, canSeeDevPages: false };
 }

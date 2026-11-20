@@ -30,6 +30,8 @@ Use your own username — every decision you make is recorded under your name. S
 
 If you're an admin, you'll see a **View as general** control in the header. It's a real downgrade, not a preview: while it's on, you get exactly the surfaces a general user gets.
 
+A general user who is a developer can be given two more pages, per person: the **Dev board** and **Logs & errors**, with what those pages do (sync, a KB draft from a thread, the error watch run). Suraj adds the username to `CONSOLE_DEV_USERS`. Nothing else of admin's comes with it.
+
 ---
 
 ## 3. Your morning: the Today page
@@ -352,7 +354,7 @@ What customers got before and after Jetta went live: reply times, how much of th
 
 What each person did and where: Freshdesk replies, chats, Slack, monday dev items and console actions, as a scorecard and a timeline. It's kept current from Slack and monday as things happen, with an hourly catch-up sync.
 
-### Logs & errors (admin)
+### Logs & errors (admin, and developers given access)
 
 What the apps' errors are doing and who they hit, from Sentry and the apps' server logs, checked hourly. **Needs attention** lists errors that are new or spiking and hit customers: the monday accounts, their chat tickets and any dev item that names the error. **By app** shows each app's Sentry errors and log failures with 14-day trends; compare an app with its own usual day. Below are the Slack alerts sent and the dev items filed (or, in shadow mode, the ones it would file). Every number opens what is behind it, and there is an AI read. Sentry "resolved" does not mean fixed, and days Sentry stored nothing (over its quota) are shown as missing, not quiet.
 

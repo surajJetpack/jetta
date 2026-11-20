@@ -27,7 +27,8 @@ import path from "node:path";
 
 // Before ANY import: lib/config.ts snapshots process.env on first load.
 process.env.STUB_MODE = "true";
-process.env.CONSOLE_USERS = "boss:pw-boss,agent:pw-agent";
+process.env.CONSOLE_USERS = "boss:pw-boss,agent:pw-agent,coder:pw-coder";
+process.env.CONSOLE_DEV_USERS = "coder";
 process.env.CONSOLE_ADMINS = "boss";
 process.env.SESSION_SECRET = "roles-test-secret-do-not-use-in-prod";
 for (const v of [
@@ -48,7 +49,8 @@ for (const v of [
   delete process.env[v];
 }
 
-type Need = "login" | "admin" | "assistant" | "conditional";
+// "dev": admins and CONSOLE_DEV_USERS (the Dev board and Logs & errors).
+type Need = "login" | "admin" | "assistant" | "dev" | "conditional";
 
 /** route (under app/api/admin) → method → who may call it. */
 const ROLES: Record<string, Record<string, Need>> = {
@@ -61,12 +63,12 @@ const ROLES: Record<string, Record<string, Need>> = {
   "chats": { GET: "login", POST: "login", DELETE: "admin" },
   "daily": { GET: "login", POST: "login" },
   "data-version": { GET: "login" },
-  "dev-board": { GET: "admin", POST: "admin" },
-  "dev-board/insight": { GET: "admin" },
-  "dev-board/kb": { POST: "admin" },
+  "dev-board": { GET: "dev", POST: "dev" },
+  "dev-board/insight": { GET: "dev" },
+  "dev-board/kb": { POST: "dev" },
   "drafts": { GET: "login", POST: "login" },
-  "error-watch": { GET: "admin", POST: "admin" },
-  "error-watch/insight": { GET: "admin" },
+  "error-watch": { GET: "dev", POST: "dev" },
+  "error-watch/insight": { GET: "dev" },
   "evals": { GET: "login" },
   "evals/distill": { POST: "login" },
   "evals/mine-human-replies": { POST: "login" },
@@ -115,9 +117,9 @@ type Handler = (req: unknown) => Promise<Response>;
 async function main() {
   const { NextRequest } = await import("next/server");
   const { createSession, SESSION_COOKIE } = await import("../lib/console-auth");
-  const cookies = { boss: createSession("boss"), agent: createSession("agent") };
+  const cookies = { boss: createSession("boss"), agent: createSession("agent"), coder: createSession("coder") };
 
-  const request = (who: "boss" | "agent" | null, method: string, url: string, body?: unknown) =>
+  const request = (who: "boss" | "agent" | "coder" | null, method: string, url: string, body?: unknown) =>
     new NextRequest(`https://jetta.test${url}`, {
       method,
       headers: {
@@ -161,7 +163,7 @@ async function main() {
   for (const [key, methods] of found) {
     for (const [method, handler] of Object.entries(methods)) {
       const need = ROLES[key]?.[method];
-      if (need !== "admin" && need !== "assistant") continue;
+      if (need !== "admin" && need !== "assistant" && need !== "dev") continue;
       adminOnly++;
       // The wipe is given its real confirmation, so a pass means the role
       // check refused it, not the missing parameter.
@@ -171,6 +173,29 @@ async function main() {
     }
   }
   console.log(`  ${adminOnly} admin-only methods`);
+
+  section("A developer (CONSOLE_DEV_USERS) gets the dev pages and nothing else of admin's");
+  const roles = await import("../lib/roles");
+  check("listed: can see the dev pages", roles.canSeeDevPages("coder") && roles.roleOf("coder") === "general");
+  check("not listed: cannot", !roles.canSeeDevPages("agent"));
+  check("an admin can, and loses it when viewing as general", roles.canSeeDevPages("boss") && !roles.canSeeDevPages("boss", "general"));
+  for (const [key, methods] of found) {
+    for (const [method, handler] of Object.entries(methods)) {
+      const need = ROLES[key]?.[method];
+      // Reads only for the dev routes: a POST would do its job (a sync, a draft).
+      if (need === "dev" && method === "GET") {
+        const r = await handler(request("coder", method, `/api/admin/${key}`));
+        check(`${method} /api/admin/${key} lets a developer in`, r.status !== 401 && r.status !== 403, `got ${r.status}`);
+      } else if (need === "admin" || need === "assistant") {
+        const url = key === "chats" && method === "DELETE" ? "/api/admin/chats?confirm=everything" : `/api/admin/${key}`;
+        const r = await handler(request("coder", method, url, {}));
+        check(`${method} /api/admin/${key} still refuses a developer`, r.status === 403, `got ${r.status}`);
+      }
+    }
+  }
+  const nav = await import("../components/jetta/console-nav");
+  const ids = (dev: boolean) => nav.navItemsFor(false, dev).map((i) => i.id).join(",");
+  check("the nav adds exactly Dev board and Logs & errors", ids(true).split(",").filter((i) => !ids(false).split(",").includes(i)).join(",") === "dev-board,logs", ids(true));
 
   section("Knowledge base: deleting something live is admin's");
   const kb = await import("../lib/kb-store");

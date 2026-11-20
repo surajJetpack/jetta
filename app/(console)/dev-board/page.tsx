@@ -10,8 +10,8 @@ export const dynamic = "force-dynamic";
  * and engineering, what support does on the boards, and what the conversations
  * on items teach.
  *
- * Admin only, like /performance and /activity: rows name people. The API
- * routes are the real boundary (requireAdmin); the nav merely hides the link.
+ * Admins and CONSOLE_DEV_USERS only: rows name people. The API routes are
+ * the real boundary (requireDev); the nav merely hides the link.
  */
 export default async function DevBoardPage() {
   const { locked } = await gate();

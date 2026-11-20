@@ -1,12 +1,12 @@
 /**
- * The AI read for /dev-board — admin only, like the page.
+ * The AI read for /dev-board — admins and CONSOLE_DEV_USERS, like the page.
  *
  * Same contract as the /health and /performance reads: cached against the
  * summary's computedAt, so written at most once per sync and only when someone
  * looks; ?refresh=1 rewrites; a failed rewrite serves the previous read, stale.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/roles";
+import { requireDev } from "@/lib/roles";
 import { adminActor } from "@/lib/auth";
 import { logOpsEvent } from "@/lib/events";
 import { getDevBoardInsight, getDevBoardRows, getDevBoardSummary, saveDevBoardInsight } from "@/lib/dev-board-sync";
@@ -17,7 +17,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 export async function GET(req: NextRequest) {
-  const denied = requireAdmin(req);
+  const denied = requireDev(req);
   if (denied) return denied;
   const actor = adminActor(req) ?? undefined;
   const force = req.nextUrl.searchParams.get("refresh") === "1";

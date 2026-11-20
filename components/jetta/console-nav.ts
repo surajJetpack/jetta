@@ -12,6 +12,10 @@
  * lib/roles.ts. A general user sees Today, Chats, Test Jetta, Support health,
  * Review, Billing and the Guide, because that is the shape of their day; the
  * API routes remain the boundary and stay deliberately more permissive.
+ *
+ * `devPage` is the one place the nav and a permission move together: the
+ * general users in CONSOLE_DEV_USERS are shown those items, and the routes
+ * behind them (requireDev) let the same people in.
  */
 import {
   BarChart3,
@@ -45,6 +49,8 @@ export interface NavItem {
   hint: string;
   badge?: BadgeKey;
   adminOnly?: boolean;
+  /** An admin-only item that CONSOLE_DEV_USERS are shown too. */
+  devPage?: boolean;
 }
 
 export interface NavGroup {
@@ -121,6 +127,7 @@ export const NAV: NavGroup[] = [
         icon: KanbanSquare,
         hint: "Client issues on the monday dev boards — pace, whose move, support's part, recurring problems, lessons for the KB",
         adminOnly: true,
+        devPage: true,
       },
       {
         id: "logs",
@@ -129,6 +136,7 @@ export const NAV: NavGroup[] = [
         icon: Bug,
         hint: "Errors per app from Sentry and the server logs, what's new or spiking, who it hits",
         adminOnly: true,
+        devPage: true,
       },
       {
         id: "self-review",
@@ -203,25 +211,26 @@ export const GUIDE_ITEM: NavItem = {
 };
 
 /** The groups this reader should see, with empty groups dropped. */
-export function navFor(isAdmin: boolean): NavGroup[] {
+export function navFor(isAdmin: boolean, canSeeDevPages = false): NavGroup[] {
   if (isAdmin) return NAV;
-  return NAV.map((g) => ({ ...g, items: g.items.filter((i) => !i.adminOnly) })).filter(
+  const shows = (i: NavItem) => !i.adminOnly || (canSeeDevPages && !!i.devPage);
+  return NAV.map((g) => ({ ...g, items: g.items.filter(shows) })).filter(
     (g) => g.items.length > 0,
   );
 }
 
 /** Flat list including the Guide — what the command palette offers. */
-export function navItemsFor(isAdmin: boolean): NavItem[] {
-  return [...navFor(isAdmin).flatMap((g) => g.items), GUIDE_ITEM];
+export function navItemsFor(isAdmin: boolean, canSeeDevPages = false): NavItem[] {
+  return [...navFor(isAdmin, canSeeDevPages).flatMap((g) => g.items), GUIDE_ITEM];
 }
 
 /**
  * Which nav item owns a pathname. Longest match wins so /kb/review does not
  * light up /kb, and /chats/settings still reads as Chats.
  */
-export function activeId(pathname: string, isAdmin: boolean): string | null {
+export function activeId(pathname: string, isAdmin: boolean, canSeeDevPages = false): string | null {
   let best: NavItem | null = null;
-  for (const item of navItemsFor(isAdmin)) {
+  for (const item of navItemsFor(isAdmin, canSeeDevPages)) {
     if (pathname === item.href || pathname.startsWith(`${item.href}/`)) {
       if (!best || item.href.length > best.href.length) best = item;
     }
