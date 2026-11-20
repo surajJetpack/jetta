@@ -6,7 +6,7 @@ Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain word
 
 
 ## 2026-11-20: A daily team report in Slack
-Each morning (03:30 UTC) Jetta can post one Slack message with what each person on the support team did the day before: Freshdesk replies, notes and first replies, what they did with her drafts, chats, Slack, activity on both monday dev boards and console decisions. It opens with the team's line (new tickets, answered, customers waiting on a reply right now) and ends with Jetta's own block.
+Each morning (03:30 UTC) Jetta can post one Slack message with what each person on the support team did the day before: Freshdesk replies, notes and first replies, chats, Slack, activity on both monday dev boards and console decisions. It opens with the team's line (new tickets, answered, customers waiting on a reply right now) and ends with Jetta's own block.
 It is read from the Team activity and Performance stores, so it shows what those pages show and nothing else. People are listed alphabetically, not ranked; someone with nothing recorded is left out; a day with no activity and no tickets is skipped.
 Off until `JETTA_TEAM_REPORT_CHANNEL` holds a Slack channel id; `JETTA_TEAM_REPORT_TZ` sets whose calendar day "yesterday" is (unset: `JETTA_TZ`). Not live yet. Admins can read the exact text for any day without posting at `/api/admin/team-report?day=YYYY-MM-DD`.
 

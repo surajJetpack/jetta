@@ -99,7 +99,7 @@ const r = buildTeamReport({ day: DAY, tz: TZ, acts, tickets, aliases, now });
 check("people are alphabetical, sign-in-only people are left out", r.people.map((p) => p.name), ["Cherryl", "Sujata"]);
 const [cherryl, sujata] = r.people;
 check("Freshdesk names and the console merge into one person", cherryl.fd, { replies: 3, notes: 1, tickets: 2, firstReplies: 1, firstReplyH: 1.35 });
-check("draft outcomes are counted apart from other console work", [cherryl.drafts, cherryl.console], [{ asIs: 1, edited: 0, rewritten: 0 }, 1]);
+check("draft outcomes are not console work, and are not reported per person", [cherryl.console, "drafts" in cherryl], [1, false]);
 check("chat pickup time", cherryl.chat, { taken: 1, actions: 0, pickupMin: 4 });
 check("monday actions and distinct items", sujata.monday, { created: 1, comments: 1, status: 1, moved: 0, items: 2 });
 check("activity outside the support day is not counted", sujata.fd.replies, 0);
@@ -122,6 +122,7 @@ check("text: owed tickets link and escape customer text", text.includes("• <ht
 check("text: a person's Freshdesk line", text.includes("• Freshdesk: 3 replies, 1 note on 2 tickets · 1 first reply (median 1.4h after the ticket came in)"), true);
 check("text: monday line", text.includes("• monday dev boards: 1 item created, 1 comment, 1 status change across 2 items"), true);
 check("text: jetta block", text.includes("• 2 drafts written · of 1 reply sent after a draft: 1 as-is, 0 edited, 0 replaced"), true);
+check("text: no per-person line about Jetta's drafts", text.includes("Jetta's drafts:"), false);
 check("text: no ranking words", /\b(top|rank|best|worst|leader)/i.test(text), false);
 
 check("fmtHours", [fmtHours(0.1), fmtHours(5.25), fmtHours(80), fmtHours(5587)], ["6 min", "5.3h", "3.3d", "233d"]);

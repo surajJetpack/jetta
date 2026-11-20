@@ -32,12 +32,15 @@ export interface PersonReport {
   /** Work actions of any kind that day. */
   total: number;
   fd: { replies: number; notes: number; tickets: number; firstReplies: number; firstReplyH: number | null };
-  /** What this person did with Jetta's drafts (the reconciler's verdict on each reply). */
-  drafts: { asIs: number; edited: number; rewritten: number };
   chat: { taken: number; actions: number; pickupMin: number | null };
   slack: { messages: number; responseMin: number | null };
   monday: { created: number; comments: number; status: number; moved: number; items: number };
-  /** Console decisions other than draft outcomes: KB, learnings, billing, settings, drafts sent or discarded. */
+  /**
+   * Console decisions: KB, learnings, billing, settings, drafts sent or discarded
+   * there. What a person did with Jetta's drafts in Freshdesk (as-is, edited,
+   * replaced) is left out of the per-person report on purpose: it is in Jetta's
+   * block as a team total only.
+   */
   console: number;
 }
 
@@ -128,11 +131,7 @@ export function buildTeamReport(input: TeamReportInput): TeamReport {
     .map((p) => {
       const a = mine.get(p.key) ?? [];
       const first = firstBy.get(p.key) ?? [];
-      const drafts = {
-        asIs: count(a, "fd.draft_used"),
-        edited: count(a, "fd.draft_edited"),
-        rewritten: count(a, "fd.draft_not_used"),
-      };
+      const draftOutcomes = count(a, "fd.draft_used", "fd.draft_edited", "fd.draft_not_used");
       const mondayActs = a.filter((x) => x.place === "monday");
       return {
         key: p.key,
@@ -145,7 +144,6 @@ export function buildTeamReport(input: TeamReportInput): TeamReport {
           firstReplies: first.length,
           firstReplyH: median(first),
         },
-        drafts,
         chat: { taken: p.counts.chats, actions: p.counts.chatActions, pickupMin: p.chatPickupMin },
         slack: { messages: p.counts.slack, responseMin: p.slackResponseMin },
         monday: {
@@ -155,7 +153,7 @@ export function buildTeamReport(input: TeamReportInput): TeamReport {
           moved: count(a, "monday.moved"),
           items: distinct(mondayActs.map((x) => x.ref)),
         },
-        console: p.counts.console - drafts.asIs - drafts.edited - drafts.rewritten,
+        console: p.counts.console - draftOutcomes,
       };
     })
     .sort((x, y) => x.name.localeCompare(y.name));
@@ -261,15 +259,6 @@ function personLines(p: PersonReport): string[] {
         : "";
     out.push(`• Freshdesk: ${[work && `${work} on ${n(p.fd.tickets, "ticket")}`, first].filter(Boolean).join(" · ")}`);
   }
-  if (p.drafts.asIs || p.drafts.edited || p.drafts.rewritten) {
-    out.push(
-      `• Jetta's drafts: ${parts([
-        p.drafts.asIs > 0 && `${p.drafts.asIs} sent as-is`,
-        p.drafts.edited > 0 && `${p.drafts.edited} edited`,
-        p.drafts.rewritten > 0 && `${p.drafts.rewritten} replaced with their own reply`,
-      ])}`,
-    );
-  }
   if (p.chat.taken || p.chat.actions) {
     out.push(
       `• Chats: ${parts([
@@ -294,7 +283,7 @@ function personLines(p: PersonReport): string[] {
       `• Slack: ${n(p.slack.messages, "message")}${p.slack.responseMin != null ? ` (answers Jetta's posts in ${fmtMin(p.slack.responseMin)})` : ""}`,
     );
   }
-  if (p.console > 0) out.push(`• Console: ${n(p.console, "decision")} (KB, learnings, billing, drafts)`);
+  if (p.console > 0) out.push(`• Console: ${n(p.console, "decision")} (KB, learnings, billing, review queue)`);
   return out;
 }
 
