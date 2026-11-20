@@ -21,23 +21,40 @@
  *
  * Pure: no storage, no network. app/api/cron/team-report feeds and posts it.
  */
-import { buildScorecard, resolvePerson, type Activity, type ActionKind } from "./activity";
+import { ACTION_LABEL, buildScorecard, resolvePerson, type Activity, type ActionKind } from "./activity";
 import { isClient, type DevRow } from "./dev-board";
 import { isJunkSubject, median, suggestionUse, type HandoffKind, type PerfTicket } from "./performance";
 import { owesReply, TARGETS } from "./support-health";
+import { DEV_FRESH_H, fmtHours, JETTA_WHO, listKey, STALE_AFTER_H, type ListId } from "./team-report-shared";
+
+export * from "./team-report-shared";
 
 const HOUR_MS = 3_600_000;
 
 /** Past this a waiting customer is a to-do for the morning (the same-shift bar on /health). */
 export const ACTION_AFTER_H = TARGETS.fastReplyH;
-/** Past this the ticket is not "reply today" any more: someone has to decide to answer or close it. */
-export const STALE_AFTER_H = 14 * 24;
-/** A dev-board handback older than this is no longer news; it is counted, not listed. */
-export const DEV_FRESH_H = 14 * 24;
 /** A fix that shipped longer ago than this is not chased here. */
 export const FIXED_WITHIN_H = 7 * 24;
 /** The person key Jetta's Freshdesk login resolves to once it has an alias (AGENT_ALIASES "Jetta=App Support"). */
 const JETTA_KEY = "jetta";
+
+/** Which list an action belongs on. Actions not here (status changes, moves, console work) have no list. */
+const LIST_OF: Partial<Record<ActionKind, "replies" | "notes" | "filed" | "comments" | "chats" | "chatActions" | "slack">> = {
+  "fd.reply": "replies",
+  "fd.note": "notes",
+  "monday.created": "filed",
+  "monday.comment": "comments",
+  "chat.joined": "chats",
+  "chat.message": "chatActions",
+  "chat.ticketed": "chatActions",
+  "chat.resolved": "chatActions",
+  "chat.reopened": "chatActions",
+  "chat.handed_back": "chatActions",
+  "slack.reply": "slack",
+  "slack.message": "slack",
+  "slack.command": "slack",
+  "slack.asked_jetta": "slack",
+};
 
 /**
  * Something engineering did on a client item that the customer has not heard
@@ -105,7 +122,26 @@ export interface PersonReport {
   console: number;
 }
 
+/**
+ * One thing behind a count: a reply, a comment, a ticket. The console's Daily
+ * report page lists these when a count is clicked, and the Slack post's counts
+ * link to that list.
+ */
+export interface ListItem {
+  /** Unix ms, when the thing happened. Null when only the day is known. */
+  at: number | null;
+  title: string;
+  /** Freshdesk ticket, when there is one: the page links it. */
+  ticketId?: number;
+  /** A link to the thing itself when it is not a ticket (a dev item, a chat, a Slack message). */
+  url?: string;
+  note?: string;
+}
+
+
 export interface TeamReport {
+  /** The things behind each count, by `listKey(person key, list id)`. Newest first. */
+  lists: Record<string, ListItem[]>;
   /** Support day, "2026-11-19". */
   day: string;
   tz: string;
@@ -194,7 +230,7 @@ export interface TeamReportInput {
   /** Names of the support team (the DEV_BOARD_SUPPORT roster); everyone else is listed in a second group. */
   support?: string[] | null;
   /** Jetta's own comments on dev items (her posts in the Dev board store). Any window; filtered here. */
-  jettaComments?: { at: number; itemId: string }[] | null;
+  jettaComments?: { at: number; itemId: string; name?: string; url?: string }[] | null;
   /** Replies Jetta sent herself (first_response.sent / ticket_followup.sent events). Any window; filtered here. */
   jettaSent?: { at: number; ticketId: number; kind: "first" | "followup" }[] | null;
 }
@@ -217,6 +253,10 @@ export function buildTeamReport(input: TeamReportInput): TeamReport {
   // Real tickets only: auto-replies and bounces are never work (same rule as /performance).
   const tickets = input.tickets.filter((t) => !isJunkSubject(t.subject ?? ""));
 
+  const lists: Record<string, ListItem[]> = {};
+  const add = (who: string, list: ListId, item: ListItem) => (lists[listKey(who, list)] ??= []).push(item);
+  const ticketTitle = (id: number, subject?: string | null) => `#${id}${subject?.trim() ? ` ${subject.trim()}` : ""}`;
+
   // First replies sent that day, by whoever sent them.
   const firstBy = new Map<string, number[]>();
   const firstLogin = new Map<string, string>();
@@ -226,6 +266,12 @@ export function buildTeamReport(input: TeamReportInput): TeamReport {
     const k = person(t.firstReplyBy).key;
     firstBy.set(k, [...(firstBy.get(k) ?? []), t.firstReplyH]);
     firstLogin.set(k, t.firstReplyBy);
+    add(k, "first", {
+      at: Date.parse(t.createdAt) + t.firstReplyH * HOUR_MS,
+      title: ticketTitle(t.id, t.subject),
+      ticketId: t.id,
+      note: `first reply ${fmtHours(t.firstReplyH)} after the ticket came in`,
+    });
   }
 
   const supportKeys = new Set((input.support ?? []).map((name) => person(name).key));
@@ -233,6 +279,18 @@ export function buildTeamReport(input: TeamReportInput): TeamReport {
   for (const a of acts) {
     const k = person(a.who).key;
     mine.set(k, [...(mine.get(k) ?? []), a]);
+    const list = LIST_OF[a.action];
+    if (!list) continue;
+    const ticketId = Number(a.ticketId);
+    const onTicket = a.place === "freshdesk" && Number.isFinite(ticketId) && ticketId > 0;
+    add(k, list, {
+      at: a.at,
+      title: onTicket ? ticketTitle(ticketId, a.detail) : (a.detail?.trim() || ACTION_LABEL[a.action]),
+      ...(onTicket ? { ticketId } : {}),
+      ...(!onTicket && a.url ? { url: a.url } : {}),
+      // On a list that mixes kinds, say which this one was.
+      ...(list === "chatActions" || list === "slack" ? { note: ACTION_LABEL[a.action] } : {}),
+    });
   }
 
   const people: PersonReport[] = buildScorecard(acts, { aliases, slackNames, tz })
@@ -390,9 +448,21 @@ export function buildTeamReport(input: TeamReportInput): TeamReport {
     devCommentItems: 0,
   };
   const commented = (input.jettaComments ?? []).filter((c) => dayOf(c.at) === day);
+  for (const c of commented) add(JETTA_WHO, "comments", { at: c.at, title: c.name?.trim() || `Dev item ${c.itemId}`, url: c.url });
+  for (const r of (input.devRows ?? []).filter((x) => x.origin === "jetta" && dayOf(x.createdAt) === day)) {
+    add(JETTA_WHO, "filed", { at: r.createdAt, title: r.name, url: r.url, note: r.app });
+  }
   jetta.devComments = commented.length;
   jetta.devCommentItems = new Set(commented.map((c) => c.itemId)).size;
   const sent = (input.jettaSent ?? []).filter((e) => dayOf(e.at) === day);
+  for (const e of sent) {
+    add(JETTA_WHO, "sent", {
+      at: e.at,
+      title: ticketTitle(e.ticketId, byId.get(e.ticketId)?.subject),
+      ticketId: e.ticketId,
+      note: e.kind === "first" ? "first response" : "follow-up to a quiet customer",
+    });
+  }
   jetta.replies = {
     first: sent.filter((e) => e.kind === "first").length,
     followups: sent.filter((e) => e.kind === "followup").length,
@@ -401,15 +471,32 @@ export function buildTeamReport(input: TeamReportInput): TeamReport {
   for (const t of tickets) {
     for (const s of t.suggestions) {
       const at = Date.parse(s.at);
-      if (dayOf(at) === day) jetta.drafts++;
+      if (dayOf(at) === day) {
+        jetta.drafts++;
+        const use = s.sim == null ? null : suggestionUse(s.sim);
+        add(JETTA_WHO, "drafts", {
+          at,
+          title: ticketTitle(t.id, t.subject),
+          ticketId: t.id,
+          note: use == null ? "not sent yet" : `${use === "as_is" ? "sent as-is" : use === "edited" ? "sent, edited" : "replaced with their own reply"}${s.replyBy ? ` by ${person(s.replyBy).name}` : ""}`,
+        });
+      }
       if (s.sim == null || s.waitH == null || dayOf(at + s.waitH * HOUR_MS) !== day) continue;
       const use = suggestionUse(s.sim);
       jetta.followed[use === "as_is" ? "asIs" : use === "edited" ? "edited" : "rewritten"]++;
     }
-    if (t.handoff && dayOf(Date.parse(t.handoff.at)) === day) for (const k of t.handoff.kinds) jetta.handoffs[k]++;
+    if (t.handoff && dayOf(Date.parse(t.handoff.at)) === day) {
+      for (const k of t.handoff.kinds) {
+        jetta.handoffs[k]++;
+        if (k === "dev_item") continue; // items filed are listed from the board
+        add(JETTA_WHO, k === "slack" ? "escalations" : "ticketed", { at: Date.parse(t.handoff.at), title: ticketTitle(t.id, t.subject), ticketId: t.id });
+      }
+    }
   }
+  for (const items of Object.values(lists)) items.sort((a, b) => (b.at ?? 0) - (a.at ?? 0));
 
   return {
+    lists,
     day,
     tz,
     people,
@@ -440,13 +527,6 @@ export function isEmptyReport(r: TeamReport): boolean {
 
 const n = (count: number, one: string, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
 
-/** 0.4 → "24 min", 5.25 → "5.3h", 80 → "3.3d", 5587 → "233d". */
-export function fmtHours(h: number): string {
-  if (h < 1) return `${Math.max(1, Math.round(h * 60))} min`;
-  if (h < 48) return `${Math.round(h * 10) / 10}h`;
-  const d = h / 24;
-  return d < 10 ? `${Math.round(d * 10) / 10}d` : `${Math.round(d)}d`;
-}
 const fmtMin = (m: number) => fmtHours(m / 60);
 
 function dayInWords(day: string): string {
@@ -468,6 +548,11 @@ const GROUPS: ["support" | "other", string][] = [
   ["support", "Support"],
   ["other", "Developers and others"],
 ];
+
+/** The console page that shows one list of one person's day: what a count in the Slack post opens. */
+export function reportListUrl(consoleUrl: string, day: string, who: string, list: ListId): string {
+  return `${consoleUrl}/team-report?${new URLSearchParams({ day, who, list })}`;
+}
 
 export interface ReportLinks {
   /** Freshdesk ticket link prefix, e.g. "https://x.freshdesk.com/a/tickets/". */
@@ -598,7 +683,7 @@ export function formatTeamReport(r: TeamReport, links: ReportLinks = {}): string
     if (of.length) lines.push("", `*${title}*`, ...of.map((b) => `• *${esc(b.name)}:* ${b.line}`));
   }
 
-  if (links.consoleUrl) lines.push("", [page("activity", "Team activity"), page("dev-board", "Dev board"), page("health", "Support health")].join(" · "));
+  if (links.consoleUrl) lines.push("", [page(`team-report?day=${r.day}`, "Open this report in the console"), page("dev-board", "Dev board"), page("health", "Support health")].join(" · "));
   return lines.join("\n");
 }
 
@@ -704,12 +789,8 @@ export function teamReportMessages(r: TeamReport, links: ReportLinks = {}): Repo
   // alphabetical order, four columns: Name | Freshdesk | monday dev boards | Other.
   // Every count is a link to the list behind it: Team activity, opened on that
   // person, that kind of action and that day.
-  const list = (key: string, what: { action?: ActionKind; column?: string }, label: string): Inline => {
-    if (!links.consoleUrl) return txt(label);
-    const q = new URLSearchParams({ person: key, ...(what.action ? { action: what.action } : {}), ...(what.column ? { column: what.column } : {}), day: r.day, tz: r.tz });
-    return { type: "link", url: `${links.consoleUrl}/activity?${q}`, text: label };
-  };
-  const page = (path: string, label: string): Inline => (links.consoleUrl ? { type: "link", url: `${links.consoleUrl}/${path}`, text: label } : txt(label));
+  const list = (who: string, id: ListId, label: string): Inline =>
+    links.consoleUrl ? { type: "link", url: reportListUrl(links.consoleUrl, r.day, who, id), text: label } : txt(label);
   /** Parts joined by " · ", skipping the empty ones. */
   const dotted = (parts: (Inline | string | false)[][]): (Inline | string)[] => {
     const out: (Inline | string)[] = [];
@@ -732,22 +813,22 @@ export function teamReportMessages(r: TeamReport, links: ReportLinks = {}): Repo
         cell(txt(p.name, true)),
         cell(
           ...dotted([
-            [p.fd.replies > 0 && list(p.key, { action: "fd.reply" }, n(p.fd.replies, "reply", "replies"))],
-            [p.fd.notes > 0 && list(p.key, { action: "fd.note" }, n(p.fd.notes, "note"))],
-            [first],
+            [p.fd.replies > 0 && list(p.key, "replies", n(p.fd.replies, "reply", "replies"))],
+            [p.fd.notes > 0 && list(p.key, "notes", n(p.fd.notes, "note"))],
+            [first && list(p.key, "first", first)],
           ]),
         ),
         cell(
           ...dotted([
-            [m.created > 0 && list(p.key, { action: "monday.created" }, `${n(m.created, "item")} filed`)],
-            [m.comments > 0 && list(p.key, { action: "monday.comment" }, n(m.comments, "comment"))],
+            [m.created > 0 && list(p.key, "filed", `${n(m.created, "item")} filed`)],
+            [m.comments > 0 && list(p.key, "comments", n(m.comments, "comment"))],
           ]),
         ),
         cell(
           ...dotted([
-            [p.chat.taken > 0 && list(p.key, { action: "chat.joined" }, `${n(p.chat.taken, "chat")} taken`), p.chat.taken > 0 && p.chat.pickupMin != null && ` (in ${fmtMin(p.chat.pickupMin)})`],
-            [p.chat.actions > 0 && list(p.key, { column: "chatActions" }, n(p.chat.actions, "chat action"))],
-            [p.slack.messages > 0 && list(p.key, { column: "slack" }, n(p.slack.messages, "Slack message"))],
+            [p.chat.taken > 0 && list(p.key, "chats", `${n(p.chat.taken, "chat")} taken`), p.chat.taken > 0 && p.chat.pickupMin != null && ` (in ${fmtMin(p.chat.pickupMin)})`],
+            [p.chat.actions > 0 && list(p.key, "chatActions", n(p.chat.actions, "chat action"))],
+            [p.slack.messages > 0 && list(p.key, "slack", n(p.slack.messages, "Slack message"))],
             [p.console > 0 && n(p.console, "console decision")],
           ]),
         ),
@@ -757,19 +838,19 @@ export function teamReportMessages(r: TeamReport, links: ReportLinks = {}): Repo
   const j = r.jetta;
   const sent = j.replies.first + j.replies.followups;
   const filed = j.devItemsFiled ?? j.handoffs.dev_item;
-  // Jetta is not in the activity store, so her counts link to the tickets
-  // themselves and to the console pages that list her work.
+  // Her counts open the same lists as anyone's, built from her own records.
   const jettaFd = dotted([
-    [
-      sent > 0 && `${n(sent, "reply", "replies")} sent`,
-      ...(sent > 0 && j.replies.ticketIds.length ? [txt(" ("), ...joined(j.replies.ticketIds.map((id) => [ticket(id)]), MAX_PERSON_TICKETS, " "), txt(")")] : []),
-    ],
-    [j.drafts > 0 && page("drafts", `${n(j.drafts, "draft")} written`)],
+    [sent > 0 && list(JETTA_WHO, "sent", `${n(sent, "reply", "replies")} sent`)],
+    [j.drafts > 0 && list(JETTA_WHO, "drafts", `${n(j.drafts, "draft")} written`)],
   ]);
-  const jettaOther = dotted([[j.handoffs.slack > 0 && n(j.handoffs.slack, "Slack escalation")], [j.handoffs.chat > 0 && `${n(j.handoffs.chat, "chat")} turned into a ticket`]]);
+  const jettaOther = dotted([
+    [j.handoffs.slack > 0 && list(JETTA_WHO, "escalations", n(j.handoffs.slack, "Slack escalation"))],
+    [j.handoffs.chat > 0 && list(JETTA_WHO, "ticketed", `${n(j.handoffs.chat, "chat")} turned into a ticket`)],
+  ]);
   const jettaBoard = dotted([
-    [filed > 0 && page("dev-board", `${n(filed, "item")} filed`)],
-    [j.devComments > 0 && page("dev-board", n(j.devComments, "comment"))],
+    // Without the board rows the filed count comes from her ticket notes, and there is no list to open.
+    [filed > 0 && (j.devItemsFiled != null ? list(JETTA_WHO, "filed", `${n(filed, "item")} filed`) : `${n(filed, "item")} filed`)],
+    [j.devComments > 0 && list(JETTA_WHO, "comments", n(j.devComments, "comment"))],
   ]);
   if (sent > 0 || j.drafts > 0 || jettaBoard.length || jettaOther.length) {
     rows.push({
@@ -796,7 +877,7 @@ export function teamReportMessages(r: TeamReport, links: ReportLinks = {}): Repo
     };
     if (tableChars(table) > TABLE_CHAR_BUDGET) return null;
     const footer = links.consoleUrl
-      ? [{ type: "context", elements: [{ type: "mrkdwn", text: ["activity|Team activity", "dev-board|Dev board", "health|Support health"].map((x) => `<${links.consoleUrl}/${x}>`).join(" · ") }] }]
+      ? [{ type: "context", elements: [{ type: "mrkdwn", text: [`team-report?day=${r.day}|Open this report in the console`, "dev-board|Dev board", "health|Support health"].map((x) => `<${links.consoleUrl}/${x}>`).join(" · ") }] }]
       : [];
     messages.push({ text: `Team, ${dayInWords(r.day)}`, blocks: [table, ...footer] });
   }

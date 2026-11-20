@@ -365,19 +365,38 @@ const teamTable = tableOf(msgs[1])!;
 check("tables: Team is grouped, four columns, counts as links", teamTable.rows.map((row) => row.map(flat)), [
   ["Name", "Freshdesk", "monday dev boards", "Other"],
   ["SUPPORT", " ", " ", " "],
-  ["Cherryl", "[3 replies] · [1 note] · 1 first reply (1.4h)", "–", "[1 chat taken] (in 4 min) · 1 console decision"],
-  ["Jetta", "1 reply sent ([#14820]) · [2 drafts written]", "[1 item filed] · [3 comments]", "–"],
+  ["Cherryl", "[3 replies] · [1 note] · [1 first reply (1.4h)]", "–", "[1 chat taken] (in 4 min) · 1 console decision"],
+  ["Jetta", "[1 reply sent] · [2 drafts written]", "1 item filed · [3 comments]", "–"],
   ["DEVELOPERS AND OTHERS", " ", " ", " "],
   ["Sujata", "–", "[1 item filed] · [1 comment]", "[1 Slack message]"],
 ]);
 const linkIn = (row: number, col: number, label: string) => teamTable.rows[row][col].elements[0].elements.find((e) => e.type === "link" && e.text === label);
-check("tables: a count opens that person's list of that action for that day", linkIn(2, 1, "3 replies"), {
+check("tables: a count opens its list on the console's Daily report page", linkIn(2, 1, "3 replies"), {
   type: "link",
-  url: "https://console.example/activity?person=cherryl&action=fd.reply&day=2026-11-19&tz=Asia%2FKathmandu",
+  url: "https://console.example/team-report?day=2026-11-19&who=cherryl&list=replies",
   text: "3 replies",
 });
-check("tables: comments open the comments", (linkIn(5, 2, "1 comment") as { url: string }).url, "https://console.example/activity?person=sujata&action=monday.comment&day=2026-11-19&tz=Asia%2FKathmandu");
-check("tables: Jetta's reply links the ticket itself", linkIn(3, 1, "#14820"), { type: "link", url: "https://x.freshdesk.com/a/tickets/14820", text: "#14820" });
+check("tables: Jetta's counts open her lists the same way", (linkIn(3, 1, "1 reply sent") as { url: string }).url, "https://console.example/team-report?day=2026-11-19&who=jetta&list=sent");
+
+// The list behind each count: what the Daily report page shows when a count is clicked.
+const L2 = grouped.lists;
+check("lists: a person's replies, newest first, each on its ticket", L2["cherryl:replies"].map((x) => [x.ticketId, x.title]), [
+  [14815, "#14815"],
+  [14809, "#14809"],
+  [14809, "#14809"],
+]);
+check("lists: as many items as the count says", [L2["cherryl:replies"].length, L2["cherryl:notes"].length, L2["cherryl:chats"].length], [grouped.people[0].fd.replies, grouped.people[0].fd.notes, grouped.people[0].chat.taken]);
+check("lists: first replies carry the ticket and how fast", L2["cherryl:first"], [{ at: Date.parse("2026-11-19T16:34:00Z") + 1.35 * 3_600_000, title: "#14815 Ticket 14815", ticketId: 14815, note: "first reply 1.4h after the ticket came in" }]);
+check("lists: dev board comments and filed items", [L2["sujata:comments"].length, L2["sujata:filed"].length, L2["sujata:slack"][0].note], [1, 1, "replied in a Slack thread"]);
+check("lists: status changes have no list", Object.keys(L2).some((k) => k.includes("status")), false);
+check("lists: Jetta's own", [L2["jetta:sent"].map((x) => [x.ticketId, x.note]), L2["jetta:comments"].length, L2["jetta:drafts"].map((x) => [x.ticketId, x.note])], [
+  [[14820, "first response"]],
+  3,
+  [
+    [14815, "sent as-is by Cherryl"],
+    [14789, "not sent yet"],
+  ],
+]);
 
 const devMsgs = teamReportMessages(withDev, L)!;
 check("tables: developer updates link the ticket and the dev item", tableOf(devMsgs[0])!.rows.map((row) => row.map(flat)).slice(1), [

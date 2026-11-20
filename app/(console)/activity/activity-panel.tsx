@@ -21,7 +21,6 @@ import {
   ACTION_LABEL,
   COLUMNS,
   PLACES,
-  type ActionKind,
   type Activity,
   type ColumnId,
   type PersonRow,
@@ -70,22 +69,6 @@ interface Filter {
   person?: string;
   place?: Place;
   column?: ColumnId;
-  /** One kind of action, from a daily-report link. */
-  action?: ActionKind;
-}
-
-/** One calendar day in a timezone, from a daily-report link; replaces the rolling window. */
-interface DayPick {
-  day: string;
-  tz?: string;
-}
-
-export interface ActivityInitial {
-  person?: string;
-  action?: string;
-  column?: string;
-  day?: string;
-  tz?: string;
 }
 
 const WINDOWS = [
@@ -109,13 +92,8 @@ const PLACE_DOT: Record<Place, string> = {
 /** A span in minutes, in the console's one duration format — null stays null so callers can omit it. */
 const mins = (v: number | null) => (v == null ? null : fmtHours(v / 60));
 
-function query(days: number, f: Filter, pick: DayPick | null, before?: number | null): string {
+function query(days: number, f: Filter, before?: number | null): string {
   const p = new URLSearchParams({ days: String(days) });
-  if (pick) {
-    p.set("day", pick.day);
-    if (pick.tz) p.set("tz", pick.tz);
-  }
-  if (f.action) p.set("action", f.action);
   if (f.person) p.set("person", f.person);
   if (f.place) p.set("place", f.place);
   if (f.column) p.set("column", f.column);
@@ -123,19 +101,9 @@ function query(days: number, f: Filter, pick: DayPick | null, before?: number | 
   return `/api/admin/activity?${p}`;
 }
 
-const dayLabel = (day: string) =>
-  new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", weekday: "short", day: "numeric", month: "short" }).format(new Date(`${day}T12:00:00Z`));
-
-export default function ActivityPanel({ initial = {} }: { initial?: ActivityInitial }) {
+export default function ActivityPanel() {
   const [days, setDays] = useState(7);
-  const [pick, setPick] = useState<DayPick | null>(() =>
-    /^\d{4}-\d{2}-\d{2}$/.test(initial.day ?? "") ? { day: initial.day as string, tz: initial.tz } : null,
-  );
-  const [filter, setFilter] = useState<Filter>(() => ({
-    person: initial.person || undefined,
-    action: initial.action && initial.action in ACTION_LABEL ? (initial.action as ActionKind) : undefined,
-    column: COLUMNS.find((c) => c.id === initial.column)?.id,
-  }));
+  const [filter, setFilter] = useState<Filter>({});
   const [data, setData] = useState<Payload | null>(null);
   const [more, setMore] = useState<Row[]>([]);
   const [nextBefore, setNextBefore] = useState<number | null>(null);
@@ -148,7 +116,7 @@ export default function ActivityPanel({ initial = {} }: { initial?: ActivityInit
 
   const load = useCallback(() => {
     const id = ++reqId.current;
-    fetch(query(days, filter, pick), { cache: "no-store" })
+    fetch(query(days, filter), { cache: "no-store" })
       .then(async (r) => {
         const d = await r.json();
         if (!r.ok) throw new Error(d.message ?? d.error ?? requestFailed(r));
@@ -159,26 +127,17 @@ export default function ActivityPanel({ initial = {} }: { initial?: ActivityInit
         setErr(null);
       })
       .catch((e) => id === reqId.current && setErr(e instanceof Error ? e.message : String(e)));
-  }, [days, filter, pick]);
+  }, [days, filter]);
   useEffect(() => {
     load();
   }, [load]);
   useDataVersion(["activity", "performance"], load);
 
-  // Opened from a daily-report link: the list it names is the point, so start there.
-  const fromLink = !!(initial.person || initial.action || initial.column);
-  const scrolled = useRef(false);
-  useEffect(() => {
-    if (!fromLink || scrolled.current || !data) return;
-    scrolled.current = true;
-    requestAnimationFrame(() => timelineRef.current?.scrollIntoView({ block: "start" }));
-  }, [fromLink, data]);
-
   const loadMore = async () => {
     if (!nextBefore) return;
     setLoadingMore(true);
     try {
-      const r = await fetch(query(days, filter, pick, nextBefore), { cache: "no-store" });
+      const r = await fetch(query(days, filter, nextBefore), { cache: "no-store" });
       const d = (await r.json()) as Payload;
       if (!r.ok) throw new Error(requestFailed(r));
       setMore((m) => [...m, ...d.timeline]);
@@ -231,7 +190,7 @@ export default function ActivityPanel({ initial = {} }: { initial?: ActivityInit
   }
 
   const { scorecard } = data;
-  const windowLabel = pick ? dayLabel(pick.day) : (WINDOWS.find((w) => w.days === days)?.label ?? `${days} days`);
+  const windowLabel = WINDOWS.find((w) => w.days === days)?.label ?? `${days} days`;
   const workers = scorecard.people.filter((p) => p.total > 0);
   const rows = [...data.timeline, ...more];
   const personName = (key: string) => scorecard.people.find((p) => p.key === key)?.name ?? key;
@@ -244,7 +203,7 @@ export default function ActivityPanel({ initial = {} }: { initial?: ActivityInit
   );
 
   const metrics: MetricSpec[] = [
-    { label: "Actions", value: scorecard.total, hint: pick ? `on ${windowLabel}` : `last ${windowLabel}`, onClick: () => show({}) },
+    { label: "Actions", value: scorecard.total, hint: `last ${windowLabel}`, onClick: () => show({}) },
     { label: "People active", value: workers.length },
     ...PLACES.map((p) => ({
       label: p.label,
@@ -261,13 +220,10 @@ export default function ActivityPanel({ initial = {} }: { initial?: ActivityInit
             <Button
               key={w.days}
               size="sm"
-              variant={!pick && w.days === days ? "secondary" : "ghost"}
+              variant={w.days === days ? "secondary" : "ghost"}
               className="h-7"
-              aria-pressed={!pick && w.days === days}
-              onClick={() => {
-                setPick(null);
-                setDays(w.days);
-              }}
+              aria-pressed={w.days === days}
+              onClick={() => setDays(w.days)}
             >
               {w.label}
             </Button>
@@ -325,10 +281,8 @@ export default function ActivityPanel({ initial = {} }: { initial?: ActivityInit
           <CardDescription className="text-xs">
             {data.matching} action{data.matching === 1 ? "" : "s"}, newest first.
           </CardDescription>
-          {(pick || filter.person || filter.place || filter.column || filter.action) && (
+          {(filter.person || filter.place || filter.column) && (
             <CardAction className="flex flex-wrap gap-1.5">
-              {pick && <Chip onClear={() => setPick(null)}>{`${dayLabel(pick.day)}${data.timeZone !== "UTC" ? ` (${data.timeZone})` : ""}`}</Chip>}
-              {filter.action && <Chip onClear={() => setFilter({ ...filter, action: undefined })}>{ACTION_LABEL[filter.action]}</Chip>}
               {filter.person && <Chip onClear={() => setFilter({ ...filter, person: undefined })}>{personName(filter.person)}</Chip>}
               {filter.place && <Chip onClear={() => setFilter({ ...filter, place: undefined })}>{PLACE_LABEL[filter.place]}</Chip>}
               {filter.column && <Chip onClear={() => setFilter({ ...filter, column: undefined })}>{COLUMN_LABEL[filter.column]}</Chip>}

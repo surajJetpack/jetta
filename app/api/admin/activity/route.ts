@@ -3,10 +3,7 @@
  *
  * GET computes the scorecard and one page of the timeline from the activity
  * store for the chosen window: ?days=1|7|28, plus timeline filters ?person=
- * (a scorecard key), ?place=, ?column=, ?action= (one kind of action) and
- * ?before=<ms> for the next page. ?day=YYYY-MM-DD&tz=<IANA zone> replaces the
- * rolling window with one calendar day in that zone: what the numbers in the
- * daily team report link to.
+ * (a scorecard key), ?place=, ?column= and ?before=<ms> for the next page.
  * POST runs one activity sync now (Slack, monday, KB — the same as the cron);
  * POST {action:"register-monday"} subscribes the dev boards' webhooks once.
  */
@@ -20,8 +17,6 @@ import {
   buildScorecard,
   COLUMNS,
   filterTimeline,
-  isActionKind,
-  onDay,
   parseAliases,
   PLACES,
   resolvePerson,
@@ -38,17 +33,6 @@ export const maxDuration = 300;
 export const dynamic = "force-dynamic";
 
 const WINDOWS = [1, 7, 28] as const;
-type ColumnAction = Parameters<typeof filterTimeline>[1]["action"];
-
-function validZone(name: string | null): string | null {
-  if (!name) return null;
-  try {
-    new Intl.DateTimeFormat("en-CA", { timeZone: name });
-    return name;
-  } catch {
-    return null;
-  }
-}
 const PAGE = 100;
 
 export async function GET(req: NextRequest) {
@@ -61,31 +45,24 @@ export async function GET(req: NextRequest) {
   const person = q.get("person") || undefined;
   const before = Number(q.get("before")) || Infinity;
 
-  const action = isActionKind(q.get("action")) ? (q.get("action") as ColumnAction) : undefined;
-  // One calendar day in a named zone, when asked for and both parts are valid.
-  const day = /^\d{4}-\d{2}-\d{2}$/.test(q.get("day") ?? "") ? (q.get("day") as string) : null;
-  const dayZone = day ? validZone(q.get("tz")) ?? supportTimeZone() : null;
-
-  const sinceMs = day ? Date.parse(`${day}T00:00:00Z`) - 2 * 86_400_000 : Date.now() - days * 86_400_000;
-  const [loaded, slackNames, state, perf, push] = await Promise.all([
+  const sinceMs = Date.now() - days * 86_400_000;
+  const [acts, slackNames, state, perf, push] = await Promise.all([
     loadActivities(sinceMs),
     getSlackNames(),
     getActivityState(),
     syncStatus().catch(() => null),
     getPushTimes(),
   ]);
-  const acts = day && dayZone ? onDay(loaded, day, dayZone) : loaded;
   const aliases = parseAliases(config.agentAliases);
-  const opts = { aliases, slackNames, tz: dayZone ?? supportTimeZone() };
+  const opts = { aliases, slackNames, tz: supportTimeZone() };
 
   const scorecard = buildScorecard(acts, opts);
-  const filtered = filterTimeline(acts, { person, place, column, action }, opts);
+  const filtered = filterTimeline(acts, { person, place, column }, opts);
   const page = filtered.filter((a) => a.at < before).slice(0, PAGE);
   const timeline = page.map((a) => ({ ...a, person: resolvePerson(a.who, aliases, slackNames) }));
 
   return NextResponse.json({
     days,
-    day,
     timeZone: opts.tz,
     scorecard,
     timeline,

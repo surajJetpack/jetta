@@ -71,7 +71,7 @@ export async function previewTeamReport(
     const firstAt = Math.min(...item.posts.map((p) => p.at));
     return item.posts
       .filter((p) => p.at >= since && (isJettaPost(p.text) || (isJettaContextPost(p.text) && p.at > firstAt)))
-      .map((p) => ({ at: p.at, itemId: item.id }));
+      .map((p) => ({ at: p.at, itemId: item.id, name: item.name, url: item.url }));
   });
   const SENT: Record<string, "first" | "followup"> = { "first_response.sent": "first", "ticket_followup.sent": "followup" };
   const jettaSent = events
