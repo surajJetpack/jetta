@@ -22,11 +22,14 @@ import { TONE_SOLID } from "./tone";
  */
 export function ConsoleSidebar({
   isAdmin,
+  canSeeDevPages = false,
   collapsed: collapsedProp = false,
   onToggle,
   onNavigate,
 }: {
   isAdmin: boolean;
+  /** CONSOLE_DEV_USERS: the Dev board and Logs & errors. */
+  canSeeDevPages?: boolean;
   collapsed?: boolean;
   /** Shows the collapse button. The mobile drawer has none. */
   onToggle?: () => void;
@@ -35,8 +38,8 @@ export function ConsoleSidebar({
 }) {
   const pathname = usePathname();
   const attention = useAttention();
-  const active = activeId(pathname, isAdmin);
-  const groups = navFor(isAdmin);
+  const active = activeId(pathname, isAdmin, canSeeDevPages);
+  const groups = navFor(isAdmin, canSeeDevPages);
 
   const collapsed = collapsedProp && !onNavigate;
 

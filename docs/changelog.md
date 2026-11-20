@@ -11,6 +11,11 @@ To do: customers waiting more than 4 hours for a reply, tickets waiting over 14 
 Per person, support team first and developers and others after: Freshdesk replies, first replies, chats, items filed and comments on both monday dev boards, Slack, console. Each count is a link that opens the list behind it on a new console page, Daily report (/team-report, admin), which shows the same report for any day. Alphabetical, not ranked. Worked out by rule from the Team activity, Performance, Support health and Dev board stores; no model writes it.
 Off until `JETTA_TEAM_REPORT_CHANNEL` holds a Slack channel id; `JETTA_TEAM_REPORT_TZ` sets whose calendar day "yesterday" is (unset: `JETTA_TZ`). Not live yet. Admins can read the exact text for any day without posting at `/api/admin/team-report?day=YYYY-MM-DD`.
 
+## 2026-11-20: A developer can be given the Dev board and Logs & errors
+Both pages were admin-only, so a developer with a general login could not see the two pages written for them without being made a full admin.
+Now a general user named in `CONSOLE_DEV_USERS` (comma-separated usernames) sees **Dev board** and **Logs & errors** in the sidebar and ⌘K, and the data behind them loads, including what the pages do: sync, a KB draft from a thread, and the error watch run. Everything else stays as it was for a general user: no Insights, Performance, Team activity, Self-review, Evals, Articles or System.
+Off until the variable is set; takes effect on the next deploy. An admin viewing as general loses the two pages unless listed too.
+
 ## 2026-11-20: A console login can be added with one variable per person
 Console logins lived in two lists, `CONSOLE_USERS` and `CONSOLE_USERS_EXTRA`, which Vercel stores write-only. Adding a colleague meant retyping every password already in the list, or locking those people out.
 Now `CONSOLE_USER_<NAME>` set to a password signs that person in as `<name>` in lower case (`CONSOLE_USER_NIRANJAN` is the login `niranjan`). Deleting the variable removes the login and ends their open sessions. The two lists still work; a name in both uses the per-person password. A password with a comma is ignored.

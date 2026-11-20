@@ -687,6 +687,18 @@ export const config = {
     .filter(Boolean),
 
   /**
+   * General users who are developers: they also get the Dev board and
+   * Logs & errors, pages and API both, including what those pages do (sync,
+   * a KB draft from a thread, the error watch run). Admins always can.
+   * Per-person, as with the assistant: the dev board names colleagues and the
+   * logs name customer accounts. Nothing else of admin's comes with it.
+   */
+  consoleDevUsers: (env("CONSOLE_DEV_USERS") ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean),
+
+  /**
    * /activity identity merging: "Cherryl=Cherryl B,U07ABC;Suraj=suraj,Suraj Malla".
    * The same person is a Freshdesk agent name, a console login, a Slack user
    * and a monday user; first names line up on their own, this covers the rest.

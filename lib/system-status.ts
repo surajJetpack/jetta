@@ -149,6 +149,16 @@ export function channelRows(): StatusRow[] {
     setting: "GOOGLE_GENERATIVE_AI_API_KEY",
   });
 
+  // Who, besides admins, sees the Dev board and Logs & errors. Shown so the
+  // answer to "why can this person see that page" is on the page, not in Vercel.
+  rows.push({
+    label: "Developer pages",
+    tone: "on",
+    state: config.consoleDevUsers.length ? `ADMINS + ${config.consoleDevUsers.length}` : "ADMINS",
+    meaning: `Admins${config.consoleDevUsers.length ? ` and ${config.consoleDevUsers.join(", ")}` : ""} can open the Dev board and Logs & errors, and run what those pages do. Listed people stay general users everywhere else.`,
+    setting: "CONSOLE_DEV_USERS",
+  });
+
   return rows;
 }
 

@@ -1,11 +1,11 @@
 /**
- * The /logs page's data (admin only: it names customer accounts and shows raw
+ * The /logs page's data (admins and CONSOLE_DEV_USERS: it names customer accounts and shows raw
  * errors). GET reads the precomputed summary, one KV read. POST runs the watch
  * now, the same work as the hourly cron, alerts included (each alert is
  * deduped, so a click cannot repeat one the cron already sent).
  */
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/roles";
+import { requireDev } from "@/lib/roles";
 import { adminActor } from "@/lib/auth";
 import { getErrorWatchSummary, runErrorWatch } from "@/lib/error-watch";
 import { logOpsEvent } from "@/lib/events";
@@ -15,13 +15,13 @@ export const maxDuration = 300;
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
-  const denied = requireAdmin(req);
+  const denied = requireDev(req);
   if (denied) return denied;
   return NextResponse.json({ summary: await getErrorWatchSummary() });
 }
 
 export async function POST(req: NextRequest) {
-  const denied = requireAdmin(req);
+  const denied = requireDev(req);
   if (denied) return denied;
   const result = await runErrorWatch();
   await logOpsEvent({
