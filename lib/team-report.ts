@@ -586,7 +586,7 @@ export function formatTeamReport(r: TeamReport, links: ReportLinks = {}): string
   // The team, Jetta included, one line each in alphabetical order.
   const team = [
     ...r.people.map((p) => ({ name: p.name, group: p.group, line: personLine(p, ref) })),
-    { name: "Jetta", group: "other" as const, line: jettaLine(r.jetta, ref) },
+    { name: "Jetta", group: "support" as const, line: jettaLine(r.jetta, ref) },
   ]
     .filter((b) => b.line)
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -773,7 +773,8 @@ export function teamReportMessages(r: TeamReport, links: ReportLinks = {}): Repo
   if (sent > 0 || j.drafts > 0 || jettaBoard.length || jettaOther.length) {
     rows.push({
       name: "Jetta",
-      group: "other",
+      // She does support work, so she is listed with the support team.
+      group: "support",
       cells: [cell(txt("Jetta", true)), cell(...jettaFd), cell(...jettaBoard), cell(...jettaOther)],
     });
   }

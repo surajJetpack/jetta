@@ -150,7 +150,7 @@ check(
 );
 check("text: dev board and Slack on a person's line", text.includes("• *Sujata:* dev board: 1 filed, 1 comment, 1 status change · Slack: 1 (answers in 30 min)"), true);
 check("text: jetta's line", text.includes("• *Jetta:* 2 drafts (of 1 sent after one: 1 as-is, 0 edited, 0 replaced) · dev board: 1 filed"), true);
-check("text: without a roster everyone is in the second group, alphabetical, Jetta among them", [...text.matchAll(/^(?:\*([A-Z][a-z ]+)\*|• \*([A-Z][a-z]+):\*)/gm)].map((m) => m[1] ?? m[2]).slice(-4), ["Developers and others", "Cherryl", "Jetta", "Sujata"]);
+check("text: Jetta is in Support; without a roster the people are in the second group", [...text.matchAll(/^(?:\*([A-Z][a-z ]+)\*|• \*([A-Z][a-z]+):\*)/gm)].map((m) => m[1] ?? m[2]).slice(-5), ["Support", "Jetta", "Developers and others", "Cherryl", "Sujata"]);
 
 // With her login aliased, her own first replies move from the team line into her block.
 const named = buildTeamReport({
@@ -352,8 +352,8 @@ check("tables: Team is grouped, four columns, counts as links", teamTable.rows.m
   ["Name", "Freshdesk", "monday dev boards", "Other"],
   ["SUPPORT", " ", " ", " "],
   ["Cherryl", "[3 replies] · [1 note] · 1 first reply (1.4h)", "–", "[1 chat taken] (in 4 min) · 1 console decision"],
-  ["DEVELOPERS AND OTHERS", " ", " ", " "],
   ["Jetta", "1 reply sent ([#14820]) · [2 drafts written]", "[1 item filed] · [3 comments]", "–"],
+  ["DEVELOPERS AND OTHERS", " ", " ", " "],
   ["Sujata", "–", "[1 item filed] · [1 comment] · [1 status change]", "[1 Slack message]"],
 ]);
 const linkIn = (row: number, col: number, label: string) => teamTable.rows[row][col].elements[0].elements.find((e) => e.type === "link" && e.text === label);
@@ -363,7 +363,7 @@ check("tables: a count opens that person's list of that action for that day", li
   text: "3 replies",
 });
 check("tables: comments open the comments", (linkIn(5, 2, "1 comment") as { url: string }).url, "https://console.example/activity?person=sujata&action=monday.comment&day=2026-11-19&tz=Asia%2FKathmandu");
-check("tables: Jetta's reply links the ticket itself", linkIn(4, 1, "#14820"), { type: "link", url: "https://x.freshdesk.com/a/tickets/14820", text: "#14820" });
+check("tables: Jetta's reply links the ticket itself", linkIn(3, 1, "#14820"), { type: "link", url: "https://x.freshdesk.com/a/tickets/14820", text: "#14820" });
 
 const devMsgs = teamReportMessages(withDev, L)!;
 check("tables: developer updates link the ticket and the dev item", tableOf(devMsgs[0])!.rows.map((row) => row.map(flat)).slice(1), [
