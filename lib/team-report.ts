@@ -537,10 +537,6 @@ function dayInWords(day: string): string {
 /** Slack reads <, > and & as markup. */
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-/** Marks a ticket that already has Jetta's draft on it. */
-const DRAFT = ":memo:";
-/** Links written out per line before the rest become "+N". */
-const MAX_PER_LINE = 8;
 const MAX_PERSON_TICKETS = 6;
 
 /** The two groups of the Team table, in the order they are shown. */
@@ -631,6 +627,12 @@ function jettaLine(j: TeamReport["jetta"], ref: (id: number) => string): string 
   return parts.join(" · ");
 }
 
+/** How many things are on the To do list: customers waiting past the bar, and developer updates to pass on. */
+export function todoCount(r: TeamReport): number {
+  const a = r.actions;
+  return a.reply.length + a.stale.length + a.dev.length + a.devOlder;
+}
+
 export function formatTeamReport(r: TeamReport, links: ReportLinks = {}): string {
   const ref = (id: number) => (links.ticketUrlBase ? `<${links.ticketUrlBase}${id}|#${id}>` : `#${id}`);
   const page = (path: string, label: string) => (links.consoleUrl ? `<${links.consoleUrl}/${path}|${label}>` : label);
@@ -641,35 +643,14 @@ export function formatTeamReport(r: TeamReport, links: ReportLinks = {}): string
       ? `${t.newTickets} new, ${t.answered} answered${t.firstReplyH != null ? ` (first reply ${fmtHours(t.firstReplyH)})` : ""}`
       : "no new tickets",
     page("health", `${t.owed} waiting on us`),
+    // What needs doing is not posted: one link to the To do list on the console's Daily report page.
+    ...(todoCount(r) > 0 ? [page(`team-report?day=${r.day}#to-do`, `${todoCount(r)} to do`)] : []),
     ...t.sharedFirstReplies.map((f) => `${n(f.count, "first reply", "first replies")} from the ${esc(f.login)} login`),
   ];
   const lines: string[] = [`:bar_chart: *Support, ${dayInWords(r.day)}* · ${head.join(" · ")}`];
 
-  // To do: one line per kind, every entry a link. Only when there is something to do.
-  const { reply, stale, dev, devOlder } = r.actions;
-  const todo: string[] = [];
-  const replyRef = (a: ReplyAction) => `${ref(a.id)} ${fmtHours(a.sinceH)}${a.draftReady ? ` ${DRAFT}` : ""}`;
-  if (reply.length) todo.push(`• *Reply:* ${capped(reply.map(replyRef), MAX_PER_LINE)}`);
-  if (stale.length) todo.push(`• *Reply or close* (${Math.round(STALE_AFTER_H / 24)}d+): ${capped(stale.map(replyRef), MAX_PER_LINE)}`);
-  const devRef = (a: DevAction) => {
-    const item = a.url ? `<${a.url}|dev item>` : "dev item";
-    return `${a.ticketId != null ? `${ref(a.ticketId)} (${item})` : item}${a.draftReady ? ` ${DRAFT}` : ""}`;
-  };
-  const DEV_LABEL: [DevAction["kind"], string][] = [
-    ["relay", "Relay dev update"],
-    ["ask", "Dev needs customer info"],
-    ["fixed", "Fixed, tell customer"],
-    ["board", "Handed back on dev board"],
-  ];
-  for (const [kind, label] of DEV_LABEL) {
-    const of = dev.filter((a) => a.kind === kind);
-    if (of.length) todo.push(`• *${label}:* ${capped(of.map(devRef), MAX_PER_LINE)}`);
-  }
-  if (devOlder > 0) todo.push(`• ${page("dev-board", `${n(devOlder, "dev item")} handed back ${Math.round(DEV_FRESH_H / 24)}d+ ago`)}`);
-  if (todo.length) {
-    lines.push("", "*To do*", ...todo);
-    if ([...reply, ...stale, ...dev].some((a) => a.draftReady)) lines.push(`_${DRAFT} Jetta's draft is on the ticket_`);
-  }
+  // No To do section in the post: what needs doing is on the console's Daily
+  // report page, which the footer links to. The post is the team's day.
 
   // The team, Jetta included, one line each in alphabetical order.
   const team = [
@@ -722,16 +703,6 @@ const cell = (...parts: (Inline | string | false | null | undefined)[]): Cell =>
   const elements = parts.filter(Boolean).map((p) => (typeof p === "string" ? txt(p) : (p as Inline)));
   return { type: "rich_text", elements: [{ type: "rich_text_section", elements: elements.length ? elements : [txt("–")] }] };
 };
-/** `items`, each a run of inline elements, separated by `sep` and capped with "+N". */
-function joined(items: Inline[][], max: number, sep = "  "): Inline[] {
-  const out: Inline[] = [];
-  items.slice(0, max).forEach((it, i) => {
-    if (i) out.push(txt(sep));
-    out.push(...it);
-  });
-  if (items.length > max) out.push(txt(`${sep}+${items.length - max}`));
-  return out;
-}
 const tableChars = (t: TableBlock) =>
   t.rows.flat().reduce((sum, c) => sum + c.elements[0].elements.reduce((k, e) => k + ("text" in e ? e.text.length : 0) + ("url" in e ? e.url.length : 0) + ("name" in e ? e.name.length : 0), 0), 0);
 
@@ -741,49 +712,13 @@ const tableChars = (t: TableBlock) =>
  * can post the plain text instead.
  */
 export function teamReportMessages(r: TeamReport, links: ReportLinks = {}): ReportMessage[] | null {
-  const ticket = (id: number): Inline => (links.ticketUrlBase ? { type: "link", url: `${links.ticketUrlBase}${id}`, text: `#${id}` } : txt(`#${id}`));
-  const memo: Inline = { type: "emoji", name: "memo" };
   const text = formatTeamReport(r, links);
   const summary = text.split("\n")[0];
   const messages: ReportMessage[] = [];
 
-  // To do: what | tickets.
-  const { reply, stale, dev, devOlder } = r.actions;
-  const todo: Cell[][] = [];
-  const waiting = (a: ReplyAction): Inline[] => [ticket(a.id), txt(` ${fmtHours(a.sinceH)}`), ...(a.draftReady ? [txt(" "), memo] : [])];
-  if (reply.length) todo.push([cell(txt("Reply", true)), cell(...joined(reply.map(waiting), MAX_PER_LINE))]);
-  if (stale.length) todo.push([cell(txt(`Reply or close (${Math.round(STALE_AFTER_H / 24)}d+)`, true)), cell(...joined(stale.map(waiting), MAX_PER_LINE))]);
-  const devItem = (a: DevAction): Inline[] => {
-    const item: Inline = a.url ? { type: "link", url: a.url, text: "dev item" } : txt("dev item");
-    return [...(a.ticketId != null ? [ticket(a.ticketId), txt(" (")] : []), item, ...(a.ticketId != null ? [txt(")")] : []), ...(a.draftReady ? [txt(" "), memo] : [])];
-  };
-  const DEV_LABEL: [DevAction["kind"], string][] = [
-    ["relay", "Relay dev update"],
-    ["ask", "Dev needs customer info"],
-    ["fixed", "Fixed, tell customer"],
-    ["board", "Handed back on dev board"],
-  ];
-  for (const [kind, label] of DEV_LABEL) {
-    const of = dev.filter((a) => a.kind === kind);
-    if (of.length) todo.push([cell(txt(label, true)), cell(...joined(of.map(devItem), MAX_PER_LINE))]);
-  }
-  if (devOlder > 0) {
-    const label = `${n(devOlder, "dev item")} handed back ${Math.round(DEV_FRESH_H / 24)}d+ ago`;
-    todo.push([cell(txt("Older on dev board", true)), cell(links.consoleUrl ? { type: "link", url: `${links.consoleUrl}/dev-board`, text: label } : label)]);
-  }
-  const anyDraft = [...reply, ...stale, ...dev].some((a) => a.draftReady);
+  // One message: the summary line, then the Team table. The To do list is not
+  // posted; it is on the console's Daily report page.
   const first: unknown[] = [{ type: "section", text: { type: "mrkdwn", text: summary } }];
-  if (todo.length) {
-    const table: TableBlock = {
-      type: "table",
-      column_settings: [{ is_wrapped: true }, { is_wrapped: true }],
-      rows: [[cell(txt("To do", true)), cell(txt("Tickets", true))], ...todo],
-    };
-    if (tableChars(table) > TABLE_CHAR_BUDGET) return null;
-    first.push(table);
-    if (anyDraft) first.push({ type: "context", elements: [{ type: "mrkdwn", text: `${DRAFT} Jetta's draft is on the ticket` }] });
-  }
-  messages.push({ text: summary, blocks: first });
 
   // Team: two groups (support, then everyone else), one row per person in
   // alphabetical order, four columns: Name | Freshdesk | monday dev boards | Other.
@@ -879,7 +814,9 @@ export function teamReportMessages(r: TeamReport, links: ReportLinks = {}): Repo
     const footer = links.consoleUrl
       ? [{ type: "context", elements: [{ type: "mrkdwn", text: [`team-report?day=${r.day}|Open this report in the console`, "dev-board|Dev board", "health|Support health"].map((x) => `<${links.consoleUrl}/${x}>`).join(" · ") }] }]
       : [];
-    messages.push({ text: `Team, ${dayInWords(r.day)}`, blocks: [table, ...footer] });
+    messages.push({ text: summary, blocks: [...first, table, ...footer] });
+  } else {
+    messages.push({ text: summary, blocks: first });
   }
   return messages;
 }
