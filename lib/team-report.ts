@@ -39,6 +39,8 @@ export const DEV_FRESH_H = 14 * 24;
 /** A fix that shipped longer ago than this is not chased here. */
 export const FIXED_WITHIN_H = 7 * 24;
 const MAX_DEV_LINES = 6;
+/** The person key Jetta's Freshdesk login resolves to once it has an alias (AGENT_ALIASES "Jetta=App Support"). */
+const JETTA_KEY = "jetta";
 
 /**
  * Something engineering did on a client item that the customer has not heard
@@ -129,6 +131,16 @@ export interface TeamReport {
     /** Replies people sent that day right after one of her drafts. */
     followed: { asIs: number; edited: number; rewritten: number };
     handoffs: Record<HandoffKind, number>;
+    /**
+     * First replies she sent herself that day (automatic first responses, and
+     * drafts approved in the console, which go out under her login). Counted
+     * only when her login resolves to "Jetta"; otherwise they stay on the team
+     * line under the login's own name.
+     */
+    firstReplies: number;
+    firstReplyH: number | null;
+    /** Client items she filed on the dev boards that day. Null when the Dev board rows were not read. */
+    devItemsFiled: number | null;
   };
 }
 
@@ -225,7 +237,8 @@ export function buildTeamReport(input: TeamReportInput): TeamReport {
 
   const listed = new Set(people.map((p) => p.key));
   const sharedFirstReplies = [...firstBy.entries()]
-    .filter(([k]) => !listed.has(k))
+    // Jetta's own first replies are in her block, once her login has an alias.
+    .filter(([k]) => !listed.has(k) && k !== JETTA_KEY)
     .map(([k, hs]) => ({ login: firstLogin.get(k) ?? k, count: hs.length, firstReplyH: median(hs) }))
     .sort((a, b) => a.login.localeCompare(b.login));
 
@@ -328,6 +341,9 @@ export function buildTeamReport(input: TeamReportInput): TeamReport {
     drafts: 0,
     followed: { asIs: 0, edited: 0, rewritten: 0 },
     handoffs: { dev_item: 0, slack: 0, chat: 0 },
+    firstReplies: firstBy.get(JETTA_KEY)?.length ?? 0,
+    firstReplyH: median(firstBy.get(JETTA_KEY) ?? []),
+    devItemsFiled: input.devRows ? input.devRows.filter((r) => r.origin === "jetta" && dayOf(r.createdAt) === day).length : null,
   };
   for (const t of tickets) {
     for (const s of t.suggestions) {
@@ -424,6 +440,30 @@ function personLines(p: PersonReport): string[] {
   return out;
 }
 
+/** Jetta's block: the same shape as a person's, from her own records. */
+function jettaLines(j: TeamReport["jetta"]): string[] {
+  const out: string[] = [];
+  const followed = j.followed.asIs + j.followed.edited + j.followed.rewritten;
+  const fd = [
+    j.firstReplies > 0 &&
+      `${n(j.firstReplies, "first reply", "first replies")} sent${j.firstReplyH != null ? ` (median ${fmtHours(j.firstReplyH)} after the ticket came in)` : ""}`,
+    j.drafts > 0 && `${n(j.drafts, "draft")} written for the team`,
+  ].filter(Boolean);
+  if (fd.length) out.push(`• Freshdesk: ${fd.join(" · ")}`);
+  if (followed) {
+    out.push(`• Of ${n(followed, "reply", "replies")} the team sent after a draft: ${j.followed.asIs} as-is, ${j.followed.edited} edited, ${j.followed.rewritten} replaced`);
+  }
+  // The board is the better count of items she filed; her ticket notes are the fallback.
+  const filed = j.devItemsFiled ?? j.handoffs.dev_item;
+  if (filed > 0) out.push(`• monday dev boards: ${n(filed, "item")} filed for developers`);
+  const handed = [
+    j.handoffs.slack > 0 && n(j.handoffs.slack, "Slack escalation"),
+    j.handoffs.chat > 0 && `${n(j.handoffs.chat, "chat")} turned into a ticket`,
+  ].filter(Boolean);
+  if (handed.length) out.push(`• Handed to people: ${handed.join(", ")}`);
+  return out;
+}
+
 export function formatTeamReport(r: TeamReport, links: { ticketUrlBase?: string; consoleUrl?: string } = {}): string {
   const lines: string[] = [`:bar_chart: *Support team, ${dayInWords(r.day)}* _(${r.tz} day)_`];
 
@@ -501,33 +541,12 @@ export function formatTeamReport(r: TeamReport, links: { ticketUrlBase?: string;
     }
   }
 
-  for (const p of r.people) {
-    const body = personLines(p);
-    if (!body.length) continue;
-    lines.push("", `*${esc(p.name)}*`, ...body);
-  }
-  if (!r.people.length) lines.push("", "_Nothing recorded for anyone on the team that day._");
-
-  const j = r.jetta;
-  const followed = j.followed.asIs + j.followed.edited + j.followed.rewritten;
-  const handoffs = [
-    j.handoffs.dev_item > 0 && n(j.handoffs.dev_item, "dev item"),
-    j.handoffs.slack > 0 && n(j.handoffs.slack, "Slack escalation"),
-    j.handoffs.chat > 0 && n(j.handoffs.chat, "chat", "chats") + " turned into a ticket",
-  ].filter(Boolean);
-  if (j.drafts || followed || handoffs.length) {
-    lines.push("", "*Jetta*");
-    if (j.drafts || followed) {
-      lines.push(
-        `• ${n(j.drafts, "draft")} written${
-          followed
-            ? ` · of ${n(followed, "reply", "replies")} sent after a draft: ${j.followed.asIs} as-is, ${j.followed.edited} edited, ${j.followed.rewritten} replaced`
-            : ""
-        }`,
-      );
-    }
-    if (handoffs.length) lines.push(`• Handed to people: ${handoffs.join(", ")}`);
-  }
+  // Jetta is listed with the team, in the same alphabetical order.
+  const blocks = [...r.people.map((p) => ({ name: p.name, body: personLines(p) })), { name: "Jetta", body: jettaLines(r.jetta) }]
+    .filter((b) => b.body.length > 0)
+    .sort((a, b) => a.name.localeCompare(b.name));
+  for (const b of blocks) lines.push("", `*${esc(b.name)}*`, ...b.body);
+  if (!r.people.length) lines.push("", "_Nothing recorded for any person on the team that day._");
 
   lines.push(
     "",

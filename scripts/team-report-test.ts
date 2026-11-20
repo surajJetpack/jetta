@@ -113,7 +113,14 @@ check("team: owed now, oldest first, closed and junk excluded", r.team.oldestOwe
   [14821, 16],
 ]);
 check("first replies from a login with no person behind it", r.team.sharedFirstReplies, [{ login: "App Support", count: 1, firstReplyH: 0.1 }]);
-check("jetta: drafts, what followed, handoffs", r.jetta, { drafts: 2, followed: { asIs: 1, edited: 0, rewritten: 0 }, handoffs: { dev_item: 1, slack: 0, chat: 0 } });
+check("jetta: drafts, what followed, handoffs", r.jetta, {
+  drafts: 2,
+  followed: { asIs: 1, edited: 0, rewritten: 0 },
+  handoffs: { dev_item: 1, slack: 0, chat: 0 },
+  firstReplies: 0,
+  firstReplyH: null,
+  devItemsFiled: null,
+});
 
 const text = formatTeamReport(r, { ticketUrlBase: "https://x.freshdesk.com/a/tickets/", consoleUrl: "https://console.example" });
 console.log(`\n${text}\n`);
@@ -131,7 +138,21 @@ check("text: action items link and escape customer text", text.includes("• Rep
 check("text: an action names who answered last", text.includes("• Reply to <https://x.freshdesk.com/a/tickets/14700|#14700> Ticket 14700: customer has waited 2d (last answered by Sujata)"), true);
 check("text: a person's Freshdesk line", text.includes("• Freshdesk: 3 replies, 1 note on 2 tickets · 1 first reply (median 1.4h after the ticket came in)"), true);
 check("text: monday line", text.includes("• monday dev boards: 1 item created, 1 comment, 1 status change across 2 items"), true);
-check("text: jetta block", text.includes("• 2 drafts written · of 1 reply sent after a draft: 1 as-is, 0 edited, 0 replaced"), true);
+check("text: jetta block", text.includes("*Jetta*\n• Freshdesk: 2 drafts written for the team\n• Of 1 reply the team sent after a draft: 1 as-is, 0 edited, 0 replaced\n• monday dev boards: 1 item filed for developers"), true);
+check("text: jetta sits with the team, alphabetically", [...text.matchAll(/^\*([A-Z][a-z]+)\*$/gm)].map((m) => m[1]), ["Cherryl", "Jetta", "Sujata"]);
+
+// With her login aliased, her own first replies move from the team line into her block.
+const named = buildTeamReport({
+  day: DAY,
+  tz: TZ,
+  acts,
+  tickets,
+  aliases: parseAliases("Cherryl=Solutions Team;Jetta=App Support"),
+  now,
+  devRows: [],
+});
+check("jetta: first replies under her own name once the login has an alias", [named.jetta.firstReplies, named.jetta.firstReplyH, named.team.sharedFirstReplies, named.jetta.devItemsFiled], [1, 0.1, [], 0]);
+check("text: jetta's first replies", formatTeamReport(named).includes("• Freshdesk: 1 first reply sent (median 6 min after the ticket came in) · 2 drafts written for the team"), true);
 check("text: no per-person line about Jetta's drafts", text.includes("Jetta's drafts:"), false);
 check("text: no ranking words", /\b(top|rank|best|worst|leader)/i.test(text), false);
 
