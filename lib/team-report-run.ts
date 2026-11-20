@@ -14,7 +14,7 @@ import { getOpsEvents } from "./events";
 import { itemTickets } from "./dev-item-links";
 import { markEventSeen, unmarkEventSeen } from "./kv";
 import { getSupportHealth, loadPerfTickets } from "./performance-sync";
-import { buildTeamReport, formatTeamReport, isEmptyReport, type TeamReport } from "./team-report";
+import { buildTeamReport, formatTeamReport, isEmptyReport, teamReportMessages, type ReportMessage, type TeamReport } from "./team-report";
 import { freshdeskTicketUrl } from "./tools/freshdesk";
 import { postTeamReport } from "./tools/slack";
 import { shiftDayKey, supportTimeZone, zonedDayKey } from "./tz";
@@ -40,7 +40,10 @@ export function reportDay(now = Date.now(), tz = reportTimeZone()): string {
   return shiftDayKey(zonedDayKey(new Date(now), tz), -1);
 }
 
-export async function previewTeamReport(day?: string, now = Date.now()): Promise<{ report: TeamReport; text: string }> {
+export async function previewTeamReport(
+  day?: string,
+  now = Date.now(),
+): Promise<{ report: TeamReport; text: string; tables: ReportMessage[] | null }> {
   const tz = reportTimeZone();
   const d = day && DAY_KEY.test(day) ? day : reportDay(now, tz);
   // Two days of slack either side of the day covers every timezone offset.
@@ -74,28 +77,30 @@ export async function previewTeamReport(day?: string, now = Date.now()): Promise
     itemTickets: links,
     jettaSent,
   });
-  const text = formatTeamReport(report, { ticketUrlBase: freshdeskTicketUrl(""), consoleUrl: config.consoleUrl });
-  return { report, text };
+  const urls = { ticketUrlBase: freshdeskTicketUrl(""), consoleUrl: config.consoleUrl };
+  // `text` is the whole report as plain lines: the fallback when tables are refused, and the preview.
+  return { report, text: formatTeamReport(report, urls), tables: teamReportMessages(report, urls) };
 }
 
 export type TeamReportResult =
   | { status: "off"; reason: string }
-  | { status: "already_posted" | "empty" | "posted"; day: string; people: number }
+  | { status: "already_posted" | "empty"; day: string; people: number }
+  | { status: "posted"; day: string; people: number; as: "tables" | "text" }
   | { status: "error"; day: string; error: string };
 
 export async function runTeamReport(now = Date.now()): Promise<TeamReportResult> {
   const channel = config.teamReport.channel;
   if (!channel) return { status: "off", reason: "JETTA_TEAM_REPORT_CHANNEL is not set" };
   const day = reportDay(now);
-  const { report, text } = await previewTeamReport(day, now);
+  const { report, text, tables } = await previewTeamReport(day, now);
   const people = report.people.length;
   if (isEmptyReport(report)) return { status: "empty", day, people };
   // One post per day, however often the cron or a retry fires.
   const marker = `team-report:${day}`;
   if (!(await markEventSeen(marker, 3 * 86_400))) return { status: "already_posted", day, people };
   try {
-    await postTeamReport(channel, text);
-    return { status: "posted", day, people };
+    const as = await postTeamReport(channel, text, tables);
+    return { status: "posted", day, people, as };
   } catch (e) {
     await unmarkEventSeen(marker).catch(() => {});
     return { status: "error", day, error: e instanceof Error ? e.message : String(e) };

@@ -7,7 +7,7 @@
 import { parseAliases, type Activity } from "../lib/activity";
 import type { DevRow } from "../lib/dev-board";
 import type { PerfTicket } from "../lib/performance";
-import { buildTeamReport, fmtHours, formatTeamReport, isEmptyReport } from "../lib/team-report";
+import { buildTeamReport, fmtHours, formatTeamReport, isEmptyReport, TABLE_CHAR_BUDGET, teamReportMessages, type TableBlock } from "../lib/team-report";
 
 let failed = 0;
 function check(name: string, actual: unknown, expected: unknown) {
@@ -310,6 +310,40 @@ check(
 check("text: the other dev kinds", [devText.includes("• *Fixed, tell customer:* <https://x.freshdesk.com/a/tickets/502|#502> (<https://monday.example/i-fixed|dev item>)"), devText.includes("• *Dev needs customer info:* <https://x.freshdesk.com/a/tickets/504|#504> (<https://monday.example/i-ask|dev item>)"), devText.includes("• *Handed back on dev board:* <https://monday.example/i-board|dev item>")], [true, true, true]);
 check("text: older handbacks are one linked line", devText.includes("• <https://console.example/dev-board|1 dev item handed back 14d+ ago>"), true);
 check("text: dev updates alone are enough for a To do section", devText.includes("*To do*"), true);
+
+// The same report as Slack tables: a To do table and a Team table, one per message.
+const L = { ticketUrlBase: "https://x.freshdesk.com/a/tickets/", consoleUrl: "https://console.example" };
+/** A cell as text, links shown as [text]. */
+const flat = (c: TableBlock["rows"][number][number]) =>
+  c.elements[0].elements.map((e) => (e.type === "link" ? `[${e.text}]` : e.type === "emoji" ? `:${e.name}:` : e.text)).join("");
+const tableOf = (m: { blocks: unknown[] }) => (m.blocks as TableBlock[]).find((b) => b.type === "table");
+const msgs = teamReportMessages(sending, L)!;
+check("tables: two messages, the summary line first", [msgs.length, msgs[0].text.startsWith(":bar_chart: *Support, Thu 19 Nov*")], [2, true]);
+check("tables: To do rows", tableOf(msgs[0])!.rows.map((row) => row.map(flat)), [
+  ["To do", "Tickets"],
+  ["Reply", "[#14700] 2d  [#14821] 16h"],
+]);
+check("tables: Team has the four columns, one row per person, Jetta among them", tableOf(msgs[1])!.rows.map((row) => row.map(flat)), [
+  ["Name", "Freshdesk", "monday dev boards", "Other"],
+  ["Cherryl", "2 replies on 1 ticket ([#14809])", "–", "1 chat taken (picked up in 4 min), 1 console decision"],
+  ["Jetta", "3 replies sent ([#14700] [#14820]): 1 first response in 6 min, 2 follow-ups · 2 drafts written for the team", "1 item filed for developers", "–"],
+  // No alias for this login in this run, so it is its own row.
+  ["Solutions", "1 reply, 1 note on 1 ticket ([#14815]) · 1 first reply (1.4h)", "–", "–"],
+  ["Sujata", "–", "1 item filed, 1 comment, 1 status change (2 items)", "1 Slack message (answers in 30 min)"],
+]);
+check("tables: a ticket cell is a real link", tableOf(msgs[1])!.rows[1][1].elements[0].elements.find((e) => e.type === "link"), { type: "link", url: "https://x.freshdesk.com/a/tickets/14809", text: "#14809" });
+const devMsgs = teamReportMessages(withDev, L)!;
+check("tables: developer updates link the ticket and the dev item", tableOf(devMsgs[0])!.rows.map((row) => row.map(flat)).slice(1), [
+  ["Relay dev update", "[#500] ([dev item])"],
+  ["Dev needs customer info", "[#504] ([dev item])"],
+  ["Fixed, tell customer", "[#502] ([dev item])"],
+  ["Handed back on dev board", "[dev item]"],
+  ["Older on dev board", "[1 dev item handed back 14d+ ago]"],
+]);
+check("tables: nothing to do means no To do table", tableOf(teamReportMessages(calm, L)![0]), undefined);
+// Too big for Slack's table limit: no tables, so the caller posts text.
+const huge = { ...sending, people: Array.from({ length: 80 }, (_, i) => ({ ...sending.people[0], name: `Person${i}`, key: `p${i}`, fd: { ...sending.people[0].fd, ticketIds: [1, 2, 3, 4, 5, 6] } })) };
+check("tables: over the size budget returns null", [TABLE_CHAR_BUDGET, teamReportMessages(huge, L)], [9000, null]);
 
 const quiet = buildTeamReport({ day: "2026-11-21", tz: TZ, acts, tickets: tickets.filter((t) => t.status === 5), aliases, now });
 check("a day with nothing is empty, and prints only the header", [isEmptyReport(quiet), formatTeamReport(quiet).split("\n").length], [true, 1]);

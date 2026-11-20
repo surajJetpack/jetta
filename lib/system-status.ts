@@ -589,7 +589,7 @@ function fixLookupRow(): StatusRow {
 function teamReportRow(): StatusRow {
   const channel = config.teamReport.channel;
   const what =
-    "one short Slack message each morning (03:30 UTC) about the day before, in which every ticket and dev item is a link. " +
+    "a short report each morning (03:30 UTC) about the day before, as two Slack tables (To do, then Team with the columns Name, Freshdesk, monday dev boards, Other), every ticket and dev item a link; plain lines instead if Slack refuses the tables. " +
     "First line: new tickets, answered, median first reply, customers waiting on us. " +
     "To do, only when there is something: Reply (customers waiting over 4 hours, longest first), Reply or close (over 14 days), and developer updates the customer has not been told about, from the Dev board: Relay dev update, Dev needs customer info, Fixed tell customer (resolved in the last 7 days), each only while its ticket is open and nobody has written to the customer since. A memo mark means Jetta's draft is on the ticket. " +
     "Team: one line per person, alphabetical and not ranked, with Freshdesk replies (tickets linked), first replies, chats, both monday dev boards, Slack and console decisions. Jetta is on the list too: replies she sent herself (first responses and follow-ups), drafts written and how they were used, dev items filed, handoffs. " +

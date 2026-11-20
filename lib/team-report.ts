@@ -563,3 +563,172 @@ export function formatTeamReport(r: TeamReport, links: ReportLinks = {}): string
   if (links.consoleUrl) lines.push("", [page("activity", "Team activity"), page("dev-board", "Dev board"), page("health", "Support health")].join(" · "));
   return lines.join("\n");
 }
+
+// ── Slack tables ────────────────────────────────────────────────────
+//
+// The same report as Block Kit `table` blocks: a To do table and a Team table.
+// Each table is its own message, because a message carries one table. Slack
+// caps a message's table cells at 10,000 characters in total, link URLs
+// included, so a table that would pass TABLE_CHAR_BUDGET is not built and the
+// caller posts the plain text above instead.
+
+type Inline =
+  | { type: "text"; text: string; style?: { bold?: boolean } }
+  | { type: "link"; url: string; text: string }
+  | { type: "emoji"; name: string };
+interface Cell {
+  type: "rich_text";
+  elements: [{ type: "rich_text_section"; elements: Inline[] }];
+}
+export interface TableBlock {
+  type: "table";
+  column_settings: ({ is_wrapped?: boolean; align?: "left" | "center" | "right" } | null)[];
+  rows: Cell[][];
+}
+export interface ReportMessage {
+  /** Notification and fallback text for clients that cannot draw blocks. */
+  text: string;
+  blocks: unknown[];
+}
+
+export const TABLE_CHAR_BUDGET = 9_000;
+
+const txt = (text: string, bold = false): Inline => (bold ? { type: "text", text, style: { bold: true } } : { type: "text", text });
+/** A cell is never empty: Slack rejects a section with no elements. */
+const cell = (...parts: (Inline | string | false | null | undefined)[]): Cell => {
+  const elements = parts.filter(Boolean).map((p) => (typeof p === "string" ? txt(p) : (p as Inline)));
+  return { type: "rich_text", elements: [{ type: "rich_text_section", elements: elements.length ? elements : [txt("–")] }] };
+};
+/** `items`, each a run of inline elements, separated by `sep` and capped with "+N". */
+function joined(items: Inline[][], max: number, sep = "  "): Inline[] {
+  const out: Inline[] = [];
+  items.slice(0, max).forEach((it, i) => {
+    if (i) out.push(txt(sep));
+    out.push(...it);
+  });
+  if (items.length > max) out.push(txt(`${sep}+${items.length - max}`));
+  return out;
+}
+const tableChars = (t: TableBlock) =>
+  t.rows.flat().reduce((sum, c) => sum + c.elements[0].elements.reduce((k, e) => k + ("text" in e ? e.text.length : 0) + ("url" in e ? e.url.length : 0) + ("name" in e ? e.name.length : 0), 0), 0);
+
+/**
+ * The report as Slack messages with tables: [summary + To do table, Team
+ * table]. Null when a table would be over Slack's size limit, so the caller
+ * can post the plain text instead.
+ */
+export function teamReportMessages(r: TeamReport, links: ReportLinks = {}): ReportMessage[] | null {
+  const ticket = (id: number): Inline => (links.ticketUrlBase ? { type: "link", url: `${links.ticketUrlBase}${id}`, text: `#${id}` } : txt(`#${id}`));
+  const memo: Inline = { type: "emoji", name: "memo" };
+  const text = formatTeamReport(r, links);
+  const summary = text.split("\n")[0];
+  const messages: ReportMessage[] = [];
+
+  // To do: what | tickets.
+  const { reply, stale, dev, devOlder } = r.actions;
+  const todo: Cell[][] = [];
+  const waiting = (a: ReplyAction): Inline[] => [ticket(a.id), txt(` ${fmtHours(a.sinceH)}`), ...(a.draftReady ? [txt(" "), memo] : [])];
+  if (reply.length) todo.push([cell(txt("Reply", true)), cell(...joined(reply.map(waiting), MAX_PER_LINE))]);
+  if (stale.length) todo.push([cell(txt(`Reply or close (${Math.round(STALE_AFTER_H / 24)}d+)`, true)), cell(...joined(stale.map(waiting), MAX_PER_LINE))]);
+  const devItem = (a: DevAction): Inline[] => {
+    const item: Inline = a.url ? { type: "link", url: a.url, text: "dev item" } : txt("dev item");
+    return [...(a.ticketId != null ? [ticket(a.ticketId), txt(" (")] : []), item, ...(a.ticketId != null ? [txt(")")] : []), ...(a.draftReady ? [txt(" "), memo] : [])];
+  };
+  const DEV_LABEL: [DevAction["kind"], string][] = [
+    ["relay", "Relay dev update"],
+    ["ask", "Dev needs customer info"],
+    ["fixed", "Fixed, tell customer"],
+    ["board", "Handed back on dev board"],
+  ];
+  for (const [kind, label] of DEV_LABEL) {
+    const of = dev.filter((a) => a.kind === kind);
+    if (of.length) todo.push([cell(txt(label, true)), cell(...joined(of.map(devItem), MAX_PER_LINE))]);
+  }
+  if (devOlder > 0) {
+    const label = `${n(devOlder, "dev item")} handed back ${Math.round(DEV_FRESH_H / 24)}d+ ago`;
+    todo.push([cell(txt("Older on dev board", true)), cell(links.consoleUrl ? { type: "link", url: `${links.consoleUrl}/dev-board`, text: label } : label)]);
+  }
+  const anyDraft = [...reply, ...stale, ...dev].some((a) => a.draftReady);
+  const first: unknown[] = [{ type: "section", text: { type: "mrkdwn", text: summary } }];
+  if (todo.length) {
+    const table: TableBlock = {
+      type: "table",
+      column_settings: [{ is_wrapped: true }, { is_wrapped: true }],
+      rows: [[cell(txt("To do", true)), cell(txt("Tickets", true))], ...todo],
+    };
+    if (tableChars(table) > TABLE_CHAR_BUDGET) return null;
+    first.push(table);
+    if (anyDraft) first.push({ type: "context", elements: [{ type: "mrkdwn", text: `${DRAFT} Jetta's draft is on the ticket` }] });
+  }
+  messages.push({ text: summary, blocks: first });
+
+  // Team: one row per person, Jetta included, alphabetical. Four columns:
+  // Name | Freshdesk | monday dev boards | Other.
+  const linksAfter = (ids: number[]): Inline[] => (ids.length ? [txt(" ("), ...joined(ids.map((id) => [ticket(id)]), MAX_PERSON_TICKETS, " "), txt(")")] : []);
+  const rows: { name: string; cells: Cell[] }[] = r.people.map((p) => {
+    const m = p.monday;
+    const work = [p.fd.replies > 0 && n(p.fd.replies, "reply", "replies"), p.fd.notes > 0 && n(p.fd.notes, "note")].filter(Boolean).join(", ");
+    const first =
+      p.fd.firstReplies > 0
+        ? `${n(p.fd.firstReplies, "first reply", "first replies")}${p.fd.firstReplyH != null ? ` (${p.fd.firstReplies > 1 ? "median " : ""}${fmtHours(p.fd.firstReplyH)})` : ""}`
+        : "";
+    const fd: (Inline | string | false)[] = [
+      work && `${work} on ${n(p.fd.tickets, "ticket")}`,
+      ...(work ? linksAfter(p.fd.ticketIds) : []),
+      work && first && " · ",
+      first,
+    ];
+    const board = [
+      m.created > 0 && `${n(m.created, "item")} filed`,
+      m.comments > 0 && n(m.comments, "comment"),
+      m.status > 0 && n(m.status, "status change"),
+      m.moved > 0 && n(m.moved, "move"),
+    ]
+      .filter(Boolean)
+      .join(", ");
+    const other = [
+      p.chat.taken > 0 && `${n(p.chat.taken, "chat")} taken${p.chat.pickupMin != null ? ` (picked up in ${fmtMin(p.chat.pickupMin)})` : ""}`,
+      p.chat.actions > 0 && n(p.chat.actions, "chat action"),
+      p.slack.messages > 0 && `${n(p.slack.messages, "Slack message")}${p.slack.responseMin != null ? ` (answers in ${fmtMin(p.slack.responseMin)})` : ""}`,
+      p.console > 0 && n(p.console, "console decision"),
+    ].filter(Boolean);
+    return {
+      name: p.name,
+      cells: [cell(txt(p.name, true)), cell(...fd), cell(board && `${board}${m.items > 0 ? ` (${n(m.items, "item")})` : ""}`), cell(other.join(", "))],
+    };
+  });
+  const j = r.jetta;
+  const sent = j.replies.first + j.replies.followups;
+  const filed = j.devItemsFiled ?? j.handoffs.dev_item;
+  const jettaFd: (Inline | string | false)[] = [
+    sent > 0 && `${n(sent, "reply", "replies")} sent`,
+    ...(sent > 0 ? linksAfter(j.replies.ticketIds) : []),
+    sent > 0 &&
+      `: ${[j.replies.first > 0 && `${n(j.replies.first, "first response")}${j.firstReplyH != null ? ` in ${fmtHours(j.firstReplyH)}` : ""}`, j.replies.followups > 0 && n(j.replies.followups, "follow-up")]
+        .filter(Boolean)
+        .join(", ")}`,
+    sent > 0 && j.drafts > 0 && " · ",
+    j.drafts > 0 && `${n(j.drafts, "draft")} written for the team`,
+  ];
+  const jettaOther = [j.handoffs.slack > 0 && n(j.handoffs.slack, "Slack escalation"), j.handoffs.chat > 0 && `${n(j.handoffs.chat, "chat")} turned into a ticket`].filter(Boolean);
+  if (sent > 0 || j.drafts > 0 || filed > 0 || jettaOther.length) {
+    rows.push({
+      name: "Jetta",
+      cells: [cell(txt("Jetta", true)), cell(...jettaFd), cell(filed > 0 && `${n(filed, "item")} filed for developers`), cell(jettaOther.join(", "))],
+    });
+  }
+  rows.sort((a, b) => a.name.localeCompare(b.name));
+  if (rows.length) {
+    const table: TableBlock = {
+      type: "table",
+      column_settings: [null, { is_wrapped: true }, { is_wrapped: true }, { is_wrapped: true }],
+      rows: [["Name", "Freshdesk", "monday dev boards", "Other"].map((h) => cell(txt(h, true))), ...rows.map((x) => x.cells)],
+    };
+    if (tableChars(table) > TABLE_CHAR_BUDGET) return null;
+    const footer = links.consoleUrl
+      ? [{ type: "context", elements: [{ type: "mrkdwn", text: ["activity|Team activity", "dev-board|Dev board", "health|Support health"].map((x) => `<${links.consoleUrl}/${x}>`).join(" · ") }] }]
+      : [];
+    messages.push({ text: `Team, ${dayInWords(r.day)}`, blocks: [table, ...footer] });
+  }
+  return messages;
+}

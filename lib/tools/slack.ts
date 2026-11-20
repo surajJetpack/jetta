@@ -1010,6 +1010,38 @@ export async function checkChannels(): Promise<ChannelCheck[]> {
  * uninvited channel id fails, and the cron says so, instead of publishing each
  * person's day somewhere nobody chose.
  */
-export async function postTeamReport(channel: string, text: string): Promise<void> {
+export async function postTeamReport(
+  channel: string,
+  text: string,
+  /** The same report as table messages (lib/team-report.ts), or null when it does not fit in tables. */
+  tables: { text: string; blocks: unknown[] }[] | null = null,
+): Promise<"tables" | "text"> {
+  if (tables?.length) {
+    try {
+      for (const m of tables) await postBlocks(channel, m.text, m.blocks);
+      return "tables";
+    } catch (e) {
+      // Tables are the newest thing Slack draws and the first to be refused
+      // (an older workspace, a size limit). The report still has to arrive, so
+      // it goes out as text, whole, even if a first table already landed.
+      console.warn("team report: tables were refused, posting text instead:", e instanceof Error ? e.message : e);
+    }
+  }
   await postMessage(channel, text, undefined, false, false);
+  return "text";
+}
+
+/** A message with Block Kit blocks, to exactly the channel named: no fallback channel. */
+async function postBlocks(channel: string, text: string, blocks: unknown[]): Promise<void> {
+  if (!config.slack.live) {
+    console.log(`[stub] slack → ${channel} (blocks):\n${text}\n${JSON.stringify(blocks)}`);
+    return;
+  }
+  const res = await fetch("https://slack.com/api/chat.postMessage", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${config.slack.botToken}`, "Content-Type": "application/json; charset=utf-8" },
+    body: JSON.stringify({ channel, text: stripBoardViewUrls(text), blocks }),
+  });
+  const json = (await res.json()) as { ok: boolean; error?: string };
+  if (!json.ok) throw new Error(`Slack postMessage (blocks) failed: ${json.error}`);
 }
