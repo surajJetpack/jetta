@@ -5,6 +5,11 @@ Newest first. One entry per change people would notice: what Jetta does differen
 Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain words.
 
 
+## 2026-11-20: A console login can be added with one variable per person
+Console logins lived in two lists, `CONSOLE_USERS` and `CONSOLE_USERS_EXTRA`, which Vercel stores write-only. Adding a colleague meant retyping every password already in the list, or locking those people out.
+Now `CONSOLE_USER_<NAME>` set to a password signs that person in as `<name>` in lower case (`CONSOLE_USER_NIRANJAN` is the login `niranjan`). Deleting the variable removes the login and ends their open sessions. The two lists still work; a name in both uses the per-person password. A password with a comma is ignored.
+A new login is a general user unless the name is also in `CONSOLE_ADMINS`. Setting or deleting a variable takes effect on the next deploy.
+
 ## 2026-11-20: On the dev board, a drafted reply is called a draft
 In draft mode Jetta's reply to the customer is only a suggested reply on the ticket (a private note) until a colleague sends it. In a run a developer started she still wrote on the dev item, and in her own note, "I have replied to / asked the customer", and developers took that as sent.
 Now she is told the reply is a draft and says so: "I have drafted a reply to the customer; it goes out once a colleague in support approves it." If her comment does not say it, one line saying the reply has not gone out yet is added to the comment. A private note alone is never described as a reply.

@@ -28,6 +28,28 @@ function joinCsv(...parts: (string | undefined)[]): string | undefined {
 }
 
 /**
+ * One console login per variable: CONSOLE_USER_<NAME>=<password> signs in as
+ * <name> in lower case (CONSOLE_USER_NIRANJAN → "niranjan"). The two list
+ * variables are write-only on Vercel, so appending to either means retyping
+ * every password already in it; a variable per person is added or deleted
+ * without touching anyone else's login.
+ *
+ * A password with a comma is skipped, not truncated: the logins travel as one
+ * "user:pass,user:pass" string, and half a password that works is worse than
+ * a login that does not.
+ */
+export function perPersonLogins(source: Record<string, string | undefined> = process.env): string | undefined {
+  const entries: string[] = [];
+  for (const key of Object.keys(source).sort()) {
+    const m = /^CONSOLE_USER_([A-Z0-9_]+)$/.exec(key);
+    const pass = source[key];
+    if (!m || !pass || pass.includes(",")) continue;
+    entries.push(`${m[1].toLowerCase()}:${pass}`);
+  }
+  return entries.length ? entries.join(",") : undefined;
+}
+
+/**
  * Stub mode is ON by default unless STUB_MODE is explicitly "false".
  * This keeps the deployment safe: without credentials it cannot accidentally
  * hit a real billing or escalation API.
@@ -638,9 +660,12 @@ export const config = {
    * Console logins: "user:pass,user:pass" (first colon splits, so passwords may
    * contain colons). Unset = dev-open console, matching the old unset-secret rule.
    * CONSOLE_USERS_EXTRA is appended so logins can be added without reading back
-   * the (Vercel-sensitive, write-only) CONSOLE_USERS value.
+   * the (Vercel-sensitive, write-only) CONSOLE_USERS value. A single person
+   * is better added as CONSOLE_USER_<NAME> (see perPersonLogins). The lists
+   * come first and a later entry wins, so a name in both signs in with the
+   * per-person password.
    */
-  consoleUsers: joinCsv(env("CONSOLE_USERS"), env("CONSOLE_USERS_EXTRA")),
+  consoleUsers: joinCsv(env("CONSOLE_USERS"), env("CONSOLE_USERS_EXTRA"), perPersonLogins()),
   /**
    * Console usernames with admin rights. Everyone else in CONSOLE_USERS is a
    * general user. Deliberately an env var and not a console setting: a role
