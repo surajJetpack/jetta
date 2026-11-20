@@ -21,6 +21,7 @@
  * Pure: no storage, no network. app/api/cron/team-report feeds and posts it.
  */
 import { buildScorecard, resolvePerson, type Activity, type ActionKind } from "./activity";
+import { isClient, type DevRow } from "./dev-board";
 import { isJunkSubject, median, suggestionUse, type HandoffKind, type PerfTicket } from "./performance";
 import { owesReply, TARGETS } from "./support-health";
 
@@ -33,6 +34,33 @@ export const STALE_AFTER_H = 14 * 24;
 /** Reply items written out one per line; the rest are linked on one line. */
 const MAX_REPLY_LINES = 6;
 const MAX_LINKS = 8;
+/** A dev-board handback older than this is no longer news; it is counted, not listed. */
+export const DEV_FRESH_H = 14 * 24;
+/** A fix that shipped longer ago than this is not chased here. */
+export const FIXED_WITHIN_H = 7 * 24;
+const MAX_DEV_LINES = 6;
+
+/**
+ * Something engineering did on a client item that the customer has not heard
+ * about yet. "Not heard" is read off the ticket: no public reply from us since.
+ *   relay   engineering answered or handed the item back to support
+ *   ask     the item is set to Waiting Customer / Need more info
+ *   fixed   the item was resolved (deployed, done) and the ticket is still open
+ *   board   engineering handed back an item with no ticket Jetta knows of
+ */
+export interface DevAction {
+  kind: "relay" | "ask" | "fixed" | "board";
+  itemId: string;
+  name: string;
+  url: string;
+  app: string;
+  status: string | null;
+  sinceH: number;
+  ticketId: number | null;
+  /** Support people who have written on the item. */
+  support: string[];
+  draftReady: boolean;
+}
 
 /** A customer who has waited long enough that someone should act today. */
 export interface ReplyAction {
@@ -91,6 +119,10 @@ export interface TeamReport {
     reply: ReplyAction[];
     /** Waiting STALE_AFTER_H or more: answer or close. */
     stale: ReplyAction[];
+    /** Developer updates the customer has not been told about, newest first. */
+    dev: DevAction[];
+    /** Items engineering handed back more than DEV_FRESH_H ago and nobody picked up. */
+    devOlder: number;
   };
   jetta: {
     drafts: number;
@@ -118,6 +150,10 @@ export interface TeamReportInput {
    * closed since then would still look owed.
    */
   backlog?: { owesReply: number; waiting: { ticketId: number; subject: string; waitingH: number }[] } | null;
+  /** The dev boards' rows (lib/dev-board-sync.ts), for developer updates to relay. */
+  devRows?: DevRow[] | null;
+  /** monday item id → Freshdesk ticket id (lib/dev-item-links.ts). */
+  itemTickets?: Map<string, string> | null;
 }
 
 /** One formatter per zone: the ticket store is a few thousand records and Intl construction is the slow part. */
@@ -229,9 +265,62 @@ export function buildTeamReport(input: TeamReportInput): TeamReport {
     };
   };
   const overdue = owed.filter((o) => o.sinceH > ACTION_AFTER_H);
+
+  // Developer updates nobody has passed on. The ticket an item belongs to is
+  // the remembered link, else a ticket whose handoff notes name the item.
+  const ticketOfItem = new Map<string, number>();
+  for (const t of tickets) for (const id of t.handoff?.itemIds ?? []) ticketOfItem.set(String(id), t.id);
+  for (const [item, ticket] of input.itemTickets ?? []) if (Number(ticket)) ticketOfItem.set(String(item), Number(ticket));
+  /** Has anyone on our side written to the customer since `at`? */
+  const toldSince = (t: PerfTicket, at: number) =>
+    t.lastPublicFrom === "agent" && !!t.lastPublicAt && Date.parse(t.lastPublicAt) > at;
+  const dev: DevAction[] = [];
+  let devOlder = 0;
+  for (const r of (input.devRows ?? []).filter(isClient)) {
+    const ticketId = ticketOfItem.get(r.id) ?? null;
+    const t = ticketId != null ? byId.get(ticketId) : undefined;
+    const ticketOpen = !!t && t.status !== 4 && t.status !== 5;
+    let kind: DevAction["kind"] | null = null;
+    let since: number | null = null;
+    if (r.move === "support" && r.waitingSince != null) {
+      since = r.waitingSince;
+      // With a ticket: the relay is done once we have written to the customer.
+      if (!t) kind = "board";
+      else if (ticketOpen && !toldSince(t, since)) kind = "relay";
+    } else if (r.move === "customer" && r.waitingSince != null && t && ticketOpen && !toldSince(t, r.waitingSince)) {
+      kind = "ask";
+      since = r.waitingSince;
+    } else if (r.resolvedAt != null && t && ticketOpen && !toldSince(t, r.resolvedAt) && now - r.resolvedAt <= FIXED_WITHIN_H * HOUR_MS) {
+      kind = "fixed";
+      since = r.resolvedAt;
+    }
+    if (!kind || since == null) continue;
+    const sinceH = Math.max(0, (now - since) / HOUR_MS);
+    if (sinceH > DEV_FRESH_H) {
+      devOlder++;
+      continue;
+    }
+    const lastSuggestion = t?.suggestions[t.suggestions.length - 1];
+    dev.push({
+      kind,
+      itemId: r.id,
+      name: r.name,
+      url: r.url,
+      app: r.app,
+      status: r.status,
+      sinceH,
+      ticketId,
+      support: [...new Set(r.support.map((w) => person(w).name))],
+      draftReady: !!lastSuggestion && lastSuggestion.sim == null && Date.parse(lastSuggestion.at) > since,
+    });
+  }
+  dev.sort((a, b) => a.sinceH - b.sinceH);
+
   const actions: TeamReport["actions"] = {
     reply: overdue.filter((o) => o.sinceH < STALE_AFTER_H).map(toAction),
     stale: overdue.filter((o) => o.sinceH >= STALE_AFTER_H).map(toAction),
+    dev,
+    devOlder,
   };
 
   // Jetta's own day, from her notes on the tickets.
@@ -357,8 +446,8 @@ export function formatTeamReport(r: TeamReport, links: { ticketUrlBase?: string;
   }
 
   // Action items: only when there is something to do.
-  const { reply, stale } = r.actions;
-  if (reply.length || stale.length) {
+  const { reply, stale, dev, devOlder } = r.actions;
+  if (reply.length || stale.length || dev.length || devOlder) {
     lines.push("", "*Action items*");
     for (const a of reply.slice(0, MAX_REPLY_LINES)) {
       const subject = a.subject.trim() ? ` ${esc(short(a.subject.trim()))}` : "";
@@ -380,6 +469,35 @@ export function formatTeamReport(r: TeamReport, links: { ticketUrlBase?: string;
           .map((a) => `${ref(a.id)} ${fmtHours(a.sinceH)}`)
           .join(", ")}${stale.length > MAX_LINKS ? ` and ${stale.length - MAX_LINKS} more` : ""}`,
       );
+    }
+    const DEV_LEAD: Record<DevAction["kind"], (a: DevAction) => string> = {
+      relay: (a) => `Relay the developers' update to the customer${a.ticketId != null ? ` on ${ref(a.ticketId)}` : ""}`,
+      ask: (a) => `Developers need more from the customer${a.ticketId != null ? ` on ${ref(a.ticketId)}` : ""}`,
+      fixed: (a) => `Fixed, tell the customer${a.ticketId != null ? ` on ${ref(a.ticketId)}` : ""}`,
+      board: () => "Developers handed this back to support",
+    };
+    const DEV_WHEN: Record<DevAction["kind"], string> = {
+      relay: "they answered",
+      ask: "asked",
+      fixed: "resolved",
+      board: "waiting",
+    };
+    for (const a of dev.slice(0, MAX_DEV_LINES)) {
+      const item = a.url ? `<${a.url}|${esc(short(a.name, 50))}>` : esc(short(a.name, 50));
+      const notes = [
+        `${DEV_WHEN[a.kind]} ${fmtHours(a.sinceH)} ago`,
+        a.status && `status ${esc(a.status)}`,
+        a.support.length > 0 && `support on it: ${a.support.map(esc).join(", ")}`,
+        a.draftReady && "Jetta's draft is on the ticket",
+      ].filter(Boolean);
+      lines.push(`• ${DEV_LEAD[a.kind](a)}: ${item} (${esc(a.app)}; ${notes.join("; ")})`);
+    }
+    const devRest = dev.length - MAX_DEV_LINES;
+    if (devRest > 0 || devOlder > 0) {
+      const more = [devRest > 0 && `${n(devRest, "more developer update")} to pass on`, devOlder > 0 && `${n(devOlder, "item")} handed back over ${Math.round(DEV_FRESH_H / 24)} days ago`]
+        .filter(Boolean)
+        .join(", and ");
+      lines.push(`• ${more}${links.consoleUrl ? `: <${links.consoleUrl}/dev-board|open Dev board>` : ""}`);
     }
   }
 

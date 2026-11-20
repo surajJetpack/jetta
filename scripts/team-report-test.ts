@@ -5,6 +5,7 @@
  * No network, no storage: synthetic activities and ticket records.
  */
 import { parseAliases, type Activity } from "../lib/activity";
+import type { DevRow } from "../lib/dev-board";
 import type { PerfTicket } from "../lib/performance";
 import { buildTeamReport, fmtHours, formatTeamReport, isEmptyReport } from "../lib/team-report";
 
@@ -173,6 +174,90 @@ check("text: draft note on an action", actingText.includes("• Reply to #14789 
 check("text: stale tickets are one line", actingText.includes("• Reply or close: 1 ticket has had the customer waiting for over 14 days: #8 20d"), true);
 const calm = buildTeamReport({ day: DAY, tz: TZ, acts, tickets, aliases, now, backlog: { owesReply: 1, waiting: [{ ticketId: 9, subject: "Just came in", waitingH: 2 }] } });
 check("text: no action section when nothing needs doing", formatTeamReport(calm).includes("Action items"), false);
+
+// Developer updates the customer has not heard about.
+const H = 3_600_000;
+const row = (over: Partial<DevRow> & Pick<DevRow, "id">): DevRow => ({
+  board: "getsign",
+  app: "GetSign",
+  name: `Item ${over.id}`,
+  url: `https://monday.example/${over.id}`,
+  group: "Working on it",
+  status: "Working on it",
+  origin: "support",
+  filedBy: "Sujata Shrestha",
+  developers: [],
+  support: ["Sujata Shrestha"],
+  createdAt: now - 100 * H,
+  resolvedAt: null,
+  firstEngAt: null,
+  move: null,
+  waitingSince: null,
+  lastActionAt: now - H,
+  nudgeAts: [],
+  bounceAts: [],
+  customerWaits: 0,
+  gaps: [],
+  posts: 3,
+  kind: null,
+  area: null,
+  rootCause: null,
+  lesson: null,
+  kbTitle: null,
+  kbWorthy: false,
+  kb: null as DevRow["kb"],
+  kbDraftId: null,
+  friction: [],
+  ...over,
+});
+const devTickets: PerfTicket[] = [
+  // We wrote last, 10h ago: before the developers answered 5h ago, after the fix 20h ago.
+  ticket({ id: 500, createdAt: "2026-11-15T00:00:00Z", status: 8, agentReplies: 1, lastPublicFrom: "agent", lastPublicAt: new Date(now - 10 * H).toISOString() }),
+  ticket({ id: 501, createdAt: "2026-11-15T00:00:00Z", status: 8, agentReplies: 1, lastPublicFrom: "agent", lastPublicAt: new Date(now - 10 * H).toISOString() }),
+  ticket({ id: 502, createdAt: "2026-11-15T00:00:00Z", status: 8, agentReplies: 1, lastPublicFrom: "agent", lastPublicAt: new Date(now - 30 * H).toISOString(), handoff: { kinds: ["dev_item"], at: "2026-11-15T01:00:00Z", itemIds: ["i-fixed"] } }),
+  ticket({ id: 503, createdAt: "2026-11-15T00:00:00Z", status: 5, agentReplies: 1, lastPublicFrom: "agent", lastPublicAt: new Date(now - 30 * H).toISOString() }),
+  ticket({ id: 504, createdAt: "2026-11-15T00:00:00Z", status: 8, agentReplies: 1, lastPublicFrom: "agent", lastPublicAt: new Date(now - 30 * H).toISOString() }),
+];
+const devRows: DevRow[] = [
+  row({ id: "i-relay", name: "Email not extracted <Person>", move: "support", waitingSince: now - 5 * H, status: "Ready for Review" }),
+  row({ id: "i-told", move: "support", waitingSince: now - 20 * H }), // ticket 501: we wrote to the customer since
+  row({ id: "i-fixed", move: null, resolvedAt: now - 20 * H, status: "Deployed to Prod" }), // linked through the handoff note
+  row({ id: "i-closed", move: "support", waitingSince: now - 5 * H }), // its ticket is closed
+  row({ id: "i-ask", move: "customer", waitingSince: now - 3 * H, status: "Waiting Customer" }),
+  row({ id: "i-board", move: "support", waitingSince: now - 2 * H }), // no ticket known
+  row({ id: "i-old", move: "support", waitingSince: now - 20 * 24 * H }), // no ticket, handed back long ago
+  row({ id: "i-eng", move: "engineering", waitingSince: now - 2 * H }), // engineering's move: nothing to relay
+  row({ id: "i-roadmap", origin: "internal", move: "support", waitingSince: now - 2 * H }), // not a client issue
+];
+const links = new Map([
+  ["i-relay", "500"],
+  ["i-told", "501"],
+  ["i-closed", "503"],
+  ["i-ask", "504"],
+]);
+const withDev = buildTeamReport({ day: DAY, tz: TZ, acts, tickets: devTickets, aliases, now, backlog: { owesReply: 0, waiting: [] }, devRows, itemTickets: links });
+check(
+  "dev actions: only updates the customer has not heard about, newest first",
+  withDev.actions.dev.map((a) => [a.itemId, a.kind, a.ticketId, Math.round(a.sinceH)]),
+  [
+    ["i-board", "board", null, 2],
+    ["i-ask", "ask", 504, 3],
+    ["i-relay", "relay", 500, 5],
+    ["i-fixed", "fixed", 502, 20],
+  ],
+);
+check("dev actions: an old handback is counted, not listed", withDev.actions.devOlder, 1);
+const devText = formatTeamReport(withDev, { ticketUrlBase: "https://x.freshdesk.com/a/tickets/", consoleUrl: "https://console.example" });
+check(
+  "text: a developer update to relay",
+  devText.includes(
+    "• Relay the developers' update to the customer on <https://x.freshdesk.com/a/tickets/500|#500>: <https://monday.example/i-relay|Email not extracted &lt;Person&gt;> (GetSign; they answered 5h ago; status Ready for Review; support on it: Sujata)",
+  ),
+  true,
+);
+check("text: a shipped fix", devText.includes("• Fixed, tell the customer on <https://x.freshdesk.com/a/tickets/502|#502>: <https://monday.example/i-fixed|Item i-fixed> (GetSign; resolved 20h ago; status Deployed to Prod"), true);
+check("text: older handbacks are one line", devText.includes("• 1 item handed back over 14 days ago: <https://console.example/dev-board|open Dev board>"), true);
+check("text: dev updates alone are enough for an action section", devText.includes("*Action items*"), true);
 
 const quiet = buildTeamReport({ day: "2026-11-21", tz: TZ, acts, tickets: tickets.filter((t) => t.status === 5), aliases, now });
 check("a day with nothing is empty, and says so if printed", [isEmptyReport(quiet), formatTeamReport(quiet).includes("Nothing recorded")], [true, true]);

@@ -9,6 +9,8 @@
 import { config } from "./config";
 import { parseAliases } from "./activity";
 import { getSlackNames, loadActivities } from "./activity-store";
+import { getDevBoardRows } from "./dev-board-sync";
+import { itemTickets } from "./dev-item-links";
 import { markEventSeen, unmarkEventSeen } from "./kv";
 import { getSupportHealth, loadPerfTickets } from "./performance-sync";
 import { buildTeamReport, formatTeamReport, isEmptyReport, type TeamReport } from "./team-report";
@@ -42,11 +44,14 @@ export async function previewTeamReport(day?: string, now = Date.now()): Promise
   const d = day && DAY_KEY.test(day) ? day : reportDay(now, tz);
   // Two days of slack either side of the day covers every timezone offset.
   const since = Date.parse(`${d}T00:00:00Z`) - 2 * DAY_MS;
-  const [acts, slackNames, tickets, health] = await Promise.all([
+  const [acts, slackNames, tickets, health, devRows, links] = await Promise.all([
     loadActivities(since),
     getSlackNames().catch(() => ({})),
     loadPerfTickets(),
     getSupportHealth().catch(() => null),
+    // Each of these is optional: without it the report loses a section, not the post.
+    getDevBoardRows().catch(() => null),
+    itemTickets().catch(() => null),
   ]);
   const report = buildTeamReport({
     day: d,
@@ -57,6 +62,8 @@ export async function previewTeamReport(day?: string, now = Date.now()): Promise
     slackNames,
     now,
     backlog: health?.backlog ?? null,
+    devRows,
+    itemTickets: links,
   });
   const text = formatTeamReport(report, { ticketUrlBase: freshdeskTicketUrl(""), consoleUrl: config.consoleUrl });
   return { report, text };
