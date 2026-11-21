@@ -123,6 +123,10 @@ async function main() {
   );
   check("the dev item carries the changes, marked as Jetta's lead", itemBody.includes("Recent changes in this area") && itemBody.includes("Possibly related to the 9 Nov release"));
   check("and nothing is added when there is nothing", !contextBody({ title: "t", product: "getsign", accountUrl: "a", errorDescription: "e", reproSteps: "r", freshdeskTicketUrl: "f" }, false).includes("Recent changes"));
+  const plain = { title: "t", product: "getsign" as const, errorDescription: "e", reproSteps: "r", freshdeskTicketUrl: "f" };
+  const guessed = contextBody({ ...plain, accountUrl: "a", suspectedCause: "the column is mapped twice" }, false);
+  check("a theory about the cause sits apart from the steps, marked unverified", /Reproduction steps:\nr\n\nPossible cause \(Jetta's guess from the ticket, not verified\): the column is mapped twice/.test(guessed));
+  check("no theory, no line", !contextBody({ ...plain, accountUrl: "a" }, false).includes("Possible cause"));
 
   // ── The ticket agent is never told ──
   const ctx = {

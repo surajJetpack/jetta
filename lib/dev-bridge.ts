@@ -181,7 +181,7 @@ export function devEventMessage(ev: DevEvent): string {
     : "There are no comments on the item.";
   const what =
     ev.kind === "needs_info"
-      ? "That means a developer is waiting on support. Work out what they need from the comments."
+      ? "That means the item is waiting on support or on the customer. Work out what is needed from the comments. If they do not say, read the ticket before asking anyone: when a colleague has already asked the customer for something and no answer has come, that is what the status means and there is nothing for you to do."
       : "That is a finished status.";
   return `${head}\n${ev.author} set Dev Status to "${ev.devStatus}". ${what}\n\n${recent}${pendingReplyNote(ev)}\n\nDecide, by the developer-run rules, what (if anything) to do.`;
 }

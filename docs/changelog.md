@@ -8,6 +8,9 @@ Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain word
 
 
 
+## 2026-11-21: Cleaner dev board posts, from the team's feedback
+Four fixes to what Jetta writes on the dev boards. One customer message now gets one post on the item (ticket #14815 got an update request and a relay a second apart). A name she typed is no longer shown next to the real @mention. Her theory about a cause is filed on its own line, "Possible cause (Jetta's guess from the ticket, not verified)", and the reproduction steps hold only what the customer did. When an item is set to Waiting Customer with no request in the comments, she reads the ticket first and stays quiet if a colleague has already asked the customer. No switch; live on merge.
+
 ## 2026-11-21: Jetta follows up with support on the dev boards, faster with developers, and brings the product manager in on feature requests
 When the developers have answered, need more from the customer, or finished an item, and the customer has not been told, Jetta now asks the support person on the item at the next hourly run (:55), with no waiting period; once more a working day later; then one post in the escalation channel. A new feature request a customer is waiting on gets one comment bringing in the product manager (Binod, `DEV_BOARD_PM`). Switch: `JETTA_DEV_FOLLOWUP_SUPPORT` (off, shadow, on). Off until set.
 Developers are asked about a quiet item after one working day, not three (`JETTA_DEV_QUIET_WORKDAYS`), and Saturday and Sunday are both days off for every dev board follow-up (`JETTA_DEV_WEEKEND`). These two apply as soon as this is deployed, wherever `JETTA_DEV_FOLLOWUP` is on.

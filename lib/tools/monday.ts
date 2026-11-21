@@ -707,6 +707,8 @@ export interface CreateDevItemInput {
    * logEvidence). Goes on the item only; never shown to the ticket agent.
    */
   logEvidence?: string | null;
+  /** The filer's theory about the cause, shown apart from the facts as unverified. */
+  suspectedCause?: string | null;
   /**
    * The Sentry issues tagged with this customer's monday account
    * (lib/tools/sentry.ts sentryEvidence). Item only, like logEvidence.
@@ -771,6 +773,10 @@ export function contextBody(input: CreateDevItemInput, followUp: boolean): strin
     ...(input.kind === "question"
       ? [`Question from support (not a bug report): ${input.errorDescription}`, "", `Context:\n${input.reproSteps}`]
       : [`Error: ${input.errorDescription}`, "", `Reproduction steps:\n${input.reproSteps}`]),
+    // Apart from the facts: a guess filed among the steps read as a finding (#14815).
+    ...(input.suspectedCause
+      ? ["", `Possible cause (Jetta's guess from the ticket, not verified): ${input.suspectedCause}`]
+      : []),
     ...(input.logEvidence
       ? ["", "From the app logs (CloudWatch, added automatically by Jetta; the customer has not seen this):", input.logEvidence]
       : []),
@@ -1498,6 +1504,24 @@ export async function createComplianceItem(input: CreateComplianceItemInput): Pr
  * that it must not answer itself. lib/dev-bridge.ts also remembers the ids it
  * posted, so a prefix mangled by an editor still can't start a loop.
  */
+/**
+ * A comment without the "@Name" she typed for people the post already
+ * mentions: at the start ("@Sujata Shrestha, the item…") or the end. monday
+ * adds the real mention, so the typed one showed the name twice. Pure.
+ */
+export function withoutTypedMentions(text: string, names: string[]): string {
+  let out = text.trim();
+  const esc = (n: string) => n.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  for (const name of names.filter((n) => n.trim().length > 1).sort((a, b) => b.length - a.length)) {
+    const n = esc(name);
+    out = out
+      .replace(new RegExp(`^@?${n}\\s*[,:]\\s*`, "i"), "")
+      .replace(new RegExp(`^@${n}\\s+`, "i"), "")
+      .replace(new RegExp(`\\s*@${n}\\s*$`, "i"), "");
+  }
+  return out ? out.charAt(0).toUpperCase() + out.slice(1) : text.trim();
+}
+
 /**
  * Who reply_on_dev_item notifies: the person whose comment she is answering;
  * for a status change (nobody wrote anything), the item's Developers. Pure.
