@@ -1028,8 +1028,9 @@ export function buildTools(
             }),
             execute: async ({ message: written, mention_developer, asks_developer }) => {
               const ev = ctx.devEvent!;
-              const message = devCommentWithDraftCaveat(written, heldReplyThisRun);
               const targets = mention_developer ? monday.devMentionTargets(ev) : [];
+              // The mention is added for her: a name she also typed showed twice.
+              const message = devCommentWithDraftCaveat(monday.withoutTypedMentions(written, targets.map((d) => d.name)), heldReplyThisRun);
               const mentionIds = targets.map((d) => d.id);
               const to = targets.length ? ` (@${targets.map((d) => d.name).join(", @")})` : "";
               if (dry) return `[dry-run] would comment on dev item "${ev.itemName}"${to}: ${message}`;
@@ -1086,10 +1087,18 @@ export function buildTools(
         "Create a new Dev board item with full context. Call search_dev_board first: skip creating ONLY when it returned a strong match that is still open — anything less than that, file the item and mention the possible duplicate in your private note, because a human can merge two items and nobody can unpick a report attached to the wrong bug. One item per ticket is enforced for you: if this ticket already has an open item, your context is added to that item as a comment and nothing new is filed — the result says so, and you must not describe that as a new report.",
       inputSchema: z.object({
         title: z.string(),
-        error_description: z.string(),
-        repro_steps: z.string(),
+        error_description: z
+          .string()
+          .describe("What the customer reported: what they did, what they expected, what happened. Facts from the ticket only. No theory about the cause."),
+        repro_steps: z
+          .string()
+          .describe("Numbered steps the CUSTOMER took, ending in expected vs actual. Only what the ticket says they did. Do not add steps for the developer to try, and do not write a cause in here."),
+        suspected_cause: z
+          .string()
+          .optional()
+          .describe("Only if you have a theory about the cause: one or two sentences. It is shown to the developers as an unverified guess, apart from the facts. Leave empty when you have none."),
       }),
-      execute: async ({ title, error_description, repro_steps }) => {
+      execute: async ({ title, error_description, repro_steps, suspected_cause }) => {
         if (dry) return `[dry-run] would create Dev board item: "${title}".`;
         // Straight onto the item: the result below never carries it, so nothing
         // a log says can reach the customer through this agent.
@@ -1129,6 +1138,7 @@ export function buildTools(
           accountUrl: accountUrl(ctx),
           errorDescription: error_description,
           reproSteps: repro_steps,
+          suspectedCause: suspected_cause?.trim() || null,
           freshdeskTicketUrl: ticketId ? interactionUrl(ticketId) : "(no ticket)",
           attachments: await customerAttachments(),
           logEvidence: evidence,
@@ -1250,9 +1260,17 @@ export function buildTools(
                   execute: async ({ kind, message }) => {
                     if (relayedThisTurn) return declined("update_dev_item", "Already posted on the item this turn — not posting again.");
                     if (dry) return `[dry-run] would post ${kind} on dev item "${openDevItem.title}".`;
-                    const item = await monday.getDevItemSnapshot(openDevItem.id);
-                    if (!item) return declined("update_dev_item", `Dev item ${openDevItem.id} could not be read — nothing posted.`);
+                    // Claimed before the first await: two calls in one step (a
+                    // chase and a new_info) both passed the check above while
+                    // the item was being read, and both posted (#14815).
+                    relayedThisTurn = true;
+                    const item = await monday.getDevItemSnapshot(openDevItem.id).catch(() => null);
+                    if (!item) {
+                      relayedThisTurn = false;
+                      return declined("update_dev_item", `Dev item ${openDevItem.id} could not be read — nothing posted.`);
+                    }
                     if (kind === "chase" && !monday.chaseAllowed(item)) {
+                      relayedThisTurn = false;
                       return declined("update_dev_item", `Already asked the developers for an update (${item.lastChaseAt}) and nobody has posted since — not asking again. Tell the customer it is still with the team, no timeline.`);
                     }
                     const body =
@@ -1283,7 +1301,6 @@ export function buildTools(
                     const askerIsDev = !!asker && item.developers.some((d) => d.id === asker);
                     const names = [...item.developers.map((d) => `@${d.name}`), ...(asker && !askerIsDev ? ["the person who asked in the thread"] : [])];
                     const to = names.length ? ` (${names.join(", ")})` : " — nobody was @mentioned: the item has no Developer, so it will only be seen by someone who opens it";
-                    relayedThisTurn = true;
                     if (relay === "shadow") {
                       await relayShadow("update_dev_item", { kind, body: body + fileLine, files: files.map((f) => f.name), to });
                       return declined("update_dev_item", `Recorded (shadow mode — not posted on the board) ${kind} for "${item.name}"${to}.`);

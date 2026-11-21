@@ -14,6 +14,7 @@ import { addressedNames, classifyDevEvent, devEventMessage, isRepost } from "../
 import {
   CHASE_PHRASE,
   devMentionTargets,
+  withoutTypedMentions,
   chaseAllowed,
   isJettaContextPost,
   isJettaPost,
@@ -260,6 +261,19 @@ console.log("#14591: who she tags, hand-offs, reposts");
     developers: [{ id: "76203847", name: "Shreya Shrestha" }],
     recent: [],
   };
+  check(
+    "a name she typed for someone the post mentions is dropped (it showed twice)",
+    withoutTypedMentions("@Sujata Shrestha, the item is set to Waiting Customer. What do you need?", ["Sujata Shrestha"]) ===
+      "The item is set to Waiting Customer. What do you need?",
+  );
+  check("…at the end too", withoutTypedMentions("Any update? @Sujata Shrestha", ["Sujata Shrestha"]) === "Any update?");
+  check("a name inside the sentence stays", withoutTypedMentions("Cherryl asked @Sujata Shrestha to check.", ["Sujata Shrestha"]) === "Cherryl asked @Sujata Shrestha to check.");
+  check("someone else's name stays", withoutTypedMentions("@Cherryl B, done.", ["Sujata Shrestha"]) === "@Cherryl B, done.");
+  check("a comment that is only the name is left alone", withoutTypedMentions("@Sujata Shrestha", ["Sujata Shrestha"]) === "@Sujata Shrestha");
+  check(
+    "a waiting status with no request sends her to the ticket before asking",
+    /read the ticket before asking anyone/.test(devEventMessage({ ...ev, kind: "needs_info", devStatus: "Waiting Customer", recent: [] } as never)),
+  );
   const t = devMentionTargets(ev);
   check("she tags the developer who wrote, not the Developer column", t.length === 1 && t[0].id === "78345437", JSON.stringify(t));
   check(
