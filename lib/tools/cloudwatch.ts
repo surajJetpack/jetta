@@ -24,6 +24,7 @@ import {
   StopQueryCommand,
 } from "@aws-sdk/client-cloudwatch-logs";
 import { config } from "../config";
+import { failureSection, type LogReader, type LogReading } from "../log-reading";
 
 interface LogGroup {
   name: string;
@@ -471,6 +472,14 @@ export async function logEvidence(input: {
    * the failure search; not called when there was nothing to search by.
    */
   found?: (ids: { accounts: string[]; slugs: string[] }) => void;
+  /**
+   * What the customer reported, and a reader for it (lib/log-reading.ts).
+   * With both, only the failures that fit the report go on the item, under a
+   * short summary. Without, or when the read fails, every grouped failure is
+   * listed.
+   */
+  issue?: string;
+  read?: LogReader;
 }): Promise<string | null> {
   if (!logsEnabled() || !input.app || !(input.app in LOG_GROUPS)) return null;
   const app = input.app as LogApp;
@@ -559,6 +568,14 @@ export async function logEvidence(input: {
       logBoards.length ? `board${logBoards.length > 1 ? "s" : ""} ${logBoards.join(", ")}` : "",
     ].filter(Boolean);
     const searchedFor = [email, ...fromChat, ...fromTicket, ...fromLogs].filter(Boolean).join(" / ");
+    const rows = groupLines(failures);
+    let reading: LogReading | null = null;
+    if (rows.length && input.issue?.trim() && input.read) {
+      reading = await input.read(input.issue, rows).catch((e) => {
+        console.warn(`[cloudwatch] log reading failed, listing the lines instead: ${e instanceof Error ? e.message : String(e)}`);
+        return null;
+      });
+    }
     const groups = (byEmail ?? bySlug ?? idFailures)?.groups ?? LOG_GROUPS[app].groups.filter((g) => !g.staging).map((g) => g.name);
     return [
       `${LOG_GROUPS[app].label} logs, ${input.at ? `${hours}h before ${input.at.toISOString()}` : `last ${hours}h`} (searched ${groups.join(", ")}).`,
@@ -571,14 +588,7 @@ export async function logEvidence(input: {
           ? `${byEmail.lines.length}${byEmail.lines.length === 30 ? "+" : ""} line(s) mention ${email}${fromLogs.length ? `; tied to ${fromLogs.join("; ")}` : ""}.`
           : `No line mentions ${email}.`
         : "",
-      ...(failures.length
-        ? [
-            `Newest error/failure lines for ${searchedFor}:`,
-            ...groupLines(failures).map(
-              (g) => `- ${g.count > 1 ? `${g.count}× (newest ${g.at})` : g.at} [${g.group}] ${g.message.slice(0, 300)}`,
-            ),
-          ]
-        : ["No error or failure lines for this customer in that window."]),
+      ...failureSection(rows, reading, searchedFor, reading ? (g) => (g.stream ? cloudwatchLineUrl(g) : null) : undefined),
     ]
       .filter(Boolean)
       .join("\n");

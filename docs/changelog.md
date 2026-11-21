@@ -8,6 +8,9 @@ Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain word
 
 
 
+## 2026-11-21: Dev items carry a summary of the logs, not every failure
+A dev item filed from a ticket used to list every kind of failure the customer's account had in the last 72 hours, as raw lines. Now Jetta matches those failures against what the customer reported, writes two or three sentences on what the matching ones show, keeps those lines (shortened, each linked to CloudWatch) and says how many unrelated kinds she left out. When nothing matches she says so. If the model read fails, the full list is posted as before. Sentry issues are no longer added to these items; the assistants can still search Sentry, and items the error watch files still carry them. The developers asked for both (Swejal, 17 Nov). No new switch (`JETTA_APP_LOGS` still turns the log evidence off); live on merge.
+
 ## 2026-11-21: Cleaner dev board posts, from the team's feedback
 Four fixes to what Jetta writes on the dev boards. One customer message now gets one post on the item (ticket #14815 got an update request and a relay a second apart). A name she typed is no longer shown next to the real @mention. Her theory about a cause is filed on its own line, "Possible cause (Jetta's guess from the ticket, not verified)", and the reproduction steps hold only what the customer did. When an item is set to Waiting Customer with no request in the comments, she reads the ticket first and stays quiet if a colleague has already asked the customer. No switch; live on merge.
 
