@@ -282,6 +282,12 @@ export function devBridgeRows(): StatusRow[] {
       "The same daily follow-up for live items with no Freshdesk link that a Reporter filed (the customer named in the title). The Developer is asked; when the item is Waiting Customer or has no Developer, the Reporter is asked instead. Skips Internal Bug, features, and items quiet for over 60 working days. Needs JETTA_DEV_FOLLOWUP on.",
     ),
     row(
+      "Follow-up with support and the product manager",
+      config.devFollowUp === "off" ? "off" : config.devFollowUpSupport,
+      "JETTA_DEV_FOLLOWUP_SUPPORT",
+      `On the same daily run. When the developers have answered, asked for more from the customer (Waiting Customer, Need more info) or finished an item, and the ticket it was filed for has had no reply to the customer for one working day, Jetta asks the support person on the item (its Reporter, else the support people who wrote on it, else whoever answered the ticket last); a working day later she asks once more; then she raises it once in the escalation channel and stops. She reads the ticket first, so a reply already sent ends it. A new feature request (Type contains "feature", filed in the last 14 days) that a customer is waiting on gets one comment bringing in the product manager (${config.devBoardPm}; DEV_BOARD_PM), who decides those; she does not chase it after that. Shadow logs devbridge.support_shadow and posts nothing. Needs JETTA_DEV_FOLLOWUP on and MONDAY_ALLOW_WRITES.`,
+    ),
+    row(
       "KB drafts from developers",
       config.devKb,
       "JETTA_DEV_KB",

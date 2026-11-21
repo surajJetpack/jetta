@@ -158,6 +158,22 @@ export const config = {
   devFollowUpUnlinked: (["shadow", "on"].includes(env("JETTA_DEV_FOLLOWUP_UNLINKED") ?? "")
     ? env("JETTA_DEV_FOLLOWUP_UNLINKED")
     : "off") as "off" | "shadow" | "on",
+  /**
+   * Follow-ups with the SUPPORT side and the product manager, on the same
+   * daily cron (lib/dev-followup-support.ts). Needs JETTA_DEV_FOLLOWUP on too.
+   *  - A developer update the customer has not been told about (developers
+   *    answered, need more from the customer, or shipped a fix) for one
+   *    working day: Jetta asks the support person on the item, a second time a
+   *    working day later, then raises it once in the escalation channel.
+   *  - A new feature request a customer is waiting on: the product manager is
+   *    brought in on the item, once.
+   *  - "off" (default) / "shadow" (logged as devbridge.support_shadow) / "on".
+   */
+  devFollowUpSupport: (["shadow", "on"].includes(env("JETTA_DEV_FOLLOWUP_SUPPORT") ?? "")
+    ? env("JETTA_DEV_FOLLOWUP_SUPPORT")
+    : "off") as "off" | "shadow" | "on",
+  /** The product manager's first name as it is on monday: who feature requests are brought to. */
+  devBoardPm: env("DEV_BOARD_PM") ?? "Binod",
   devFollowUpRules: {
     quietWorkdays: Number(env("JETTA_DEV_QUIET_WORKDAYS") ?? "3"),
     /** Days that don't count, 0 = Sunday. The team works in Nepal: Saturday off. */
