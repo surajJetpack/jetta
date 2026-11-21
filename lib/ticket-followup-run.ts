@@ -19,7 +19,7 @@ import { config } from "./config";
 import * as freshdesk from "./tools/freshdesk";
 import { complianceItemsForTicket, devItemsForTicket } from "./tools/monday";
 import { followUpCloseBlocker, describeFollowUpBlock } from "./followup-guard";
-import { getEscalationTs, keepEventSeen, markEventSeen, recordOutcome, unmarkEventSeen } from "./kv";
+import { clearEscalation, getEscalationTs, keepEventSeen, markEventSeen, recordOutcome, unmarkEventSeen } from "./kv";
 import { logOpsEvent } from "./events";
 import { modelLabel } from "./llm";
 import {
@@ -86,6 +86,7 @@ export interface RunDeps {
   reply(ticketId: string, markdown: string): Promise<void>;
   resolve(ticketId: string): Promise<void>;
   escalationTs(ticketId: string): Promise<unknown>;
+  clearEscalation(ticketId: string): Promise<void>;
   /** Null = monday unreadable. */
   devItems(ticketId: string): Promise<{ state?: string; status: string; id: string; title: string }[] | null>;
   ownAccountName(): Promise<string | null>;
@@ -112,6 +113,7 @@ export const liveDeps: RunDeps = {
   reply: (id, md) => freshdesk.replyToTicket(id, freshdesk.markdownToFdHtml(md)),
   resolve: (id) => freshdesk.closeTicket(id, true),
   escalationTs: getEscalationTs,
+  clearEscalation,
   // A request with Mark on the compliance board holds the close exactly like a
   // dev item: the next move is ours (his), not the customer's.
   devItems: (id) =>
@@ -139,9 +141,23 @@ function isCandidate(t: Listed): boolean {
 const stampOf = (t: Listed) =>
   [t.status, t.stats?.agent_responded_at ?? "", t.stats?.requester_responded_at ?? "", (t.tags ?? []).join(",")].join("|");
 
+/** The stop recorded when the ticket still had an escalation open in Slack. */
+const ESCALATION_STOP = "open_escalation";
+/** How often a ticket stopped for an open escalation is looked at again. */
+const ESCALATION_RECHECK_MS = 24 * 3600_000;
+
+/**
+ * An escalation stop is the one stop that ends without anything changing on
+ * the ticket: the developers finish their item on the board, and Freshdesk
+ * never hears of it. So it is looked at again once a day (#14752 sat stopped
+ * for nine days after its dev item was done).
+ */
+const escalationRecheckDue = (s: TicketFollowUp, now: number) =>
+  s.stopped?.reason === ESCALATION_STOP && now - Date.parse(s.stopped.at) >= ESCALATION_RECHECK_MS;
+
 function needsRead(s: TicketFollowUp | undefined, t: Listed, now: number): boolean {
   if (!s || s.stamp !== stampOf(t)) return true;
-  if (s.stopped) return false;
+  if (s.stopped) return escalationRecheckDue(s, now);
   return s.pending ? now >= s.pending.sendAt : now >= s.dueAt;
 }
 
@@ -310,6 +326,10 @@ async function handle(t: Listed, prev: TicketFollowUp | undefined, opts: RunOpti
     if (write) await saveTicketFollowUp(s);
   };
 
+  // Stopped for an escalation, and a day has passed: check it again below, as
+  // if the stop had not happened. `wasStopped` keeps a second note off the ticket.
+  const wasStopped = !!s.stopped;
+  if (s.stopped && escalationRecheckDue(s, now)) s = { ...s, stopped: undefined };
   if (s.stopped) {
     await save();
     return { ticketId, action: "stopped", detail: s.stopped.reason };
@@ -342,9 +362,21 @@ async function handle(t: Listed, prev: TicketFollowUp | undefined, opts: RunOpti
   // though — a ticket with an open dev item is not resolved for silence.
   const openItems = devItems ? devItems.filter((i) => i.state === "open") : null;
   const devWaitsOnCustomer = !!openItems?.length && openItems.every((i) => /waiting.*customer/i.test(i.status));
+  // The escalation in Slack is remembered until the ticket is resolved, which
+  // is too long: once every dev item filed for the ticket is finished, the
+  // team's part is done and the customer has the next move again. (#14752:
+  // the developers closed their item the next morning, the marker stayed, and
+  // the follow-up due four days later was refused for an "open escalation".)
+  // Only with a finished item to go by; an escalation with no dev item at all
+  // still holds, because nothing says it was dealt with.
+  const escalationOver = !!escalationTs && !!devItems?.length && openItems?.length === 0;
+  if (escalationOver && write) {
+    await deps.clearEscalation(ticketId);
+    await deps.log({ level: "info", event: "ticket_followup.escalation_cleared", source: "cron", ticketId, data: { items: devItems!.map((i) => i.id) } });
+  }
   const block = followUpCloseBlocker(
     WAITING_STATUSES[t.status] ?? null,
-    !!escalationTs,
+    !!escalationTs && !escalationOver,
     devWaitsOnCustomer && n < MAX_TOUCHES ? [] : openItems,
   );
   if (block) {
@@ -352,6 +384,10 @@ async function handle(t: Listed, prev: TicketFollowUp | undefined, opts: RunOpti
     const reason = describeFollowUpBlock(block);
     if (s.pending || s.touches.length) {
       await note(`Jetta stopped following up after ${s.touches.length} of ${MAX_TOUCHES} follow-ups: ${reason}. Over to the team.`);
+    } else if (!wasStopped) {
+      // A stop before the first follow-up used to be silent, so nobody knew
+      // the customer would not be chased. Said once, not on every re-check.
+      await note(`Jetta is not following up with the customer on this ticket: ${plainBlock(block)}. Over to the team if the customer goes quiet.`);
     }
     s = { ...s, pending: undefined, stopped: { reason, at: new Date(now).toISOString() } };
     await save();
@@ -464,6 +500,14 @@ async function handle(t: Listed, prev: TicketFollowUp | undefined, opts: RunOpti
   await save();
   await deps.log({ level: "info", event: "ticket_followup.noted", source: "cron", ticketId, data: { touch: n, sendAt: new Date(sendAt).toISOString(), waitingOn: written.waitingOn } });
   return { ticketId, action: "noted", detail: `touch ${n}, sends ~${when} UTC` };
+}
+
+/** The stop, as a colleague would say it. */
+function plainBlock(block: NonNullable<ReturnType<typeof followUpCloseBlocker>>): string {
+  if (block.reason === "open_escalation") return "it is still escalated in Slack and no dev item for it has been finished";
+  if (block.reason === "open_dev_item") return `the developers still have it (${block.items.map((i) => `"${i.title}", ${i.status}`).join("; ")})`;
+  if (block.reason === "status") return `its status is "${block.status}", which is not waiting on the customer`;
+  return describeFollowUpBlock(block);
 }
 
 async function stopped(opts: RunOptions, deps: RunDeps, ticketId: string, touch: number, reason: string) {
