@@ -72,6 +72,8 @@ export interface DevAction {
   app: string;
   status: string | null;
   sinceH: number;
+  /** When the developers acted (unix ms): the same moment `sinceH` counts from, as a fixed point. */
+  sinceAt: number;
   ticketId: number | null;
   /** Support people who have written on the item. */
   support: string[];
@@ -421,6 +423,7 @@ export function buildTeamReport(input: TeamReportInput): TeamReport {
       app: r.app,
       status: r.status,
       sinceH,
+      sinceAt: since,
       ticketId,
       support: [...new Set(r.support.map((w) => person(w).name))],
       draftReady: !!lastSuggestion && lastSuggestion.sim == null && Date.parse(lastSuggestion.at) > since,

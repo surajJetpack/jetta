@@ -7,6 +7,11 @@ Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain word
 
 
 
+
+## 2026-11-21: Jetta follows up with support on the dev boards, faster with developers, and brings the product manager in on feature requests
+When the developers have answered, need more from the customer, or finished an item, and the customer has not been told, Jetta now asks the support person on the item at the next hourly run (:55), with no waiting period; once more a working day later; then one post in the escalation channel. A new feature request a customer is waiting on gets one comment bringing in the product manager (Binod, `DEV_BOARD_PM`). Switch: `JETTA_DEV_FOLLOWUP_SUPPORT` (off, shadow, on). Off until set.
+Developers are asked about a quiet item after one working day, not three (`JETTA_DEV_QUIET_WORKDAYS`), and Saturday and Sunday are both days off for every dev board follow-up (`JETTA_DEV_WEEKEND`). These two apply as soon as this is deployed, wherever `JETTA_DEV_FOLLOWUP` is on.
+
 ## 2026-11-21: A finished dev item ends the escalation, and a skipped follow-up leaves a note
 Jetta never follows up with a quiet customer while the ticket is escalated in Slack, and she remembered an escalation until the ticket was resolved. On #14752 the developers finished their item the next morning, the escalation stayed on record, and the follow-up due four days later was refused; nothing on the ticket said so, and the customer heard nothing for nine days.
 Now the escalation is over once every dev item filed for the ticket is finished, and she follows up as usual. A ticket stopped for an escalation is looked at again once a day. An escalation with no dev item still holds.

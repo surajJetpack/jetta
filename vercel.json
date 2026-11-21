@@ -46,6 +46,10 @@
       "schedule": "30 4 * * *"
     },
     {
+      "path": "/api/cron/dev-followup-support",
+      "schedule": "55 * * * *"
+    },
+    {
       "path": "/api/cron/error-watch",
       "schedule": "35 * * * *"
     },

@@ -2,6 +2,8 @@
  * Daily: ask developers for an update on quiet dev items a customer is
  * waiting on (lib/dev-followup.ts). JETTA_DEV_FOLLOWUP gates it; off returns
  * at once. JETTA_DEV_FOLLOWUP_UNLINKED adds items with no ticket link.
+ * The support side and the product manager have their own hourly cron
+ * (app/api/cron/dev-followup-support).
  * `?dry=1` reports the decisions without acting, whatever the mode.
  */
 import { NextRequest, NextResponse } from "next/server";

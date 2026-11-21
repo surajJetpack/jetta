@@ -158,10 +158,29 @@ export const config = {
   devFollowUpUnlinked: (["shadow", "on"].includes(env("JETTA_DEV_FOLLOWUP_UNLINKED") ?? "")
     ? env("JETTA_DEV_FOLLOWUP_UNLINKED")
     : "off") as "off" | "shadow" | "on",
+  /**
+   * Follow-ups with the SUPPORT side and the product manager, hourly
+   * (lib/dev-followup-support.ts, app/api/cron/dev-followup-support). Needs
+   * JETTA_DEV_FOLLOWUP on too.
+   *  - A developer update the customer has not been told about (developers
+   *    answered, need more from the customer, or shipped a fix): Jetta asks
+   *    the support person on the item at the next hourly run, a second time a
+   *    working day later, then raises it once in the escalation channel.
+   *  - A new feature request a customer is waiting on: the product manager is
+   *    brought in on the item, once.
+   *  - "off" (default) / "shadow" (logged as devbridge.support_shadow) / "on".
+   */
+  devFollowUpSupport: (["shadow", "on"].includes(env("JETTA_DEV_FOLLOWUP_SUPPORT") ?? "")
+    ? env("JETTA_DEV_FOLLOWUP_SUPPORT")
+    : "off") as "off" | "shadow" | "on",
+  /** The product manager's first name as it is on monday: who feature requests are brought to. */
+  devBoardPm: env("DEV_BOARD_PM") ?? "Binod",
   devFollowUpRules: {
-    quietWorkdays: Number(env("JETTA_DEV_QUIET_WORKDAYS") ?? "3"),
-    /** Days that don't count, 0 = Sunday. The team works in Nepal: Saturday off. */
-    weekend: (env("JETTA_DEV_WEEKEND") ?? "6").split(",").map(Number).filter((n) => n >= 0 && n <= 6),
+    // One working day: three left a customer waiting most of a week before
+    // anyone was asked (the asks land on days 1 and 2, the escalation on day 3).
+    quietWorkdays: Number(env("JETTA_DEV_QUIET_WORKDAYS") ?? "1"),
+    /** Days that don't count, 0 = Sunday. The team has Saturday and Sunday off. */
+    weekend: (env("JETTA_DEV_WEEKEND") ?? "6,0").split(",").map(Number).filter((n) => n >= 0 && n <= 6),
   },
 
   /**
