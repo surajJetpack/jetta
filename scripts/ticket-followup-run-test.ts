@@ -37,6 +37,8 @@ function fake(tickets: FakeTicket[], writer?: (i: WriterInput, rejected?: { body
   const writes: WriterInput[] = [];
   let reads = 0;
   const devItems = new Map<string, { state?: string; status: string; id: string; title: string }[]>();
+  /** Tickets with an escalation still remembered from Slack. */
+  const escalations = new Map<string, string>();
   const byId = (id: string) => tickets.find((t) => String(t.listed.id) === id)!;
   const bump = (t: FakeTicket, who: "agent" | "customer") => {
     const at = new Date(clock.now).toISOString();
@@ -71,7 +73,10 @@ function fake(tickets: FakeTicket[], writer?: (i: WriterInput, rejected?: { body
       resolved.push(id);
       byId(id).listed.status = 4;
     },
-    escalationTs: async () => null,
+    escalationTs: async (id) => escalations.get(id) ?? null,
+    clearEscalation: async (id) => {
+      escalations.delete(id);
+    },
     devItems: async (id) => devItems.get(id) ?? [],
     ownAccountName: async () => "App Support",
     write: async (i, rejected) => {
@@ -86,7 +91,7 @@ function fake(tickets: FakeTicket[], writer?: (i: WriterInput, rejected?: { body
     clock.now = Date.parse(iso);
     return runTicketFollowUps({ write, preview: false, now: clock.now, readBudget: 6 }, deps);
   };
-  return { run, sent, notes, resolved, writes, devItems, clock, reads: () => reads, deps };
+  return { run, sent, notes, resolved, writes, devItems, escalations, clock, reads: () => reads, deps };
 }
 
 let nextId = 1000;
@@ -309,7 +314,7 @@ async function main() {
     assert.equal(await getTicketFollowUp(id), null);
   });
 
-  await test("dev item in progress → no follow-up and no note; 'Waiting Customer' → check-ins but never the close", async () => {
+  await test("dev item in progress → no follow-up, and one note saying so; 'Waiting Customer' → check-ins but never the close", async () => {
     const a = ticket();
     const b = ticket({}, "Lise Berg <lise@b.com>");
     const f = fake([a, b]);
@@ -320,7 +325,9 @@ async function main() {
     const ra = r.handled.find((h) => h.ticketId === String(a.listed.id))!;
     assert.equal(ra.action, "stopped");
     assert.match(ra.detail!, /open dev item/);
-    assert.ok(!f.notes.some((n) => n.id === String(a.listed.id)), "a stop before any touch needs no note");
+    const aNotes = f.notes.filter((n) => n.id === String(a.listed.id));
+    assert.equal(aNotes.length, 1, "a stop before any touch is said once on the ticket");
+    assert.match(aNotes[0].text, /not following up with the customer on this ticket: the developers still have it \("Fix sync", Working on it\)/);
     const bid = String(b.listed.id);
     assert.equal(r.handled.find((h) => h.ticketId === bid)!.action, "noted");
     // Through touches 1 and 2…
@@ -333,6 +340,52 @@ async function main() {
     assert.equal(r3.handled.find((h) => h.ticketId === bid)!.action, "stopped");
     assert.match(f.notes.at(-1)!.text, /stopped following up after 2 of 3/);
     assert.deepEqual(f.resolved, []);
+  });
+
+  await test("escalated in Slack, then the dev item is finished → the escalation is cleared and the follow-up goes out (#14752)", async () => {
+    const t = ticket();
+    const id = String(t.listed.id);
+    const f = fake([t]);
+    f.escalations.set(id, "1794427952.000100");
+    f.devItems.set(id, [{ id: "9", title: "Question: sign from the GetSign tab?", status: "Done", state: "closed" }]);
+    await f.run("2026-10-16T10:00:00Z");
+    const r = await f.run("2026-10-19T23:00:00Z");
+    assert.equal(r.handled.find((h) => h.ticketId === id)!.action, "noted", JSON.stringify(r.handled));
+    assert.equal(f.escalations.has(id), false, "the stale escalation is forgotten");
+    const p = (await getTicketFollowUp(id))!.pending!;
+    await f.run(new Date(p.sendAt + 60_000).toISOString());
+    assert.equal(f.sent.length, 1, "the follow-up went out");
+  });
+
+  await test("escalated with no finished dev item → stops with one note, is looked at again a day later, and resumes once the item is done", async () => {
+    const t = ticket();
+    const id = String(t.listed.id);
+    const f = fake([t]);
+    f.escalations.set(id, "1794427952.000100");
+    await f.run("2026-10-16T10:00:00Z");
+    const r1 = await f.run("2026-10-19T23:00:00Z");
+    assert.equal(r1.handled.find((h) => h.ticketId === id)!.detail, "open_escalation");
+    assert.equal(f.escalations.has(id), true, "no dev item to go by: the escalation still holds");
+    assert.equal(f.notes.length, 1);
+    assert.match(f.notes[0].text, /not following up with the customer on this ticket: it is still escalated in Slack/);
+    // The note itself changed the ticket; let the run that reads that settle.
+    await f.run("2026-10-19T23:30:00Z");
+    // Within the day: left alone. A day later: read again, still stopped, no second note.
+    const reads = f.reads();
+    await f.run("2026-10-20T10:00:00Z");
+    assert.equal(f.reads(), reads, "not re-read within a day");
+    await f.run("2026-10-21T00:30:00Z");
+    assert.ok(f.reads() > reads, "re-read after a day");
+    assert.equal(f.notes.length, 1, "the stop is said once");
+    assert.equal(f.sent.length, 0);
+    // The developers finish their item: the next daily look clears the escalation and writes the follow-up.
+    f.devItems.set(id, [{ id: "9", title: "Question", status: "Done", state: "closed" }]);
+    const r3 = await f.run("2026-10-22T01:00:00Z");
+    assert.equal(r3.handled.find((h) => h.ticketId === id)!.action, "noted", JSON.stringify(r3.handled));
+    assert.equal(f.escalations.has(id), false);
+    const p = (await getTicketFollowUp(id))!.pending!;
+    await f.run(new Date(p.sendAt + 60_000).toISOString());
+    assert.equal(f.sent.length, 1, "the follow-up went out");
   });
 
   await test("writer says it's our move → stops quietly; a person is needed → note", async () => {

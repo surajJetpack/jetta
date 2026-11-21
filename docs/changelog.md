@@ -6,6 +6,12 @@ Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain word
 
 
 
+
+## 2026-11-21: A finished dev item ends the escalation, and a skipped follow-up leaves a note
+Jetta never follows up with a quiet customer while the ticket is escalated in Slack, and she remembered an escalation until the ticket was resolved. On #14752 the developers finished their item the next morning, the escalation stayed on record, and the follow-up due four days later was refused; nothing on the ticket said so, and the customer heard nothing for nine days.
+Now the escalation is over once every dev item filed for the ticket is finished, and she follows up as usual. A ticket stopped for an escalation is looked at again once a day. An escalation with no dev item still holds.
+When she will not follow up because of the status, an open escalation or a dev item in flight, she leaves one private note saying why. No switch; applies wherever `JETTA_TICKET_FOLLOWUP` is on.
+
 ## 2026-11-20: The daily Slack report no longer carries the To do list
 The post is now one message: the summary line and the Team table. What needs doing (customers waiting, developer updates to pass on) stays on the console's Daily report page, and the summary line links to it as "N to do".
 No switch; applies to the next post. The Daily report page is unchanged.
