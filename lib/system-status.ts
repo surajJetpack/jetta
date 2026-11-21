@@ -468,7 +468,7 @@ function appLogsRow(): StatusRow {
     tone: on ? "on" : "off",
     state: !keys ? "NO KEYS" : c.enabled ? "READ-ONLY" : "OFF",
     meaning: on
-      ? `The Slack and console assistants can search the apps' server logs (search_app_logs), and a dev item filed from a ticket carries that customer's recent log failures, found by their email. Read-only by IAM policy; the ticket agent never sees log lines, so they cannot reach a customer. Region ${c.region}.`
+      ? `The Slack and console assistants can search the apps' server logs (search_app_logs), and a dev item filed from a ticket carries what the logs show for that report: the customer's failures of the last 72 hours are matched against what they reported, the ones that fit are summarised in two or three sentences with the lines linked, and the unrelated ones are left out. Read-only by IAM policy; the ticket agent never sees log lines, so they cannot reach a customer. Region ${c.region}.`
       : !keys
         ? "No AWS credentials (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY), so nothing reads the logs."
         : "Switched off: no log search for the assistants, no log evidence on dev items.",
@@ -671,10 +671,10 @@ function sentryRow(): StatusRow {
     tone: on ? "on" : "off",
     state: !c.token ? "NO TOKEN" : c.enabled ? "READ-ONLY" : "OFF",
     meaning: on
-      ? `The Slack and console assistants can search Sentry (search_sentry): grouped errors per app with counts, users, first/last seen and links, including the GetSign frontend. A dev item filed from a ticket lists the Sentry issues tagged with that customer's monday account (GetSign backend, Extract AI). Read-only integration token; the ticket agent never sees Sentry results, so they cannot reach a customer. Org ${c.org}.`
+      ? `The Slack and console assistants can search Sentry (search_sentry): grouped errors per app with counts, users, first/last seen and links, including the GetSign frontend. A dev item filed from a ticket no longer lists Sentry issues (the developers asked for the app logs only); items the error watch files still do. Read-only integration token; the ticket agent never sees Sentry results, so they cannot reach a customer. Org ${c.org}.`
       : !c.token
         ? "No SENTRY_AUTH_TOKEN, so nothing reads Sentry."
-        : "Switched off: no Sentry search for the assistants, no Sentry issues on dev items.",
+        : "Switched off: no Sentry search for the assistants.",
     setting: "JETTA_SENTRY",
   };
 }
