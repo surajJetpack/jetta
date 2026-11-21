@@ -23,6 +23,7 @@ function check(label: string, actual: unknown, expected: unknown) {
 }
 
 const SAT = { weekend: [6] };
+const WEEKEND = { weekend: [6, 0] };
 // 2026-10-19 is a Monday.
 const at = (d: number, h = 9) => Date.UTC(2026, 9, d, h);
 const now = (d: number, h = 4) => new Date(Date.UTC(2026, 9, d, h, 30));
@@ -31,13 +32,18 @@ const asked = (n: number, d: number, extra: Partial<NudgeState> = {}): NudgeStat
 
 console.log("A developer update nobody passed on");
 {
-  check("the same day: too soon", decideSupportNudge(update("relay", at(19)), null, now(19, 20), SAT), { action: "none", reason: "update is 0d old" });
-  check("the next working day: first ask", decideSupportNudge(update("relay", at(19)), null, now(20), SAT), { action: "ask", n: 1 });
-  check("Friday's update is asked about on Sunday, not Saturday (the day off)", [
-    decideSupportNudge(update("fixed", at(23)), null, now(24), SAT).action,
-    decideSupportNudge(update("fixed", at(23)), null, now(25), SAT).action,
-  ], ["none", "ask"]);
-  check("asked today: not again today", decideSupportNudge(update("relay", at(19)), asked(1, 20), now(20, 20), SAT), { action: "none", reason: "asked 0d ago" });
+  check("the run that first sees it asks: no waiting period", decideSupportNudge(update("relay", at(19, 9)), null, now(19, 9), SAT), { action: "ask", n: 1 });
+  check("an update on Friday evening is asked about on Monday, not over the weekend", [
+    decideSupportNudge(update("fixed", at(23, 22)), null, now(24), WEEKEND),
+    decideSupportNudge(update("fixed", at(23, 22)), null, now(25), WEEKEND),
+    decideSupportNudge(update("fixed", at(23, 22)), null, now(26), WEEKEND),
+  ], [{ action: "none", reason: "day off" }, { action: "none", reason: "day off" }, { action: "ask", n: 1 }]);
+  check("asked today: not again today", decideSupportNudge(update("relay", at(19)), asked(1, 20), now(20, 20), SAT), { action: "none", reason: "asked less than a working day ago" });
+  check("asked late in the evening: not again just after midnight", decideSupportNudge(update("relay", at(19)), { n: 1, at: new Date(at(20, 23)).toISOString() }, now(21, 1), SAT).action, "none");
+  check("asked on Friday: the reminder is Monday", [
+    decideSupportNudge(update("relay", at(22)), asked(1, 23), now(25), WEEKEND).action,
+    decideSupportNudge(update("relay", at(22)), asked(1, 23), now(26), WEEKEND),
+  ], ["none", { action: "ask", n: 2 }]);
   check("a working day after the first ask: the second", decideSupportNudge(update("relay", at(19)), asked(1, 20), now(21), SAT), { action: "ask", n: 2 });
   check("a working day after the second: the escalation channel", decideSupportNudge(update("relay", at(19)), asked(SUPPORT_MAX_ASKS, 21), now(22), SAT), { action: "escalate" });
   check("escalated once, then nothing", decideSupportNudge(update("relay", at(19)), asked(2, 21, { escalated: true }), now(26), SAT), { action: "none", reason: "already escalated" });

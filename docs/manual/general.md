@@ -127,7 +127,7 @@ When a ticket needs engineering, Jetta files a dev item on monday. She can also 
 - **The fix ships:** she suggests telling the customer and asking them to try again.
 - **The customer adds details or files, or asks "any update?":** she passes it to the developer on the item. If the developer asked in a thread, her answer goes back into that thread.
 - **A question the knowledge base can't answer** ("can GetSign do X?"): she asks the developers as a Question item instead of guessing.
-- **An item goes quiet for 3 working days while a customer waits:** she asks the developer for an update, and raises it in Slack if nobody answers.
+- **An item goes quiet for one working day while a customer waits:** she asks the developer for an update, and raises it in Slack if nobody answers.
 - **A developer explains something:** she drafts a knowledge-base article for review.
 
 On monday her posts start with **🤖 Jetta:** and show Suraj's name, because she uses his account.

@@ -1,16 +1,18 @@
 /**
  * Following up with the SUPPORT side of a dev item, and bringing the product
- * manager in on feature requests. Same daily cron as lib/dev-followup.ts,
- * which chases a quiet DEVELOPER; this covers the other two people an item
- * can be stuck on.
+ * manager in on feature requests. lib/dev-followup.ts chases a quiet DEVELOPER
+ * once a day; this covers the other two people an item can be stuck on, and
+ * runs every hour (app/api/cron/dev-followup-support), because a developer's
+ * answer is ready to pass on the moment it is written.
  *
  *  1. A developer update nobody passed on. The developers answered or handed
  *     the item back, set it to Waiting Customer, or shipped the fix, and the
  *     ticket has had no public reply from us since. That is the daily report's
  *     To do list (lib/team-report.ts builds it, and this reads the same list,
- *     so the nudge and the report never disagree). After one working day Jetta
- *     asks the support person on the item; a working day later, once more;
- *     then one post in the escalation channel, and she stops.
+ *     so the nudge and the report never disagree). Jetta asks the support
+ *     person on the item at the next hourly run, with no waiting period; a
+ *     working day later, once more; then one post in the escalation channel,
+ *     and she stops.
  *
  *  2. A feature request a customer is waiting on. Developers cannot decide
  *     those, so the follow-up cron leaves them alone, and nobody was told they
@@ -34,8 +36,13 @@ import * as freshdesk from "./tools/freshdesk";
 import * as monday from "./tools/monday";
 import * as slack from "./tools/slack";
 
-/** Working days a developer update may sit before support is asked, and between asks. */
+/**
+ * Working days between one ask and the next. The FIRST ask has no wait: the
+ * hourly run that first sees the update asks.
+ */
 export const SUPPORT_WAIT_WORKDAYS = 1;
+/** And at least this long, so an ask late one evening is not repeated just after midnight. */
+const SUPPORT_REASK_MS = 20 * 3600_000;
 /** Asks before it goes to the escalation channel. */
 export const SUPPORT_MAX_ASKS = 2;
 /** A feature request older than this is backlog, not news: the product manager is not pinged about it. */
@@ -71,12 +78,16 @@ export function decideSupportNudge(
   rules: { weekend: number[] },
 ): SupportDecision {
   if (a.kind === "board" || a.ticketId == null) return { action: "none", reason: "no ticket" };
-  const waited = workdaysBetween(new Date(a.sinceAt).toISOString(), now, rules.weekend);
-  if (waited < SUPPORT_WAIT_WORKDAYS) return { action: "none", reason: `update is ${waited}d old` };
+  // Nobody is at work to read it, and an ask posted on a day off would have
+  // its reminder land the same morning the first one is seen.
+  if (rules.weekend.includes(now.getUTCDay())) return { action: "none", reason: "day off" };
+  // No waiting period before the first ask: the update is ready to pass on now.
   if (!state) return { action: "ask", n: 1 };
   if (state.escalated) return { action: "none", reason: "already escalated" };
   const sinceAsk = workdaysBetween(state.at, now, rules.weekend);
-  if (sinceAsk < SUPPORT_WAIT_WORKDAYS) return { action: "none", reason: `asked ${sinceAsk}d ago` };
+  if (sinceAsk < SUPPORT_WAIT_WORKDAYS || now.getTime() - Date.parse(state.at) < SUPPORT_REASK_MS) {
+    return { action: "none", reason: "asked less than a working day ago" };
+  }
   return state.n < SUPPORT_MAX_ASKS ? { action: "ask", n: state.n + 1 } : { action: "escalate" };
 }
 
