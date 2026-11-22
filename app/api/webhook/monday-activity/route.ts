@@ -44,7 +44,11 @@ export async function POST(req: NextRequest) {
     await handleMondayWebhook(event).catch((e) => console.warn("monday activity webhook:", e));
     // After the ACK: a ticket run takes a minute, monday's delivery does not wait.
     // Runs after /activity has named the user, so the bridge can too.
-    if (config.devBridge !== "off" || config.devKb !== "off") after(() => handleDevBoardEvent(event));
+    // A comment goes through with every switch off too: it may be feedback
+    // for Jetta (lib/feedback.ts), which is kept whatever the bridge is set to.
+    if (config.devBridge !== "off" || config.devKb !== "off" || event.type === "create_update") {
+      after(() => handleDevBoardEvent(event));
+    }
   }
   return NextResponse.json({ ok: true });
 }
