@@ -12,6 +12,14 @@ function env(name: string): string | undefined {
   return v && v.length > 0 ? v : undefined;
 }
 
+/** Unset: the team's booking page. "off": none. Anything else must be an https link. */
+export const DEFAULT_BOOKING_URL = "https://calendar.app.google/zwLMTtr9LK3SeBFM7";
+function bookingUrl(raw: string | undefined): string | undefined {
+  if (!raw) return DEFAULT_BOOKING_URL;
+  if (raw.trim().toLowerCase() === "off") return undefined;
+  return /^https:\/\/\S+$/.test(raw.trim()) ? raw.trim() : DEFAULT_BOOKING_URL;
+}
+
 /** "3-7" → [3, 7]. Junk, inverted or negative ranges fall back. */
 function parseRange(raw: string | undefined, fallback: [number, number]): [number, number] {
   const m = /^\s*(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)\s*$/.exec(raw ?? "");
@@ -312,11 +320,14 @@ export const config = {
   ticketMirror: (env("JETTA_TICKET_MIRROR") === "off" ? "off" : "reports") as "off" | "reports",
   firstResponseDelayMinutes: parseRange(env("JETTA_FIRST_RESPONSE_DELAY"), [3, 7]),
   /**
-   * A calendar link customers can book a call on. Unset: a first email asking
-   * for a call or demo is left for a person (that is what the team does — a
-   * booking link). Set: Jetta offers it herself.
+   * The calendar link customers book a demo or call on (a free 30-minute
+   * consultation with the team). Jetta gives it to anyone who asks for a demo,
+   * call, meeting or screen-share, on chat and on tickets — she once told a
+   * chat visitor "we don't offer demos" because nothing told her we do.
+   * JETTA_BOOKING_URL replaces the link; "off" removes it, and then a person
+   * arranges the call (a first email asking for one is held for them).
    */
-  firstResponseBookingUrl: env("JETTA_BOOKING_URL"),
+  bookingUrl: bookingUrl(env("JETTA_BOOKING_URL")),
   /**
    * Jetta follows up with customers who went quiet after our reply: a
    * check-in, a nudge, then a close, in her own name, each announced on the

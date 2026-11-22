@@ -32,7 +32,7 @@ const PLUMBING = {
   JETTA_TZ: "display timezone",
   JETTA_GETSIGN_ORIGINS: "chat embed origins, managed on the Chat settings page",
   JETTA_DRAFTS_SLACK_CHANNEL: "a channel id",
-  JETTA_BOOKING_URL: "link offered by JETTA_FIRST_RESPONSE",
+  JETTA_BOOKING_URL: "the demo and call booking link; explained in the manual, not a switch",
   JETTA_FIRST_RESPONSE_DELAY: "tuning for JETTA_FIRST_RESPONSE",
   JETTA_DEV_QUIET_WORKDAYS: "tuning for JETTA_DEV_FOLLOWUP (shown in its /system row)",
   JETTA_DEV_WEEKEND: "tuning for JETTA_DEV_FOLLOWUP",

@@ -213,7 +213,7 @@ const TOUCH_BRIEF: Record<number, string> = {
   2: [
     "This is the SECOND follow-up; the first got no answer. Do not repeat it. Come at it from a different angle and make answering effortless:",
     "a one-word yes/no is fine, or a screenshot of where they got to, or what they see now.",
-    config.firstResponseBookingUrl ? `You may offer a quick call: ${config.firstResponseBookingUrl}` : "Do not offer a call.",
+    config.bookingUrl ? `You may offer a quick call: ${config.bookingUrl}` : "Do not offer a call.",
     "Two to four short sentences.",
   ].join(" "),
   3: [

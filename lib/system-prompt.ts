@@ -550,7 +550,6 @@ THIS IS THE FIRST REPLY THE CUSTOMER GETS, AND IT IS SENT AS YOU WRITE IT
     name; a signature is added for you.
 - Do not mention that you searched anything, checked a knowledge base, or
   "looked into our systems". Just tell them the answer.
-{{BOOKING_RULE}}
 `.trim();
 
 /** Freshchat only: Jetta is the backline, picking up after the front-line bot. */
@@ -1168,6 +1167,36 @@ function contextBlock(ctx: ConversationContext, profile: Profile): string {
   return lines.join("\n");
 }
 
+/**
+ * Demos and calls, on every channel. Without this Jetta had nothing to go on
+ * and answered "do you offer demos?" on chat with "we don't currently offer
+ * personalised one-on-one demos" — invented, and wrong: the team does them.
+ */
+export function demoRules(url: string | null = config.bookingUrl ?? null): string {
+  const yes = `DEMOS AND CALLS
+- We DO offer demos: a free 30-minute video call with our team, for anyone
+  evaluating or already using the app. NEVER say or imply that we don't offer
+  demos, calls or one-on-one sessions, and never offer the free trial or the
+  video guides INSTEAD of a demo (mentioning them as well is fine).`;
+  return url
+    ? `${yes}
+- When a customer asks for a demo, call, meeting, walkthrough or screen-share,
+  or asks whether we offer one, say yes and give them this link to pick a
+  time: ${url}
+  Give the link as written, as a plain URL. Then still answer anything else
+  they asked.
+- The link is the whole arrangement. Do not ask for a person to join, open a
+  ticket or escalate just because they asked for a demo, and do not promise
+  that someone will contact them to schedule it.
+- Offer it when they ask, or when a prospect wants to see how the app would
+  fit their process. It is not a way out of answering a support question.`
+    : `${yes}
+- You have no booking link to give. When a customer asks for a demo, call,
+  meeting or screen-share, say yes, a colleague will arrange it with them by
+  email, and make sure the team knows (on chat: open a ticket, which needs
+  their email). Reply normally to anything else they asked.`;
+}
+
 /** Build the full system prompt for a given turn. */
 export async function buildSystemPrompt(ctx: ConversationContext): Promise<string> {
   // Fail-open: returns "" on any store blip — never blocks reply generation.
@@ -1213,14 +1242,10 @@ export async function buildSystemPrompt(ctx: ConversationContext): Promise<strin
     // Ticket channel only; the webhook sets it for an eligible first reply.
     ...(ctx.channel === "freshdesk" && ctx.firstResponse
       ? [
-          FIRST_RESPONSE_RULES.replace(
-            "{{BOOKING_RULE}}",
-            config.firstResponseBookingUrl
-              ? `- If they ask for a call, meeting, demo or screen-share, say yes and give them this link to pick a time: ${config.firstResponseBookingUrl} — then still answer anything you can.`
-              : "- If they ask for a call, meeting or demo, reply normally to anything else they asked; a colleague will arrange the call.",
-          ),
+          FIRST_RESPONSE_RULES,
         ]
       : []),
+    demoRules(),
     ...(ctx.devEvent ? [DEV_EVENT_RULES] : []),
     ...(ctx.devEvent?.replyHeld ? [DEV_EVENT_HELD_RULES] : []),
     ...(learned
