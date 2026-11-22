@@ -8,6 +8,9 @@ Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain word
 
 
 
+## 2026-11-22: Jetta says yes to demos and gives the booking link
+A chat visitor asked "do you offer demos?" and Jetta answered that we don't; nothing told her we do. Now, on chat and on tickets, when a customer asks for a demo, call, meeting or screen-share she says yes and gives the booking link (https://calendar.app.google/zwLMTtr9LK3SeBFM7), and she is told never to say we don't offer them. First replies on tickets that ask for a call are no longer held for a person when her reply gives the link, and her second follow-up to a quiet customer may offer the call. `JETTA_BOOKING_URL` replaces the link, `off` removes it (a person arranges the call, as before). Live on merge.
+
 ## 2026-11-21: Dev items carry a summary of the logs, not every failure
 A dev item filed from a ticket used to list every kind of failure the customer's account had in the last 72 hours, as raw lines. Now Jetta matches those failures against what the customer reported, writes two or three sentences on what the matching ones show, keeps those lines (shortened, each linked to CloudWatch) and says how many unrelated kinds she left out. When nothing matches she says so. If the model read fails, the full list is posted as before. Sentry issues are no longer added to these items; the assistants can still search Sentry, and items the error watch files still carry them. The developers asked for both (Swejal, 17 Nov). No new switch (`JETTA_APP_LOGS` still turns the log evidence off); live on merge.
 

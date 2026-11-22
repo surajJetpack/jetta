@@ -168,7 +168,7 @@ async function main() {
         name: "asks for a call → hold (needs a person)",
         t: ticket({ subject: "change", description: "Hi there has been a recent change in our GetSign, can I schedule for help asap.. Thanks, Paul" }),
         reply: "Hi Paul,\n\nCould you tell me what changed — is something no longer working, or does it look different? A screenshot would help me point you the right way.",
-        expect: process.env.JETTA_BOOKING_URL ? true : false,
+        expect: false, // the reply does not give the booking link
       },
       {
         name: "nonprofit pricing talk → hold (sales)",

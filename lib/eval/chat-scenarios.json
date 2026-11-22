@@ -585,5 +585,21 @@
    "create_support_ticket"
   ],
   "rubric": "Identity is mandatory but not a ransom. After the refusal she must still answer the simple question plainly and drop the subject — no arguing, no repeating the request in the same breath, no withholding an answer the knowledge base has. What she MUST make clear if follow-up comes up: anything that needs a reply later (a ticket, a human, an account change) genuinely cannot happen without an email. Opening a ticket for this visitor is impossible and must not be attempted or promised."
+ },
+ {
+  "id": "demo-request",
+  "class": "sales",
+  "title": "Visitor asks whether we offer demos",
+  "visitor": {
+   "noEmail": true
+  },
+  "turns": [
+   "do you offer demos?"
+  ],
+  "forbidTools": [
+   "request_human",
+   "create_support_ticket"
+  ],
+  "rubric": "We do offer demos: a free 30-minute call booked at https://calendar.app.google/zwLMTtr9LK3SeBFM7. The reply must say yes and include that exact link. It fails if it says or implies we do not offer demos or one-on-one sessions, offers the free trial or videos instead of a demo, promises that someone will contact them to schedule, or asks for a person or a ticket to arrange it. Asking for name and email (identity is mandatory for an anonymous visitor) is fine alongside the link."
  }
 ]

@@ -114,7 +114,8 @@ Since 2026-10-12, Jetta answers the **first message** on a ticket herself, so cu
 - **How to stop one:** reply first yourself, add the tag `jetta-hold`, or close the ticket.
 - **If the customer writes again before it goes,** it is cancelled, and a private note says so: "Jetta did NOT send the first response announced above". Nothing has reached the customer at that point, so use the text as a draft if it still fits. An out-of-office auto-reply from the customer does not count as writing again; the reply still goes.
 - **If Freshdesk can't be reached at send time,** she tries again every minute. After an hour she gives up and leaves a note asking a person to send it. A note saying a reply is on its way is always followed by the reply or by a note saying it was not sent.
-- **When the check fails** (or it's a call/demo request or a price negotiation), nothing is sent: you get the normal private-note suggestion, with a banner saying it was held for a person.
+- **Demo and call requests:** Jetta says yes and gives the booking link herself (see "Demos and calls" just below), so these no longer wait for a person.
+- **When the check fails** (or it's a price negotiation, or a call/demo request her reply did not give the link for), nothing is sent: you get the normal private-note suggestion, with a banner saying it was held for a person.
 - **Everything after the first reply** is a suggestion in a private note, exactly as described below.
 
 <div class="placeholder">Screenshot needed: Jetta's suggestion as a private note on a Freshdesk ticket.</div>
@@ -218,6 +219,10 @@ Pick a conversation and the transcript opens beside the list. Three controls mat
 A visitor who asks for a person moves to **Needs a person**, pins to the top, and pings Slack. The visitor always sees who is speaking, so a handover is never silent. If nobody takes the chat within a minute, Slack is pinged again (a louder second call) and the visitor sees "Still trying to find someone". If nobody takes it after that, Jetta **opens a Freshdesk ticket** with the transcript, tells the visitor the ticket number and that the team will email them, and posts the ticket link in Slack so nobody jumps into the chat late. Both the wait and the number of calls are in chat settings. A visitor who never gave an email can't get a ticket, so Jetta takes the chat back herself. She doesn't ask for a person a second time that day. A handoff left unanswered for over two hours is ended quietly, without a message, and shows under **With Jetta**.
 
 Jetta opens tickets herself when she can't resolve something — the button is for when you decide before she does.
+
+### Demos and calls
+
+We offer demos: a free 30-minute video call, booked at https://calendar.app.google/zwLMTtr9LK3SeBFM7. When a customer asks for a demo, a call, a meeting or a screen-share, or asks whether we do them, Jetta says yes and gives that link, in chat, in her first reply on a ticket and in the suggestions she writes on later replies. She does not open a ticket or ask for a person just for that, and she never says we don't offer demos. Her second follow-up to a customer who went quiet may offer the call too. `JETTA_BOOKING_URL` replaces the link; set to `off`, she has no link, tells the customer a colleague will arrange it, and a first email asking for a call is held for a person.
 
 ### What a visitor can and can't get in chat
 
