@@ -8,6 +8,11 @@ Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain word
 
 
 
+## 2026-11-22: The team can leave feedback for Jetta on a dev item
+On any item on the two monday dev boards, a comment that starts with "Jetta feedback:" (an @mention before it is fine) is kept on the console's new **Feedback** page with who wrote it and on which item. Jetta thanks the writer in the same thread and does nothing else with the comment: no ticket run, no reply to the customer.
+Admins and the developers in `CONSOLE_DEV_USERS` can read the page; an admin marks an entry handled. Nothing is changed automatically from feedback: a person reads it and decides.
+There is no switch. It works whenever the monday webhooks are registered, with the dev bridge on or off. Not live until this is merged.
+
 ## 2026-11-22: Jetta says yes to demos and gives the booking link
 A chat visitor asked "do you offer demos?" and Jetta answered that we don't; nothing told her we do. Now, on chat and on tickets, when a customer asks for a demo, call, meeting or screen-share she says yes and gives the booking link (https://calendar.app.google/zwLMTtr9LK3SeBFM7), and she is told never to say we don't offer them. First replies on tickets that ask for a call are no longer held for a person when her reply gives the link, and her second follow-up to a quiet customer may offer the call. `JETTA_BOOKING_URL` replaces the link, `off` removes it (a person arranges the call, as before). Live on merge.
 

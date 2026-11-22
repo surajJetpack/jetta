@@ -69,6 +69,8 @@ const ROLES: Record<string, Record<string, Need>> = {
   "dev-board/kb": { POST: "dev" },
   "drafts": { GET: "login", POST: "login" },
   "error-watch": { GET: "dev", POST: "dev" },
+  // Developers read what the team told Jetta; marking one handled is the admin's.
+  "feedback": { GET: "dev", POST: "admin" },
   "error-watch/insight": { GET: "dev" },
   "evals": { GET: "login" },
   "evals/distill": { POST: "login" },
@@ -196,7 +198,7 @@ async function main() {
   }
   const nav = await import("../components/jetta/console-nav");
   const ids = (dev: boolean) => nav.navItemsFor(false, dev).map((i) => i.id).join(",");
-  check("the nav adds exactly Dev board and Logs & errors", ids(true).split(",").filter((i) => !ids(false).split(",").includes(i)).join(",") === "dev-board,logs", ids(true));
+  check("the nav adds exactly Dev board, Feedback and Logs & errors", ids(true).split(",").filter((i) => !ids(false).split(",").includes(i)).join(",") === "dev-board,feedback,logs", ids(true));
 
   section("Knowledge base: deleting something live is admin's");
   const kb = await import("../lib/kb-store");

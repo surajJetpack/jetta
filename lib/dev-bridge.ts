@@ -41,6 +41,7 @@ import {
 } from "./kv";
 import * as monday from "./tools/monday";
 import { askForKb, draftFromItem, handleKbAnswer, pendingKbAsk, shouldAskForKb } from "./dev-kb";
+import { FEEDBACK_ACK, feedbackText, saveFeedback } from "./feedback";
 import type { MondayWebhookEvent } from "./activity";
 import type { DevEvent } from "./types";
 
@@ -195,13 +196,39 @@ function devBoardIds(): string[] {
  * been acknowledged, and a failure here must only cost this one run.
  */
 export async function handleDevBoardEvent(e: MondayWebhookEvent, opts: { requeued?: boolean } = {}): Promise<void> {
-  if (config.devBridge === "off" && config.devKb === "off") return;
   const itemId = e.pulseId != null ? String(e.pulseId) : "";
   let lockToken: string | null = null;
   try {
     const state = await getActivityState();
     const selfId = state.mondaySelf?.id ?? null;
     const trigger = classifyDevEvent(e, devBoardIds(), selfId);
+
+    // "Jetta feedback: …" is about her, not about the ticket: it is kept for
+    // the console's Feedback page and thanked, and starts no run. Before the
+    // switches below, because it writes nothing to a customer and needs no
+    // ticket on the item.
+    const feedback = "kind" in trigger && trigger.kind === "comment" ? feedbackText(trigger.text) : null;
+    if (feedback && "kind" in trigger && trigger.kind === "comment") {
+      const postId = trigger.postId ?? `${itemId}:${Date.now()}`;
+      if (!opts.requeued && !(await markEventSeen(`devbridge:${e.triggerUuid ?? `${itemId}:${postId}`}`, 24 * 3600))) return;
+      const [item, users] = await Promise.all([monday.getDevItemSnapshot(itemId).catch(() => null), getMondayUsers()]);
+      const author = users.get(String(e.userId)) ?? "A colleague";
+      await saveFeedback({
+        id: postId,
+        at: new Date().toISOString(),
+        author,
+        itemId,
+        itemName: item?.name,
+        itemUrl: item?.url,
+        text: feedback.slice(0, 4000),
+      });
+      await monday
+        .postJettaComment(itemId, FEEDBACK_ACK, { parentUpdateId: trigger.threadUpdateId })
+        .catch((err) => console.warn(`feedback ack on ${itemId} failed:`, err));
+      await logOpsEvent({ level: "info", event: "devbridge.feedback", source: "webhook", data: { itemId, author } });
+      return;
+    }
+    if (config.devBridge === "off" && config.devKb === "off") return;
 
     // A person posting on an item with an open KB request may be answering
     // it — including an update that is only a file, which is otherwise skipped
