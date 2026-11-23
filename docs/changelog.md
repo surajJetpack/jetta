@@ -8,6 +8,11 @@ Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain word
 
 
 
+## 2026-11-23: Slack reminders to Mark about compliance requests
+Mark Shaw often misses monday's notifications, so Jetta can now message him on Slack as well. Hourly, she reads the Security Questionnaires board and sends him one direct message listing the requests waiting on him: a new one at the next run, and a reminder every 2 working days while it stays Pending or Stuck and he has not written on the item (6 messages per item at most, nothing at weekends).
+Mark is in a different Slack workspace, so the message goes from Suraj's own account there (a user token, `SLACK_COMPLIANCE_USER_TOKEN`, to `SLACK_COMPLIANCE_TO`), not from the Jetta bot.
+Switch: `JETTA_COMPLIANCE_NUDGE` (off / shadow / on). Off until it and the two Slack values are set in production.
+
 ## 2026-11-22: The team can leave feedback for Jetta on a dev item
 On any item on the two monday dev boards, a comment that starts with "Jetta feedback:" (an @mention before it is fine) is kept on the console's new **Feedback** page with who wrote it and on which item. Jetta thanks the writer in the same thread and does nothing else with the comment: no ticket run, no reply to the customer.
 Admins and the developers in `CONSOLE_DEV_USERS` can read the page; an admin marks an entry handled. Nothing is changed automatically from feedback: a person reads it and decides.

@@ -181,6 +181,20 @@ export const config = {
   devFollowUpSupport: (["shadow", "on"].includes(env("JETTA_DEV_FOLLOWUP_SUPPORT") ?? "")
     ? env("JETTA_DEV_FOLLOWUP_SUPPORT")
     : "off") as "off" | "shadow" | "on",
+  /**
+   * Slack messages to the compliance contact about the Security Questionnaires
+   * board (lib/compliance-nudge.ts, app/api/cron/compliance-nudge), hourly.
+   * He is outside our Slack workspace, so these are sent as a PERSON, with
+   * that person's user token from the workspace he is in (slack.compliance
+   * below), not by the Jetta bot.
+   *  - A request newly assigned to him and waiting on him: told at the next run.
+   *  - Still waiting, and he has not written on the item since: reminded every
+   *    2 working days, at most 5 times.
+   *  - "off" (default) / "shadow" (logged as compliance.nudge_shadow) / "on".
+   */
+  complianceNudge: (["shadow", "on"].includes(env("JETTA_COMPLIANCE_NUDGE") ?? "")
+    ? env("JETTA_COMPLIANCE_NUDGE")
+    : "off") as "off" | "shadow" | "on",
   /** The product manager's first name as it is on monday: who feature requests are brought to. */
   devBoardPm: env("DEV_BOARD_PM") ?? "Binod",
   devFollowUpRules: {
@@ -665,6 +679,16 @@ export const config = {
      * (they're noise on #escalations; drafts are reviewable in FD + /drafts). */
     draftsChannel: env("JETTA_DRAFTS_SLACK_CHANNEL"),
     partnershipsChannel: env("SLACK_PARTNERSHIPS_CHANNEL"),
+    /**
+     * A second Slack workspace: the one the compliance contact is in. `userToken`
+     * is a USER token (xoxp-…, scopes chat:write and im:write) of one of our
+     * people there, so the message arrives in their own DM with him, as them.
+     * `to` is his member id in THAT workspace (U…), or the DM's channel id (D…).
+     */
+    compliance: {
+      userToken: env("SLACK_COMPLIANCE_USER_TOKEN"),
+      to: env("SLACK_COMPLIANCE_TO"),
+    },
     signingSecret: env("SLACK_SIGNING_SECRET"),
     adminUserIds: (env("ADMIN_SLACK_USER_IDS") ?? "")
       .split(",")

@@ -66,6 +66,10 @@
       "schedule": "20 * * * *"
     },
     {
+      "path": "/api/cron/compliance-nudge",
+      "schedule": "5 * * * *"
+    },
+    {
       "path": "/api/cron/team-report",
       "schedule": "30 3 * * *"
     }

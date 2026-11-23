@@ -1360,6 +1360,68 @@ async function complianceRows(): Promise<BoardItemRow[]> {
   return withStoredLinks((data.boards?.[0]?.groups ?? []).flatMap((g) => g.items_page.items));
 }
 
+/** A live compliance request with what the Slack nudge needs: who has it and who wrote last. */
+export interface ComplianceWaiting {
+  id: string;
+  title: string;
+  /** The board's Status, or null when it was never set. */
+  status: string | null;
+  url: string;
+  createdAt: string;
+  /** monday user ids in the board's Person column. */
+  ownerIds: string[];
+  ticketId: string | null;
+  /** The item's updates, newest first. */
+  updates: { at: string; creatorId: string }[];
+}
+
+/**
+ * Every item in the board's live groups, for lib/compliance-nudge.ts. Throws
+ * when monday is unreachable: the nudge must skip a run, not read "nothing".
+ */
+export async function listComplianceWaiting(): Promise<ComplianceWaiting[]> {
+  const board = config.monday.compliance.boardId;
+  if (!config.monday.live || !board) return [];
+  const live = await liveGroupIds(board);
+  if (!live.length) return [];
+  type Row = {
+    id: string;
+    name: string;
+    created_at: string;
+    column_values: (MondayColumnValue & { persons_and_teams?: { id: string; kind: string }[] | null })[] | null;
+    updates: { created_at: string; creator_id: string | null }[] | null;
+  };
+  const data = await gql<{ boards: { groups: { items_page: { items: Row[] } }[] }[] }>(
+    `query ($board: [ID!], $groups: [String!]) {
+      boards(ids: $board) { groups(ids: $groups) { items_page(limit: 100) { items {
+        id name created_at
+        column_values { text type column { title } ... on PeopleValue { persons_and_teams { id kind } } }
+        updates(limit: ${UPDATES_PER_ITEM}) { created_at creator_id }
+      } } } }
+    }`,
+    { board: [board], groups: live },
+  );
+  return (data.boards?.[0]?.groups ?? []).flatMap((g) => g.items_page.items).map((row) => {
+    const ticketUrl = (row.column_values ?? []).find((c) => c.type === "link" && /freshdesk/i.test(c.text ?? ""))?.text ?? "";
+    return {
+      id: row.id,
+      title: row.name,
+      status: pickColumn(row.column_values, "status", ["status"]) ?? null,
+      url: complianceItemUrl(row.id),
+      createdAt: row.created_at,
+      ownerIds: (row.column_values ?? [])
+        .filter((c) => c.type === "people")
+        .flatMap((c) => c.persons_and_teams ?? [])
+        .filter((p) => p.kind === "person")
+        .map((p) => String(p.id)),
+      ticketId: ticketUrl.match(/tickets\/(\d+)/)?.[1] ?? null,
+      updates: (row.updates ?? [])
+        .map((u) => ({ at: u.created_at, creatorId: String(u.creator_id ?? "") }))
+        .sort((x, y) => Date.parse(y.at) - Date.parse(x.at)),
+    };
+  });
+}
+
 function rowToComplianceItem(row: BoardItemRow): ComplianceItem {
   return {
     id: row.id,
