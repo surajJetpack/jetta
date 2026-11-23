@@ -452,6 +452,7 @@ export function reasoningRows(): StatusRow[] {
     getsignReferenceRow(),
     releaseWatchRow(),
     teamReportRow(),
+    complianceNudgeRow(),
     fixLookupRow(),
     repeatProblemsRow(),
     appStateRow(),
@@ -621,6 +622,30 @@ function teamReportRow(): StatusRow {
   };
 }
 
+function complianceNudgeRow(): StatusRow {
+  const mode = config.complianceNudge;
+  const connected = !!config.slack.compliance.userToken && !!config.slack.compliance.to;
+  const what =
+    "Hourly (at :05), Jetta reads the Security Questionnaires monday board and sends the compliance contact (Mark Shaw) one Slack direct message about the requests waiting on him. " +
+    "He is not in our Slack workspace, so the message is sent in his workspace, from the account of the person whose user token SLACK_COMPLIANCE_USER_TOKEN is (Suraj), to SLACK_COMPLIANCE_TO; it is not sent by the Jetta bot, and it ends with a line saying it was sent automatically. " +
+    "Waiting on him means: he is in the item's Person column, the Status is Pending or Stuck (or not set, on an item under 30 days old), and the last update on the item is not his. Client Reviewing and Done items are left alone. It makes no difference whether Jetta or a person filed the item. " +
+    "A new request (filed in the last 3 days) is announced at the next run. A request still waiting is brought up again every 2 working days, counted from the last message or the last update on the item, whichever is later, up to 6 messages per item; then Jetta stops and a person has to chase it. Everything due in one run goes in one message (10 items at most, the rest as a count). Nothing is sent on Saturday or Sunday.";
+  return {
+    label: "Slack reminders to compliance (Mark)",
+    tone: mode === "on" && connected ? "on" : mode === "off" ? "off" : "warn",
+    state: mode === "on" ? (connected ? "SENDING" : "NOT CONNECTED") : mode === "shadow" ? "SHADOW" : "OFF",
+    meaning:
+      mode === "on" && !connected
+        ? `On, but sending nothing: SLACK_COMPLIANCE_USER_TOKEN and SLACK_COMPLIANCE_TO are not both set. ${what}`
+        : mode === "shadow"
+          ? `Shadow: logs the message it would send (compliance.nudge_shadow events) and sends nothing. When on: ${what}`
+          : mode === "on"
+            ? what
+            : `Off. When on: ${what}`,
+    setting: "JETTA_COMPLIANCE_NUDGE",
+  };
+}
+
 function releaseWatchRow(): StatusRow {
   const mode = config.releaseWatch;
   const on =
@@ -770,5 +795,6 @@ export const CRONS: readonly EndpointRow[] = [
   { path: "/api/cron/dev-followup", detail: "Asks developers for an update on quiet dev items a customer is waiting on; escalates after two unanswered asks. Armed by JETTA_DEV_FOLLOWUP", schedule: "daily 04:30" },
   { path: "/api/cron/dev-followup-support", detail: "Asks the support person on a dev item when the developers have answered, need more from the customer or finished it and the customer has not been told (at once, again a working day later, then one escalation); brings the product manager in on new customer feature requests. Armed by JETTA_DEV_FOLLOWUP_SUPPORT; needs JETTA_DEV_FOLLOWUP", schedule: "hourly at :55" },
   { path: "/api/cron/release-watch", detail: "Reads what the GetSign team merged into production on GitHub: asks the Developer on an open dev item whether a shipped fix resolves it, files \"Release changed\" notices in the KB review queue, posts a what-shipped note to Slack. Armed by JETTA_RELEASE_WATCH; needs JETTA_GETSIGN_REFERENCE_TOKEN", schedule: "hourly at :20" },
+  { path: "/api/cron/compliance-nudge", detail: "Sends the compliance contact one Slack direct message, from a person's account in his workspace, about Security Questionnaires items waiting on him: new ones at the next run, reminders every 2 working days (6 messages per item at most). Armed by JETTA_COMPLIANCE_NUDGE; needs SLACK_COMPLIANCE_USER_TOKEN and SLACK_COMPLIANCE_TO", schedule: "hourly at :05" },
   { path: "/api/cron/team-report", detail: "Posts yesterday's per-person team report to Slack (Freshdesk, chats, Slack, monday dev boards, console, plus the team line and Jetta's block), once a day, from the Team activity and Performance stores. Posts nothing until JETTA_TEAM_REPORT_CHANNEL is set", schedule: "daily 03:30" },
 ] as const;

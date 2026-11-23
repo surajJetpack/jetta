@@ -695,6 +695,42 @@ export async function notifySelfReview(headline: string, details: string[]): Pro
 }
 
 /** The channel self-review posts to, for display. */
+/** True when the token and recipient for the compliance workspace are both set. */
+export function complianceDmReady(): boolean {
+  return !!config.slack.compliance.userToken && !!config.slack.compliance.to;
+}
+
+/**
+ * A direct message to the compliance contact, sent AS the person whose user
+ * token SLACK_COMPLIANCE_USER_TOKEN is, in the workspace that token belongs to
+ * (not ours, and not the Jetta bot). Throws on any Slack error: the caller
+ * must not record a message that did not go.
+ *
+ * Gated on the credential, not on SLACK_LIVE or stub mode: this is a different
+ * workspace with its own token, and production runs with stub mode on.
+ */
+export async function sendComplianceDm(text: string): Promise<string> {
+  const { userToken, to } = config.slack.compliance;
+  if (!userToken || !to) throw new Error("SLACK_COMPLIANCE_USER_TOKEN and SLACK_COMPLIANCE_TO are not both set");
+  const headers = { Authorization: `Bearer ${userToken}`, "Content-Type": "application/json; charset=utf-8" };
+  let channel = to;
+  // A member id needs its DM opened first (im:write); a D… channel id is the DM already.
+  if (!/^[DCG]/.test(to)) {
+    const open = await fetch("https://slack.com/api/conversations.open", { method: "POST", headers, body: JSON.stringify({ users: to }) });
+    const opened = (await open.json()) as { ok: boolean; error?: string; channel?: { id: string } };
+    if (!opened.ok || !opened.channel?.id) throw new Error(`Slack conversations.open failed: ${opened.error ?? "no channel"}`);
+    channel = opened.channel.id;
+  }
+  const res = await fetch("https://slack.com/api/chat.postMessage", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ channel, text, unfurl_links: false, unfurl_media: false }),
+  });
+  const json = (await res.json()) as { ok: boolean; error?: string; ts?: string };
+  if (!json.ok) throw new Error(`Slack chat.postMessage failed: ${json.error ?? "unknown"}`);
+  return json.ts ?? "";
+}
+
 export function selfReviewChannel(): string {
   return config.slack.opsChannel ?? config.slack.escalationChannel ?? "";
 }

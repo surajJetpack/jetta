@@ -33,7 +33,7 @@ async function main() {
 
   // The source of each feature that has no `*_LIVE` flag of its own.
   const root = join(dirname(fileURLToPath(import.meta.url)), "..", "lib");
-  for (const file of ["github.ts", "getsign-reference.ts", "release-watch.ts", "fix-lookup.ts", "fix-store.ts", "problems.ts", "problem-store.ts", "tools/getsign-app.ts"]) {
+  for (const file of ["github.ts", "getsign-reference.ts", "release-watch.ts", "fix-lookup.ts", "fix-store.ts", "problems.ts", "problem-store.ts", "tools/getsign-app.ts", "compliance-nudge.ts"]) {
     const code = readFileSync(join(root, file), "utf8")
       .split("\n")
       .filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line))
