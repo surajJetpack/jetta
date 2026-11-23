@@ -82,38 +82,48 @@ export function decideComplianceNudge(
   return { action: "remind", n: state.n + 1 };
 }
 
-type Line = Pick<ComplianceWaiting, "title" | "url" | "status" | "createdAt" | "ticketId">;
+type Line = Pick<ComplianceWaiting, "title" | "createdAt">;
 
-// Slack's mrkdwn link text cannot hold these.
+// A title is quoted as plain text; these would start Slack markup.
 const clean = (s: string) => s.replace(/[<>|]/g, " ").replace(/\s+/g, " ").trim();
 const day = (iso: string) => new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
 
-function line(i: Line, withAge: boolean): string {
-  const ticket = i.ticketId ? ` (ticket #${i.ticketId})` : "";
-  const age = withAge ? `: ${i.status ?? "no status"}, opened ${day(i.createdAt)}` : "";
-  return `• <${i.url}|${clean(i.title)}>${ticket}${age}`;
-}
-
-/** Pure: the one message for a run. Written in the first person: it is sent from a person's account. */
+/**
+ * Pure: the one message for a run.
+ *
+ * It is sent from a person's own account, so it reads the way that person
+ * would write it: first person, no footer, no item-by-item links. The only
+ * link is the monday board, which is the one place he can open. He has no
+ * Freshdesk login, so ticket numbers and ticket links are left out.
+ */
 export function complianceNudgeText(firstName: string, fresh: Line[], waiting: Line[], boardUrl: string): string {
-  const parts: string[] = [];
+  const hi = `Hi ${firstName || "there"},`;
   let room = MAX_LINES;
-  const take = (items: Line[], withAge: boolean) => {
+  const list = (items: Line[], withAge: boolean) => {
     const shown = items.slice(0, room);
     room -= shown.length;
-    return shown.map((i) => line(i, withAge)).join("\n");
+    return shown.map((i) => `• ${clean(i.title)}${withAge ? ` (from ${day(i.createdAt)})` : ""}`).join("\n");
   };
-  const hi = `Hi ${firstName || "there"},`;
+  const more = () => {
+    const hidden = fresh.length + waiting.length - (MAX_LINES - room);
+    return hidden > 0 ? `\nand ${hidden} more on the board.` : "";
+  };
+
+  if (fresh.length === 1 && !waiting.length) {
+    return `${hi} a new compliance request just came in: ${clean(fresh[0].title)}. I've added it to the monday board for you: ${boardUrl}\nCould you take a look when you get a chance? Thanks!`;
+  }
+  if (waiting.length === 1 && !fresh.length) {
+    return `${hi} just checking in on ${clean(waiting[0].title)} (from ${day(waiting[0].createdAt)}). It's still open on the monday board: ${boardUrl}\nAny update on it? Thanks!`;
+  }
+  const parts: string[] = [];
   if (fresh.length) {
-    parts.push(`${hi} ${fresh.length === 1 ? "a new compliance request is" : `${fresh.length} new compliance requests are`} on the monday board for you:\n${take(fresh, false)}`);
+    parts.push(`${hi} ${fresh.length === 1 ? "a new compliance request just came in" : "a few new compliance requests just came in"}:\n${list(fresh, false)}`);
   }
   if (waiting.length && room > 0) {
-    const lead = fresh.length ? "Still waiting on you:" : `${hi} following up on ${waiting.length === 1 ? "this compliance request" : "these compliance requests"}, still waiting on you on the monday board:`;
-    parts.push(`${lead}\n${take(waiting, true)}`);
+    parts.push(`${fresh.length ? "And these are still open" : `${hi} just checking in on these, they're still open`}:\n${list(waiting, true)}`);
   }
-  const hidden = fresh.length + waiting.length - (MAX_LINES - room);
-  if (hidden > 0) parts.push(`…and ${hidden} more on <${boardUrl}|the board>.`);
-  parts.push("Could you reply on the item, or here? Thanks.\n_Sent automatically from the Security Questionnaires board._");
+  parts[parts.length - 1] += more();
+  parts.push(`They're all on the monday board: ${boardUrl}\nCould you let me know where they stand when you get a chance? Thanks!`);
   return parts.join("\n\n");
 }
 

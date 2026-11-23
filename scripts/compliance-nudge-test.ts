@@ -76,19 +76,18 @@ console.log("Reminders");
 
 console.log("The message");
 {
-  const a = { title: "Arbor 145 — W-9 tax form", url: "https://x.monday.com/boards/1/pulses/2", status: "Pending", createdAt: iso(19), ticketId: "14770" };
-  const b = { title: "MNDA <draft> | v2", url: "https://x.monday.com/boards/1/pulses/3", status: null, createdAt: iso(5), ticketId: null };
+  const a = { title: "Arbor 145 — W-9 tax form", createdAt: iso(19) };
+  const b = { title: "MNDA <draft> | v2", createdAt: iso(5) };
   const board = "https://x.monday.com/boards/1";
-  check("one new request", complianceNudgeText("Mark", [a], [], board),
-    "Hi Mark, a new compliance request is on the monday board for you:\n• <https://x.monday.com/boards/1/pulses/2|Arbor 145 — W-9 tax form> (ticket #14770)\n\nCould you reply on the item, or here? Thanks.\n_Sent automatically from the Security Questionnaires board._");
-  check("a reminder gives the status and the date, and cannot break the link", complianceNudgeText("Mark", [], [b], board).split("\n").slice(0, 2), [
-    "Hi Mark, following up on this compliance request, still waiting on you on the monday board:",
-    "• <https://x.monday.com/boards/1/pulses/3|MNDA draft v2>: no status, opened 5 Oct",
-  ]);
-  const both = complianceNudgeText("Mark", [a], [b], board);
-  check("new and waiting share one message", [both.includes("a new compliance request is"), both.includes("Still waiting on you:"), (both.match(/Hi Mark/g) ?? []).length], [true, true, 1]);
+  check("one new request: a short note with the board link", complianceNudgeText("Mark", [a], [], board),
+    "Hi Mark, a new compliance request just came in: Arbor 145 — W-9 tax form. I've added it to the monday board for you: https://x.monday.com/boards/1\nCould you take a look when you get a chance? Thanks!");
+  check("one reminder names it and when it came in", complianceNudgeText("Mark", [], [b], board),
+    "Hi Mark, just checking in on MNDA draft v2 (from 5 Oct). It's still open on the monday board: https://x.monday.com/boards/1\nAny update on it? Thanks!");
+  const both = complianceNudgeText("Mark", [a], [a, b], board);
+  check("new and waiting share one message, one greeting, one link", [both.includes("a new compliance request just came in:"), both.includes("And these are still open:"), (both.match(/Hi Mark/g) ?? []).length, (both.match(/https:/g) ?? []).length], [true, true, 1, 1]);
   const many = complianceNudgeText("", [], Array.from({ length: MAX_LINES + 3 }, () => a), board);
-  check("a long list is cut, with a count and the board link", [(many.match(/^• /gm) ?? []).length, many.includes(`…and 3 more on <${board}|the board>.`), many.startsWith("Hi there,")], [MAX_LINES, true, true]);
+  check("a long list is cut, with a count", [(many.match(/^• /gm) ?? []).length, many.includes("and 3 more on the board."), many.startsWith("Hi there,")], [MAX_LINES, true, true]);
+  check("nothing he cannot open, and no robot footer", [/freshdesk|ticket|#\d|pulses|automatic/i.test(both + many)], [false]);
 }
 
 if (failures) {

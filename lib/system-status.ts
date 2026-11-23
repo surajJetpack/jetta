@@ -627,7 +627,7 @@ function complianceNudgeRow(): StatusRow {
   const connected = !!config.slack.compliance.userToken && !!config.slack.compliance.to;
   const what =
     "Hourly (at :05), Jetta reads the Security Questionnaires monday board and sends the compliance contact (Mark Shaw) one Slack direct message about the requests waiting on him. " +
-    "He is not in our Slack workspace, so the message is sent in his workspace, from the account of the person whose user token SLACK_COMPLIANCE_USER_TOKEN is (Suraj), to SLACK_COMPLIANCE_TO; it is not sent by the Jetta bot, and it ends with a line saying it was sent automatically. " +
+    "He is not in our Slack workspace, so the message is sent in his workspace, from the account of the person whose user token SLACK_COMPLIANCE_USER_TOKEN is (Suraj), to SLACK_COMPLIANCE_TO; it is not sent by the Jetta bot. It is written the way that person would write it, with no footer, and its only link is the monday board: he has no Freshdesk login, so ticket numbers and ticket links are left out. " +
     "Waiting on him means: he is in the item's Person column, the Status is Pending or Stuck (or not set, on an item under 30 days old), and the last update on the item is not his. Client Reviewing and Done items are left alone. It makes no difference whether Jetta or a person filed the item. " +
     "A new request (filed in the last 3 days) is announced at the next run. A request still waiting is brought up again every 2 working days, counted from the last message or the last update on the item, whichever is later, up to 6 messages per item; then Jetta stops and a person has to chase it. Everything due in one run goes in one message (10 items at most, the rest as a count). Nothing is sent on Saturday or Sunday.";
   return {
