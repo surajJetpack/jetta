@@ -8,6 +8,10 @@ Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain word
 
 
 
+## 2026-11-23: The Slack message to Mark reads like a person wrote it
+The compliance reminder is sent from Suraj's own Slack account, so it now reads that way: a short first-person note with the request titles, no "sent automatically" footer and no link per item.
+The only link is the monday board. Freshdesk ticket numbers are gone, because Mark has no Freshdesk login. When and how often he is messaged is unchanged (`JETTA_COMPLIANCE_NUDGE`).
+
 ## 2026-11-23: Slack reminders to Mark about compliance requests
 Mark Shaw often misses monday's notifications, so Jetta can now message him on Slack as well. Hourly, she reads the Security Questionnaires board and sends him one direct message listing the requests waiting on him: a new one at the next run, and a reminder every 2 working days while it stays Pending or Stuck and he has not written on the item (6 messages per item at most, nothing at weekends).
 Mark is in a different Slack workspace, so the message goes from Suraj's own account there (a user token, `SLACK_COMPLIANCE_USER_TOKEN`, to `SLACK_COMPLIANCE_TO`), not from the Jetta bot.
