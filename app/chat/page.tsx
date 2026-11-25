@@ -14,6 +14,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChatMessage, ChatSurface, ChatVisitor } from "@/lib/types";
 import { dayKey, fmtDayLabel, fmtTime, useNow } from "@/lib/format";
+import { backgroundCheckMs, chatInView } from "@/lib/chat-stream-pace";
 
 /** A file the visitor has attached but not yet sent. */
 interface StagedFile {
@@ -301,6 +302,12 @@ export default function ChatWidgetPage() {
   // jettachat:visible) and these refs remember it. Refs, not state: they are
   // read inside long-lived listeners, and a re-render has nothing to redraw.
   const panelOpenRef = useRef(false);
+  // The same fact as state, for the one effect that must re-run when it
+  // changes: whether to hold the live stream. Starts true so a parent that
+  // never reports visibility gets the live stream, as it always did.
+  const [panelOpen, setPanelOpen] = useState(true);
+  const [tabVisible, setTabVisible] = useState(true);
+  const messagesRef = useRef<ChatMessage[]>([]);
   const sessionRef = useRef<Session | null>(null);
   const lastMsgIdRef = useRef<string | undefined>(undefined);
   const lastSeenRef = useRef<string | undefined>(undefined);
@@ -487,6 +494,7 @@ export default function ChatWidgetPage() {
       // so opened/closed is knowledge that can only arrive from out there.
       if (data?.type === "jettachat:visible") {
         panelOpenRef.current = !!data.open;
+        setPanelOpen(!!data.open);
         if (data.open) markSeen();
         return;
       }
@@ -498,6 +506,7 @@ export default function ChatWidgetPage() {
       settled = true;
       parentOrigin.current = event.origin;
       panelOpenRef.current = !!data.open;
+      setPanelOpen(typeof data.open === "boolean" ? data.open : true);
       void openSession(data);
     };
 
@@ -558,28 +567,94 @@ export default function ChatWidgetPage() {
 
   // ── Live updates ─────────────────────────────────────────────────
   useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
+  useEffect(() => {
+    const sync = () => setTabVisible(document.visibilityState === "visible");
+    sync();
+    document.addEventListener("visibilitychange", sync);
+    return () => document.removeEventListener("visibilitychange", sync);
+  }, []);
+
+  // The live stream is for eyes: held only while the chat is on screen. Out of
+  // view (panel closed, or the tab in the background) the frame asks once in a
+  // while instead, which is enough for the unread badge. Holding a stream for
+  // every open page, seen or not, was most of the hosting bill
+  // (lib/chat-stream-pace.ts).
+  const inView = chatInView({ panelOpen: inline || panelOpen, tabVisible });
+
+  useEffect(() => {
     if (!session) return;
 
-    // `after` replays anything sent while we were disconnected, so the
-    // reconnect EventSource does on its own never drops a message.
-    const lastId = messages[messages.length - 1]?.id;
-    const url =
+    const base =
       `/api/chat/stream?c=${encodeURIComponent(session.conversationId)}` +
-      `&token=${encodeURIComponent(session.token)}` +
-      (lastId ? `&after=${encodeURIComponent(lastId)}` : "");
+      `&token=${encodeURIComponent(session.token)}`;
 
-    const es = new EventSource(url);
-
-    es.addEventListener("message", (e) => {
-      const msg = JSON.parse((e as MessageEvent).data) as ChatMessage;
+    const onIncoming = (msg: ChatMessage) => {
       setMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]));
+      // A message this frame already holds (a replay) rings nothing twice.
+      if (messagesRef.current.some((m) => m.id === msg.id)) return;
       lastMsgIdRef.current = msg.id;
       // On screen, it is read the moment it lands; hidden, it goes on the
       // badge. System lines ("Suraj joined") don't ring it — the human's
       // actual first message follows and does.
       if (panelOpenRef.current) markSeen(msg.id);
       else if (msg.author === "agent" && !msg.system) post("jettachat:unread");
-    });
+    };
+    const onExpired = () => {
+      // Null the ref too, or a later markSeen would write the dead session
+      // right back into the parent's storage.
+      sessionRef.current = null;
+      post("jettachat:session", { session: null });
+      setError("This conversation has expired. Refresh to start a new one.");
+    };
+
+    if (!inView) {
+      let stopped = false;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const last = () => messagesRef.current[messagesRef.current.length - 1];
+      const schedule = () => {
+        const m = last();
+        const at = m ? Date.parse(m.createdAt) : NaN;
+        timer = setTimeout(
+          check,
+          backgroundCheckMs({ lastAuthor: m?.author, msSinceLastMessage: Number.isFinite(at) ? Date.now() - at : null }),
+        );
+      };
+      const check = async () => {
+        if (stopped) return;
+        try {
+          // With nothing held yet, an id the server cannot know asks for the
+          // whole transcript, so a first message is not missed.
+          const res = await fetch(`${base}&after=${encodeURIComponent(last()?.id ?? "none")}&peek=1`, { cache: "no-store" });
+          if (stopped) return;
+          if (res.ok) {
+            const data = (await res.json()) as { expired?: boolean; messages?: ChatMessage[]; typing?: boolean; status?: string };
+            if (stopped) return;
+            if (data.expired) return onExpired();
+            for (const m of data.messages ?? []) onIncoming(m);
+            setTyping(!!data.typing);
+            if (data.status) setTicketed(data.status === "ticketed");
+          }
+        } catch {
+          // Offline or mid-deploy: the next check, or the stream on return, catches up.
+        }
+        schedule();
+      };
+      schedule();
+      return () => {
+        stopped = true;
+        clearTimeout(timer);
+      };
+    }
+
+    // `after` replays anything sent while we were disconnected or checking in
+    // the background, so nothing is dropped when the stream takes over.
+    const lastId = messagesRef.current[messagesRef.current.length - 1]?.id ?? messages[messages.length - 1]?.id;
+    const es = new EventSource(base + (lastId ? `&after=${encodeURIComponent(lastId)}` : ""));
+
+    es.addEventListener("message", (e) => onIncoming(JSON.parse((e as MessageEvent).data) as ChatMessage));
     es.addEventListener("typing", (e) => {
       setTyping((JSON.parse((e as MessageEvent).data) as { typing: boolean }).typing);
     });
@@ -588,18 +663,14 @@ export default function ChatWidgetPage() {
     });
     es.addEventListener("expired", () => {
       es.close();
-      // Null the ref too, or a later markSeen would write the dead session
-      // right back into the parent's storage.
-      sessionRef.current = null;
-      post("jettachat:session", { session: null });
-      setError("This conversation has expired. Refresh to start a new one.");
+      onExpired();
     });
 
     return () => es.close();
     // Re-subscribing on every message would thrash the connection; the stream
     // is keyed to the session and resumes from its own cursor.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session, post]);
+  }, [session, post, inView]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });

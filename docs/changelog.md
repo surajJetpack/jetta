@@ -8,6 +8,10 @@ Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain word
 
 
 
+## 2026-11-25: The chat widget holds a live connection only while it is on screen
+The widget kept a live connection to Jetta for as long as a visitor's page was open, even with the chat panel closed or the tab in the background, and each connection read the database twice every 1.5 seconds. About 14 were open at any moment. With the console listing 100 chats one read at a time, that came to roughly 40 million reads a month and most of the Vercel bill.
+Now the live connection is held only while the chat is open in the tab the visitor is looking at. Out of view, the widget checks every 10 seconds while the visitor is waiting on an answer and every 30 otherwise, so the unread badge can lag by up to half a minute. In view, a quiet chat is checked every 3 seconds, an active one every 1.5 as before.
+The console's chat list and attention badge read 100 chats in 4 reads where they used 101; their timing is unchanged. No switch. Live on merge.
 ## 2026-11-25: /system says when the ticket copy has stopped updating
 Since at least 22 November the job that copies Freshdesk tickets into Jetta's own database (`ticket-sync`, every 5 minutes) failed on every run: the database is on Neon's free plan and its usage quota ran out, so it refused every query. /system showed nothing wrong, because the "Ticket mirror reads" row only looked at the settings.
 That row now reads **SYNC FAILING** after three failed runs in a row, with how many runs have failed, when the job last worked and the database's own reason. The event log (`ticket_sync.failed`) and the cron heartbeats record that reason too, where before they kept only the query that failed or "HTTP 500".
