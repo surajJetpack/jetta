@@ -15,12 +15,18 @@
 import { NextRequest } from "next/server";
 import { channelUnavailable, corsHeaders } from "@/lib/chat-http";
 import * as store from "@/lib/chat-store";
+import { streamPollMs } from "@/lib/chat-stream-pace";
+import type { ChatMessage } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
-/** How often we look for new messages. */
-const POLL_MS = 1500;
+/** Milliseconds since the conversation's latest message, or null when it has none. */
+function sinceLastMessage(messages: ChatMessage[]): number | null {
+  const last = messages[messages.length - 1];
+  const at = last ? Date.parse(last.createdAt) : NaN;
+  return Number.isFinite(at) ? Date.now() - at : null;
+}
 /** Close well before maxDuration so the reconnect is ours, not a timeout. */
 const STREAM_LIFETIME_MS = 120_000;
 
@@ -42,6 +48,20 @@ export async function GET(req: NextRequest) {
   // Resolved before the stream starts: the response headers are built once the
   // body is constructed, and awaiting inside that object literal is not an option.
   const cors = await corsHeaders(req);
+
+  // One look, answered as JSON and closed: what the widget asks while the chat
+  // is out of view (panel closed, or the tab in the background), so the unread
+  // badge still fills without a connection held open for nobody. Same cursor
+  // rule as the stream below.
+  if (url.searchParams.get("peek")) {
+    const { conversation, typing } = await store.streamSnapshot(conversationId);
+    if (!conversation) return Response.json({ expired: true }, { headers: { ...cors, "Cache-Control": "no-store" } });
+    const at = after ? conversation.messages.findIndex((m) => m.id === after) : conversation.messages.length - 1;
+    return Response.json(
+      { messages: conversation.messages.slice(at + 1), typing, status: conversation.status },
+      { headers: { ...cors, "Cache-Control": "no-store" } },
+    );
+  }
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
@@ -75,11 +95,12 @@ export async function GET(req: NextRequest) {
       let lastTyping: boolean | null = null;
       let lastStatus = conv.status;
       const startedAt = Date.now();
+      let timer: ReturnType<typeof setTimeout> | undefined;
 
       const finish = () => {
         if (closed) return;
         closed = true;
-        clearInterval(timer);
+        clearTimeout(timer);
         try {
           controller.close();
         } catch {
@@ -87,10 +108,13 @@ export async function GET(req: NextRequest) {
         }
       };
 
-      const timer = setInterval(async () => {
+      // One read per look (the conversation and the typing flag together),
+      // and a slower pace when nothing is happening: lib/chat-stream-pace.ts.
+      const look = async () => {
         if (closed) return;
+        let wait = streamPollMs({ typing: lastTyping === true, msSinceLastMessage: null });
         try {
-          const fresh = await store.getConversation(conversationId);
+          const { conversation: fresh, typing } = await store.streamSnapshot(conversationId);
           if (!fresh) {
             send("expired", { expired: true });
             return finish();
@@ -99,7 +123,6 @@ export async function GET(req: NextRequest) {
           for (const m of fresh.messages.slice(cursor + 1)) send("message", m);
           cursor = fresh.messages.length - 1;
 
-          const typing = await store.isRunActive(conversationId);
           if (typing !== lastTyping) {
             send("typing", { typing });
             lastTyping = typing;
@@ -114,11 +137,14 @@ export async function GET(req: NextRequest) {
           // treating an idle connection as dead.
           send("ping", { t: Date.now() });
 
-          if (Date.now() - startedAt > STREAM_LIFETIME_MS) finish();
+          if (Date.now() - startedAt > STREAM_LIFETIME_MS) return finish();
+          wait = streamPollMs({ typing, msSinceLastMessage: sinceLastMessage(fresh.messages) });
         } catch (e) {
           console.warn(`chat stream poll failed for ${conversationId}:`, e);
         }
-      }, POLL_MS);
+        if (!closed) timer = setTimeout(look, wait);
+      };
+      timer = setTimeout(look, streamPollMs({ typing: false, msSinceLastMessage: sinceLastMessage(conv.messages) }));
 
       // Client navigated away or the widget closed.
       req.signal.addEventListener("abort", finish);

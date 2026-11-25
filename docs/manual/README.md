@@ -431,6 +431,10 @@ How the widget gets onto a site, including a checker that tells you whether an o
 
 ---
 
+### How quickly a reply shows up
+
+While the visitor has the chat open in the tab they are looking at, replies and the "typing" dots arrive live, within a second or two. When the chat panel is closed, or the visitor is on another tab, the widget stops holding a live connection and checks for new replies every 10 seconds while they are waiting on an answer, otherwise every 30. So the unread badge on the launcher can appear up to half a minute after a reply was sent. Nothing is lost: opening the chat brings in everything at once. This is deliberate. Holding a live connection for every open page, seen or not, was most of Jetta's hosting cost.
+
 ## About this manual
 
 Every screenshot is generated from the live console by `scripts/manual-shots.mjs`, so the manual can be regenerated rather than slowly going out of date:

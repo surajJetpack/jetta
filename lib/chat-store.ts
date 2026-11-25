@@ -706,6 +706,25 @@ export async function rememberTicketConversation(ticketId: string, conversationI
   await indexTicketConversation(conversationId, ticketId);
 }
 
+/** How many conversations one MGET carries; keeps a response well under Redis's size limit. */
+export const LIST_BATCH = 25;
+
+/**
+ * Read many conversations in a few commands rather than one GET each.
+ *
+ * The console's chat list and its attention badge both list 100 conversations
+ * every 10 to 20 seconds per open tab, hidden tabs included. At one GET per
+ * conversation that was 101 Redis commands a poll, and in November 2026 it was
+ * a large share of 40 million commands a month. Order follows `ids`; a missing
+ * conversation is null, as GET returned.
+ */
+export async function readConversations(r: Pick<Redis, "mget">, ids: string[]): Promise<(ChatConversation | null)[]> {
+  const batches: string[][] = [];
+  for (let i = 0; i < ids.length; i += LIST_BATCH) batches.push(ids.slice(i, i + LIST_BATCH));
+  const rows = await Promise.all(batches.map((b) => r.mget<(ChatConversation | null)[]>(...b.map(convKey))));
+  return rows.flat();
+}
+
 export async function listConversations(limit = 100): Promise<ChatConversation[]> {
   const r = client();
   if (r) {
@@ -715,7 +734,7 @@ export async function listConversations(limit = 100): Promise<ChatConversation[]
     for (let page = 0; page < MAX_PAGES && live.length < limit; page++) {
       const ids = await r.zrange<string[]>(CHAT_INDEX, offset, offset + limit - 1, { rev: true });
       if (!ids.length) break;
-      const raw = await Promise.all(ids.map((id) => r.get<ChatConversation>(convKey(id))));
+      const raw = await readConversations(r, ids);
       let pruned = 0;
       for (let i = 0; i < ids.length && live.length < limit; i++) {
         const conv = raw[i];
@@ -793,6 +812,23 @@ export async function markRunActive(conversationId: string): Promise<void> {
 
 export async function clearRunActive(conversationId: string): Promise<void> {
   await delFlag(runKey(conversationId));
+}
+
+/**
+ * What the live stream needs on each look, in ONE read: the conversation and
+ * whether Jetta is typing. The stream used to make two reads every 1.5 seconds
+ * for as long as a visitor's page was open. Presence, not value, for the
+ * typing flag, for the reason given in `isRunActive`.
+ */
+export async function streamSnapshot(
+  conversationId: string,
+): Promise<{ conversation: ChatConversation | null; typing: boolean }> {
+  const r = client();
+  if (r) {
+    const [conversation, run] = await r.mget<[ChatConversation | null, unknown]>(convKey(conversationId), runKey(conversationId));
+    return { conversation: conversation ?? null, typing: run != null };
+  }
+  return { conversation: memChats.get(conversationId) ?? null, typing: await isRunActive(conversationId) };
 }
 
 export async function isRunActive(conversationId: string): Promise<boolean> {

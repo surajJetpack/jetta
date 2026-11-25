@@ -8,6 +8,11 @@ Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain word
 
 
 
+## 2026-11-25: The chat widget holds a live connection only while it is on screen
+The widget kept a live connection to Jetta for as long as a visitor's page was open, even with the chat panel closed or the tab in the background, and each connection read the database twice every 1.5 seconds. About 14 were open at any moment. With the console listing 100 chats one read at a time, that came to roughly 40 million reads a month and most of the Vercel bill.
+Now the live connection is held only while the chat is open in the tab the visitor is looking at. Out of view, the widget checks every 10 seconds while the visitor is waiting on an answer and every 30 otherwise, so the unread badge can lag by up to half a minute. In view, a quiet chat is checked every 3 seconds, an active one every 1.5 as before.
+The console's chat list and attention badge read 100 chats in 4 reads where they used 101; their timing is unchanged. No switch. Live on merge.
+
 ## 2026-11-23: The Slack message to Mark reads like a person wrote it
 The compliance reminder is sent from Suraj's own Slack account, so it now reads that way: a short first-person note with the request titles, no "sent automatically" footer and no link per item.
 The only link is the monday board. Freshdesk ticket numbers are gone, because Mark has no Freshdesk login. When and how often he is messaged is unchanged (`JETTA_COMPLIANCE_NUDGE`).
