@@ -8,6 +8,10 @@ Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain word
 
 
 
+## 2026-11-25: /system says when the ticket copy has stopped updating
+Since at least 22 November the job that copies Freshdesk tickets into Jetta's own database (`ticket-sync`, every 5 minutes) failed on every run: the database is on Neon's free plan and its usage quota ran out, so it refused every query. /system showed nothing wrong, because the "Ticket mirror reads" row only looked at the settings.
+That row now reads **SYNC FAILING** after three failed runs in a row, with how many runs have failed, when the job last worked and the database's own reason. The event log (`ticket_sync.failed`) and the cron heartbeats record that reason too, where before they kept only the query that failed or "HTTP 500".
+Nothing a customer sees was affected: everything that reads the copy falls back to Freshdesk. No switch. This change only reports the problem; the copy starts filling again once the database's plan is upgraded or its quota resets.
 ## 2026-11-25: Dev bridge: findings reach the customer, no next-morning nudge, cleaner drafts
 From ticket #14773. A developer's finding (bug or limitation confirmed, fix being worked on) is now drafted for the customer unless our last reply already said it; a bare "working on it" still gets nothing. A re-test request is written as steps, and never implies a fix is released when the developer did not say so (`JETTA_DEV_BRIDGE`).
 The daily follow-up to developers (`JETTA_DEV_FOLLOWUP`) now needs about 20 working-day hours of silence, so a comment written in the evening is no longer chased at 04:30 the next morning, and it says "1 working day".
