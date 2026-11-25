@@ -95,7 +95,9 @@ export async function createDraftFromRun(
       `<p><b>Jetta — suggested reply (pending)</b></p>` +
       (opts.banner ? `<p><i>${freshdesk.textToFdHtml(opts.banner).replace(/^<p>|<\/p>$/g, "")}</i></p>` : "") +
       `<hr>` +
-      freshdesk.textToFdHtml(body) +
+      // Markdown, not plain text: the model writes **bold** and lists, and the
+      // colleague copies this note into the reply editor, asterisks and all.
+      freshdesk.markdownToFdHtml(body) +
       `<hr><p><b>To use it:</b> copy into the reply editor, edit freely, and send as yourself.<br>` +
       `Your decision is recorded automatically when you reply — no console step needed.<br>` +
       `Fallback console: ${config.consoleUrl}/drafts</p>`;

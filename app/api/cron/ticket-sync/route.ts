@@ -13,6 +13,7 @@ import { withCronBeat } from "@/lib/cron-beat";
 import { runTicketSync } from "@/lib/ticket-mirror/sync";
 import { logOpsEvent } from "@/lib/events";
 import { cronAuthorized } from "@/lib/request-auth";
+import { errorWithCauses } from "@/lib/error-text";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -30,7 +31,7 @@ async function handler(req: NextRequest) {
     if (!report) return NextResponse.json({ skipped: "DATABASE_URL not set" });
     return NextResponse.json(report);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = errorWithCauses(err);
     await logOpsEvent({ level: "error", event: "ticket_sync.failed", source: "cron", data: { message } });
     return NextResponse.json({ error: message }, { status: 500 });
   }

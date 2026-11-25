@@ -56,6 +56,7 @@ import {
   drillHref,
 } from "./drill-code";
 import { config } from "./config";
+import { getCronBeats, type CronBeat } from "./cron-beat";
 import { listMonetApprovals, listMonetDecisions } from "./kv";
 import { listTicketFollowUps } from "./ticket-followup";
 import { listConversations, getConversation } from "./chat-store";
@@ -134,11 +135,16 @@ function drillLines(page: "/health" | "/performance", items: { id: string; title
 
 const rowLine = (r: StatusRow) => `- ${r.label}: ${r.state} — ${r.meaning}${r.setting ? ` [${r.setting}]` : ""}`;
 
-/** /system as text: the live truth about what this deployment can do. Pure config, no network. */
-function systemStatusText(): string {
+/** The ticket sync's heartbeat for the mirror row; undefined when it cannot be read. */
+async function ticketSyncBeat(): Promise<CronBeat | undefined> {
+  return getCronBeats().then((b) => b["ticket-sync"]).catch(() => undefined);
+}
+
+/** /system as text: the live truth about what this deployment can do. Config, plus the ticket sync's heartbeat when given. */
+function systemStatusText(syncBeat?: CronBeat): string {
   return [
     "CAPABILITIES (write gates):",
-    ...capabilityRows().map(rowLine),
+    ...capabilityRows({ ticketSyncBeat: syncBeat }).map(rowLine),
     "",
     "DEV BRIDGE (Freshdesk ⇄ monday dev boards):",
     ...devBridgeRows().map(rowLine),
@@ -169,7 +175,7 @@ export function consoleTools(): ToolSet {
       description:
         "The live configuration of this deployment, as shown on /system: which write gates are armed, which channels are live, reply mode, model tiers, retrieval, entrypoints and crons. Use for 'is X switched on', 'what model does Y use', 'can Jetta Z'.",
       inputSchema: z.object({}),
-      execute: async () => systemStatusText(),
+      execute: async () => systemStatusText(await ticketSyncBeat()),
     }),
 
     recent_events: tool({
@@ -583,7 +589,7 @@ export async function buildInstructions(ctx: InstructionContext): Promise<string
       ? "You are in DEEP mode — the quick mode handed you this question because it needs reasoning. Combine several lookups and reason about causes. Say one short line that you are looking into it, then give the reasoned answer. Do not mention modes or handovers; to the user you are simply Jetta thinking harder."
       : "You are in QUICK mode: answer fast. When a question needs real reasoning across data, call think_deeper instead of answering — you will switch to a slower mode that reasons, and come back afterwards on your own.",
     `CONSOLE MAP (page ids for navigate):\n${consoleMap()}`,
-    `LIVE CONFIGURATION (from /system, current as of this session):\n${systemStatusText()}`,
+    `LIVE CONFIGURATION (from /system, current as of this session):\n${systemStatusText(await ticketSyncBeat())}`,
     `RECENT CHANGES (newest first, from docs/changelog.md — where this and the manual disagree, the newer entry wins; LIVE CONFIGURATION above says what is switched on right now):\n${recentChanges(changelog)}`,
     `ARCHITECTURE OVERVIEW:\n${overview}`,
     `THE CONSOLE MANUAL:\n${manual}`,

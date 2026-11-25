@@ -133,10 +133,13 @@ export function hardBlock(body: string, internal: InternalRefs = internalRefs())
 
 /**
  * A sign-off the model wrote itself, at the very end of the reply. Stripped so
- * ours is the only one — two "Best," lines is a tell no person makes.
+ * ours is the only one — two "Best," lines is a tell no person makes. A line
+ * of the sign-off may end in a link: "Book a meeting: https://…" is longer
+ * than a name, and left "Best, Gabriel" on a draft another colleague was to
+ * send (#14773).
  */
 const SIGN_OFF =
-  /\n+\s*(?:best(?: regards| wishes)?|kind regards|warm regards|regards|many thanks|thanks(?: again)?|thank you|cheers|sincerely|all the best)[,!.]?\s*(?:\n+\s*[^\n]{1,60}){0,3}\s*$/i;
+  /\n+\s*(?:best(?: regards| wishes)?|kind regards|warm regards|regards|many thanks|thanks(?: again)?|thank you|cheers|sincerely|all the best)[,!.]?\s*(?:\n+\s*(?:[^\n]{1,60}|[^\n]{0,60}https?:\/\/\S{1,200})){0,3}\s*$/i;
 
 export function stripSignOff(body: string): string {
   return body.replace(SIGN_OFF, "").trimEnd();

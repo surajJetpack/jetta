@@ -585,6 +585,12 @@ export interface DevEvent {
    */
   pendingReply?: { at: string; body: string };
   /**
+   * Files posted on the item in the minutes before this event (a developer's
+   * screenshot of the setting to tick). Names only: the run cannot open them,
+   * and the colleague who sends the draft is told they exist.
+   */
+  files?: string[];
+  /**
    * Draft mode: a reply_to_ticket in this run is NOT sent. It becomes a
    * suggested-reply note on the ticket that a colleague approves. The run is
    * told so, because it reports on the item and in its note what it did, and

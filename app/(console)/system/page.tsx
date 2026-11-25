@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { config } from "@/lib/config";
 import { gate } from "@/lib/console-auth";
+import { getCronBeats } from "@/lib/cron-beat";
 import {
   channelRows,
   capabilityRows,
@@ -31,6 +32,8 @@ export const dynamic = "force-dynamic";
 export default async function SystemPage() {
   const { locked, isAdmin } = await gate();
   if (locked) redirect("/login?next=%2Fsystem");
+  // So the ticket mirror row can say when its sync has stopped working.
+  const ticketSyncBeat = await getCronBeats().then((b) => b["ticket-sync"]).catch(() => undefined);
 
   return (
     <>
@@ -48,7 +51,7 @@ export default async function SystemPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <StatusRows rows={capabilityRows()} />
+          <StatusRows rows={capabilityRows({ ticketSyncBeat })} />
         </CardContent>
       </Card>
 
