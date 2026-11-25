@@ -69,6 +69,21 @@ export async function getCronBeats(): Promise<Record<string, CronBeat>> {
   return ((await r.hgetall<Record<string, CronBeat>>(BEATS_KEY)) ?? {}) as Record<string, CronBeat>;
 }
 
+/**
+ * What a failed run said went wrong: the `error` field of its JSON answer,
+ * which every cron route sets when it catches. Without it the heartbeat only
+ * knew "HTTP 500". Reads a copy, so the response itself is untouched.
+ */
+async function failureText(res: Response): Promise<string | undefined> {
+  if (res.status < 400) return undefined;
+  try {
+    const body = (await res.clone().json()) as { error?: unknown };
+    return typeof body?.error === "string" && body.error ? `HTTP ${res.status}: ${body.error}` : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Wrap a cron route's GET so each real run leaves a heartbeat. */
 export function withCronBeat(name: string, handler: (req: NextRequest) => Promise<Response>) {
   return async function GET(req: NextRequest): Promise<Response> {
@@ -76,7 +91,7 @@ export function withCronBeat(name: string, handler: (req: NextRequest) => Promis
     const dry = req.nextUrl.searchParams.has("dry");
     try {
       const res = await handler(req);
-      if (res.status !== 401 && !dry) await recordBeat(name, at, Date.now() - at, res.status);
+      if (res.status !== 401 && !dry) await recordBeat(name, at, Date.now() - at, res.status, await failureText(res));
       return res;
     } catch (e) {
       if (!dry) await recordBeat(name, at, Date.now() - at, 0, e instanceof Error ? e.message : String(e));

@@ -20,6 +20,7 @@
  * Slack channel?) live in their own components.
  */
 import { config } from "./config";
+import type { CronBeat } from "./cron-beat";
 import { lightReasoning, modelLabel } from "./llm";
 import type { Product } from "./types";
 
@@ -167,7 +168,47 @@ export function channelRows(): StatusRow[] {
  * explicit opt-in that is independent of the LIVE flags above — an integration
  * can be fully live and still unable to write.
  */
-export function capabilityRows(): StatusRow[] {
+/** Failed runs in a row before /system calls the ticket sync failing: three runs is 15 minutes. */
+export const TICKET_SYNC_FAILING_AFTER = 3;
+
+/**
+ * The ticket mirror's row. With the sync cron's heartbeat (lib/cron-beat.ts)
+ * it also says when the copy has stopped filling: for days in November 2026
+ * the database refused every query (its plan's usage quota had run out) while
+ * this row, which only looked at the settings, stayed green. Pure.
+ */
+export function ticketMirrorRow(beat?: CronBeat): StatusRow {
+  const setting = "JETTA_TICKET_MIRROR";
+  if (!process.env.DATABASE_URL) {
+    return { label: "Ticket mirror reads", tone: "off", state: "NO DATABASE", meaning: "No ticket database is connected; everything reads Freshdesk directly.", setting };
+  }
+  if (beat && beat.failStreak >= TICKET_SYNC_FAILING_AFTER) {
+    const since = beat.okAt ? `It last worked on ${new Date(beat.okAt).toISOString().slice(0, 16).replace("T", " ")} UTC.` : "No run on record has worked.";
+    return {
+      label: "Ticket mirror reads",
+      tone: "warn",
+      state: "SYNC FAILING",
+      meaning:
+        `The job that copies Freshdesk tickets into Jetta's own database (every 5 minutes) has failed ${beat.failStreak} times in a row, so the copy is out of date. ${since} ` +
+        `Latest error: ${beat.lastError ?? "none recorded"}. ` +
+        "Nothing a customer sees is affected: everything that reads the copy falls back to Freshdesk, at the cost of more Freshdesk API calls. " +
+        "A database that refuses every query is usually over its plan's usage quota (Vercel, Storage, jetta-tickets).",
+      setting,
+    };
+  }
+  return {
+    label: "Ticket mirror reads",
+    tone: config.ticketMirror === "off" ? "off" : "good",
+    state: config.ticketMirror.toUpperCase(),
+    meaning:
+      config.ticketMirror === "off"
+        ? "Off. Everything reads Freshdesk directly; the copy keeps filling but nothing uses it."
+        : "Today, draft matching and the performance sync read Jetta's own copy of the tickets when it is up to date, saving Freshdesk API calls. Ticket replies still read Freshdesk.",
+    setting,
+  };
+}
+
+export function capabilityRows(opts: { ticketSyncBeat?: CronBeat } = {}): StatusRow[] {
   const auto = config.replyMode === "auto";
   return [
     {
@@ -192,17 +233,7 @@ export function capabilityRows(): StatusRow[] {
             : "Off. The first reply is a draft like every other.",
       setting: "JETTA_FIRST_RESPONSE",
     },
-    {
-      label: "Ticket mirror reads",
-      tone: !process.env.DATABASE_URL || config.ticketMirror === "off" ? "off" : "good",
-      state: !process.env.DATABASE_URL ? "NO DATABASE" : config.ticketMirror.toUpperCase(),
-      meaning: !process.env.DATABASE_URL
-        ? "No ticket database is connected; everything reads Freshdesk directly."
-        : config.ticketMirror === "off"
-          ? "Off. Everything reads Freshdesk directly; the copy keeps filling but nothing uses it."
-          : "Today, draft matching and the performance sync read Jetta's own copy of the tickets when it is up to date, saving Freshdesk API calls. Ticket replies still read Freshdesk.",
-      setting: "JETTA_TICKET_MIRROR",
-    },
+    ticketMirrorRow(opts.ticketSyncBeat),
     {
       label: "Write to the monday dev boards",
       tone: config.monday.allowWrites ? "on" : "off",
