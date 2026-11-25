@@ -85,6 +85,10 @@ async function main() {
   console.log("── sign-off ──");
   check("strips 'Best,\\nJetta'", stripSignOff(`${good}\n\nBest,\nJetta`) === good);
   check("strips 'Kind regards,\\nJetta\\nJetpack Apps Support'", stripSignOff(`${good}\n\nKind regards,\nJetta\nJetpack Apps Support`) === good);
+  check(
+    "strips a sign-off whose last line is a booking link",
+    stripSignOff(`${good}\n\nBest,\nGabriel\n\nBook a meeting: https://calendar.app.google/zwLMTtr9LK3SeBFM7`) === good,
+  );
   check("keeps a closing sentence that isn't a sign-off", stripSignOff(`${good}\n\nThanks for the screenshot, it helped a lot.`).endsWith("helped a lot."));
   const signed = withSignOff(`${good}\n\nCheers,\nJetta`, "GetSign");
   check("exactly one sign-off, ours", signed.endsWith("Best,\nJetta\nGetSign Support") && signed.split("Jetta").length === 2, signed.slice(-60));

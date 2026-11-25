@@ -168,6 +168,25 @@ function pendingReplyNote(ev: DevEvent): string {
   return `\n\nA reply to the customer is ALREADY DRAFTED (${ev.pendingReply.at}) and waiting for a colleague to send it:\n"""\n${ev.pendingReply.body}\n"""\nDo not draft another reply that says the same thing. Call reply_to_ticket only if this event changes what the customer must hear; then write one complete reply, which replaces the pending one.`;
 }
 
+/**
+ * Files a developer posted with the event. The run cannot see inside them, so
+ * it is told only that they exist: without that it wrote a re-test request
+ * that left out the screenshot showing which box to tick (#14773).
+ */
+function filesNote(ev: DevEvent): string {
+  if (!ev.files?.length) return "";
+  return `\n\nAttached on the item just now: ${ev.files.join(", ")}. You cannot open ${ev.files.length === 1 ? "it" : "them"}. Do not describe what ${ev.files.length === 1 ? "it shows" : "they show"}, and do not tell the customer a file is attached: the colleague who sends your draft is told to attach it.`;
+}
+
+/** Above a held draft: the developer's files, for the colleague who sends it. Pure. */
+export function filesBanner(files: string[], itemUrl: string): string | undefined {
+  if (!files.length) return undefined;
+  return `The developer attached ${files.join(", ")} on the dev item (${itemUrl}). Attach ${files.length === 1 ? "it" : "them"} to your reply if ${files.length === 1 ? "it helps" : "they help"} the customer.`;
+}
+
+/** How far back a file counts as posted with the event: a screenshot is uploaded, then the comment written. */
+const FILES_WINDOW_MS = 15 * 60_000;
+
 /** The event, as the last message of the run. */
 export function devEventMessage(ev: DevEvent): string {
   const head = `[Dev board] Item "${ev.itemName}" — Dev Status: ${ev.devStatus ?? "unknown"}`;
@@ -175,7 +194,7 @@ export function devEventMessage(ev: DevEvent): string {
     const handoff = ev.addressedTo?.length
       ? `\n\nThis comment is addressed to ${ev.addressedTo.join(", ")}, not to you. It is colleagues talking to each other, so you cannot post on the dev item in this run. If it carries an answer or workaround for the customer, you may still draft the customer reply (a colleague sends it) and leave a private note. Do not ask the developer for anything.`
       : "";
-    return `${head}\n${ev.author} commented on the item:\n"""\n${ev.text}\n"""${handoff}${pendingReplyNote(ev)}\n\nDecide, by the developer-run rules, what (if anything) to do.`;
+    return `${head}\n${ev.author} commented on the item:\n"""\n${ev.text}\n"""${handoff}${filesNote(ev)}${pendingReplyNote(ev)}\n\nDecide, by the developer-run rules, what (if anything) to do.`;
   }
   const recent = ev.recent.length
     ? `Latest comments on the item, newest first:\n${ev.recent.map((r) => `- ${r.author} (${r.at}): ${r.text}`).join("\n")}`
@@ -184,7 +203,7 @@ export function devEventMessage(ev: DevEvent): string {
     ev.kind === "needs_info"
       ? "That means the item is waiting on support or on the customer. Work out what is needed from the comments. If they do not say, read the ticket before asking anyone: when a colleague has already asked the customer for something and no answer has come, that is what the status means and there is nothing for you to do."
       : "That is a finished status.";
-  return `${head}\n${ev.author} set Dev Status to "${ev.devStatus}". ${what}\n\n${recent}${pendingReplyNote(ev)}\n\nDecide, by the developer-run rules, what (if anything) to do.`;
+  return `${head}\n${ev.author} set Dev Status to "${ev.devStatus}". ${what}\n\n${recent}${filesNote(ev)}${pendingReplyNote(ev)}\n\nDecide, by the developer-run rules, what (if anything) to do.`;
 }
 
 function devBoardIds(): string[] {
@@ -345,6 +364,15 @@ export async function handleDevBoardEvent(e: MondayWebhookEvent, opts: { requeue
             author: u.author,
             text: u.text.slice(0, 800),
           }));
+    const files = [
+      ...new Set(
+        (
+          await monday
+            .itemFilesSince(itemId, new Date(Date.now() - FILES_WINDOW_MS).toISOString(), selfId)
+            .catch(() => [])
+        ).map((f) => f.name),
+      ),
+    ];
     const ev: DevEvent = {
       kind: trigger.kind,
       itemId,
@@ -358,6 +386,7 @@ export async function handleDevBoardEvent(e: MondayWebhookEvent, opts: { requeue
       threadUpdateId: trigger.kind === "comment" ? trigger.threadUpdateId : undefined,
       developers: item.developers,
       recent,
+      files: files.length ? files : undefined,
       pendingReply: pending
         ? { at: new Date(pending.createdAt * 1000).toISOString(), body: pending.suggestedReply.slice(0, 3000) }
         : undefined,
@@ -382,7 +411,7 @@ export async function handleDevBoardEvent(e: MondayWebhookEvent, opts: { requeue
       { tier: "devbridge", ...(shadow ? { dryRun: true } : draftMode ? { holdCustomerWrites: true } : {}) },
     );
     await recordRun("devboard", ctx, result, Date.now() - started);
-    const draft = !shadow && draftMode ? await createDraftFromRun(ctx, result, { replyToolOnly: true }) : null;
+    const draft = !shadow && draftMode ? await createDraftFromRun(ctx, result, { replyToolOnly: true, banner: filesBanner(files, item.url) }) : null;
 
     // A developer answered a Question item and the answer went (or, held, will
     // go) to the customer: that answer is KB material.

@@ -90,6 +90,47 @@ export function workdaysBetween(fromIso: string, to: Date, weekend: number[]): n
   return days;
 }
 
+/**
+ * Hours on working days between two instants (weekend days, in UTC, count
+ * for nothing). Pure.
+ */
+export function workHoursBetween(fromIso: string, to: Date, weekend: number[]): number {
+  const start = Date.parse(fromIso);
+  const end = to.getTime();
+  if (Number.isNaN(start) || end <= start) return 0;
+  let ms = 0;
+  const d = new Date(start);
+  let dayStart = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+  while (dayStart < end) {
+    const dayEnd = dayStart + 86_400_000;
+    if (!weekend.includes(new Date(dayStart).getUTCDay())) ms += Math.min(end, dayEnd) - Math.max(start, dayStart);
+    dayStart = dayEnd;
+  }
+  return ms / 3_600_000;
+}
+
+/**
+ * Hours that make one quiet working day. workdaysBetween counts UTC dates, so
+ * on its own a comment at 17:45 was "1 working day" old at 04:30 the next
+ * morning: the developer wrote late in the evening and was told at the start
+ * of the next day that there had been no update (#14773). The daily run is at
+ * 04:30 UTC, so 20 still lets a comment from yesterday morning be chased today.
+ */
+export const QUIET_HOURS_PER_WORKDAY = 20;
+
+/** Whole quiet working days: by the calendar AND by the hours actually passed. Pure. */
+export function quietWorkdays(fromIso: string, to: Date, weekend: number[]): number {
+  return Math.min(
+    workdaysBetween(fromIso, to, weekend),
+    Math.floor(workHoursBetween(fromIso, to, weekend) / QUIET_HOURS_PER_WORKDAY),
+  );
+}
+
+/** "1 working day", "3 working days". */
+export function workingDays(n: number): string {
+  return `${n} working day${n === 1 ? "" : "s"}`;
+}
+
 /** Item states where a nudge is wrong: the ball is not with the developer. */
 const PARKED_STATUS = /^(hold|on hold|waiting for spec|waiting for ba|scheduled meeting|scheduled call)$/i;
 
@@ -156,7 +197,7 @@ function silence(item: ItemFacts, now: Date, rules: { weekend: number[] }, fromD
   return {
     activity,
     asks: asks.length,
-    quiet: workdaysBetween(since, now, rules.weekend),
+    quiet: quietWorkdays(since, now, rules.weekend),
     quietTotal: workdaysBetween(activity, now, rules.weekend),
   };
 }
@@ -178,7 +219,7 @@ function decideQuestion(
   rules: { quietWorkdays: number; weekend: number[] },
 ): FollowUpDecision {
   const asks = item.askTimes.filter((t) => Date.parse(t) > Date.parse(q.at));
-  const quiet = workdaysBetween(asks.at(-1) ?? q.at, now, rules.weekend);
+  const quiet = quietWorkdays(asks.at(-1) ?? q.at, now, rules.weekend);
   const quietDays = workdaysBetween(q.at, now, rules.weekend);
   if (quiet < rules.quietWorkdays) return { action: "none", reason: `question open, quiet ${quiet}d` };
   if (asks.length < MAX_ASKS) return { action: "ask", n: asks.length + 1, quietDays, question: true };
@@ -254,7 +295,7 @@ export function decideUnlinkedFollowUp(
 /** The nudge. NUDGE_PHRASE marks it so the next run counts it. */
 export function nudgeText(ticketId: string, quietDays: number, n: number): string {
   const ask = n === 1 ? "Any progress, or anything you need from them?" : "Could you post where this stands, even if it's just blocked?";
-  return `No update here for ${quietDays} working days, and the customer on ticket #${ticketId} ${monday.NUDGE_PHRASE}. ${ask}`;
+  return `No update here for ${workingDays(quietDays)}, and the customer on ticket #${ticketId} ${monday.NUDGE_PHRASE}. ${ask}`;
 }
 
 /** Chasing her own unanswered question, in its thread. Carries NUDGE_PHRASE. */
@@ -271,12 +312,12 @@ export function unlinkedNudgeText(
   n: number,
 ): string {
   if (about === "customer")
-    return `This has been at "${item.devStatus}" for ${quietDays} working days and ${monday.NUDGE_PHRASE} on the customer. Have they replied? If so, please add what they said here so the developer can carry on. If not, should we chase them again or close this?`;
+    return `This has been at "${item.devStatus}" for ${workingDays(quietDays)} and ${monday.NUDGE_PHRASE} on the customer. Have they replied? If so, please add what they said here so the developer can carry on. If not, should we chase them again or close this?`;
   if (about === "owner")
-    return `No developer is assigned and nothing has happened here for ${quietDays} working days, so this ${monday.NUDGE_PHRASE} for an owner. Who should pick it up, or should it go to the backlog?`;
+    return `No developer is assigned and nothing has happened here for ${workingDays(quietDays)}, so this ${monday.NUDGE_PHRASE} for an owner. Who should pick it up, or should it go to the backlog?`;
   const reporter = item.reporters[0]?.name ?? "support";
   const ask = n === 1 ? "Any progress, or anything you need?" : "Could you post where this stands, even if it's just blocked?";
-  return `No update here for ${quietDays} working days, and ${reporter} ${monday.NUDGE_PHRASE} on it for the customer. ${ask}`;
+  return `No update here for ${workingDays(quietDays)}, and ${reporter} ${monday.NUDGE_PHRASE} on it for the customer. ${ask}`;
 }
 
 export interface PlanRow {
@@ -419,10 +460,10 @@ export async function runDevFollowUp(now = new Date()): Promise<FollowUpRow[]> {
     const asked = to.length ? to.map((d) => d.name).join(", ") : "the board (no Developer assigned)";
     const waitingOn =
       about === "customer"
-        ? `Waiting on the customer for ${decision.quietDays} working days`
+        ? `Waiting on the customer for ${workingDays(decision.quietDays)}`
         : about === "owner"
-          ? `No developer assigned for ${decision.quietDays} working days`
-          : `Dev item quiet for ${decision.quietDays} working days`;
+          ? `No developer assigned for ${workingDays(decision.quietDays)}`
+          : `Dev item quiet for ${workingDays(decision.quietDays)}`;
     await slack.sendEscalation({
       ticketId: ticketId ?? undefined,
       ticketRef: ticketId ? `#${ticketId}` : undefined,
@@ -432,8 +473,8 @@ export async function runDevFollowUp(now = new Date()): Promise<FollowUpRow[]> {
       devBoardId: item.boardId,
       headline: ticketId ? `${waitingOn} — customer still waiting` : `${waitingOn}: "${item.name}"`,
       summary: chasingQuestion
-        ? `Jetta asked ${asked} a question on "${item.name}" (Dev Status: ${item.devStatus ?? "unknown"}) ${decision.quietDays} working days ago and chased it twice. Nobody has answered.`
-        : `"${item.name}" (Dev Status: ${item.devStatus ?? "unknown"}) has had no ${about === "developer" ? "developer comment" : "comment"} or status change for ${decision.quietDays} working days. ${asked} ${to.length === 1 ? "was" : "were"} asked on the item at least twice (by Jetta or support), with no answer.${ticketId ? "" : " The item has no Freshdesk link, so the customer's ticket is not known."}`,
+        ? `Jetta asked ${asked} a question on "${item.name}" (Dev Status: ${item.devStatus ?? "unknown"}) ${workingDays(decision.quietDays)} ago and chased it twice. Nobody has answered.`
+        : `"${item.name}" (Dev Status: ${item.devStatus ?? "unknown"}) has had no ${about === "developer" ? "developer comment" : "comment"} or status change for ${workingDays(decision.quietDays)}. ${asked} ${to.length === 1 ? "was" : "were"} asked on the item at least twice (by Jetta or support), with no answer.${ticketId ? "" : " The item has no Freshdesk link, so the customer's ticket is not known."}`,
       alreadyTried: chasingQuestion ? `Chased the question on the item ${MAX_ASKS} times.` : `Asked on the item ${MAX_ASKS} times.`,
       question: chasingQuestion
         ? "Can someone answer Jetta's question on the item, or tell the customer directly?"
