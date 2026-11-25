@@ -10,7 +10,7 @@
  * the webhook looking like that person typing; answering it would be a loop
  * that posts on a real board until the rate limit stops it.
  */
-import { addressedNames, classifyDevEvent, devEventMessage, isRepost } from "../lib/dev-bridge";
+import { addressedNames, classifyDevEvent, devEventMessage, filesBanner, isRepost } from "../lib/dev-bridge";
 import {
   CHASE_PHRASE,
   devMentionTargets,
@@ -207,6 +207,10 @@ console.log("The run sees a reply already drafted");
 {
   const ev = { kind: "comment", itemId: "1", itemName: "x", itemUrl: "u", devStatus: "ToDo", author: "Swejal", text: "fix is on dev", developers: [], recent: [] } as Parameters<typeof devEventMessage>[0];
   check("no pending draft → no note", !devEventMessage(ev).includes("ALREADY DRAFTED"));
+  check("no files → nothing said about files", !devEventMessage(ev).includes("Attached on the item"));
+  check("a developer's screenshot is named to the run", devEventMessage({ ...ev, files: ["Screenshot.png"] }).includes("Attached on the item just now: Screenshot.png"));
+  check("…and to the colleague who sends the draft", filesBanner(["Screenshot.png"], "https://x/pulses/1")?.includes("Attach it to your reply") === true);
+  check("no files → no banner", filesBanner([], "u") === undefined);
   const withDraft = devEventMessage({ ...ev, pendingReply: { at: "2026-10-28T08:44:00Z", body: "Hi Sneha, a fix has gone out." } });
   check("pending draft is shown to the run", withDraft.includes("ALREADY DRAFTED") && withDraft.includes("a fix has gone out"));
 }

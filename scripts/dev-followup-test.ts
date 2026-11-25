@@ -8,7 +8,7 @@
  * No network for the decisions. The last block reads a PDF and a .docx
  * through docText via data: URLs, so the extractors are exercised for real.
  */
-import { decideFollowUp, decideUnlinkedFollowUp, nudgeText, questionNudgeText, unlinkedNudgeText, workdaysBetween } from "../lib/dev-followup";
+import { decideFollowUp, decideUnlinkedFollowUp, nudgeText, questionNudgeText, quietWorkdays, unlinkedNudgeText, workHoursBetween, workdaysBetween } from "../lib/dev-followup";
 import { askForKb, declinesKb, docText, noAnswer, pendingKbAsk, shouldAskForKb } from "../lib/dev-kb";
 import { postRole } from "../lib/dev-board";
 import { isJettaAuthored } from "../lib/jetta-posts";
@@ -36,6 +36,33 @@ console.log("Working days (Saturday off)");
   check("Fri → Mon skips Saturday = 2", workdaysBetween(day(23), new Date(day(26)), SAT) === 2);
   check("same day = 0", workdaysBetween(day(19, 1), new Date(day(19, 20)), SAT) === 0);
   check("garbage date = 0", workdaysBetween("nope", new Date(day(22)), SAT) === 0);
+}
+
+console.log("A working day is hours passed, not a date changing (#14773)");
+{
+  const WE = [6, 0];
+  // 2026-11-24 is a Tuesday, 2026-11-20 a Friday.
+  const at = (d: number, h: number, m = 0) => new Date(Date.UTC(2026, 10, d, h, m));
+  check("17:45 → 04:30 next morning is not a working day", quietWorkdays(at(24, 17, 45).toISOString(), at(25, 4, 30), WE) === 0);
+  check("05:29 → 04:30 next morning is one", quietWorkdays(at(24, 5, 29).toISOString(), at(25, 4, 30), WE) === 1);
+  check("Friday evening → Monday morning is not one", quietWorkdays(at(20, 17, 45).toISOString(), at(23, 4, 30), WE) === 0);
+  check("…and Tuesday morning is", quietWorkdays(at(20, 17, 45).toISOString(), at(24, 4, 30), WE) === 1);
+  check("weekend hours count for nothing", Math.abs(workHoursBetween(at(20, 17, 45).toISOString(), at(23, 4, 30), WE) - 10.75) < 0.01);
+  check("Mon 09:00 → Thu 09:00 is still 3", quietWorkdays(at(23, 9).toISOString(), at(26, 9), WE) === 3);
+  const item = {
+    group: "Bugs and Field Issues",
+    devStatus: "Working on it",
+    lastPersonActivityAt: at(24, 17, 45).toISOString(),
+    lastDevActivityAt: at(24, 17, 45).toISOString(),
+    devStatusChangedAt: null,
+    createdAt: at(16, 20).toISOString(),
+    askTimes: [at(24, 4, 31).toISOString()],
+    type: "Bugs and Field Issues",
+  };
+  const rules = { quietWorkdays: 1, weekend: WE };
+  check("a developer who wrote last night is not told there was no update", decideFollowUp(item, "open", at(25, 4, 30), rules).action === "none");
+  check("…and is asked the morning after if still quiet", decideFollowUp(item, "open", at(26, 4, 30), rules).action === "ask");
+  check("one day is singular", nudgeText("14773", 1, 1).includes("for 1 working day,") && nudgeText("14773", 2, 1).includes("for 2 working days,"));
 }
 
 console.log("Follow-up decisions");
