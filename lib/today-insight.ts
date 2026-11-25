@@ -220,6 +220,9 @@ function renderBrief(b: TodayBrief, yesterday: DailyRollup | null): string {
   return lines.filter(Boolean).join("\n");
 }
 
+/** The longest the briefing's model call may take. A normal one is about 20 seconds. */
+export const INSIGHT_TIMEOUT_MS = 40_000;
+
 /**
  * Write the brief's narrative. Throws on LLM failure — the caller decides
  * whether a missing narrative is worth failing the page over (it isn't).
@@ -242,6 +245,10 @@ export async function generateTodayInsight(
     schema: TodayInsightSchema,
     system: SYSTEM,
     prompt: `${renderBrief(brief, yesterday)}\n\nWrite the briefing.`,
+    // The route has 60 seconds in all. Without a limit of its own, a slow
+    // model ran into that wall and the request died with nothing, when the
+    // route would otherwise have served the previous briefing.
+    abortSignal: AbortSignal.timeout(INSIGHT_TIMEOUT_MS),
   });
   return {
     ...object,

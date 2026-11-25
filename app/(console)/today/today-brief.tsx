@@ -103,6 +103,7 @@ interface Brief {
   summary: { arrived: number; answered: number; waiting: number; escalated: number; reopened: number };
   byApp: { app: string; count: number }[];
   worklist: WorklistItem[];
+  uncheckedTickets?: number;
   narrative: { headline: string; highlights: string[]; watchouts: string[]; generatedAt: number } | null;
   narrativeDate: string | null;
   trends: {
@@ -571,6 +572,13 @@ export default function TodayBrief({ isAdmin }: { isAdmin: boolean }) {
               </CardAction>
             </CardHeader>
             <CardContent>
+              {!!brief.uncheckedTickets && (
+                <p className="mb-3 text-sm text-muted-foreground">
+                  Freshdesk was slow to answer, so {brief.uncheckedTickets}{" "}
+                  {brief.uncheckedTickets === 1 ? "ticket here was" : "tickets here were"} not checked
+                  against it. Some may already be resolved. Refresh in a minute.
+                </p>
+              )}
               {brief.worklist.length === 0 ? (
                 <EmptyState
                   icon={CheckCircle2}

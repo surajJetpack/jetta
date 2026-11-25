@@ -81,6 +81,8 @@ The work on this page that is actually yours. Each row carries a state, how many
 
 **Needs your reply** is read from the thread, not from the status someone set. So a row can say *needs your reply* and *waiting on customer* at once — that means the customer wrote back and nobody moved the status. Believe the thread.
 
+**If the list says some tickets were not checked.** Each ticket's current status normally comes from Jetta's own copy of the tickets. When that copy is unavailable she asks Freshdesk instead, a few tickets at a time and for at most 12 seconds, because Freshdesk allows only 40 calls a minute and ticket replies share that allowance. Tickets she could not ask about in time stay on the list as her run history left them, and a line above the list says how many, so a few of them may already be resolved. Refresh after a minute. The briefing at the top is also time-limited (40 seconds): if the model is slow you see the previous briefing, not an error.
+
 ### What's going wrong, and what would help
 
 ![What's going wrong](images/today-going-wrong.webp)
