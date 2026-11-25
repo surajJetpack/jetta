@@ -304,7 +304,7 @@ export function devBridgeRows(): StatusRow[] {
       "Follow-up on quiet dev items",
       config.devFollowUp,
       "JETTA_DEV_FOLLOWUP",
-      `Daily: an open ticket's item with no comment or status change for ${config.devFollowUpRules.quietWorkdays} working days gets an ask to its Developer, a second ask ${config.devFollowUpRules.quietWorkdays} working days later, then one post in the escalation channel. Skips items waiting on the customer, on hold, finished, or feature requests.`,
+      `Daily: an open ticket's item with no comment or status change for ${config.devFollowUpRules.quietWorkdays} working days gets an ask to its Developer, a second ask ${config.devFollowUpRules.quietWorkdays} working days later, then one post in the escalation channel. A working day needs about 20 working-day hours to have passed, so an evening comment is not chased the next morning. Skips items waiting on the customer, on hold, finished, or feature requests.`,
     ),
     row(
       "Follow-up on unlinked dev items",
