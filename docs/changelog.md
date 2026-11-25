@@ -8,6 +8,11 @@ Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain word
 
 
 
+## 2026-11-25: The Today page no longer times out when the ticket copy is down
+While Jetta's ticket copy was unavailable (22 to 25 November), the Today page asked Freshdesk about every ticket on its list at once, about 50 calls against a limit of 40 a minute. Freshdesk refused them, the page waited on retries and died at 60 seconds, and the briefing never appeared. It also used up the allowance ticket replies share.
+Now it asks Freshdesk about 4 tickets at a time for at most 12 seconds. Tickets it could not check stay on the list as the run history left them, with a line saying how many (`today.tickets_unchecked` in the event log). The briefing's model call is limited to 40 seconds, so a slow model gives you the previous briefing, not an error.
+No switch. With the ticket copy healthy, as it is now, nothing changes.
+
 ## 2026-11-25: The chat widget holds a live connection only while it is on screen
 The widget kept a live connection to Jetta for as long as a visitor's page was open, even with the chat panel closed or the tab in the background, and each connection read the database twice every 1.5 seconds. About 14 were open at any moment. With the console listing 100 chats one read at a time, that came to roughly 40 million reads a month and most of the Vercel bill.
 Now the live connection is held only while the chat is open in the tab the visitor is looking at. Out of view, the widget checks every 10 seconds while the visitor is waiting on an answer and every 30 otherwise, so the unread badge can lag by up to half a minute. In view, a quiet chat is checked every 3 seconds, an active one every 1.5 as before.

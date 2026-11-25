@@ -23,6 +23,8 @@ import { yesterdayKey } from "./daily-overview";
 import { listConversations, getConversation } from "./chat-store";
 import { awaitsOurReply, getTicketDetails, isTerminalStatus } from "./tools/freshdesk";
 import { mirrorTicketState } from "./ticket-mirror/read";
+import { boundedLookups } from "./bounded-lookups";
+import { logOpsEvent } from "./events";
 
 const HOUR_S = 3600;
 const WINDOW_HOURS = 24;
@@ -84,21 +86,75 @@ interface LiveTicketState {
 }
 const statusCache = new Map<string, { at: number; state: LiveTicketState }>();
 
-async function liveTicketState(ticketId: string): Promise<LiveTicketState> {
-  const hit = statusCache.get(ticketId);
-  if (hit && Date.now() - hit.at < STATUS_TTL_MS) return hit.state;
-  // Fail open: an unreachable Freshdesk should leave the worklist stale, not
-  // empty. Showing one resolved ticket is a smaller failure than hiding five
-  // live ones because an API call timed out. awaitingReply fails CLOSED —
-  // a timeout must not invent a reply that is owed.
-  // Jetta's own copy first (no Freshdesk call); Freshdesk when it isn't current.
-  const state =
-    (await mirrorTicketState(ticketId)) ??
-    (await getTicketDetails(ticketId)
-      .then((t) => ({ status: t.status, awaitingReply: awaitsOurReply(t) }))
-      .catch(() => ({ status: null, awaitingReply: false })));
-  statusCache.set(ticketId, { at: Date.now(), state });
-  return state;
+/** Freshdesk lookups at once when Jetta's own ticket copy cannot answer. */
+export const FD_FALLBACK_CONCURRENCY = 4;
+/** How long the brief waits on those lookups in total before going on without the rest. */
+export const FD_FALLBACK_BUDGET_MS = 12_000;
+
+/** What is assumed for a ticket nobody could be asked about. See the fail-open note below. */
+const UNKNOWN_STATE: LiveTicketState = { status: null, awaitingReply: false };
+
+/**
+ * Live state for many tickets at once.
+ *
+ * Jetta's own copy first (no Freshdesk call). Freshdesk only for tickets the
+ * copy cannot answer for, a few at a time and for a limited time
+ * (lib/bounded-lookups.ts says why). `unchecked` is how many tickets got no
+ * answer in time; they are shown as the run history left them.
+ *
+ * Fail open: an unreachable Freshdesk should leave the worklist stale, not
+ * empty. Showing one resolved ticket is a smaller failure than hiding five
+ * live ones because an API call timed out. awaitingReply fails CLOSED:
+ * a timeout must not invent a reply that is owed.
+ */
+export async function liveTicketStates(
+  ticketIds: string[],
+  deps: {
+    fromMirror?: (id: string) => Promise<LiveTicketState | null>;
+    fromFreshdesk?: (id: string) => Promise<LiveTicketState>;
+    concurrency?: number;
+    budgetMs?: number;
+  } = {},
+): Promise<{ states: Map<string, LiveTicketState>; unchecked: number }> {
+  const fromMirror = deps.fromMirror ?? mirrorTicketState;
+  const fromFreshdesk =
+    deps.fromFreshdesk ??
+    ((id: string) =>
+      getTicketDetails(id)
+        .then((t) => ({ status: t.status, awaitingReply: awaitsOurReply(t) }))
+        .catch(() => UNKNOWN_STATE));
+
+  const states = new Map<string, LiveTicketState>();
+  const ids = [...new Set(ticketIds)];
+  const misses: string[] = [];
+  await Promise.all(
+    ids.map(async (id) => {
+      const hit = statusCache.get(id);
+      if (hit && Date.now() - hit.at < STATUS_TTL_MS) return void states.set(id, hit.state);
+      const own = await fromMirror(id).catch(() => null);
+      if (!own) return void misses.push(id);
+      statusCache.set(id, { at: Date.now(), state: own });
+      states.set(id, own);
+    }),
+  );
+  if (!misses.length) return { states, unchecked: 0 };
+
+  const { results, unchecked } = await boundedLookups(misses, fromFreshdesk, {
+    concurrency: deps.concurrency ?? FD_FALLBACK_CONCURRENCY,
+    budgetMs: deps.budgetMs ?? FD_FALLBACK_BUDGET_MS,
+  });
+  for (const [id, state] of results) {
+    statusCache.set(id, { at: Date.now(), state });
+    states.set(id, state);
+  }
+  // Not cached: the next load should ask again, not remember that it gave up.
+  for (const id of unchecked) states.set(id, UNKNOWN_STATE);
+  return { states, unchecked: unchecked.length };
+}
+
+/** Forget cached ticket states. For tests. */
+export function clearTicketStateCache(): void {
+  statusCache.clear();
 }
 
 export interface WorklistItem {
@@ -460,10 +516,19 @@ export async function buildTodayBrief() {
    * they exist because that conversation said waiting_human a moment ago.
    */
   const candidates = [...chatRows, ...byId.values()];
+  const ticketStates = await liveTicketStates(candidates.map((i) => i.id).filter((id) => /^\d+$/.test(id)));
+  if (ticketStates.unchecked) {
+    await logOpsEvent({
+      level: "warn",
+      event: "today.tickets_unchecked",
+      source: "console",
+      data: { unchecked: ticketStates.unchecked, budgetMs: FD_FALLBACK_BUDGET_MS },
+    }).catch(() => {});
+  }
   const withStatus = await Promise.all(
     candidates.map(async (item) => {
       if (item.id.startsWith("chat:")) return item;
-      if (/^\d+$/.test(item.id)) return { ...item, ...(await liveTicketState(item.id)) };
+      if (/^\d+$/.test(item.id)) return { ...item, ...ticketStates.states.get(item.id) };
       // A conversation id. Gone means deleted or expired past retention, and
       // the row would link to a dead page; ticketed means the Freshdesk ticket
       // is the live thread now and this row is a duplicate of it.
@@ -507,6 +572,12 @@ export async function buildTodayBrief() {
     narrative: yesterday?.insight ?? null,
     narrativeDate: yesterday?.date ?? null,
     worklist,
+    /**
+     * Tickets whose current Freshdesk status could not be checked in time
+     * (Jetta's own copy was unavailable and Freshdesk was slow or refusing).
+     * They are listed as the run history left them, so some may be resolved.
+     */
+    uncheckedTickets: ticketStates.unchecked,
     trends: {
       partialHistory: trends.partialHistory,
       historyDaysCovered: trends.historyDaysCovered,
