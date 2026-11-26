@@ -114,6 +114,8 @@ export interface MirrorWaitingTicket {
   subject: string;
   product: string | null;
   status: string;
+  /** An agent has posted at least one public reply on it. */
+  everAnswered: boolean;
 }
 
 /**
@@ -130,7 +132,13 @@ export async function mirrorCustomerWaiting(sinceDays: number, limit = 150): Pro
   try {
     const since = new Date(Date.now() - sinceDays * 86_400_000).toISOString();
     const rows = await getDb()!
-      .select({ id: tickets.id, subject: tickets.subject, product: tickets.product, status: tickets.status })
+      .select({
+        id: tickets.id,
+        subject: tickets.subject,
+        product: tickets.product,
+        status: tickets.status,
+        lastAgentAt: tickets.lastAgentAt,
+      })
       .from(tickets)
       .where(
         and(
@@ -142,7 +150,13 @@ export async function mirrorCustomerWaiting(sinceDays: number, limit = 150): Pro
       )
       .orderBy(desc(tickets.lastCustomerAt))
       .limit(limit);
-    return rows.map((r) => ({ id: String(r.id), subject: r.subject, product: r.product, status: statusLabel(r.status) }));
+    return rows.map((r) => ({
+      id: String(r.id),
+      subject: r.subject,
+      product: r.product,
+      status: statusLabel(r.status),
+      everAnswered: r.lastAgentAt != null,
+    }));
   } catch {
     return null;
   }

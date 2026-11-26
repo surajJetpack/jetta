@@ -500,6 +500,8 @@ export async function buildTodayBrief() {
   const customerWaiting = (await mirrorCustomerWaiting(CUSTOMER_WAITING_LOOKBACK_DAYS).catch(() => null)) ?? [];
   for (const t of customerWaiting) {
     const rec = recordById.get(t.id);
+    // Closed without a single public reply: see neverAnsweredAndClosed below.
+    if (!t.everAnswered && (t.status === "resolved" || t.status === "closed")) continue;
     add({
       id: t.id,
       signals: ["customer_waiting"],
@@ -633,8 +635,17 @@ export async function buildTodayBrief() {
    */
   const DONE = new Set(["gone", "resolved", "ticketed"]);
   const isTicket = (i: WorklistItem) => /^\d+$/.test(i.id);
+  /*
+   * Closed or resolved without one public reply from us, ever. That is not a
+   * customer left hanging: it is a ticket merged into another (14852 into
+   * 14850), or mail someone triaged as needing no answer (newsletters,
+   * calendar notices). The first deploy of this list showed 50 such rows as
+   * "marked closed, but the customer wrote last".
+   */
+  const neverAnsweredAndClosed = (i: WorklistItem) =>
+    (i.status === "resolved" || i.status === "closed") && !ticketStates.states.get(i.id)?.lastAgentAt;
   const live = withStatus.filter((i) => {
-    if (isTicket(i)) return i.status === null || i.awaitingReply;
+    if (isTicket(i)) return i.status === null || (i.awaitingReply && !neverAnsweredAndClosed(i));
     return !(i.status && DONE.has(i.status));
   });
 
