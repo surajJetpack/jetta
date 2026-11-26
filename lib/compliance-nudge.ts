@@ -24,7 +24,7 @@ import { config } from "./config";
 import { workdaysBetween } from "./dev-followup";
 import { logOpsEvent } from "./events";
 import { kvGet, kvSet, kvSetNx } from "./kv";
-import { listComplianceWaiting, type ComplianceWaiting } from "./tools/monday";
+import { complianceBoardUrl, listComplianceWaiting, type ComplianceWaiting } from "./tools/monday";
 import { complianceDmReady, sendComplianceDm } from "./tools/slack";
 
 /** Working days of silence before a reminder. */
@@ -179,7 +179,7 @@ export async function runComplianceNudge(now = new Date(), opts: { dry?: boolean
 
   const users = await getMondayUsers().catch(() => new Map<string, string>());
   const firstName = (users.get(ownerId) ?? "").trim().split(/\s+/)[0] ?? "";
-  const boardUrl = `${config.monday.accountUrl}/boards/${config.monday.compliance.boardId}`;
+  const boardUrl = complianceBoardUrl();
   const text = complianceNudgeText(firstName, fresh, waiting, boardUrl);
   // Only the items the message names are recorded; the rest come up next run.
   const named = new Set([...fresh, ...waiting].slice(0, MAX_LINES).map((i) => i.id));

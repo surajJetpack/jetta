@@ -1320,6 +1320,11 @@ export async function deleteTestDevItem(itemId: string): Promise<{ deleted: bool
 // follow the dev-board conventions: one item per ticket, the ticket link on
 // the item, and the customer's files forwarded.
 
+/** The Security Questionnaires board itself. */
+export function complianceBoardUrl(): string {
+  return `${config.monday.accountUrl}/boards/${config.monday.compliance.boardId}`;
+}
+
 function complianceItemUrl(itemId: string): string {
   return `${config.monday.accountUrl}/boards/${config.monday.compliance.boardId}/pulses/${itemId}`;
 }
@@ -1442,6 +1447,23 @@ function rowToComplianceItem(row: BoardItemRow): ComplianceItem {
 export async function complianceItemsForTicket(ticketId: string): Promise<ComplianceItem[]> {
   if (!config.monday.live || !/^\d+$/.test(ticketId)) return [];
   return (await complianceRows()).filter((r) => itemCarriesTicket(r, ticketId)).map(rowToComplianceItem);
+}
+
+/** A live compliance request as a colleague asking Jetta would want it listed. */
+export type ComplianceRequest = ComplianceItem & { ticketId?: string };
+
+/**
+ * Every request in the board's live groups (everything but Done), for the
+ * read-only assistant: "what is with Mark?", or a pasted link to the board.
+ * Throws when monday is unreachable, so the caller says so and does not
+ * answer "nothing open".
+ */
+export async function listComplianceRequests(): Promise<ComplianceRequest[]> {
+  if (!config.monday.live) return [];
+  return (await complianceRows()).map((row) => {
+    const ticketUrl = (row.column_values ?? []).find((c) => c.type === "link" && /freshdesk/i.test(c.text ?? ""))?.text ?? "";
+    return { ...rowToComplianceItem(row), ticketId: ticketUrl.match(/tickets\/(\d+)/)?.[1] };
+  });
 }
 
 export interface CreateComplianceItemInput {

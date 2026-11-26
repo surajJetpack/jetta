@@ -215,11 +215,11 @@ export function readOnlyTools(): ToolSet {
 
     read_dev_item_comments: tool({
       description:
-        "Read the comments and replies on a monday dev board item — what engineering has actually said about it, newest first. Use for 'what did the devs say', 'any update on that item', or checking whether an escalation has moved. Take the item id from search_dev_board or from a link like /pulses/12790471510.",
-      inputSchema: z.object({ item_id: z.string().describe("The dev board item id, digits only.") }),
+        "Read the comments and replies on one item on our monday account, newest first: a dev board item (what engineering has said) or a compliance request on the Security Questionnaires board (what Mark and the team have said). Use for 'what did the devs say', 'any update on that item', 'has Mark answered', or when someone pastes an item link. Take the item id from search_dev_board, list_compliance_requests, or the digits after /pulses/ in a link like /boards/9796233506/pulses/12790471510.",
+      inputSchema: z.object({ item_id: z.string().describe("The monday item id, digits only.") }),
       execute: async ({ item_id }) => {
         const item = await monday.getItemUpdates(item_id, 15).catch(() => null);
-        if (!item) return `No dev board item ${item_id} found (or monday is unavailable).`;
+        if (!item) return `No monday item ${item_id} found (or monday is unavailable).`;
         if (!item.updates.length) {
           return JSON.stringify({
             item: item.name,
@@ -237,6 +237,22 @@ export function readOnlyTools(): ToolSet {
             replies: u.replies.map((r) => ({ at: r.at, author: r.author, text: r.text.slice(0, 600) })),
           })),
         });
+      },
+    }),
+
+    list_compliance_requests: tool({
+      description:
+        "List the open requests on the Security Questionnaires monday board, where compliance and security paperwork (questionnaires, DPAs, BAAs, NDAs, SOC 2 requests) waits on Mark Shaw: title, the board's Status (Pending, Stuck, Client Reviewing), who has it, the Freshdesk ticket, and a link to each item. Items in the Done group are left out. Use for 'what is with Mark', 'any open compliance requests', 'where is the DPA for X', or when someone pastes a link to that board. Follow with read_dev_item_comments on an item to see what was said on it.",
+      inputSchema: z.object({}),
+      execute: async () => {
+        const boardUrl = monday.complianceBoardUrl();
+        try {
+          const items = await monday.listComplianceRequests();
+          if (!items.length) return JSON.stringify({ board: boardUrl, note: "No open compliance requests on the board (or monday is not connected here)." });
+          return JSON.stringify({ board: boardUrl, open: items.length, items });
+        } catch {
+          return `monday did not answer, so the compliance board could not be read. That is not the same as nothing being open. Board: ${boardUrl}`;
+        }
       },
     }),
 

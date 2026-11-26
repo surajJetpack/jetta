@@ -1165,9 +1165,9 @@ function contextBlock(ctx: ConversationContext, profile: Profile): string {
     lines.push(
       `THIS TICKET'S compliance request${ctx.ticketComplianceItems.length === 1 ? "" : "s"} with Mark (INTERNAL, never name or link to the customer):`,
       ...ctx.ticketComplianceItems.map(
-        (i) => `  - id ${i.id}: ${i.title} — Status: ${i.status}${i.group ? `, group: ${i.group}` : ""}`,
+        (i) => `  - id ${i.id}: ${i.title} — Status: ${i.status}${i.group ? `, group: ${i.group}` : ""}${i.url ? ` — ${i.url}` : ""}`,
       ),
-      `  The compliance team has this. Do NOT call send_to_compliance again unless the customer added something new (a document, a deadline, another form) — then call it once to add that. Do not close the ticket. If they ask for an update, say it is with our compliance team, no timeline.`,
+      `  The compliance team has this. When a private note mentions the request, give its link above in full, not the bare id; the link is for the private note ONLY. Do NOT call send_to_compliance again unless the customer added something new (a document, a deadline, another form) — then call it once to add that. Do not close the ticket. If they ask for an update, say it is with our compliance team, no timeline.`,
     );
   }
 
