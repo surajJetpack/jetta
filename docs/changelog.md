@@ -8,6 +8,11 @@ Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain word
 
 
 
+## 2026-11-26: Jetta can read the compliance board, and posts its item links (#PRNUM)
+Asked in Slack or the console about the Security Questionnaires board, Jetta used to say she could not open it: her lookups covered the two dev boards only. She can now list the open requests (status, owner, ticket, link) and read the comments on any item, including from a pasted board or item link. Read-only.
+When she files a new compliance request she posts one line in the escalation channel with links to the item and the ticket, with no @channel. Before, the link was only in the Freshdesk private note. A later note about the same request now gives the full link, not the bare item number.
+No switch. The Slack line follows `SLACK_LIVE` like her other posts. Not live until this is merged.
+
 ## 2026-11-26: Today's "What needs you now" follows the thread, not the status (#239)
 A Freshdesk ticket is now on the list only while its customer is waiting: their message is the newest public one and is not just a "thanks" or an away notice. The status a person set no longer decides it. Tickets marked resolved or "waiting on customer" with the customer's question unanswered now appear, with a chip naming the mismatch; escalations someone has already answered drop off (14 of 15 rows on 26 November were those).
 Tickets Jetta never escalated are found from her ticket copy (customer wrote last, past 14 days). "Waiting Nh" counts from the customer's message. No switch; live once merged.

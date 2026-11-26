@@ -1179,6 +1179,19 @@ export function buildTools(
         });
         if (item.notWritten) return declined("send_to_compliance", notFiled("compliance request", item.notWritten));
         if (item.contextPosted === false) return contextLost(item);
+        // The team sees a new request and its link in Slack; a follow-up on an
+        // item they were already told about is not announced again.
+        if (!item.deduped && item.url) {
+          await slack
+            .notifyComplianceFiled({
+              title: item.title,
+              itemUrl: item.url,
+              ticketUrl: ticketId ? interactionUrl(ticketId) : undefined,
+              ticketId: ticketId || undefined,
+              app: ctx.appProduct,
+            })
+            .catch((e) => console.warn("compliance Slack note failed:", e instanceof Error ? e.message : e));
+        }
         return item.deduped
           ? `This ticket ALREADY has a compliance request with Mark ("${item.title}", status ${item.status}) — your context was added to it, nothing new was filed.${filesNote(item.filesAttached)} Do not call send_to_compliance again. INTERNAL URL — private note ONLY: ${item.url}`
           : `Filed compliance request "${item.title}", assigned to Mark Shaw.${filesNote(item.filesAttached)} This replaces send_escalation for this request. INTERNAL URL — private note ONLY, never the customer reply: ${item.url}`;

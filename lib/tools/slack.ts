@@ -694,6 +694,29 @@ export async function notifySelfReview(headline: string, details: string[]): Pro
   return ts;
 }
 
+/**
+ * A compliance request Jetta just filed for Mark (send_to_compliance). That
+ * tool replaces the escalation, so without this the team never saw the item:
+ * its link lived only in a Freshdesk private note. One line in the escalation
+ * channel, where support follows a ticket's hand-offs. No @channel: it asks
+ * nobody to act, Mark is told by monday and by the hourly reminder.
+ */
+export async function notifyComplianceFiled(input: {
+  title: string;
+  itemUrl: string;
+  ticketUrl?: string;
+  ticketId?: string;
+  app?: string;
+}): Promise<string> {
+  const channel = config.slack.escalationChannel ?? "#jetta-escalations";
+  const ticket = input.ticketId ? ` · ${link(input.ticketUrl, `#${input.ticketId}`)}` : "";
+  const app = input.app ? `${appLabel(input.app)} · ` : "";
+  return postMessage(
+    channel,
+    `:clipboard: *Compliance request filed for Mark* · ${app}${link(input.itemUrl, clamp(input.title, HEADLINE_MAX))}${ticket}`,
+  );
+}
+
 /** The channel self-review posts to, for display. */
 /** True when the token and recipient for the compliance workspace are both set. */
 export function complianceDmReady(): boolean {
