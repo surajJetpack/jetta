@@ -40,6 +40,11 @@ assert.ok(!isAcknowledgement("Thanks " + "x".repeat(200)));
 assert.ok(customerMessageNeedsNoReply("Automatic reply: I am out of office until Monday."));
 assert.ok(!customerMessageNeedsNoReply("I was out of office last week, the signing link still fails."));
 
+// ── An Outlook reaction is not a message ──
+assert.ok(customerMessageNeedsNoReply("[like] Haridini Simson reacted to your message: ________________________________"));
+assert.ok(customerMessageNeedsNoReply("Kelsey reacted to your message"));
+assert.ok(!customerMessageNeedsNoReply("You said I reacted to your message wrongly, the board still shows nothing"));
+
 // ── Status vs thread ──
 assert.equal(statusDisagreement("resolved", true), "marked resolved, but the customer wrote last");
 assert.equal(statusDisagreement("waiting on customer", true), "marked waiting on customer, but the customer wrote last");

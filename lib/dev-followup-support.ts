@@ -31,7 +31,7 @@ import { itemTickets } from "./dev-item-links";
 import { logOpsEvent } from "./events";
 import { kvGet, kvSet, rememberJettaPost } from "./kv";
 import { loadPerfTickets } from "./performance-sync";
-import { buildTeamReport, fmtHours, type DevAction } from "./team-report";
+import { buildTeamReport, customerToldAbout, fmtHours, type DevAction } from "./team-report";
 import * as freshdesk from "./tools/freshdesk";
 import * as monday from "./tools/monday";
 import * as slack from "./tools/slack";
@@ -203,9 +203,11 @@ export async function runSupportFollowUp(now = new Date(), opts: { dry?: boolean
     if (decision.action === "none" || actions >= MAX_ACTIONS_PER_RUN || !ticketId) continue;
     try {
       // The stores are up to an hour old. Before saying "the customer has not
-      // been told", read the ticket: a public reply from us since ends it.
+      // been told", read the ticket: a public reply from us since ends it, and
+      // so does one sent just before the status change (customerToldAbout).
       const thread = await freshdesk.getTicketThread(ticketId, { limit: 10 });
-      const told = thread.messages.some((m) => !m.private && m.direction !== "customer" && Date.parse(m.at) > a.sinceAt);
+      const lastPublic = [...thread.messages].reverse().find((m) => !m.private);
+      const told = !!lastPublic && customerToldAbout(a.sinceAt, Date.parse(lastPublic.at), lastPublic.direction);
       if (told || freshdesk.isTerminalStatus(thread.status)) {
         row.done = told ? "customer told since" : `ticket ${thread.status}`;
         continue;

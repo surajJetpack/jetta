@@ -11,6 +11,27 @@ export const STALE_AFTER_H = 14 * 24;
 /** A dev-board handback older than this is no longer news; it is counted, not listed. */
 export const DEV_FRESH_H = 14 * 24;
 
+/**
+ * Support often answers the customer first and sets the dev item's status a
+ * few minutes later (ticket #14854: reply 06:30, item marked Not an Issue
+ * 06:49; #14868: reply 04:50, Waiting Customer 05:32). A reply from us this
+ * close BEFORE the developer's move, with nothing from the customer since,
+ * counts as the customer having been told. Without it Jetta asked Sujata to do
+ * what she had just done.
+ */
+export const TOLD_GRACE_MS = 2 * 3_600_000;
+
+/**
+ * Has the customer heard from us about a developer move at `at`? Yes when our
+ * last public message is after it, or shortly before it (TOLD_GRACE_MS) and
+ * the customer has not written since. `lastPublicFrom` is who wrote the
+ * ticket's latest public message.
+ */
+export function customerToldAbout(at: number, lastPublicAt: number | null | undefined, lastPublicFrom: "agent" | "customer" | string | null | undefined): boolean {
+  if (lastPublicFrom !== "agent" || lastPublicAt == null || !Number.isFinite(lastPublicAt)) return false;
+  return lastPublicAt > at - TOLD_GRACE_MS;
+}
+
 /** The lists a count can open. The id is what a link carries (`?list=`). */
 export const LIST_LABEL = {
   replies: "Replies to customers",

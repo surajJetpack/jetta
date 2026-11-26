@@ -4,9 +4,11 @@ Newest first. One entry per change people would notice: what Jetta does differen
 
 Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain words.
 
+## 2026-11-26: No "customer not told" nudge when support replied just before the status change
+Support often answers the customer and then sets the dev item's status a few minutes later. Jetta only counted a reply sent after the status change, so on #14854 and #14868 she asked Sujata to tell the customer something she had already told them. A public reply from us up to 2 hours before the developer's move now counts, as long as the customer has not written since. The same rule drives the developer rows of To do on the Daily report. Under `JETTA_DEV_FOLLOWUP_SUPPORT`; live on merge.
 
-
-
+## 2026-11-26: Today's list no longer shows merged and junk tickets (#241)
+The first version of the thread-based list (#239) showed about 50 closed tickets nobody had replied to: merged duplicates, newsletters and calendar notices. A closed or resolved ticket with no public reply from us is now left out, and an Outlook "reacted to your message" email no longer counts as the customer writing. No switch; live once merged.
 
 ## 2026-11-26: Jetta can read the compliance board, and posts its item links (#242)
 Asked in Slack or the console about the Security Questionnaires board, Jetta used to say she could not open it: her lookups covered the two dev boards only. She can now list the open requests (status, owner, ticket, link) and read the comments on any item, including from a pasted board or item link. Read-only.
