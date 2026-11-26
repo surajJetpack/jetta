@@ -4,9 +4,8 @@ Newest first. One entry per change people would notice: what Jetta does differen
 
 Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain words.
 
-
-
-
+## 2026-11-26: No "customer not told" nudge when support replied just before the status change
+Support often answers the customer and then sets the dev item's status a few minutes later. Jetta only counted a reply sent after the status change, so on #14854 and #14868 she asked Sujata to tell the customer something she had already told them. A public reply from us up to 2 hours before the developer's move now counts, as long as the customer has not written since. The same rule drives the developer rows of To do on the Daily report. Under `JETTA_DEV_FOLLOWUP_SUPPORT`; live on merge.
 
 ## 2026-11-25: The Today page no longer times out when the ticket copy is down
 While Jetta's ticket copy was unavailable (22 to 25 November), the Today page asked Freshdesk about every ticket on its list at once, about 50 calls against a limit of 40 a minute. Freshdesk refused them, the page waited on retries and died at 60 seconds, and the briefing never appeared. It also used up the allowance ticket replies share.
