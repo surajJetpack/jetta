@@ -23,7 +23,7 @@ import { yesterdayKey } from "./daily-overview";
 import { listConversations, getConversation } from "./chat-store";
 import { awaitsOurReply, getTicketDetails } from "./tools/freshdesk";
 import { mirrorCustomerWaiting, mirrorTicketState } from "./ticket-mirror/read";
-import { customerMessageNeedsNoReply, statusDisagreement, type ThreadState } from "./reply-owed";
+import { closedTicketStillOwed, customerMessageNeedsNoReply, statusDisagreement, type ThreadState } from "./reply-owed";
 import { boundedLookups } from "./bounded-lookups";
 import { logOpsEvent } from "./events";
 
@@ -112,7 +112,16 @@ function threadStateFromFreshdesk(t: Awaited<ReturnType<typeof getTicketDetails>
       .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0];
     if (newest && customerMessageNeedsNoReply(newest.body)) awaitingReply = false;
   }
-  return { status: t.status, awaitingReply, lastCustomerAt: at("customer"), lastAgentAt: at("agent") };
+  const newestPublic = t.replies
+    .filter((r) => !r.isPrivate)
+    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0];
+  return {
+    status: t.status,
+    awaitingReply,
+    lastCustomerAt: at("customer"),
+    lastAgentAt: at("agent"),
+    lastCustomerText: newestPublic?.author === "customer" ? newestPublic.body : undefined,
+  };
 }
 
 /**
@@ -644,7 +653,24 @@ export async function buildTodayBrief() {
    */
   const neverAnsweredAndClosed = (i: WorklistItem) =>
     (i.status === "resolved" || i.status === "closed") && !ticketStates.states.get(i.id)?.lastAgentAt;
+  /*
+   * Closed or resolved with the customer writing last. Nearly always the
+   * customer closing it themselves ("This is resolved"), so a light model
+   * reads that one message; see closedTicketStillOwed. Only these few rows
+   * are asked, in parallel, cached per message.
+   */
+  const closedOwed = new Map<string, boolean>();
+  await Promise.all(
+    withStatus
+      .filter((i) => isTicket(i) && i.awaitingReply && (i.status === "resolved" || i.status === "closed") && !neverAnsweredAndClosed(i))
+      .map(async (i) => {
+        const st = ticketStates.states.get(i.id);
+        closedOwed.set(i.id, await closedTicketStillOwed(i.id, st?.lastCustomerAt ?? null, st?.lastCustomerText ?? ""));
+      }),
+  );
   const live = withStatus.filter((i) => {
+    if (isTicket(i) && (i.status === "resolved" || i.status === "closed") && i.awaitingReply)
+      return closedOwed.get(i.id) === true;
     if (isTicket(i)) return i.status === null || (i.awaitingReply && !neverAnsweredAndClosed(i));
     return !(i.status && DONE.has(i.status));
   });

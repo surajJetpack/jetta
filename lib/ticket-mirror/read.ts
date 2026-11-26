@@ -86,6 +86,7 @@ export async function mirrorTicketState(ticketId: string): Promise<ThreadState |
   if (!row) return null;
   // No public message yet counts as owed (same rule as awaitsOurReply).
   let awaitingReply = row.lastPublicFrom ? row.lastPublicFrom === "customer" : true;
+  let lastCustomerText: string | undefined;
   if (row.lastPublicFrom === "customer") {
     try {
       const [last] = await getDb()!
@@ -95,6 +96,7 @@ export async function mirrorTicketState(ticketId: string): Promise<ThreadState |
         .orderBy(desc(messages.createdAt), desc(messages.idx))
         .limit(1);
       const body = last?.bodyClean ?? last?.bodyText ?? "";
+      lastCustomerText = body;
       if (body && customerMessageNeedsNoReply(body)) awaitingReply = false;
     } catch {
       // Keep "owed": a read failure must not hide a waiting customer.
@@ -105,6 +107,7 @@ export async function mirrorTicketState(ticketId: string): Promise<ThreadState |
     awaitingReply,
     lastCustomerAt: toUnix(row.lastCustomerAt),
     lastAgentAt: toUnix(row.lastAgentAt),
+    lastCustomerText,
   };
 }
 
