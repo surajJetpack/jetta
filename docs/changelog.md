@@ -4,7 +4,7 @@ Newest first. One entry per change people would notice: what Jetta does differen
 
 Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain words.
 
-## 2026-11-26: Closed tickets on Today: Jetta reads the customer's last message (#PR)
+## 2026-11-26: Closed tickets on Today: Jetta reads the customer's last message (#243)
 After #241 the remaining "marked closed, but the customer wrote last" rows were all customers closing the ticket themselves ("This is resolved", "Yes I was able to cancel"). For a closed or resolved ticket whose customer wrote last, a light model now reads that message once (cached 30 days) and the ticket shows only if it still asks for something. If the model can't be reached, the closed status stands. No switch; live once merged.
 
 ## 2026-11-26: No "customer not told" nudge when support replied just before the status change
