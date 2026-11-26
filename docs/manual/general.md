@@ -67,17 +67,17 @@ When nothing is spiking you get **Steady themes** instead: the normal background
 
 ![What needs you now — the only list on the page that is your work](images-general/today-needs-you.webp)
 
-This is your list. Each row carries a state, how many exchanges have happened, and how long it's been quiet:
+This is your list. Each row carries a state, how many exchanges have happened, and how long the customer has been waiting:
 
-| State | What it means |
+| Chip | What it means |
 |---|---|
-| **Needs your reply** | The last message on the ticket is the customer's. Someone owes them an answer. |
-| **Active** | The customer replied recently and may still be there. |
-| **Open** | Waiting on us. The ball is ours. |
+| **Active** | The customer wrote within the last 6 hours and may still be there. |
 | **Reopened** | Jetta's answer didn't land and the customer came back. |
-| **Waiting on customer** | We've replied. A long silence may just mean they dropped it. |
+| **Draft not sent** | Jetta wrote the reply as a private note and nobody sent it. |
+| **Marked resolved, but the customer wrote last** (or *marked waiting on customer…*) | Someone set a status that says the ball is not ours, but the thread says it is. Answer the customer, then fix the status. |
+| The plain status (*open*, *escalated to dev*…) | What Freshdesk says right now. It is shown, but it decides nothing. |
 
-**Needs your reply** is read from the thread itself, not from the status someone set — so a row showing both *needs your reply* and *waiting on customer* means the customer wrote back and nobody moved the status. Believe the thread.
+**The thread decides, not the status.** A Freshdesk ticket is on this list only while its customer is waiting: the newest public message on the ticket is theirs, and it is not just a "thanks!" or an away notice. That holds whatever status someone set, because statuses are only as good as the last person who remembered to change them. So a ticket resolved with the customer's question unanswered shows up here (with the mismatch chip), and an escalation someone has since replied to drops off, even if its status still says *open*. Tickets Jetta never escalated are included too (mail icon): Jetta checks every ticket whose customer wrote in the last 14 days. **Waiting Nh** is how long the customer has been waiting, measured from their message, not from Jetta's last run.
 
 **Reopened is the highest-signal item on the page.** It means the first answer already failed once, so read the thread before replying again.
 

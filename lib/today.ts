@@ -21,8 +21,9 @@ import { listArticles, countByState, type ArticleState } from "./kb-store";
 import { topicTrends, ticketRecords, type TopicTrend, type TicketRecord } from "./topics";
 import { yesterdayKey } from "./daily-overview";
 import { listConversations, getConversation } from "./chat-store";
-import { awaitsOurReply, getTicketDetails, isTerminalStatus } from "./tools/freshdesk";
-import { mirrorTicketState } from "./ticket-mirror/read";
+import { awaitsOurReply, getTicketDetails } from "./tools/freshdesk";
+import { mirrorCustomerWaiting, mirrorTicketState } from "./ticket-mirror/read";
+import { customerMessageNeedsNoReply, statusDisagreement, type ThreadState } from "./reply-owed";
 import { boundedLookups } from "./bounded-lookups";
 import { logOpsEvent } from "./events";
 
@@ -37,7 +38,14 @@ const REOPEN_LOOKBACK_H = 7 * 24;
  * reopened ticket that was then escalated is a different (worse) thing than
  * either alone, and collapsing it to one label throws that away.
  */
-export type WorklistSignal = "chat_waiting" | "reopened" | "escalated" | "draft_unsent";
+export type WorklistSignal = "chat_waiting" | "reopened" | "escalated" | "draft_unsent" | "customer_waiting";
+
+/**
+ * How far back /today looks for a customer who wrote last and got nothing.
+ * Beyond two weeks a ticket is a backlog question for /health, not this
+ * morning's work.
+ */
+const CUSTOMER_WAITING_LOOKBACK_DAYS = 14;
 
 /**
  * How long a Jetta suggestion may sit unsent before the ticket is put on the
@@ -80,10 +88,7 @@ const ACTIVE_WITHIN_H = 6;
  * last" for free — see awaitsOurReply.
  */
 const STATUS_TTL_MS = 60_000;
-interface LiveTicketState {
-  status: string | null;
-  awaitingReply: boolean;
-}
+type LiveTicketState = ThreadState;
 const statusCache = new Map<string, { at: number; state: LiveTicketState }>();
 
 /** Freshdesk lookups at once when Jetta's own ticket copy cannot answer. */
@@ -92,7 +97,23 @@ export const FD_FALLBACK_CONCURRENCY = 4;
 export const FD_FALLBACK_BUDGET_MS = 12_000;
 
 /** What is assumed for a ticket nobody could be asked about. See the fail-open note below. */
-const UNKNOWN_STATE: LiveTicketState = { status: null, awaitingReply: false };
+const UNKNOWN_STATE: LiveTicketState = { status: null, awaitingReply: false, lastCustomerAt: null, lastAgentAt: null };
+
+/** The same reading as the mirror's, from a Freshdesk ticket fetched whole. */
+function threadStateFromFreshdesk(t: Awaited<ReturnType<typeof getTicketDetails>>): LiveTicketState {
+  const at = (who: "customer" | "agent") => {
+    const times = t.replies.filter((r) => !r.isPrivate && r.author === who).map((r) => Date.parse(r.createdAt));
+    return times.length ? Math.floor(Math.max(...times) / 1000) : null;
+  };
+  let awaitingReply = awaitsOurReply(t);
+  if (awaitingReply) {
+    const newest = t.replies
+      .filter((r) => !r.isPrivate)
+      .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0];
+    if (newest && customerMessageNeedsNoReply(newest.body)) awaitingReply = false;
+  }
+  return { status: t.status, awaitingReply, lastCustomerAt: at("customer"), lastAgentAt: at("agent") };
+}
 
 /**
  * Live state for many tickets at once.
@@ -121,7 +142,7 @@ export async function liveTicketStates(
     deps.fromFreshdesk ??
     ((id: string) =>
       getTicketDetails(id)
-        .then((t) => ({ status: t.status, awaitingReply: awaitsOurReply(t) }))
+        .then(threadStateFromFreshdesk)
         .catch(() => UNKNOWN_STATE));
 
   const states = new Map<string, LiveTicketState>();
@@ -190,6 +211,12 @@ export interface WorklistItem {
    * the Freshdesk lookup failed.
    */
   awaitingReply: boolean;
+  /**
+   * The status and the thread disagree — "marked resolved, but the customer
+   * wrote last". The thread is what decides whether the row is here; this is
+   * so the reader can see the label was wrong and fix it in Freshdesk.
+   */
+  statusMismatch: string | null;
 }
 
 /**
@@ -430,6 +457,7 @@ export async function buildTodayBrief() {
       runs: r.runs,
       status: null,
       awaitingReply: false,
+      statusMismatch: null,
     };
   };
 
@@ -459,6 +487,35 @@ export async function buildTodayBrief() {
       runs: rec?.runs ?? 1,
       status: null,
       awaitingReply: false,
+      statusMismatch: null,
+    });
+  }
+
+  // Every ticket whose customer wrote last, whatever a person set its status
+  // to. Jetta's history only knows the tickets she escalated or saw reopen;
+  // a ticket a human resolved, or parked on "waiting on customer", while the
+  // customer's question was still unanswered never reached it. Whether each
+  // one really is owed (not a "thanks!", not an away notice) is settled by
+  // the thread check below, like every other row.
+  const customerWaiting = (await mirrorCustomerWaiting(CUSTOMER_WAITING_LOOKBACK_DAYS).catch(() => null)) ?? [];
+  for (const t of customerWaiting) {
+    const rec = recordById.get(t.id);
+    add({
+      id: t.id,
+      signals: ["customer_waiting"],
+      ...refFor(t.id, "freshdesk"),
+      subject: t.subject || rec?.subject || "",
+      topic: rec?.topic ?? null,
+      app: rec?.app ?? "unknown",
+      // Replaced by the thread's own times below.
+      at: rec?.lastAt ?? nowS,
+      ageHours: 0,
+      state: "stalled",
+      quietHours: 0,
+      runs: rec?.runs ?? 0,
+      status: t.status,
+      awaitingReply: true,
+      statusMismatch: null,
     });
   }
 
@@ -489,6 +546,7 @@ export async function buildTodayBrief() {
       // its chat_waiting signal already renders the "waiting" chip — setting
       // this too would put two red chips saying the same thing on one row.
       awaitingReply: false,
+      statusMismatch: null,
     };
   });
 
@@ -525,10 +583,32 @@ export async function buildTodayBrief() {
       data: { unchecked: ticketStates.unchecked, budgetMs: FD_FALLBACK_BUDGET_MS },
     }).catch(() => {});
   }
+  /*
+   * Fold the thread's own reading into a row. The thread, not Jetta's run
+   * history, says how long the customer has been waiting: a reply sent from
+   * Freshdesk never passes through Jetta, so "quiet" measured from her last
+   * run said 53h on a ticket Cherryl had answered.
+   */
+  const withThread = (item: WorklistItem, s: LiveTicketState | undefined): WorklistItem => {
+    if (!s || s.status === null) return item;
+    const lastPublic = Math.max(s.lastCustomerAt ?? 0, s.lastAgentAt ?? 0);
+    const waitedSince = s.awaitingReply ? s.lastCustomerAt : null;
+    const quietHours = lastPublic ? age(lastPublic) : item.quietHours;
+    return {
+      ...item,
+      status: s.status,
+      awaitingReply: s.awaitingReply,
+      statusMismatch: statusDisagreement(s.status, s.awaitingReply),
+      ...(waitedSince ? { at: waitedSince, ageHours: age(waitedSince) } : {}),
+      quietHours,
+      // Active means the customer wrote recently and is likely still there.
+      state: s.awaitingReply && quietHours < ACTIVE_WITHIN_H ? "active" : "stalled",
+    };
+  };
   const withStatus = await Promise.all(
     candidates.map(async (item) => {
       if (item.id.startsWith("chat:")) return item;
-      if (/^\d+$/.test(item.id)) return { ...item, ...ticketStates.states.get(item.id) };
+      if (/^\d+$/.test(item.id)) return withThread(item, ticketStates.states.get(item.id));
       // A conversation id. Gone means deleted or expired past retention, and
       // the row would link to a dead page; ticketed means the Freshdesk ticket
       // is the live thread now and this row is a duplicate of it.
@@ -538,15 +618,25 @@ export async function buildTodayBrief() {
       return { ...item, status: conv.status };
     }),
   );
+  /*
+   * What stays is decided by the thread, not the label.
+   *
+   * A Freshdesk ticket is here only while its customer is waiting on us: the
+   * newest public message is theirs and is not a "thanks" or an away notice.
+   * That holds whatever the status says. Resolved with the customer's
+   * question unanswered stays (flagged); "open" with our answer as the last
+   * word goes, and so does an escalation someone has since replied to —
+   * 14 of the 15 rows on 2026-11-26 were exactly that.
+   *
+   * A ticket nobody could check (statusless) is kept as the history left it:
+   * fail open, see liveTicketStates.
+   */
   const DONE = new Set(["gone", "resolved", "ticketed"]);
-  const live = withStatus.filter(
-    (i) =>
-      !(i.status && (isTerminalStatus(i.status) || DONE.has(i.status))) &&
-      // An unsent draft only matters while the customer is still waiting:
-      // once anyone has replied, the draft is history, not work. Fails
-      // closed with awaitingReply, so a lookup timeout drops the row.
-      !(i.signals.length === 1 && i.signals[0] === "draft_unsent" && !i.awaitingReply),
-  );
+  const isTicket = (i: WorklistItem) => /^\d+$/.test(i.id);
+  const live = withStatus.filter((i) => {
+    if (isTicket(i)) return i.status === null || i.awaitingReply;
+    return !(i.status && DONE.has(i.status));
+  });
 
   const group = (i: WorklistItem) =>
     i.signals.includes("chat_waiting") ? 0 : i.state === "active" ? 1 : 2;

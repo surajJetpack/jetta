@@ -8,6 +8,10 @@ Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain word
 
 
 
+## 2026-11-26: Today's "What needs you now" follows the thread, not the status (#PR)
+A Freshdesk ticket is now on the list only while its customer is waiting: their message is the newest public one and is not just a "thanks" or an away notice. The status a person set no longer decides it. Tickets marked resolved or "waiting on customer" with the customer's question unanswered now appear, with a chip naming the mismatch; escalations someone has already answered drop off (14 of 15 rows on 26 November were those).
+Tickets Jetta never escalated are found from her ticket copy (customer wrote last, past 14 days). "Waiting Nh" counts from the customer's message. No switch; live once merged.
+
 ## 2026-11-25: The Today page no longer times out when the ticket copy is down
 While Jetta's ticket copy was unavailable (22 to 25 November), the Today page asked Freshdesk about every ticket on its list at once, about 50 calls against a limit of 40 a minute. Freshdesk refused them, the page waited on retries and died at 60 seconds, and the briefing never appeared. It also used up the allowance ticket replies share.
 Now it asks Freshdesk about 4 tickets at a time for at most 12 seconds. Tickets it could not check stay on the list as the run history left them, with a line saying how many (`today.tickets_unchecked` in the event log). The briefing's model call is limited to 40 seconds, so a slow model gives you the previous briefing, not an error.

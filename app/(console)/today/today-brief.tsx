@@ -12,6 +12,7 @@ import {
   ArrowRight,
   RotateCw,
   Siren,
+  Mail,
   Sparkles,
   TriangleAlert,
   Undo2,
@@ -82,7 +83,7 @@ interface Insight {
 }
 interface WorklistItem {
   id: string;
-  signals: ("chat_waiting" | "reopened" | "escalated" | "draft_unsent")[];
+  signals: ("chat_waiting" | "reopened" | "escalated" | "draft_unsent" | "customer_waiting")[];
   label: string;
   url: string | null;
   external: boolean;
@@ -96,6 +97,7 @@ interface WorklistItem {
   runs: number;
   status: string | null;
   awaitingReply: boolean;
+  statusMismatch: string | null;
 }
 interface Brief {
   generatedAt: number;
@@ -180,13 +182,17 @@ function WorklistRow({ item, why }: { item: WorklistItem; why: string | null }) 
   const waiting = item.signals.includes("chat_waiting");
   const reopened = item.signals.includes("reopened");
   const drafted = item.signals.includes("draft_unsent");
+  // Only the thread put it here: nobody escalated it, Jetta never flagged it.
+  const unflagged = item.signals.length === 1 && item.signals[0] === "customer_waiting";
   const Icon = waiting
     ? MessageSquare
     : reopened
       ? Undo2
       : drafted && !item.signals.includes("escalated")
         ? FilePen
-        : Siren;
+        : unflagged
+          ? Mail
+          : Siren;
   return (
     <DataRow
       href={item.url ?? undefined}
@@ -202,11 +208,13 @@ function WorklistRow({ item, why }: { item: WorklistItem; why: string | null }) 
           <span className="font-mono text-xs">{item.label}</span>
           {waiting && <StatusChip tone="stale">waiting</StatusChip>}
           {reopened && <StatusChip tone="stale">reopened</StatusChip>}
-          {item.awaitingReply && <StatusChip tone="stale">needs your reply</StatusChip>}
           {/* Jetta's suggestion is sitting in a private note: open the
               ticket, check it, send it. */}
           {drafted && <StatusChip tone="in_review">draft not sent</StatusChip>}
           {!waiting && item.state === "active" && <StatusChip tone="in_review">active</StatusChip>}
+          {/* The status a person set disagrees with the thread. The thread
+              decided the row is here; this says the label needs fixing. */}
+          {item.statusMismatch && <StatusChip tone="stale">{item.statusMismatch}</StatusChip>}
         </span>
       }
       detail={
@@ -217,23 +225,13 @@ function WorklistRow({ item, why }: { item: WorklistItem; why: string | null }) 
       }
       meta={
         <>
-          {/* The live Freshdesk status, not the one Jetta last recorded. Grey
-              means "not waiting on us" — so it is only earned while the thread
-              agrees: a status of "waiting on customer" on a ticket the customer
-              has since written back to is stale, and the last public message
-              outranks the label an agent last set. */}
-          {item.status && (
-            <StatusChip
-              tone={
-                item.status === "waiting on customer" && !item.awaitingReply ? "archived" : "in_review"
-              }
-            >
-              {item.status}
-            </StatusChip>
-          )}
+          {/* The live Freshdesk status, shown as-is. It no longer decides
+              anything: a ticket is on this list because its thread says the
+              customer is waiting. A label that disagrees gets its own chip. */}
+          {item.status && !item.statusMismatch && <StatusChip tone="in_review">{item.status}</StatusChip>}
           {item.runs > 1 && <span>{item.runs}&nbsp;exchanges</span>}
           <span title={fmtExact(item.at)}>
-            quiet {item.quietHours}h
+            {item.awaitingReply ? "waiting" : "quiet"} {item.awaitingReply ? item.ageHours : item.quietHours}h
           </span>
         </>
       }
