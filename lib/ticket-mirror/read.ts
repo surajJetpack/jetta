@@ -11,10 +11,11 @@
  * Anything else returns null and the caller reads Freshdesk exactly as before.
  * Every function here returns null rather than throwing.
  */
-import { asc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray } from "drizzle-orm";
 import { config } from "../config";
 import { getDb, schema } from "../db";
 import { statusLabel } from "../tools/freshdesk";
+import { customerMessageNeedsNoReply, type ThreadState } from "../reply-owed";
 
 const { tickets, messages, agents, syncState } = schema;
 
@@ -74,17 +75,77 @@ async function freshTicket(ticketId: number, f: MirrorFreshness) {
   }
 }
 
-/** Status label + whether the newest public message is the customer's (a reply is owed). */
-export async function mirrorTicketState(
-  ticketId: string,
-): Promise<{ status: string; awaitingReply: boolean } | null> {
+const toUnix = (iso: string | null | undefined) => (iso ? Math.floor(Date.parse(iso) / 1000) : null);
+
+/**
+ * Where the ticket stands by its thread: status label, whose turn it is, and
+ * when each side last wrote. See lib/reply-owed.ts for why the thread wins.
+ */
+export async function mirrorTicketState(ticketId: string): Promise<ThreadState | null> {
   const row = await freshTicket(Number(ticketId), {});
   if (!row) return null;
+  // No public message yet counts as owed (same rule as awaitsOurReply).
+  let awaitingReply = row.lastPublicFrom ? row.lastPublicFrom === "customer" : true;
+  if (row.lastPublicFrom === "customer") {
+    try {
+      const [last] = await getDb()!
+        .select({ bodyClean: messages.bodyClean, bodyText: messages.bodyText })
+        .from(messages)
+        .where(and(eq(messages.ticketId, row.id), eq(messages.private, false)))
+        .orderBy(desc(messages.createdAt), desc(messages.idx))
+        .limit(1);
+      const body = last?.bodyClean ?? last?.bodyText ?? "";
+      if (body && customerMessageNeedsNoReply(body)) awaitingReply = false;
+    } catch {
+      // Keep "owed": a read failure must not hide a waiting customer.
+    }
+  }
   return {
     status: statusLabel(row.status),
-    // Same rule as awaitsOurReply: no public message yet counts as owed.
-    awaitingReply: row.lastPublicFrom ? row.lastPublicFrom === "customer" : true,
+    awaitingReply,
+    lastCustomerAt: toUnix(row.lastCustomerAt),
+    lastAgentAt: toUnix(row.lastAgentAt),
   };
+}
+
+/** One ticket whose customer wrote last, straight from the mirror. */
+export interface MirrorWaitingTicket {
+  id: string;
+  subject: string;
+  product: string | null;
+  status: string;
+}
+
+/**
+ * Every ticket whose newest public message is the customer's, written within
+ * `sinceDays`, whatever its status says. This is how /today finds the tickets
+ * a person marked resolved or "waiting on customer" while the customer was
+ * still waiting: Jetta's own run history never hears about those.
+ *
+ * Null when the mirror is off or behind; the caller then has only its own
+ * history to go on, as before.
+ */
+export async function mirrorCustomerWaiting(sinceDays: number, limit = 150): Promise<MirrorWaitingTicket[] | null> {
+  if (!enabled() || !(await live())) return null;
+  try {
+    const since = new Date(Date.now() - sinceDays * 86_400_000).toISOString();
+    const rows = await getDb()!
+      .select({ id: tickets.id, subject: tickets.subject, product: tickets.product, status: tickets.status })
+      .from(tickets)
+      .where(
+        and(
+          eq(tickets.lastPublicFrom, "customer"),
+          gte(tickets.lastCustomerAt, since),
+          eq(tickets.spam, false),
+          eq(tickets.deleted, false),
+        ),
+      )
+      .orderBy(desc(tickets.lastCustomerAt))
+      .limit(limit);
+    return rows.map((r) => ({ id: String(r.id), subject: r.subject, product: r.product, status: statusLabel(r.status) }));
+  } catch {
+    return null;
+  }
 }
 
 /** A ticket's conversations (opening message excluded) in Freshdesk's API shape. */

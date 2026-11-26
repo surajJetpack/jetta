@@ -11,6 +11,9 @@ import assert from "node:assert/strict";
 
 process.env.STUB_MODE = "true";
 
+/** A thread state with no message times: these tests are about who answers, not when. */
+const st = (status: string | null, awaitingReply: boolean) => ({ status, awaitingReply, lastCustomerAt: null, lastAgentAt: null });
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function main() {
@@ -73,23 +76,23 @@ async function main() {
   today.clearTicketStateCache();
   const asked: string[] = [];
   const healthy = await today.liveTicketStates(["1", "2", "3", "2"], {
-    fromMirror: async (id) => (id === "3" ? null : { status: "open", awaitingReply: id === "1" }),
+    fromMirror: async (id) => (id === "3" ? null : st("open", id === "1")),
     fromFreshdesk: async (id) => {
       asked.push(id);
-      return { status: "resolved", awaitingReply: false };
+      return st("resolved", false);
     },
   });
   assert.deepEqual(asked, ["3"], "Freshdesk is asked only about the ticket the copy lacks");
   assert.equal(healthy.unchecked, 0);
-  assert.deepEqual(healthy.states.get("1"), { status: "open", awaitingReply: true });
-  assert.deepEqual(healthy.states.get("3"), { status: "resolved", awaitingReply: false });
+  assert.deepEqual(healthy.states.get("1"), st("open", true));
+  assert.deepEqual(healthy.states.get("3"), st("resolved", false));
 
   // Cached: a second build inside the minute asks nobody.
   asked.length = 0;
   let mirrorCalls = 0;
   await today.liveTicketStates(["1", "2", "3"], {
     fromMirror: async () => (mirrorCalls++, null),
-    fromFreshdesk: async (id) => (asked.push(id), { status: "open", awaitingReply: false }),
+    fromFreshdesk: async (id) => (asked.push(id), st("open", false)),
   });
   assert.equal(mirrorCalls + asked.length, 0);
 
@@ -108,7 +111,7 @@ async function main() {
       fdPeak = Math.max(fdPeak, inFlight);
       await sleep(30_000); // a 429 waiting out its Retry-After
       inFlight--;
-      return { status: "open", awaitingReply: false };
+      return st("open", false);
     },
     budgetMs: 80,
   });
@@ -116,13 +119,13 @@ async function main() {
   assert.equal(fdPeak, today.FD_FALLBACK_CONCURRENCY, "a few at a time, not all 25 at once");
   assert.equal(down.unchecked, 25);
   assert.equal(down.states.size, 25, "every ticket still gets a state");
-  assert.deepEqual(down.states.get("14700"), { status: null, awaitingReply: false }, "unknown fails open on status, closed on a reply owed");
+  assert.deepEqual(down.states.get("14700"), st(null, false), "unknown fails open on status, closed on a reply owed");
 
   // Giving up is not remembered: the next load asks again.
   asked.length = 0;
   const again = await today.liveTicketStates(["14700"], {
     fromMirror: async () => null,
-    fromFreshdesk: async (id) => (asked.push(id), { status: "closed", awaitingReply: false }),
+    fromFreshdesk: async (id) => (asked.push(id), st("closed", false)),
   });
   assert.deepEqual(asked, ["14700"]);
   assert.equal(again.states.get("14700")?.status, "closed");
