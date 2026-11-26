@@ -8,7 +8,7 @@ Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain word
 
 
 
-## 2026-11-26: Today's list no longer shows merged and junk tickets (#PR)
+## 2026-11-26: Today's list no longer shows merged and junk tickets (#241)
 The first version of the thread-based list (#239) showed about 50 closed tickets nobody had replied to: merged duplicates, newsletters and calendar notices. A closed or resolved ticket with no public reply from us is now left out, and an Outlook "reacted to your message" email no longer counts as the customer writing. No switch; live once merged.
 
 ## 2026-11-26: Today's "What needs you now" follows the thread, not the status (#239)
