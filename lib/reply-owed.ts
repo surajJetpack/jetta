@@ -39,9 +39,15 @@ export function isAcknowledgement(body: string): boolean {
   return ACK_OPENING.test(text) && !ACK_BREAKERS.test(text);
 }
 
+/**
+ * Outlook / Teams turn an emoji reaction into an email ("Haridini reacted to
+ * your message"). It reaches the thread as a customer message; it asks nothing.
+ */
+const REACTION_NOTICE = /^\s*(?:\[[a-z ]+\]\s*)?\p{Lu}[\p{L}.'-]*(?: \p{Lu}[\p{L}.'-]*){0,4} reacted to your message\b/u;
+
 /** A customer message that does not put the ball in our court. */
 export function customerMessageNeedsNoReply(body: string): boolean {
-  return looksAutomated(body) || isAcknowledgement(body);
+  return looksAutomated(body) || isAcknowledgement(body) || REACTION_NOTICE.test(body.trim().slice(0, 300));
 }
 
 /** Statuses that claim the ball is NOT with us. */
