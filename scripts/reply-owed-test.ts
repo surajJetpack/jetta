@@ -5,7 +5,7 @@
  *   npx tsx scripts/reply-owed-test.ts
  */
 import assert from "node:assert/strict";
-import { isAcknowledgement, customerMessageNeedsNoReply, statusDisagreement } from "../lib/reply-owed";
+import { isAcknowledgement, customerMessageNeedsNoReply, statusDisagreement, closedTicketStillOwed } from "../lib/reply-owed";
 
 // ── A closing "thanks" is not our turn ──
 for (const msg of [
@@ -56,4 +56,26 @@ assert.equal(statusDisagreement("escalated to dev", true), null);
 assert.equal(statusDisagreement("working on it", false), null);
 assert.equal(statusDisagreement(null, true), null);
 
-console.log("reply-owed: ok");
+async function closedChecks() {
+  // ── Closed ticket, customer wrote last: asked once, then cached ──
+  const store = new Map<string, string>();
+  let asks = 0;
+  const deps = {
+    ask: async (t: string) => (asks++, /still|\?/.test(t)),
+    cacheGet: async (k: string) => store.get(k) ?? null,
+    cacheSet: async (k: string, v: string) => void store.set(k, v),
+  };
+  assert.equal(await closedTicketStillOwed("14753", 100, "This is resolved", deps), false);
+  assert.equal(await closedTicketStillOwed("14753", 100, "This is resolved", deps), false);
+  assert.equal(asks, 1, "the same message is never asked about twice");
+  assert.equal(await closedTicketStillOwed("14753", 200, "It still sends to the old address?", deps), true, "a new message is asked again");
+  assert.equal(asks, 2);
+  // No text, nothing to ask.
+  assert.equal(await closedTicketStillOwed("1", 1, "  ", deps), false);
+  // A model failure leaves the status standing and is not cached.
+  const failing = { ...deps, ask: async () => { throw new Error("rate limited"); } };
+  assert.equal(await closedTicketStillOwed("2", 1, "Why is this closed? It is broken.", failing), false);
+  assert.equal(store.has("today:closed-owed:2:1"), false);
+}
+
+closedChecks().then(() => console.log("reply-owed: ok"));

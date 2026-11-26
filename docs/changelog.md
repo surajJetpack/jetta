@@ -4,6 +4,9 @@ Newest first. One entry per change people would notice: what Jetta does differen
 
 Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain words.
 
+## 2026-11-26: Closed tickets on Today: Jetta reads the customer's last message (#PR)
+After #241 the remaining "marked closed, but the customer wrote last" rows were all customers closing the ticket themselves ("This is resolved", "Yes I was able to cancel"). For a closed or resolved ticket whose customer wrote last, a light model now reads that message once (cached 30 days) and the ticket shows only if it still asks for something. If the model can't be reached, the closed status stands. No switch; live once merged.
+
 ## 2026-11-26: No "customer not told" nudge when support replied just before the status change
 Support often answers the customer and then sets the dev item's status a few minutes later. Jetta only counted a reply sent after the status change, so on #14854 and #14868 she asked Sujata to tell the customer something she had already told them. A public reply from us up to 2 hours before the developer's move now counts, as long as the customer has not written since. The same rule drives the developer rows of To do on the Daily report. Under `JETTA_DEV_FOLLOWUP_SUPPORT`; live on merge.
 
