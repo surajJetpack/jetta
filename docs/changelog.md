@@ -4,9 +4,8 @@ Newest first. One entry per change people would notice: what Jetta does differen
 
 Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain words.
 
-
-
-
+## 2026-11-26: No "customer not told" nudge when support replied just before the status change
+Support often answers the customer and then sets the dev item's status a few minutes later. Jetta only counted a reply sent after the status change, so on #14854 and #14868 she asked Sujata to tell the customer something she had already told them. A public reply from us up to 2 hours before the developer's move now counts, as long as the customer has not written since. The same rule drives the developer rows of To do on the Daily report. Under `JETTA_DEV_FOLLOWUP_SUPPORT`; live on merge.
 
 ## 2026-11-26: Today's "What needs you now" follows the thread, not the status (#239)
 A Freshdesk ticket is now on the list only while its customer is waiting: their message is the newest public one and is not just a "thanks" or an away notice. The status a person set no longer decides it. Tickets marked resolved or "waiting on customer" with the customer's question unanswered now appear, with a chip naming the mismatch; escalations someone has already answered drop off (14 of 15 rows on 26 November were those).

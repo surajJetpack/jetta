@@ -25,7 +25,7 @@ import { ACTION_LABEL, buildScorecard, resolvePerson, type Activity, type Action
 import { isClient, type DevRow } from "./dev-board";
 import { isJunkSubject, median, suggestionUse, type HandoffKind, type PerfTicket } from "./performance";
 import { owesReply, TARGETS } from "./support-health";
-import { DEV_FRESH_H, fmtHours, JETTA_WHO, listKey, STALE_AFTER_H, type ListId } from "./team-report-shared";
+import { customerToldAbout, DEV_FRESH_H, fmtHours, JETTA_WHO, listKey, STALE_AFTER_H, type ListId } from "./team-report-shared";
 
 export * from "./team-report-shared";
 
@@ -385,9 +385,9 @@ export function buildTeamReport(input: TeamReportInput): TeamReport {
   const ticketOfItem = new Map<string, number>();
   for (const t of tickets) for (const id of t.handoff?.itemIds ?? []) ticketOfItem.set(String(id), t.id);
   for (const [item, ticket] of input.itemTickets ?? []) if (Number(ticket)) ticketOfItem.set(String(item), Number(ticket));
-  /** Has anyone on our side written to the customer since `at`? */
+  /** Has anyone on our side written to the customer since `at` (or just before it, see customerToldAbout)? */
   const toldSince = (t: PerfTicket, at: number) =>
-    t.lastPublicFrom === "agent" && !!t.lastPublicAt && Date.parse(t.lastPublicAt) > at;
+    customerToldAbout(at, t.lastPublicAt ? Date.parse(t.lastPublicAt) : null, t.lastPublicFrom);
   const dev: DevAction[] = [];
   let devOlder = 0;
   for (const r of (input.devRows ?? []).filter(isClient)) {

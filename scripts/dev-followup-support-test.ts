@@ -7,6 +7,7 @@
  *
  * The decisions only: no network, no storage.
  */
+import { customerToldAbout } from "../lib/team-report-shared";
 import { decidePmLoop, decideSupportNudge, pmLoopText, supportNudgeText, SUPPORT_MAX_ASKS, type NudgeState } from "../lib/dev-followup-support";
 import { NUDGE_PHRASE } from "../lib/tools/monday";
 
@@ -48,6 +49,18 @@ console.log("A developer update nobody passed on");
   check("a working day after the second: the escalation channel", decideSupportNudge(update("relay", at(19)), asked(SUPPORT_MAX_ASKS, 21), now(22), SAT), { action: "escalate" });
   check("escalated once, then nothing", decideSupportNudge(update("relay", at(19)), asked(2, 21, { escalated: true }), now(26), SAT), { action: "none", reason: "already escalated" });
   check("no ticket known: left to the unlinked follow-up", decideSupportNudge(update("board", at(10), null), null, now(20), SAT), { action: "none", reason: "no ticket" });
+}
+
+console.log("Was the customer already told?");
+{
+  const move = at(25, 6); // the developer's status change
+  const H = 3_600_000;
+  check("our reply after the move", customerToldAbout(move, move + H, "agent"), true);
+  check("our reply 19 min before the move, nothing from the customer since (#14854)", customerToldAbout(move, move - 19 * 60_000, "agent"), true);
+  check("our reply 42 min before Waiting Customer (#14868)", customerToldAbout(move, move - 42 * 60_000, "agent"), true);
+  check("our reply the day before: not about this move", customerToldAbout(move, move - 20 * H, "agent"), false);
+  check("the customer wrote last: not told", customerToldAbout(move, move + H, "customer"), false);
+  check("no public message known: not told", customerToldAbout(move, null, "agent"), false);
 }
 
 console.log("What the ask says");
