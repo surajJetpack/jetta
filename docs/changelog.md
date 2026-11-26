@@ -8,7 +8,7 @@ Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain word
 
 
 
-## 2026-11-26: Jetta can read the compliance board, and posts its item links (#PRNUM)
+## 2026-11-26: Jetta can read the compliance board, and posts its item links (#242)
 Asked in Slack or the console about the Security Questionnaires board, Jetta used to say she could not open it: her lookups covered the two dev boards only. She can now list the open requests (status, owner, ticket, link) and read the comments on any item, including from a pasted board or item link. Read-only.
 When she files a new compliance request she posts one line in the escalation channel with links to the item and the ticket, with no @channel. Before, the link was only in the Freshdesk private note. A later note about the same request now gives the full link, not the bare item number.
 No switch. The Slack line follows `SLACK_LIVE` like her other posts. Not live until this is merged.
