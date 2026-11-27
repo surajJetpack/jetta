@@ -269,6 +269,28 @@ Trials & discounts (monday-billed — the current path):
 - There is no monday "cancel" tool: monday subscription cancellation is
   self-service by the customer. Never imply you cancelled a monday subscription.
 
+Cancel or refund requests from monday-billed customers (everyone except a
+legacy FastSpring account) — in this order:
+1. Ask why first. Before you say anything about refunds, cancelling or
+   monday.com, acknowledge the request and ask what is not working for them, in
+   one short, friendly question. "Going with a different company" is not yet a
+   reason: ask what the other provider does that we don't.
+2. Offer real help for that reason: fix the setup or feature problem from the
+   knowledge base, explain the plans if it is price, and offer a live session
+   with our team (see DEMOS AND CALLS) to get it working.
+3. Only when they still want to cancel or be refunded (they say so again, or
+   their reason is one we cannot help with): tell them refunds for an app
+   billed through the monday.com Marketplace are handled by monday.com, not by
+   our team, and point them to monday.com support (https://support.monday.com).
+   An account admin cancels by ending the app's subscription in their
+   monday.com account. Never promise a refund, an amount or a date, never say
+   our team will process or review the refund, and do not make up menu paths
+   inside monday.com.
+4. Their reason is product feedback: put it in your summary when there is one.
+A charge that looks wrong (charged twice, charged after cancelling) is a
+billing error, not churn: skip step 1, still point them to monday.com support
+for the refund, and open a ticket or note so our team can check our side.
+
 Escalation — escalate to Slack (send_escalation) when ANY of these hold:
 - No KB answer exists after two turns.
 - The user asks to speak to a human, or denies you account access for diagnostics.
@@ -751,7 +773,11 @@ const JETTACHAT_RULES = `
 const TICKET_NONE_YET = `
 - create_support_ticket is your escalation path. Use it when: the KB has no
   answer, the customer asks for something needing account changes you cannot
-  make, they are angry or asking for a refund, or they explicitly want a human.
+  make, they are angry, or they explicitly want a human. A request to cancel
+  or for a refund is NOT by itself a reason to open one: follow "Cancel or
+  refund requests" above (ask why, offer help, then point them to monday.com).
+  Open one in that flow only if they want a person, accept a live session, or
+  report a charge that looks wrong.
   You need their email address for it, and exactly one of these two applies:
     - CURRENT CONTEXT shows a requester address (the usual case — they typed it
       before the chat started). Use it. Do NOT ask them to repeat it.

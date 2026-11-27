@@ -4,6 +4,9 @@ Newest first. One entry per change people would notice: what Jetta does differen
 
 Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain words.
 
+## 2026-11-27: Cancel and refund requests: Jetta asks why first, and refunds go to monday.com
+In chat, a refund request used to open a Freshdesk ticket at once, and Jetta told the customer "our team will review your refund" (chat 9f771b1b, ticket 14869). Refunds for monday-billed apps are monday.com's, not ours. Now, in chat and in ticket replies, she first asks why the customer wants to leave and offers help (a fix, the plans, a live session), and only if they still want to go points them to monday.com support, without promising a refund. A charge that looks wrong still gets a ticket. Legacy FastSpring accounts are unchanged. No switch; live once merged.
+
 ## 2026-11-26: Closed tickets on Today: Jetta reads the customer's last message (#243)
 After #241 the remaining "marked closed, but the customer wrote last" rows were all customers closing the ticket themselves ("This is resolved", "Yes I was able to cancel"). For a closed or resolved ticket whose customer wrote last, a light model now reads that message once (cached 30 days) and the ticket shows only if it still asks for something. If the model can't be reached, the closed status stands. No switch; live once merged.
 
