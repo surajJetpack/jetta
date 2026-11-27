@@ -4,7 +4,7 @@ Newest first. One entry per change people would notice: what Jetta does differen
 
 Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain words.
 
-## 2026-11-27: Rate Jetta's chat replies on the Chats page
+## 2026-11-27: Rate Jetta's chat replies on the Chats page (#246)
 Every reply Jetta sent in a chat transcript now has a 👍 and a 👎 for the team. A 👎 can add what was wrong (wrong or made-up answer, should have opened a ticket, too long, wrong tone) and what she should have said. Ratings show by name in the transcript, and each 👎 lands on the Feedback page with the customer's message and her reply, where it can be marked handled. The customer never sees them, and they change nothing on their own. No switch; live once merged.
 
 ## 2026-11-27: Rate the console assistant's answers (#245)
