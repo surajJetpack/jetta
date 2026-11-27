@@ -144,7 +144,7 @@ export const NAV: NavGroup[] = [
         href: "/feedback",
         label: "Feedback",
         icon: MessageSquareQuote,
-        hint: "What the team told Jetta: ratings of the ⌘J assistant's answers, and dev-board comments that start with \"Jetta feedback:\"",
+        hint: "What the team told Jetta: ratings of her chat replies and the ⌘J assistant's answers, and dev-board comments that start with \"Jetta feedback:\"",
         adminOnly: true,
         devPage: true,
       },

@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 import { dayKey, fmtDateTime, fmtDayLabel, fmtTime, useNow } from "@/lib/format";
 import { appName } from "@/lib/types";
 import { NO_APP, appOf, consoleFileUrl, type Conv } from "./chat-types";
+import { ReplyRating, useChatRatings } from "./reply-rating";
 
 /**
  * The "Today" / "8 Sep" rule between two days of one conversation.
@@ -170,6 +171,7 @@ export function Transcript({
   avatars: { main?: string; getsign?: string };
   endRef: RefObject<HTMLDivElement | null>;
 }) {
+  const ratings = useChatRatings(detail.id);
   return (
     <div className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-muted/30 px-4 py-5 sm:px-6">
       {detail.messages.map((m, i, arr) => {
@@ -309,6 +311,15 @@ export function Transcript({
                 >
                   {fmtTime(m.createdAt)}
                 </p>
+              )}
+              {/* Her replies went out unreviewed; this is the review. */}
+              {m.author === "agent" && !human && (
+                <ReplyRating
+                  conversationId={detail.id}
+                  messageId={m.id}
+                  rows={ratings.rows.filter((r) => r.messageId === m.id)}
+                  reload={ratings.reload}
+                />
               )}
             </div>
           </Fragment>

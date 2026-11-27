@@ -148,6 +148,8 @@ In the website widget, Jetta replies to visitors live with nobody reading first.
 
 Skim the transcripts, reading for three things: a wrong fact, a confident answer to something that should have been escalated, or a tone we wouldn't use. The filters across the top are **Needs a person**, **With Jetta**, **Ticketed**, **All live** and **Resolved**. "All live" is everything still going; a finished conversation moves to Resolved and out of the working view.
 
+**Rate her replies.** Under each of Jetta's replies in a transcript there is a 👍 and a 👎. Use them as you read: 👍 when she got it right, 👎 when she didn't. A click saves straight away. After a 👎 you can pick what was wrong (wrong or made-up answer, should have opened a ticket, too long, wrong tone) and write what she should have said. Click your thumb again to take it back. Colleagues' ratings show by name next to the thumbs. Each 👎 goes to the **Feedback** page with the customer's message and her reply, where Suraj reads it and fixes what misled her. A rating doesn't change how she answers by itself, and the customer never sees it.
+
 ### Taking over a conversation
 
 ![A transcript, with the reply box and controls](images-general/chats-transcript.webp)

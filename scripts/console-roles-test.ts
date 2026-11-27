@@ -60,6 +60,7 @@ const ROLES: Record<string, Record<string, Need>> = {
   "assistant/session": { POST: "assistant" },
   "assistant/tool": { POST: "assistant" },
   "attention": { GET: "login" },
+  "chat-feedback": { GET: "login", POST: "login", DELETE: "login" },
   "chat-settings": { GET: "login", POST: "admin" },
   // DELETE wipes every conversation and attachment.
   "chats": { GET: "login", POST: "login", DELETE: "admin" },
