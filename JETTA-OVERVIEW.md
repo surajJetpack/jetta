@@ -50,7 +50,7 @@ resolution sent? → scheduleFollowUp() (24h)
 | **Missed-reply backstop** | Daily 09:00 UTC: a customer reply the webhook never answered gets a Jetta run | `app/api/cron/followup/route.ts` |
 | **Chat follow-up** | Every 5 min: one check-in after 15 min of visitor silence, auto-resolve after 24h | `app/api/cron/chat-followup/route.ts` |
 | **Analytics / learning** | Records every outcome; surfaces deflection rate + a "gap list" of tickets Jetta couldn't close → the document-next queue → Knowledge Loop → new KB → RAG | `app/api/admin/stats/route.ts`, `lib/kv.ts` |
-| **Ops console** | Today, Chats, Support health, Performance, Team activity, Daily report, Evals, KB, System, Billing, Test Jetta, plus a read-only voice assistant (⌘J). Per-user login, admin/general roles; the full map is generated from `components/jetta/console-nav.ts` | `app/(console)/*` |
+| **Ops console** | Today, Chats, Support health, Performance, Team activity, Daily report, Evals, KB, System, Billing, Test Jetta, plus a read-only voice assistant (⌘J) whose answers the team rates 👍/👎; a rating keeps a copy of the exchange and lands on the Feedback page (`lib/assistant-feedback.ts`, no switch). Per-user login, admin/general roles; the full map is generated from `components/jetta/console-nav.ts` | `app/(console)/*`, `components/jetta/assistant/*` |
 
 ## Safety rails (why it's safe to run against production)
 

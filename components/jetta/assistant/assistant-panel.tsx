@@ -10,6 +10,8 @@ import { navItemsFor, PAGE_SECTIONS } from "../console-nav";
 import { drillHref } from "@/lib/drill-code";
 import { OPEN_ASSISTANT_EVENT } from "./events";
 import { VoiceOrb } from "./voice-orb";
+import { RateAnswer } from "./rate-answer";
+import { answerEnds } from "./rating-snapshot";
 import { LiveVoice, type AssistantMode, type PanelLink, type ToolCall, type TranscriptLine, type VoiceState } from "./live-voice";
 
 /** What the chip says while a lookup runs — her tool names are not for reading. */
@@ -88,6 +90,13 @@ export function AssistantPanel({ freshdeskDomain }: { freshdeskDomain: string })
   const scroller = useRef<HTMLDivElement>(null);
   const pathRef = useRef(pathname);
   const seenUrls = useRef(new Set<string>());
+  /** Typed questions, so a rating can say whether the question was typed or spoken. */
+  const [typed, setTyped] = useState<ReadonlySet<string>>(() => new Set());
+  /**
+   * Line ids count up from 1 on every page load, so a rating id carries this
+   * too: a later visit never overwrites an earlier visit's rating.
+   */
+  const [conversation] = useState(() => Date.now().toString(36));
 
   /**
    * A link she may show: one a lookup returned this session, a ticket on our
@@ -200,6 +209,7 @@ export function AssistantPanel({ freshdeskDomain }: { freshdeskDomain: string })
   const end = useCallback(() => {
     void voice.current?.stop();
     voice.current?.clearTranscript();
+    setTyped(new Set());
   }, []);
 
   const connected = state !== "idle" && state !== "error";
@@ -236,6 +246,8 @@ export function AssistantPanel({ freshdeskDomain }: { freshdeskDomain: string })
     scroller.current?.scrollTo({ top: scroller.current.scrollHeight });
   }, [lines]);
 
+  const answers = answerEnds(lines);
+
   // Never leave a microphone open behind an unmounted panel.
   useEffect(() => () => void voice.current?.stop(), []);
 
@@ -249,6 +261,7 @@ export function AssistantPanel({ freshdeskDomain }: { freshdeskDomain: string })
     e.preventDefault();
     if (!draft.trim()) return;
     if (!connected) start();
+    setTyped((t) => new Set(t).add(draft.trim()));
     voice.current?.sendText(draft);
     setDraft("");
   }
@@ -260,6 +273,7 @@ export function AssistantPanel({ freshdeskDomain }: { freshdeskDomain: string })
 
   function ask(q: string) {
     if (!connected) start();
+    setTyped((t) => new Set(t).add(q));
     voice.current?.sendText(q);
   }
 
@@ -376,9 +390,21 @@ export function AssistantPanel({ freshdeskDomain }: { freshdeskDomain: string })
               </p>
             </div>
           ) : (
-            <p key={l.id} className={cn("border-l-2 border-primary/40 pl-3 leading-relaxed text-foreground", l.partial && "opacity-70")}>
-              <WithTicketLinks text={l.text} domain={freshdeskDomain} />
-            </p>
+            <div key={l.id}>
+              <p className={cn("border-l-2 border-primary/40 pl-3 leading-relaxed text-foreground", l.partial && "opacity-70")}>
+                <WithTicketLinks text={l.text} domain={freshdeskDomain} />
+              </p>
+              {answers.has(l.id) && (
+                <div className="pl-3">
+                  <RateAnswer
+                    id={`${conversation}-${l.id}`}
+                    snapshot={answers.get(l.id)!}
+                    path={pathname}
+                    via={typed.has(answers.get(l.id)!.question) ? "text" : "voice"}
+                  />
+                </div>
+              )}
+            </div>
           ),
         )}
         {error && (
