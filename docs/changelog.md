@@ -4,7 +4,7 @@ Newest first. One entry per change people would notice: what Jetta does differen
 
 Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain words.
 
-## 2026-11-27: Fewer, shorter private notes on tickets
+## 2026-11-27: Fewer, shorter private notes on tickets (#248)
 Each run now leaves one note: the suggested reply with a short "What Jetta did" block under it, instead of a separate summary note. A newer suggestion shrinks the older one to one line, a dev-board match already noted is not repeated, and a running live chat keeps one note that gains a line per update instead of pasting the transcript each time. The GetSign shadow-triage call moved from a ticket note to the event log. No switch; live once merged.
 
 ## 2026-11-27: "Jetta feedback:" works in Freshdesk private notes too (#247)
