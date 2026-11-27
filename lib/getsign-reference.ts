@@ -19,9 +19,10 @@
  *     sync that files the articles in the review queue.
  *
  * Every article arrives as a DRAFT and nothing is searchable until a person
- * publishes it. One reason is ordinary review; the other is that the doc
- * lives on the app's `dev` branch and can describe a screen customers do not
- * have yet.
+ * publishes it, for ordinary review. The doc is read from the app's `main`
+ * branch, which is what customers have: the developers update it on `dev` in
+ * the same change as the screen, so `dev` can describe a screen that is not
+ * released yet (read from `dev` until 2026-11-27).
  *
  * The doc changes after the articles are written. Each daily run reads it
  * again (`fetchReference`, when a token is set) and `articlesFor` redrafts,
@@ -123,15 +124,16 @@ const INTERNAL_SECTION = /file index|maintainers/i;
 const MIN_SECTIONS = 5;
 
 /**
- * The reference as it stands on the app's dev branch, or null when there is
- * no token, no network (stub mode) or the read looks wrong. Null means "use
- * the copy shipped with the code", never "the reference is empty".
+ * The reference as it stands on the app's main branch (what is released), or
+ * null when there is no token, no network (stub mode) or the read looks wrong.
+ * Null means "use the copy shipped with the code", never "the reference is
+ * empty".
  */
 export async function fetchReference(): Promise<string | null> {
   // The token alone decides (lib/github.ts githubReady explains why not stub mode).
   if (!config.getsignReferenceToken) return null;
   try {
-    const res = await fetch(`https://api.github.com/repos/${REPO}/contents/${DOC_PATH}?ref=dev`, {
+    const res = await fetch(`https://api.github.com/repos/${REPO}/contents/${DOC_PATH}?ref=main`, {
       headers: {
         Authorization: `Bearer ${config.getsignReferenceToken}`,
         Accept: "application/vnd.github.raw",
@@ -341,7 +343,7 @@ function noticeBody(title: string, id: string, change: PageChange): string {
       "If anything below changes the answer, edit the article; then mark this handled.",
     "",
     `About ${change.words} words changed. The passages below are from the article as it would now read. ` +
-      "The reference tracks the app's development branch, so check the change is live for customers first.",
+      "The reference is read from the app's released branch, so the change is live for customers.",
     ...(change.added.length ? ["", "### Now in the redraft", "", quote(change.added)] : []),
     ...(change.removed.length ? ["", "### No longer in the redraft", "", quote(change.removed)] : []),
   ].join("\n");

@@ -3,8 +3,8 @@
  * Refresh the vendored copy of the GetSign configuration reference
  * (lib/knowledge/getsign-reference-doc.ts) from the app team's repository.
  *
- *   node scripts/pull-getsign-reference.mjs            # from the dev branch
- *   node scripts/pull-getsign-reference.mjs --ref main
+ *   node scripts/pull-getsign-reference.mjs            # from the main branch (released)
+ *   node scripts/pull-getsign-reference.mjs --ref dev
  *
  * Needs the GitHub CLI signed in to an account that can read the repository
  * (it is private). The daily kb-sync cron reads the reference itself when
@@ -21,7 +21,7 @@ import { fileURLToPath } from "node:url";
 const REPO = "Jetpack-Work-Labs/getsign-board-view";
 const PATH = "docs/agent/getsign-configuration-reference.md";
 const refArg = process.argv.indexOf("--ref");
-const ref = refArg > -1 ? process.argv[refArg + 1] : "dev";
+const ref = refArg > -1 ? process.argv[refArg + 1] : "main";
 
 const gh = (args) => execFileSync("gh", args, { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 });
 
