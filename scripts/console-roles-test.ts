@@ -56,6 +56,7 @@ type Need = "login" | "admin" | "assistant" | "dev" | "conditional";
 const ROLES: Record<string, Record<string, Need>> = {
   "activity": { GET: "admin", POST: "admin" },
   "team-report": { GET: "admin" },
+  "assistant/feedback": { POST: "assistant", DELETE: "assistant" },
   "assistant/session": { POST: "assistant" },
   "assistant/tool": { POST: "assistant" },
   "attention": { GET: "login" },

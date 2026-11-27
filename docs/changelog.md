@@ -4,6 +4,9 @@ Newest first. One entry per change people would notice: what Jetta does differen
 
 Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain words.
 
+## 2026-11-27: Rate the console assistant's answers (#245)
+Every answer in the ⌘J panel now has a 👍 and a 👎. A 👎 can add what was wrong and what she should have said. Each rating keeps a copy of the question, the answer and the lookups she ran (the assistant keeps no transcript otherwise) and shows on the Feedback page, where 👎 can be marked handled. Ratings change nothing on their own. No switch; live once merged.
+
 ## 2026-11-27: Cancel and refund requests: Jetta asks why first, and refunds go to monday.com
 In chat, a refund request used to open a Freshdesk ticket at once, and Jetta told the customer "our team will review your refund" (chat 9f771b1b, ticket 14869). Refunds for monday-billed apps are monday.com's, not ours. Now, in chat and in ticket replies, she first asks why the customer wants to leave and offers help (a fix, the plans, a live session), and only if they still want to go points them to monday.com support, without promising a refund. A charge that looks wrong still gets a ticket. Legacy FastSpring accounts are unchanged. No switch; live once merged.
 
