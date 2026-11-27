@@ -7,7 +7,7 @@
  * No network: the opener is a pure function and the store falls back to
  * memory without Redis credentials.
  */
-import { feedbackText, listFeedback, saveFeedback, setFeedbackDone } from "../lib/feedback";
+import { feedbackFromNote, feedbackText, listFeedback, saveFeedback, saveFeedbackOnce, setFeedbackDone } from "../lib/feedback";
 
 export {};
 
@@ -43,6 +43,22 @@ async function main() {
   const reopened = await setFeedbackDone("2", false, "suraj");
   check("opening again clears it", !reopened?.doneAt && !reopened?.doneBy);
   check("an unknown id is refused", (await setFeedbackDone("nope", true, "suraj")) === null);
+
+  // ── Freshdesk private notes ────────────────────────────────────────────
+  const now = Date.parse("2026-11-27T10:00:00Z");
+  const note = { id: 901, body_text: "Jetta feedback: don't offer refunds for monday-billed apps", private: true, incoming: false, user_id: 7, created_at: "2026-11-27T09:00:00Z" };
+  const ctx = { ticketId: 14900, subject: "Refund", author: "Sujata", domain: "x.freshdesk.com", selfAgentId: "99", now };
+  const fe = feedbackFromNote(note, ctx);
+  check("a private note with the opener is feedback", fe?.text === "don't offer refunds for monday-billed apps" && fe.source === "freshdesk");
+  check("it links the ticket and names the writer", fe?.itemUrl === "https://x.freshdesk.com/a/tickets/14900" && fe.author === "Sujata" && fe.id === "fd:901");
+  check("a public reply is never feedback", feedbackFromNote({ ...note, private: false }, ctx) === null);
+  check("a customer's message is never feedback", feedbackFromNote({ ...note, incoming: true }, ctx) === null);
+  check("Jetta's own note is never feedback", feedbackFromNote({ ...note, user_id: 99 }, ctx) === null);
+  check("an ordinary note is not feedback", feedbackFromNote({ ...note, body_text: "Customer called, see feedback form" }, ctx) === null);
+  check("an old note is left alone on a re-sync", feedbackFromNote({ ...note, created_at: "2026-11-01T09:00:00Z" }, ctx) === null);
+  check("first sight saves it", await saveFeedbackOnce(fe!));
+  await setFeedbackDone("fd:901", true, "suraj");
+  check("a re-sync does not reopen a handled note", !(await saveFeedbackOnce(fe!)) && !!(await listFeedback()).find((f) => f.id === "fd:901")?.doneAt);
 
   if (failures) {
     console.log(`\n${failures} failed`);

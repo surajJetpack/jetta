@@ -111,6 +111,8 @@ Open the ticket. Jetta's suggestion is in a private note. Copy it into the reply
 
 **Writing the reply *is* the feedback.** Jetta reads back what you actually sent, compares it against what it suggested, and records the difference on its own — sent as-is, edited, or replaced entirely. You never have to tell it anything, and there is no button to press.
 
+**Telling her something anyway.** If a suggestion was wrong in a way worth fixing for next time (a rule she missed, a fact she has wrong), write a **private note** on the ticket that starts with **"Jetta feedback:"** and say what she should do instead. Within about five minutes it is saved to Jetta's feedback list (the console's Feedback page, which Suraj reads) with your name and a link to the ticket. It changes nothing on that ticket: Jetta never reads private notes when she answers, and there is no reply to it in Freshdesk. Suraj decides what to change; nothing changes by itself.
+
 That's worth sitting with, because it changes how you should think about a bad suggestion: rewriting it isn't extra work that goes nowhere. It's the input that makes the next one better.
 
 <div class="placeholder">Screenshot needed: the reply editor with an edited version of Jetta's suggestion.</div>

@@ -65,7 +65,7 @@ export default function FeedbackPanel({ canEdit }: { canEdit: boolean }) {
         <EmptyState
           icon={MessageSquareQuote}
           title="No feedback yet"
-          hint='On any item on the monday dev boards, write a comment that starts with "Jetta feedback:". Jetta saves it here and thanks the writer in the thread.'
+          hint='Start a comment on a monday dev item, or a private note on a Freshdesk ticket, with "Jetta feedback:". Jetta saves it here (on monday she also thanks the writer in the thread).'
         />
       </div>
     );
@@ -76,7 +76,7 @@ export default function FeedbackPanel({ canEdit }: { canEdit: boolean }) {
     <div className="grid gap-6">
       {assistant}
       <section className="grid gap-3">
-        <h2 className="text-sm font-medium">From the dev boards</h2>
+        <h2 className="text-sm font-medium">&quot;Jetta feedback:&quot; on the dev boards and in Freshdesk notes</h2>
         <p className="text-muted-foreground text-sm">
           {open} open, {rows.length - open} handled.
         </p>
@@ -86,9 +86,10 @@ export default function FeedbackPanel({ canEdit }: { canEdit: boolean }) {
               <div className="text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
                 <span className="text-foreground font-medium">{f.author}</span>
                 <RelativeTime at={Math.floor(Date.parse(f.at) / 1000)} />
+                <span>{f.source === "freshdesk" ? "Freshdesk note" : "Dev board"}</span>
                 {f.itemUrl ? (
                   <a href={f.itemUrl} target="_blank" rel="noreferrer" className="underline underline-offset-2">
-                    {f.itemName ?? "Dev item"}
+                    {f.itemName ?? (f.source === "freshdesk" ? `Ticket #${f.itemId}` : "Dev item")}
                   </a>
                 ) : (
                   <span>{f.itemName ?? `Item ${f.itemId}`}</span>

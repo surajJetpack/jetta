@@ -20,6 +20,8 @@ import { countInlineImages, fd, stripHtml } from "../tools/freshdesk";
 import { waitForHeadroom } from "../tools/fd-budget";
 import { bumpDataVersion } from "../data-version";
 import { logOpsEvent } from "../events";
+import { config } from "../config";
+import { feedbackFromNote, saveFeedbackOnce } from "../feedback";
 
 const { tickets, messages, attachments, contacts, agents, syncState } = schema;
 
@@ -329,6 +331,7 @@ export async function syncTicket(
     const rows = batch.map((c, i) => conversationRow(c, ticketId, (page - 1) * CONV_PAGE + i + 1));
     const files = batch.flatMap((c) => (c.attachments ?? []).map((a) => attachmentRow(a, ticketId, c.id)));
     if (rows.length) await upsertMessages(db, rows, files);
+    await captureNoteFeedback(db, batch, ticketId, base.subject);
     if (batch.length < CONV_PAGE) break;
   }
 
@@ -338,6 +341,34 @@ export async function syncTicket(
   if (!complete) return "budget";
   await db.update(tickets).set({ updatedAt: base.updated_at }).where(eq(tickets.id, ticketId));
   return "synced";
+}
+
+/**
+ * A private note that starts with "Jetta feedback:" is feedback for her, the
+ * same as that comment on a dev item (lib/feedback.ts). Freshdesk sends no
+ * webhook for notes, so this sync, which reads every new one within five
+ * minutes, is where they are noticed. Never fails the sync.
+ */
+async function captureNoteFeedback(db: Db, batch: FDConversation[], ticketId: number, subject?: string) {
+  const candidates = batch.filter((c) => c.private && !c.incoming && /feedback/i.test(c.body_text ?? ""));
+  if (!candidates.length) return;
+  try {
+    for (const c of candidates) {
+      const [agent] = c.user_id ? await db.select({ name: agents.name }).from(agents).where(eq(agents.id, c.user_id)) : [];
+      const entry = feedbackFromNote(c, {
+        ticketId,
+        subject,
+        author: agent?.name ?? undefined,
+        domain: config.freshdesk.domain,
+        selfAgentId: config.freshdesk.agentId,
+      });
+      if (entry && (await saveFeedbackOnce(entry))) {
+        await logOpsEvent({ level: "info", event: "feedback.freshdesk_note", source: "cron", ticketId: String(ticketId), data: { author: entry.author } });
+      }
+    }
+  } catch (e) {
+    console.warn(`feedback capture on ticket ${ticketId} failed:`, e);
+  }
 }
 
 async function upsertContact(db: Db, c: { id: number; name?: string; email?: string }) {
