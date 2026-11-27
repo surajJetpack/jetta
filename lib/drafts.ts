@@ -11,7 +11,8 @@ import { freshdeskTicketUrl } from "./tools/freshdesk";
 import { config } from "./config";
 import type { ConversationContext } from "./types";
 import type { AgentResult } from "./agent";
-import { addReplyDraft, type ReplyDraft } from "./kv";
+import { addReplyDraft, getPendingReplyDraftForTicket, updateReplyDraft, type ReplyDraft } from "./kv";
+import { contextHtml, dropRepeatedMatches, standaloneNoteHtml, supersededHtml, takeRunNotes } from "./run-notes";
 import * as freshdesk from "./tools/freshdesk";
 import * as slack from "./tools/slack";
 import { log } from "./logger";
@@ -82,7 +83,12 @@ export async function createDraftFromRun(
     model: result.model,
     state: "pending",
   };
+  // Read before the new draft replaces it: its note gets shrunk below.
+  const previous = await getPendingReplyDraftForTicket(draft.ticketId).catch(() => null);
   await addReplyDraft(draft);
+  // The run's own notes go under the reply, in this one note (lib/run-notes.ts).
+  const earlierNotes = (ctx.ticket.replies ?? []).filter((r) => r.isPrivate).map((r) => r.body);
+  const runNotes = dropRepeatedMatches(takeRunNotes(result), earlierNotes);
 
   const ticketUrl = freshdeskTicketUrl(draft.ticketId);
 
@@ -98,11 +104,20 @@ export async function createDraftFromRun(
       // Markdown, not plain text: the model writes **bold** and lists, and the
       // colleague copies this note into the reply editor, asterisks and all.
       freshdesk.markdownToFdHtml(body) +
-      `<hr><p><b>To use it:</b> copy into the reply editor, edit freely, and send as yourself.<br>` +
-      `Your decision is recorded automatically when you reply — no console step needed.<br>` +
-      `Fallback console: ${config.consoleUrl}/drafts</p>`;
+      (runNotes.length ? `<hr>${contextHtml(runNotes)}` : "") +
+      `<hr><p><i>Copy it into the reply editor, edit freely and send as yourself. Your reply is recorded automatically.</i></p>`;
     await freshdesk
       .addPrivateNote(draft.ticketId, noteHtml, { html: true })
+      .then(async (noteId) => {
+        if (noteId) await updateReplyDraft(draft.id, { fdNoteId: noteId }).catch(() => {});
+        // One full suggestion on the ticket at a time: the one this replaces
+        // shrinks to a line. Best-effort; a failure leaves it as it was.
+        if (previous?.fdNoteId) {
+          await freshdesk
+            .updateNote(previous.fdNoteId, supersededHtml(previous.createdAt))
+            .catch((e) => log.warn("draft.supersede_note_failed", { ticketId: draft.ticketId, error: String(e) }));
+        }
+      })
       .then(() =>
         logOpsEvent({
           level: "info",
@@ -113,6 +128,13 @@ export async function createDraftFromRun(
         }),
       )
       .catch((e) => log.warn("draft.note_failed", { ticketId: draft.ticketId, error: String(e) }));
+  }
+  // No Freshdesk note for the reply (switch off, or a chat draft): her notes
+  // still belong on the ticket, as one.
+  if (!(draft.channel === "freshdesk" && config.draftNoteToFreshdesk) && runNotes.length) {
+    await freshdesk
+      .addPrivateNote(draft.ticketId, standaloneNoteHtml(runNotes), { html: true })
+      .catch((e) => log.warn("draft.run_notes_failed", { ticketId: draft.ticketId, error: String(e) }));
   }
   await slack
     .notifyDraftPending({

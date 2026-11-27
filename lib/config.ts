@@ -938,8 +938,8 @@ export const config = {
   },
 
   /**
-   * Shadow triage on GetSign tickets (lib/triage/shadow.ts): a private note
-   * with Jetta's call (setup problem, how-to, missing feature, bug, unsure).
+   * Shadow triage on GetSign tickets (lib/triage/shadow.ts): an event-log
+   * entry (no longer a ticket note) with Jetta's call (setup problem, how-to, missing feature, bug, unsure).
    * Nothing is sent or routed by it; the team's reply grades it. Off unless
    * JETTA_TRIAGE_SHADOW=on.
    */

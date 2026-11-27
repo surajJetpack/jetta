@@ -18,6 +18,7 @@ import { buildSystemPrompt } from "@/lib/system-prompt";
 import { runAgentLoop } from "@/lib/agent";
 import { recordRun } from "@/lib/runlog";
 import { createDraftFromRun } from "@/lib/drafts";
+import { postRunNotes } from "@/lib/run-notes";
 import * as freshdesk from "@/lib/tools/freshdesk";
 import { logOpsEvent } from "@/lib/events";
 import { cronAuthorized } from "@/lib/request-auth";
@@ -89,6 +90,7 @@ async function handler(req: NextRequest) {
           );
           await recordRun("cron", ctx, result, Date.now() - started);
           const draft = draftMode ? await createDraftFromRun(ctx, result) : null;
+          await postRunNotes(job.ticketId, result, ctx.ticket.replies.filter((r) => r.isPrivate).map((r) => r.body));
           handled.push({
             ticketId: job.ticketId,
             action: `replied → ${draft ? "drafted" : "handled"} (${result.toolsUsed.join(",")})`,

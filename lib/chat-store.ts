@@ -238,6 +238,7 @@ type ConversationPatch = Partial<
     | "previousTicketIds"
     | "ticketedAt"
     | "lastTicketSyncAt"
+    | "relayNote"
     | "humanRequestedAt"
     | "handoffPings"
     | "humanAgent"
@@ -480,6 +481,7 @@ async function updateConversationLocked(
   // `in` rather than an undefined check: handing a conversation back passes
   // humanAgent: undefined to CLEAR it, and an undefined check would silently
   // keep the previous person's name on a conversation they had left.
+  if ("relayNote" in patch) conv.relayNote = patch.relayNote;
   if ("humanRequestedAt" in patch) conv.humanRequestedAt = patch.humanRequestedAt;
   if ("handoffPings" in patch) conv.handoffPings = patch.handoffPings;
   if ("humanAgent" in patch) conv.humanAgent = patch.humanAgent;

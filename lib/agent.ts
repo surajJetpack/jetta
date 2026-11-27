@@ -53,6 +53,12 @@ export interface AgentResult {
   };
   /** Label of the model that actually ran this loop (provider/model-id). */
   model: string;
+  /**
+   * Private notes she wrote this run that were held, not posted: in draft mode
+   * they go under the suggested reply (lib/run-notes.ts). Whoever handles the
+   * run posts what no draft took, with postRunNotes.
+   */
+  pendingNotes?: string[];
 }
 
 export interface RunOptions {
@@ -126,7 +132,13 @@ export async function runAgentLoop(
     model: getModel(tier),
     system,
     messages,
-    tools: buildTools(ctx, signals, { dryRun, holdCustomerWrites: hold }),
+    // In draft mode a Freshdesk run's notes are held and go into the draft's
+    // note, so a run leaves one note on the ticket rather than two or three.
+    tools: buildTools(ctx, signals, {
+      dryRun,
+      holdCustomerWrites: hold,
+      holdNotes: hold && !dryRun && ctx.channel === "freshdesk",
+    }),
     stopWhen: stepCountIs(config.llm.maxSteps),
     // Anthropic automatic prompt caching via OpenRouter: the tool loop
     // re-sends system+tools+history every step, so steps 2+ read the shared
@@ -213,6 +225,7 @@ export async function runAgentLoop(
     trace,
     dryRun,
     heldCustomerWrites: hold,
+    pendingNotes: signals.notes ?? [],
     usage: u
       ? {
           inputTokens: u.inputTokens,

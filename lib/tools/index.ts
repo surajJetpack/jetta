@@ -17,6 +17,7 @@ import { cleanName as cleanVisitorName } from "../chat-visitor";
 import type { ConversationContext } from "../types";
 import { config } from "../config";
 import * as freshdesk from "./freshdesk";
+import { RELAY_WINDOW_MS, chatRelayHtml, clipNote } from "../run-notes";
 import * as freshchat from "./freshchat";
 import * as jettachat from "./jettachat";
 import * as chatStoreForTools from "../chat-store";
@@ -69,6 +70,8 @@ export interface AgentSignals {
    * create_support_ticket had declined to open anything.
    */
   declined?: string[];
+  /** add_private_note bodies held for the run's single note (ToolOptions.holdNotes). */
+  notes?: string[];
 }
 
 export interface ToolOptions {
@@ -80,6 +83,11 @@ export interface ToolOptions {
    * and the trace records what it would have done. All other tools run live.
    */
   holdCustomerWrites?: boolean;
+  /**
+   * add_private_note keeps the note in `signals.notes` instead of posting it,
+   * so the run's notes and its suggested reply share one note (lib/run-notes.ts).
+   */
+  holdNotes?: boolean;
 }
 
 const ticketUrl = freshdesk.freshdeskTicketUrl;
@@ -358,9 +366,9 @@ export function buildTools(
       : {
     add_private_note: tool({
       description:
-        "Add an internal agent-only note to the current ticket. Use 'resolution_sent' as the status immediately after you send a fix, so the 24h follow-up is scheduled.",
+        "Add an internal agent-only note to the current ticket. Use 'resolution_sent' as the status immediately after you send a fix, so the 24h follow-up is scheduled. Keep it to two or three short lines a colleague can scan: what you did (escalated, filed or matched a dev item, with its link) and what is still open. Do not restate the customer's message or your reply. Write one note per turn, not one per step.",
       inputSchema: z.object({
-        body: z.string().describe("The internal note."),
+        body: z.string().describe("The internal note: two or three short lines."),
         status: z
           .enum(["resolution_sent", "info"])
           .optional()
@@ -372,7 +380,8 @@ export function buildTools(
         if (dry) {
           return `[dry-run] would add private note${status === "resolution_sent" ? " (resolution_sent → schedules follow-up)" : ""}:\n${body}`;
         }
-        await freshdesk.addPrivateNote(ticketId, body);
+        if (opts.holdNotes) (signals.notes ??= []).push(body);
+        else await freshdesk.addPrivateNote(ticketId, body);
         return status === "resolution_sent"
           ? "Private note added. Follow-up scheduled."
           : "Private note added.";
@@ -725,12 +734,12 @@ export function buildTools(
       ? {
           add_to_ticket: tool({
             description:
-              "Add new information to the support ticket this conversation already has. Use it whenever the customer tells you something the team does not yet know ABOUT THAT SAME ISSUE: a new symptom, the answer to a question you asked, a screenshot, that it has become urgent, or that they changed their mind. The new chat messages and any files they have sent since the ticket was opened go with it automatically — write what CHANGED, do not re-type the conversation. This does not email the customer; it is how the agent handling their ticket finds out. If the customer has raised a genuinely DIFFERENT problem — one a different person would work, or that would be closed on its own — that needs its own ticket: use create_support_ticket instead, and never bundle it into this note.",
+              "Add new information to the support ticket this conversation already has. Use it whenever the customer tells you something the team does not yet know ABOUT THAT SAME ISSUE: a new symptom, the answer to a question you asked, a screenshot, that it has become urgent, or that they changed their mind. Any files they have sent go with it automatically, but the chat transcript does NOT: the team reads the conversation on the console. So write the new facts themselves (the exact detail: the browser, the email address, the error text, the account) in a sentence or two. Only call it for something the team needs to act on; small talk and your own answers are not news. This does not email the customer; it is how the agent handling their ticket finds out. If the customer has raised a genuinely DIFFERENT problem — one a different person would work, or that would be closed on its own — that needs its own ticket: use create_support_ticket instead, and never bundle it into this note.",
             inputSchema: z.object({
               note: z
                 .string()
                 .describe(
-                  "What the team needs to know that they didn't when the ticket was opened, in a sentence or two.",
+                  "The new facts the team needs, in a sentence or two, with the exact details. Not a summary of the chat.",
                 ),
             }),
             execute: async ({ note }) => {
@@ -812,20 +821,44 @@ export function buildTools(
                 return `The previous ticket was ${status}, so a new ticket #${reopened.id} was opened carrying this whole conversation. Tell the customer their follow-up has gone to the team and they'll get a reply by email — do NOT give them the ticket number or this URL. INTERNAL: ${reopened.url}`;
               }
 
-              const delta = chatStoreForTools.transcriptSince(conv, since);
               const files = await chatFiles.collectForHandoff({ messages: fresh }).catch(() => []);
 
-              const body = [
-                `From the live chat, which is still running: ${note.trim()}`,
-                delta ? `\n— New chat messages —\n${delta}` : "",
-                files.length ? `\nFiles attached: ${files.map((f) => f.name).join(", ")}` : "",
-                `\nConversation: ${jettachat.conversationUrl(conv.id)}`,
-              ]
-                .filter(Boolean)
-                .join("\n");
+              /*
+               * One note per stretch of chat, kept current (lib/run-notes.ts).
+               * It used to paste every new chat message into a fresh note on
+               * each call: four notes in eight minutes on #14850, mostly the
+               * transcript the console already shows. Now each call adds one
+               * line to the chat's open note; a new note starts after half an
+               * hour, or when files must be attached (an edit cannot add them).
+               */
+              const now = new Date();
+              const line = `${now.toISOString().slice(11, 16)} UTC: ${clipNote(note.trim(), 400)}${files.length ? ` (files: ${files.map((f) => f.name).join(", ")})` : ""}`;
+              const open = conv.relayNote;
+              const extend =
+                !!open &&
+                open.ticketId === conv.ticketId &&
+                !files.length &&
+                now.getTime() - Date.parse(open.startedAt) < RELAY_WINDOW_MS;
+              const link = jettachat.conversationUrl(conv.id);
 
               try {
-                await freshdesk.addPrivateNote(conv.ticketId, body, { attachments: files });
+                if (extend) {
+                  const lines = [...open!.lines, line];
+                  await freshdesk.updateNote(open!.noteId, chatRelayHtml(lines, link));
+                  await chatStoreForTools
+                    .updateConversation(ticketId, { relayNote: { ...open!, lines } })
+                    .catch(() => {});
+                } else {
+                  const noteId = await freshdesk.addPrivateNote(conv.ticketId, chatRelayHtml([line], link), {
+                    html: true,
+                    attachments: files,
+                  });
+                  await chatStoreForTools
+                    .updateConversation(ticketId, {
+                      relayNote: noteId ? { ticketId: conv.ticketId, noteId, startedAt: now.toISOString(), lines: [line] } : undefined,
+                    })
+                    .catch(() => {});
+                }
               } catch (e) {
                 // Unlike the note on ticket CREATION, this note is the whole
                 // action — swallowing the failure would have her tell the

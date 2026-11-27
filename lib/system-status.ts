@@ -713,8 +713,8 @@ function triageShadowRow(): StatusRow {
     tone: on ? "on" : "off",
     state: on ? "SHADOW" : "OFF",
     meaning: on
-      ? "On a new GetSign ticket, Jetta adds one private note with her call: a setup problem the customer can fix (with what to check and the usual fix), a how-to question, a missing feature, a likely bug, or unsure. Nothing is sent to the customer or routed by it, and the reply agent never reads it; the team's own reply grades it. Playbook built from 90 days of resolved GetSign tickets."
-      : "Off: no triage note on GetSign tickets.",
+      ? "On a new GetSign ticket, Jetta records her call in the event log (triage.shadow; no longer a note on the ticket): a setup problem the customer can fix (with what to check and the usual fix), a how-to question, a missing feature, a likely bug, or unsure. Nothing is sent to the customer or routed by it, and the reply agent never reads it; the team's own reply grades it. Playbook built from 90 days of resolved GetSign tickets."
+      : "Off: no triage call on GetSign tickets.",
     setting: "JETTA_TRIAGE_SHADOW",
   };
 }

@@ -144,6 +144,7 @@ export function isJunkSubject(subject: string): boolean {
 }
 
 const SUGGESTION_MARK = /^Jetta — suggested reply/;
+const CONTEXT_MARK = "What Jetta did";
 const FROM_CHAT_MARK = /Opened by Jetta from a live chat/;
 const DEV_WORK_MARK = /Created dev board item|Escalated to dev team/;
 /**
@@ -166,8 +167,15 @@ export function detectHandoff(jettaNotes: PerfConversation[]): PerfHandoff | nul
   const itemIds = new Set<string>();
   let at: string | null = null;
   for (const n of jettaNotes) {
-    const text = n.body_text ?? "";
-    if (SUGGESTION_MARK.test(text.trim())) continue;
+    let text = n.body_text ?? "";
+    // A suggestion is the customer reply, not a record of what she did, so it
+    // is skipped, except for the "What Jetta did" block that has been under
+    // it since 2026-11-27 (lib/run-notes.ts), where those records now live.
+    if (SUGGESTION_MARK.test(text.trim())) {
+      const at = text.indexOf(CONTEXT_MARK);
+      if (at < 0) continue;
+      text = text.slice(at);
+    }
     const hit: HandoffKind[] = [];
     if (FROM_CHAT_MARK.test(text)) hit.push("chat");
     if (DEV_ITEM_MARK.test(text)) hit.push("dev_item");
