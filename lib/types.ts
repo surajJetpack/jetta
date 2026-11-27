@@ -395,6 +395,13 @@ export interface ChatConversation {
    * the delta rather than the transcript again.
    */
   lastTicketSyncAt?: string;
+  /**
+   * The live-chat note on the ticket that later updates are added to, so a
+   * running chat keeps one note current instead of posting one per update.
+   * `lines` is what it says so far; a new note starts once it is older than
+   * the window in lib/run-notes.ts, or when files have to be attached.
+   */
+  relayNote?: { ticketId: string; noteId: string; startedAt: string; lines: string[] };
 }
 
 /** Assembled context handed to the Claude loop for a single turn. */

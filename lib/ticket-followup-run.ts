@@ -109,7 +109,7 @@ export const liveDeps: RunDeps = {
     return out;
   },
   readThread: (id) => freshdesk.getTicketThread(id, { limit: 20 }),
-  addNote: (id, text) => freshdesk.addPrivateNote(id, text),
+  addNote: async (id, text) => void (await freshdesk.addPrivateNote(id, text)),
   reply: (id, md) => freshdesk.replyToTicket(id, freshdesk.markdownToFdHtml(md)),
   resolve: (id) => freshdesk.closeTicket(id, true),
   escalationTs: getEscalationTs,

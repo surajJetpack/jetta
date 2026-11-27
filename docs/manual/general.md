@@ -105,6 +105,8 @@ This is the job, and it happens in Freshdesk — not here.
 
 Open the ticket. Jetta's suggestion is in a private note. Copy it into the reply editor, change whatever you want, send as yourself. That's the whole workflow.
 
+**What her notes look like.** Each time Jetta works a ticket she leaves **one** private note: the suggested reply on top, then a short **What Jetta did** block (what she escalated, which dev item she filed or matched, what is still open), then one line on how to use it. When the customer writes again and she suggests a new reply, the old suggestion shrinks to a single line, "suggested reply (replaced)", so there is only ever one full suggestion to read. A dev-board match already noted on the ticket isn't noted again. A live chat that is still running keeps **one** note on the ticket that gains a line each time the customer tells her something new, with a link to the conversation, instead of a new note with the transcript every few minutes; after half an hour, or when files come in, a new one starts.
+
 **The first reply is the exception: Jetta sends it.** On a new ticket that came in by email, the portal or the in-app form (never one from a chat), Jetta writes the first reply, a second check reads it, and a private note says when it will go out, 3 to 7 minutes later. To answer it yourself instead, reply first, add the tag `jetta-hold`, or close the ticket. If the check fails, or it's a call request or a price negotiation, nothing is sent and you get the usual private-note suggestion. Every reply after the first is a suggestion.
 
 <div class="placeholder">Screenshot needed: Jetta's suggestion as a private note on a Freshdesk ticket.</div>

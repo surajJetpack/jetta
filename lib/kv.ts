@@ -911,6 +911,8 @@ export interface ReplyDraft {
   createdAt: number; // unix seconds
   /** Label of the model that generated this draft (provider/model-id). */
   model?: string;
+  /** The Freshdesk note that shows it, so a newer suggestion can shrink it. */
+  fdNoteId?: string;
   /**
    * "expired" = aged past the reconciliation window with no human reply ever
    * found. Terminal, like discarded, but deliberately NOT the same thing: a

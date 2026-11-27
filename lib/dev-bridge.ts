@@ -27,6 +27,7 @@ import { buildSystemPrompt } from "./system-prompt";
 import { runAgentLoop } from "./agent";
 import { recordRun } from "./runlog";
 import { createDraftFromRun } from "./drafts";
+import { postRunNotes } from "./run-notes";
 import { logOpsEvent } from "./events";
 import { getActivityState, getMondayUsers } from "./activity-store";
 import {
@@ -412,6 +413,7 @@ export async function handleDevBoardEvent(e: MondayWebhookEvent, opts: { requeue
     );
     await recordRun("devboard", ctx, result, Date.now() - started);
     const draft = !shadow && draftMode ? await createDraftFromRun(ctx, result, { replyToolOnly: true, banner: filesBanner(files, item.url) }) : null;
+    await postRunNotes(ticketId, result, ctx.ticket?.replies.filter((r) => r.isPrivate).map((r) => r.body));
 
     // A developer answered a Question item and the answer went (or, held, will
     // go) to the customer: that answer is KB material.

@@ -345,7 +345,7 @@ const liveOps: ProblemOps = {
     const posted = await monday.postJettaComment(itemId, text, { mentionUserIds: (snapshot?.developers ?? []).map((d) => d.id) });
     return posted?.id ?? null;
   },
-  note: (ticketId, text) => freshdesk.addPrivateNote(ticketId, text),
+  note: async (ticketId, text) => void (await freshdesk.addPrivateNote(ticketId, text)),
 };
 
 export type RaiseOutcome = "none" | "below" | "shadow" | "raised" | "added" | "already" | "writes off" | "over the cap" | "failed";

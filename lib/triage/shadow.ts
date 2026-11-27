@@ -2,9 +2,12 @@
  * Shadow triage for GetSign tickets: is this a setup problem the customer can
  * fix, a how-to question, a missing feature, or a real bug in our code?
  *
- * Jetta writes her call as a PRIVATE Freshdesk note on the ticket's first
- * customer message and does nothing else with it. The customer never sees
- * it, the reply agent never reads it, and nothing is routed by it. The point
+ * Jetta records her call on the ticket's first customer message, in the event
+ * log (`triage.shadow`), and does nothing else with it. It used to be a
+ * private note on the ticket too; since 2026-11-27 it is not, because support
+ * found the notes section too crowded and this one was an experiment, not
+ * something to act on. The customer never sees it, the reply agent never
+ * reads it, and nothing is routed by it. The point
  * is to measure: the team's own reply on the same ticket grades the call, and
  * after a few weeks we know whether it is good enough to act on.
  *
@@ -20,7 +23,6 @@ import { config } from "@/lib/config";
 import { getModel } from "@/lib/llm";
 import { markEventSeen } from "@/lib/kv";
 import { logOpsEvent } from "@/lib/events";
-import * as freshdesk from "@/lib/tools/freshdesk";
 import type { ConversationContext, Ticket } from "@/lib/types";
 import playbook from "./getsign-playbook.json";
 
@@ -109,13 +111,12 @@ export async function runShadowTriage(ctx: ConversationContext): Promise<void> {
   try {
     if (!(await markEventSeen(`triage-shadow:${t.id}`, 180 * 86400))) return;
     const v = await diagnose(t);
-    await freshdesk.addPrivateNote(t.id, noteText(v));
     await logOpsEvent({
       level: "info",
       event: "triage.shadow",
       source: "webhook",
       ticketId: t.id,
-      data: { verdict: v.verdict, rule: v.rule || null },
+      data: { verdict: v.verdict, rule: v.rule || null, note: noteText(v).slice(0, 1500) },
     });
   } catch (e) {
     await logOpsEvent({

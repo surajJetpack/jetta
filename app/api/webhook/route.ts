@@ -32,6 +32,7 @@ import { keepEventSeen, markEventSeen, unmarkEventSeen, scheduleFollowUp, record
 import { logOpsEvent } from "@/lib/events";
 import { recordRun } from "@/lib/runlog";
 import { createDraftFromRun } from "@/lib/drafts";
+import { contextHtml, dropRepeatedMatches, postRunNotes, takeRunNotes } from "@/lib/run-notes";
 import type { AgentResult } from "@/lib/agent";
 import type { ConversationContext } from "@/lib/types";
 import {
@@ -266,10 +267,16 @@ async function processTicket(ticketId: string, channel: "freshdesk" | "freshchat
     // ReplyDraft for human approval. Follow-up scheduling moves to approve time
     // (the reply hasn't actually gone out yet).
     if (draftMode) {
+      const earlierNotes = ctx.ticket.replies.filter((r) => r.isPrivate).map((r) => r.body);
       let banner: string | undefined;
       if (firstResponse?.eligible) {
         const outcome = await tryFirstResponse(ctx, result);
-        if (outcome.scheduled) return;
+        if (outcome.scheduled) {
+          // The announcement took the run's notes, or it was superseded: either
+          // way, whatever is left goes on the ticket as one note.
+          await postRunNotes(ticketId, result, earlierNotes);
+          return;
+        }
         banner = outcome.banner;
       } else if (firstResponse) {
         await logOpsEvent({
@@ -281,6 +288,8 @@ async function processTicket(ticketId: string, channel: "freshdesk" | "freshchat
         });
       }
       const draft = await createDraftFromRun(ctx, result, { banner });
+      // A run with no reply to suggest (escalation only) still leaves one note.
+      await postRunNotes(ticketId, result, earlierNotes);
       await recordOutcome({
         ticketId,
         subject: ctx.ticket.subject,
@@ -434,12 +443,17 @@ async function tryFirstResponse(
   // The announcement doubles as the veto: whoever opens the ticket in the
   // next few minutes sees what is about to go out and how to stop it.
   const at = new Date(sendAt).toISOString().slice(11, 16);
+  const runNotes = dropRepeatedMatches(
+    takeRunNotes(result),
+    ticket.replies.filter((r) => r.isPrivate).map((r) => r.body),
+  );
   await freshdesk
     .addPrivateNote(
       ticketId,
       `<p><b>Jetta — sending the first response at ${at} UTC</b></p>` +
         `<p><i>To stop it, reply to the customer yourself or add the tag <code>${HOLD_TAG}</code> before then.</i></p><hr>` +
-        freshdesk.markdownToFdHtml(body),
+        freshdesk.markdownToFdHtml(body) +
+        (runNotes.length ? `<hr>${contextHtml(runNotes)}` : ""),
       { html: true },
     )
     .catch((e) => console.warn(`first-response note failed on ${ticketId}:`, e));

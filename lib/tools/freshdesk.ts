@@ -1271,14 +1271,14 @@ export async function addPrivateNote(
   ticketId: string,
   text: string,
   opts: { html?: boolean; attachments?: AttachmentFile[] } = {},
-): Promise<void> {
+): Promise<string | null> {
   if (!config.freshdesk.live) {
     console.log(
       `[stub] add_private_note #${ticketId}` +
         (opts.attachments?.length ? ` (+${opts.attachments.length} file(s))` : "") +
         `:\n${text}`,
     );
-    return;
+    return null;
   }
   const body = opts.html ? text : textToFdHtml(text);
   const files = (opts.attachments ?? []).slice(0, MAX_FORWARD_FILES);
@@ -1287,12 +1287,28 @@ export async function addPrivateNote(
     // Freshdesk takes files only as multipart, and fetch must be left to write
     // its own boundary. A note is where a chat's later screenshots land — the
     // ticket was created before the customer sent them.
-    await postNoteMultipart(ticketId, body, files);
-    return;
+    return postNoteMultipart(ticketId, body, files);
   }
-  await fd(`/tickets/${ticketId}/notes`, {
+  const created = await fd<{ id?: number }>(`/tickets/${ticketId}/notes`, {
     method: "POST",
     body: JSON.stringify({ body, private: true }),
+  });
+  return created?.id != null ? String(created.id) : null;
+}
+
+/**
+ * Rewrite one of Jetta's own notes in place (PUT /conversations/:id). Used to
+ * shrink a suggestion that a newer one replaced, and to add to a live chat's
+ * rolling note, so the ticket shows one current note instead of a pile.
+ */
+export async function updateNote(conversationId: string, html: string): Promise<void> {
+  if (!config.freshdesk.live) {
+    console.log(`[stub] update_note ${conversationId}:\n${html}`);
+    return;
+  }
+  await fd(`/conversations/${conversationId}`, {
+    method: "PUT",
+    body: JSON.stringify({ body: html }),
   });
 }
 
@@ -1300,7 +1316,7 @@ async function postNoteMultipart(
   ticketId: string,
   bodyHtml: string,
   files: AttachmentFile[],
-): Promise<void> {
+): Promise<string | null> {
   const form = new FormData();
   form.append("body", bodyHtml);
   form.append("private", "true");
@@ -1318,6 +1334,8 @@ async function postNoteMultipart(
       `Freshdesk POST /tickets/${ticketId}/notes (multipart) failed: ${res.status} ${await res.text()}`,
     );
   }
+  const created = (await res.json().catch(() => null)) as { id?: number } | null;
+  return created?.id != null ? String(created.id) : null;
 }
 
 export interface LatestAgentReply {
