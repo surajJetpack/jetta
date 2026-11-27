@@ -200,6 +200,8 @@ Escalations land in **#jetta-escalations**. When Jetta posts there, it decided a
 
 **Never cancel a subscription** unless the customer has clearly asked for it. No exceptions, and never infer it from silence.
 
+**Refunds for monday-billed apps come from monday.com, not from us.** When a customer asks to cancel or for a refund, Jetta first asks why and offers help (a fix, the plans, or a live session with the team). Only if they still want to go does she point them to monday.com support, and she never promises a refund or says our team will process one. A charge that looks wrong (charged twice) still gets a ticket so we can check our side. Legacy FastSpring accounts are the exception: we bill those ourselves.
+
 **If something looks broken** — wrong customer data, a reply about the wrong product, a queue that won't clear — ping Suraj rather than working around it.
 
 ### The admin line
