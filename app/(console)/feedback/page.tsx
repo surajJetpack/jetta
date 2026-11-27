@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 /**
  * What the team told Jetta: ratings of her chat replies (from Chats) and of
  * the console assistant's answers, and
- * every dev-board comment that started with "Jetta feedback:". Admins and CONSOLE_DEV_USERS read it; an admin marks an
+ * every dev-board comment or Freshdesk private note that started with "Jetta feedback:". Admins and CONSOLE_DEV_USERS read it; an admin marks an
  * entry handled. The API route is the boundary.
  */
 export default async function FeedbackPage() {
@@ -18,7 +18,7 @@ export default async function FeedbackPage() {
     <>
       <PageHeader
         title="Feedback"
-        description='What the team told Jetta. Rate her replies on Chats or her answers in the ⌘J panel, or start a comment on a dev item with "Jetta feedback:", and it lands here.'
+        description='What the team told Jetta. Rate her replies on Chats or her answers in the ⌘J panel, or start a dev-item comment or a Freshdesk private note with "Jetta feedback:", and it lands here.'
       />
       <FeedbackPanel canEdit={isAdmin} />
     </>

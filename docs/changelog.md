@@ -4,6 +4,9 @@ Newest first. One entry per change people would notice: what Jetta does differen
 
 Format: `## YYYY-MM-DD: short title (#PR)`, then two to four lines in plain words.
 
+## 2026-11-27: "Jetta feedback:" works in Freshdesk private notes too
+A private note on a Freshdesk ticket that starts with "Jetta feedback:" is now kept on the console's Feedback page, like the same comment on a monday dev item, with the writer's name and a link to the ticket. The ticket sync picks it up within about five minutes. No reply is posted, and it changes nothing on that ticket. No switch; live once merged.
+
 ## 2026-11-27: Rate Jetta's chat replies on the Chats page (#246)
 Every reply Jetta sent in a chat transcript now has a 👍 and a 👎 for the team. A 👎 can add what was wrong (wrong or made-up answer, should have opened a ticket, too long, wrong tone) and what she should have said. Ratings show by name in the transcript, and each 👎 lands on the Feedback page with the customer's message and her reply, where it can be marked handled. The customer never sees them, and they change nothing on their own. No switch; live once merged.
 
